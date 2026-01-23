@@ -16,6 +16,7 @@ import { registerDefiTools } from "./defi.tools.js";
 // import { registerBitflowTools } from "./bitflow.tools.js";
 import { registerScaffoldTools } from "./scaffold.tools.js";
 import { registerOpenRouterTools } from "./openrouter.tools.js";
+import { registerYieldHunterTools } from "./yield-hunter.tools.js";
 
 /**
  * Register all tools with the MCP server
@@ -65,4 +66,7 @@ export function registerAllTools(server: McpServer): void {
 
   // OpenRouter AI (call AI models directly)
   registerOpenRouterTools(server);
+
+  // Yield Hunter (autonomous sBTC yield farming)
+  registerYieldHunterTools(server);
 }
