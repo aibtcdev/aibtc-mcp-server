@@ -57,8 +57,35 @@ async function installToClaudeCode(): Promise<void> {
   }
 }
 
+// =============================================================================
+// YIELD HUNTER DAEMON
+// =============================================================================
+
+async function runYieldHunter(): Promise<void> {
+  // Dynamic import to avoid loading yield-hunter code unless needed
+  const { main } = await import("./yield-hunter/index.js");
+  // Pass remaining args after "yield-hunter"
+  const yieldHunterArgs = process.argv.slice(3);
+  await main(yieldHunterArgs);
+}
+
+// =============================================================================
+// MAIN ROUTING
+// =============================================================================
+
+// Check for yield-hunter command
+if (process.argv[2] === "yield-hunter") {
+  runYieldHunter()
+    .then(() => {
+      // Don't exit - daemon runs until interrupted
+    })
+    .catch((error) => {
+      console.error("❌ Yield Hunter error:", error.message);
+      process.exit(1);
+    });
+}
 // Check for --install flag
-if (process.argv.includes("--install") || process.argv.includes("install")) {
+else if (process.argv.includes("--install") || process.argv.includes("install")) {
   installToClaudeCode()
     .then(() => process.exit(0))
     .catch((error) => {
