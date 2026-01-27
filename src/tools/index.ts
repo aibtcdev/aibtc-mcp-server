@@ -17,6 +17,9 @@ import { registerDefiTools } from "./defi.tools.js";
 import { registerScaffoldTools } from "./scaffold.tools.js";
 import { registerOpenRouterTools } from "./openrouter.tools.js";
 import { registerYieldHunterTools } from "./yield-hunter.tools.js";
+import { registerPillarWalletTools } from "./pillar-wallet.tools.js";
+import { registerPillarTools } from "./pillar.tools.js";
+import { registerPillarDepositTools } from "./pillar-deposit.tools.js";
 
 /**
  * Register all tools with the MCP server
@@ -69,4 +72,13 @@ export function registerAllTools(server: McpServer): void {
 
   // Yield Hunter (autonomous sBTC yield farming)
   registerYieldHunterTools(server);
+
+  // Pillar Smart Wallet Management
+  registerPillarWalletTools(server);
+
+  // Pillar Core (boost, unwind, quotes, price)
+  registerPillarTools(server);
+
+  // Pillar Deposits & Activity
+  registerPillarDepositTools(server);
 }
