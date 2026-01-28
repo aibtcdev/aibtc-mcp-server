@@ -234,16 +234,16 @@ export function registerPillarTools(server: McpServer): void {
     "pillar_send",
     {
       description:
-        "Send sBTC from your Pillar smart wallet to a BNS name or Stacks address. " +
-        "Requires being connected to Pillar first (use pillar_connect). " +
+        "Send sBTC from your Pillar smart wallet. Requires being connected first (use pillar_connect). " +
         "Opens the frontend for signing, then waits for confirmation. " +
-        "Example: 'send 1000 sats to muneeb.btc' or 'send 0.001 sBTC to SP...'",
+        "Supports three recipient types: 'bns' for BNS names (muneeb.btc), 'wallet' for Pillar wallet names (iphone), 'address' for Stacks addresses (SP...).",
       inputSchema: {
-        to: z.string().describe("Recipient: BNS name (e.g., muneeb.btc) or Stacks address (SP...)"),
+        to: z.string().describe("Recipient: BNS name (muneeb.btc), Pillar wallet name (iphone), or Stacks address (SP...)"),
         amount: z.number().describe("Amount in satoshis"),
+        recipientType: z.enum(["bns", "wallet", "address"]).optional().describe("Type of recipient: 'bns' (default), 'wallet' for Pillar smart wallets, or 'address' for raw Stacks addresses"),
       },
     },
-    async ({ to, amount }) => {
+    async ({ to, amount, recipientType }) => {
       try {
         // Get wallet address from session
         const session = loadSession();
@@ -264,6 +264,7 @@ export function registerPillarTools(server: McpServer): void {
           params: {
             to,
             amount,
+            recipientType: recipientType || "bns",
           },
         });
 
@@ -281,7 +282,7 @@ export function registerPillarTools(server: McpServer): void {
             success: true,
             message: `Transaction submitted successfully!`,
             txId: result.txId,
-            explorerUrl: `https://explorer.stacks.co/txid/${result.txId}?chain=mainnet`,
+            explorerUrl: `https://explorer.hiro.so/txid/${result.txId}?chain=mainnet`,
           });
         }
 
