@@ -229,45 +229,7 @@ export function registerPillarTools(server: McpServer): void {
     }
   );
 
-  // Tool 4: Open Pillar frontend (for wallet creation, general access)
-  server.registerTool(
-    "pillar_open",
-    {
-      description:
-        "Open Pillar frontend in browser. Use this when user wants to create a smart wallet, " +
-        "view their dashboard, or access Pillar directly. No smart wallet required.",
-      inputSchema: {
-        action: z
-          .enum(["home", "create-wallet", "missions", "leaderboard"])
-          .optional()
-          .describe("Optional: specific page to open (default: home)"),
-      },
-    },
-    async ({ action }) => {
-      try {
-        const paths: Record<string, string> = {
-          home: "/",
-          "create-wallet": "/", // Main page handles wallet creation
-          missions: "/missions",
-          leaderboard: "/leaderboard",
-        };
-        const path = paths[action || "home"] || "/";
-        const url = `${PILLAR_FRONTEND_URL}${path}`;
-
-        await openBrowser(url);
-
-        return createJsonResponse({
-          success: true,
-          message: `Opened ${url} in browser. Complete the action there.`,
-          url,
-        });
-      } catch (error) {
-        return createErrorResponse(error);
-      }
-    }
-  );
-
-  // Tool 5: Send sBTC (full handoff + polling flow)
+  // Tool 4: Send sBTC (full handoff + polling flow)
   server.registerTool(
     "pillar_send",
     {
