@@ -92,6 +92,9 @@ aibtc-mcp-server MCP Server (src/index.ts)
 - `src/services/hiro-api.ts` - Hiro API client + BNS V2 API client
 - `src/config/contracts.ts` - Contract addresses and Zest asset configuration (LP tokens, oracles, decimals)
 - `src/services/scaffold.service.ts` - x402 endpoint project scaffolding for Cloudflare Workers
+- `src/tools/pillar.tools.ts` - Pillar smart wallet tools (handoff model)
+- `src/services/pillar-api.service.ts` - Pillar API client
+- `src/config/pillar.ts` - Pillar configuration (API URL, API key)
 
 ### BNS V1 vs V2
 
@@ -405,6 +408,47 @@ Uses the official `@bitflowlabs/core-sdk` for swap operations. Bitflow is a DEX 
 - [ ] Optionally configure Keeper API keys for automation features
 - [ ] Move API keys to Cloudflare Worker proxy for secure npm distribution
 
+### Pillar Smart Wallet
+
+Pillar tools use a **handoff model**: the MCP server creates an operation intent, opens the Pillar frontend in the browser for passkey signing, then polls for completion. This design is required because Privy embedded wallets use WebAuthn passkeys that can only sign in a browser context.
+
+**Handoff Flow:**
+1. MCP calls `/api/mcp/create-op` → returns `opId`
+2. Opens `https://pillarbtc.com/?op={opId}` in the user's browser
+3. Polls `/api/mcp/op-status/{opId}` every 3s until completed, failed, cancelled, or timeout
+
+**Environment Variables:**
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `PILLAR_API_URL` | No | Pillar API base URL (default: `https://pillarbtc.com`) |
+| `PILLAR_API_KEY` | No | Bearer token for Pillar API authentication |
+| `PILLAR_POLL_TIMEOUT_MS` | No | Max polling wait in ms (default: `300000` / 5 min) |
+| `PILLAR_DEFAULT_REFERRAL` | No | Default referral address for new wallets (default: `SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22.beta-v2-wallet`) |
+
+**Session Storage:**
+Pillar sessions are stored in `~/.aibtc/pillar-session.json` containing the connected wallet address and name.
+
+**Tools - Connection:**
+- `pillar_connect` - **Start here!** Connect to existing Pillar wallet (opens browser, returns wallet address)
+- `pillar_disconnect` - Disconnect and clear local session
+- `pillar_status` - Check connection status and wallet address
+
+**Tools - Transactions:**
+- `pillar_send` - Send sBTC to BNS names, Pillar wallet names, or Stacks addresses
+- `pillar_fund` - Fund wallet via exchange deposit, BTC (auto-converts to sBTC), or sBTC transfer
+
+**Tools - DeFi (Zest Protocol):**
+- `pillar_supply` - Supply sBTC to Zest Protocol for yield
+- `pillar_boost` - Create/increase leveraged sBTC position (up to 1.5x)
+- `pillar_unwind` - Close or reduce leveraged positions
+- `pillar_auto_compound` - Configure automatic compounding settings
+- `pillar_position` - View wallet balance, collateral, and Zest position details
+
+**Tools - Wallet Management:**
+- `pillar_create_wallet` - Create a new Pillar smart wallet with referral
+- `pillar_add_admin` - Add backup admin address for recovery
+- `pillar_invite` - Get referral link to share with friends
+
 ## Agent Behavior Guidelines
 
 When a user asks for something:
@@ -412,7 +456,8 @@ When a user asks for something:
 1. **For "transfer X STX to Y"** → Use `transfer_stx` directly
 2. **For known x402 endpoints** → Use `list_x402_endpoints` to find relevant endpoint, then `execute_x402_endpoint`
 3. **For any x402 URL** → Use `execute_x402_endpoint` with full `url` parameter - works with ANY x402-compatible endpoint
-4. **For unknown actions** → Ask user for the x402 endpoint URL or check if it's a direct blockchain action
+4. **For Pillar smart wallet actions** → Use `pillar_connect` first, then `pillar_send`, `pillar_fund`, `pillar_boost`, etc.
+5. **For unknown actions** → Ask user for the x402 endpoint URL or check if it's a direct blockchain action
 
 ### Example User Requests
 
@@ -432,6 +477,11 @@ When a user asks for something:
 | "Tell me a dad joke" | `execute_x402_endpoint` with url="https://stx402.com/api/ai/dad-joke" |
 | "Create a paid API endpoint for jokes" | `scaffold_x402_endpoint` with endpoint config |
 | "Create an AI chatbot API that charges per request" | `scaffold_x402_ai_endpoint` with chat aiType |
+| "Connect my Pillar wallet" | `pillar_connect` to open browser and get wallet address |
+| "Send 10000 sats to muneeb.btc on Pillar" | `pillar_send` with to="muneeb.btc", amount=10000 |
+| "Fund my Pillar wallet from Coinbase" | `pillar_fund` with method="exchange" |
+| "Boost my sBTC position on Pillar" | `pillar_boost` to create leveraged position |
+| "Check my Pillar position" | `pillar_position` for balance and Zest details |
 
 ### Endpoint Categories
 

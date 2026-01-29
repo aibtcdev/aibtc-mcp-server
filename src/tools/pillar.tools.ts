@@ -11,8 +11,8 @@ import * as os from "os";
 
 const PILLAR_FRONTEND_URL = "https://pillarbtc.com";
 const POLL_INTERVAL_MS = 3000;
-const POLL_TIMEOUT_MS = 300000; // 5 minutes
-const MCP_DEFAULT_REFERRAL = "SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22.beta-v2-wallet";
+const POLL_TIMEOUT_MS = parseInt(process.env.PILLAR_POLL_TIMEOUT_MS || "300000", 10); // 5 minutes default
+const MCP_DEFAULT_REFERRAL = process.env.PILLAR_DEFAULT_REFERRAL || "SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22.beta-v2-wallet";
 const SESSION_FILE = path.join(os.homedir(), ".aibtc", "pillar-session.json");
 
 // Session management
@@ -240,7 +240,7 @@ export function registerPillarTools(server: McpServer): void {
         "Supports three recipient types: 'bns' for BNS names (muneeb.btc), 'wallet' for Pillar wallet names (iphone), 'address' for Stacks addresses (SP...).",
       inputSchema: {
         to: z.string().describe("Recipient: BNS name (muneeb.btc), Pillar wallet name (iphone), or Stacks address (SP...)"),
-        amount: z.number().describe("Amount in satoshis"),
+        amount: z.number().positive().describe("Amount in satoshis"),
         recipientType: z.enum(["bns", "wallet", "address"]).optional().describe("Type of recipient: 'bns' (default), 'wallet' for Pillar smart wallets, or 'address' for raw Stacks addresses"),
       },
     },
@@ -322,25 +322,16 @@ export function registerPillarTools(server: McpServer): void {
         "- 'exchange': Deposit BTC from an exchange (Coinbase, Binance, etc.) - generates a deposit address\n" +
         "- 'btc': Deposit BTC from your Leather/Xverse wallet - auto-converts to sBTC\n" +
         "- 'sbtc': Deposit sBTC directly from your Leather/Xverse wallet\n" +
-        "- 'buy': Buy Bitcoin with credit card via MoonPay (coming soon)\n" +
         "Opens the frontend with the appropriate deposit flow.",
       inputSchema: {
-        method: z.enum(["exchange", "btc", "sbtc", "buy"]).describe(
-          "Funding method: 'exchange' (deposit from Coinbase/Binance), 'btc' (from Leather/Xverse BTC), 'sbtc' (from Leather/Xverse sBTC), 'buy' (credit card - coming soon)"
+        method: z.enum(["exchange", "btc", "sbtc"]).describe(
+          "Funding method: 'exchange' (deposit from Coinbase/Binance), 'btc' (from Leather/Xverse BTC), 'sbtc' (from Leather/Xverse sBTC)"
         ),
-        amount: z.number().optional().describe("Amount in satoshis to deposit (optional, can be set in UI)"),
+        amount: z.number().positive().optional().describe("Amount in satoshis to deposit (optional, can be set in UI)"),
       },
     },
     async ({ method, amount }) => {
       try {
-        // Handle "buy" method - coming soon
-        if (method === "buy") {
-          return createJsonResponse({
-            success: false,
-            message: "Buying Bitcoin with credit card via MoonPay is coming soon. Please use 'exchange', 'btc', or 'sbtc' method for now.",
-          });
-        }
-
         const session = loadSession();
         if (!session) {
           return createJsonResponse({
@@ -453,7 +444,7 @@ export function registerPillarTools(server: McpServer): void {
         "Supply sBTC from your Pillar smart wallet to Zest Protocol to earn yield. " +
         "Your sBTC will be deposited as collateral and earn interest.",
       inputSchema: {
-        amount: z.number().optional().describe("Amount in satoshis to supply (optional, can be set in UI)"),
+        amount: z.number().positive().optional().describe("Amount in satoshis to supply (optional, can be set in UI)"),
       },
     },
     async ({ amount }) => {
@@ -509,8 +500,8 @@ export function registerPillarTools(server: McpServer): void {
         "Configure auto-compound for your Pillar wallet. " +
         "When enabled, a keeper will automatically boost your position when sBTC accumulates in your wallet.",
       inputSchema: {
-        minSbtc: z.number().optional().describe("Minimum sBTC to keep in wallet (in sats)"),
-        trigger: z.number().optional().describe("Amount above minimum that triggers auto-compound (in sats)"),
+        minSbtc: z.number().nonnegative().optional().describe("Minimum sBTC to keep in wallet (in sats)"),
+        trigger: z.number().positive().optional().describe("Amount above minimum that triggers auto-compound (in sats)"),
       },
     },
     async ({ minSbtc, trigger }) => {
@@ -564,7 +555,7 @@ export function registerPillarTools(server: McpServer): void {
         "Close or reduce your leveraged sBTC position. " +
         "Opens a modal to repay borrowed sBTC and withdraw collateral back to your wallet.",
       inputSchema: {
-        percentage: z.number().optional().describe("Percentage of position to unwind (1-100, optional, can be set in UI)"),
+        percentage: z.number().min(1).max(100).optional().describe("Percentage of position to unwind (1-100, optional, can be set in UI)"),
       },
     },
     async ({ percentage }) => {
@@ -621,7 +612,7 @@ export function registerPillarTools(server: McpServer): void {
         "Opens the Pillar website where you can set the amount and confirm the boost. " +
         "Your sBTC is supplied to Zest, borrowed against, and re-supplied for amplified exposure.",
       inputSchema: {
-        amount: z.number().optional().describe("Amount in satoshis to boost (optional, shown as suggestion)"),
+        amount: z.number().positive().optional().describe("Amount in satoshis to boost (optional, shown as suggestion)"),
       },
     },
     async ({ amount }) => {
@@ -778,7 +769,8 @@ export function registerPillarTools(server: McpServer): void {
     {
       description:
         "Create a new Pillar smart wallet. Opens the Pillar website to complete registration. " +
-        "You'll need to enter your email to receive updates. Uses a default referral for MCP users.",
+        "You'll need to enter your email to receive updates. " +
+        "If the user doesn't have a referral link, tell them they can DM @pillar_btc on X (https://x.com/pillar_btc) to request one before signing up.",
       inputSchema: {
         referral: z.string().optional().describe("Referral wallet address (optional, defaults to MCP referral)"),
       },
