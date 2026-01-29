@@ -311,4 +311,227 @@ export function registerPillarTools(server: McpServer): void {
       }
     }
   );
+
+  // Tool 5: Fund wallet (deposit sBTC from Leather/Xverse)
+  server.registerTool(
+    "pillar_fund",
+    {
+      description:
+        "Fund your Pillar smart wallet by depositing sBTC from your connected Leather or Xverse wallet. " +
+        "Opens the frontend deposit modal for signing.",
+      inputSchema: {
+        amount: z.number().optional().describe("Amount in satoshis to deposit (optional, can be set in UI)"),
+      },
+    },
+    async ({ amount }) => {
+      try {
+        const session = loadSession();
+        if (!session) {
+          return createJsonResponse({
+            success: false,
+            message: "Not connected to Pillar. Please use pillar_connect first.",
+          });
+        }
+
+        const api = getPillarApi();
+        const createResult = await api.post<{ opId: string }>("/api/mcp/create-op", {
+          action: "fund",
+          walletAddress: session.walletAddress,
+          params: { amount },
+        });
+
+        const { opId } = createResult;
+        await openBrowser(`${PILLAR_FRONTEND_URL}/?op=${opId}`);
+        const result = await pollOperationStatus(opId);
+
+        if (result.status === "completed" && result.txId) {
+          return createJsonResponse({
+            success: true,
+            message: "Deposit submitted successfully!",
+            txId: result.txId,
+            explorerUrl: `https://explorer.hiro.so/txid/${result.txId}?chain=mainnet`,
+          });
+        }
+
+        if (result.status === "cancelled") {
+          return createJsonResponse({ success: false, message: "Deposit cancelled." });
+        }
+
+        if (result.status === "failed") {
+          return createJsonResponse({ success: false, message: `Deposit failed: ${result.error || "Unknown error"}` });
+        }
+
+        return createJsonResponse({ success: false, message: "Timed out waiting for deposit.", opId });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Tool 6: Add backup admin
+  server.registerTool(
+    "pillar_add_admin",
+    {
+      description:
+        "Add a backup admin address to your Pillar smart wallet for recovery purposes. " +
+        "The admin can help recover funds if you lose access to your passkey.",
+      inputSchema: {
+        adminAddress: z.string().optional().describe("Stacks address (SP...) to add as backup admin (can be set in UI)"),
+      },
+    },
+    async ({ adminAddress }) => {
+      try {
+        const session = loadSession();
+        if (!session) {
+          return createJsonResponse({
+            success: false,
+            message: "Not connected to Pillar. Please use pillar_connect first.",
+          });
+        }
+
+        const api = getPillarApi();
+        const createResult = await api.post<{ opId: string }>("/api/mcp/create-op", {
+          action: "add-admin",
+          walletAddress: session.walletAddress,
+          params: { adminAddress },
+        });
+
+        const { opId } = createResult;
+        await openBrowser(`${PILLAR_FRONTEND_URL}/?op=${opId}`);
+        const result = await pollOperationStatus(opId);
+
+        if (result.status === "completed" && result.txId) {
+          return createJsonResponse({
+            success: true,
+            message: "Backup admin added successfully!",
+            txId: result.txId,
+            explorerUrl: `https://explorer.hiro.so/txid/${result.txId}?chain=mainnet`,
+          });
+        }
+
+        if (result.status === "cancelled") {
+          return createJsonResponse({ success: false, message: "Add admin cancelled." });
+        }
+
+        if (result.status === "failed") {
+          return createJsonResponse({ success: false, message: `Add admin failed: ${result.error || "Unknown error"}` });
+        }
+
+        return createJsonResponse({ success: false, message: "Timed out waiting for add admin.", opId });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Tool 7: Supply sBTC to Zest
+  server.registerTool(
+    "pillar_supply",
+    {
+      description:
+        "Supply sBTC from your Pillar smart wallet to Zest Protocol to earn yield. " +
+        "Your sBTC will be deposited as collateral and earn interest.",
+      inputSchema: {
+        amount: z.number().optional().describe("Amount in satoshis to supply (optional, can be set in UI)"),
+      },
+    },
+    async ({ amount }) => {
+      try {
+        const session = loadSession();
+        if (!session) {
+          return createJsonResponse({
+            success: false,
+            message: "Not connected to Pillar. Please use pillar_connect first.",
+          });
+        }
+
+        const api = getPillarApi();
+        const createResult = await api.post<{ opId: string }>("/api/mcp/create-op", {
+          action: "supply",
+          walletAddress: session.walletAddress,
+          params: { amount },
+        });
+
+        const { opId } = createResult;
+        await openBrowser(`${PILLAR_FRONTEND_URL}/?op=${opId}`);
+        const result = await pollOperationStatus(opId);
+
+        if (result.status === "completed" && result.txId) {
+          return createJsonResponse({
+            success: true,
+            message: "Supply to Zest submitted successfully!",
+            txId: result.txId,
+            explorerUrl: `https://explorer.hiro.so/txid/${result.txId}?chain=mainnet`,
+          });
+        }
+
+        if (result.status === "cancelled") {
+          return createJsonResponse({ success: false, message: "Supply cancelled." });
+        }
+
+        if (result.status === "failed") {
+          return createJsonResponse({ success: false, message: `Supply failed: ${result.error || "Unknown error"}` });
+        }
+
+        return createJsonResponse({ success: false, message: "Timed out waiting for supply.", opId });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Tool 8: Auto-compound settings
+  server.registerTool(
+    "pillar_auto_compound",
+    {
+      description:
+        "Configure auto-compound for your Pillar wallet. " +
+        "When enabled, a keeper will automatically boost your position when sBTC accumulates in your wallet.",
+      inputSchema: {
+        minSbtc: z.number().optional().describe("Minimum sBTC to keep in wallet (in sats)"),
+        trigger: z.number().optional().describe("Amount above minimum that triggers auto-compound (in sats)"),
+      },
+    },
+    async ({ minSbtc, trigger }) => {
+      try {
+        const session = loadSession();
+        if (!session) {
+          return createJsonResponse({
+            success: false,
+            message: "Not connected to Pillar. Please use pillar_connect first.",
+          });
+        }
+
+        const api = getPillarApi();
+        const createResult = await api.post<{ opId: string }>("/api/mcp/create-op", {
+          action: "auto-compound",
+          walletAddress: session.walletAddress,
+          params: { minSbtc, trigger },
+        });
+
+        const { opId } = createResult;
+        await openBrowser(`${PILLAR_FRONTEND_URL}/?op=${opId}`);
+        const result = await pollOperationStatus(opId);
+
+        if (result.status === "completed") {
+          return createJsonResponse({
+            success: true,
+            message: "Auto-compound settings saved!",
+          });
+        }
+
+        if (result.status === "cancelled") {
+          return createJsonResponse({ success: false, message: "Auto-compound setup cancelled." });
+        }
+
+        if (result.status === "failed") {
+          return createJsonResponse({ success: false, message: `Auto-compound setup failed: ${result.error || "Unknown error"}` });
+        }
+
+        return createJsonResponse({ success: false, message: "Timed out waiting for auto-compound setup.", opId });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
 }
