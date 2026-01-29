@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Pillar MCP - Save Bitcoin. Earn Yield. Boost Made Easy.</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/reveal.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/theme/black.css">
+  <style>
+    .reveal h1, .reveal h2, .reveal h3 { text-transform: none; }
+    .reveal pre { font-size: 0.55em; }
+    .reveal table { font-size: 0.7em; margin: 0 auto; }
+    .reveal th, .reveal td { padding: 0.3em 0.6em; }
+    .small { font-size: 0.7em; }
+    .highlight { color: #f7931a; }
+    .green { color: #4ade80; }
+    .blue { color: #60a5fa; }
+    code { background: #333; padding: 0.2em 0.4em; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="reveal">
+    <div class="slides">
+
+      <!-- Title Slide -->
+      <section>
+        <h1>🏛️ Pillar MCP</h1>
+        <h3>Save Bitcoin. Earn Yield. Boost Made Easy.</h3>
+        <p class="small">Hiro Dev Show - January 29, 2026</p>
+        <p class="small blue">AIBTC × Pillar</p>
+      </section>
+
+      <!-- What is Pillar -->
+      <section>
+        <h2>What is Pillar?</h2>
+        <ul>
+          <li>1-click Bitcoin leverage (1.5x)</li>
+          <li>Auto-compound, max dual stacking - effortlessly earn 4%+ on your sBTC</li>
+          <li>Passkey-secured smart wallets</li>
+          <li class="highlight">Now with MCP integration!</li>
+        </ul>
+      </section>
+
+      <!-- MCP Integration -->
+      <section>
+        <h2>MCP Integration</h2>
+        <p>Talk to your Bitcoin wallet with AI</p>
+        <br>
+        <pre><code>
+"Hey Claude, what's my Pillar balance?"
+
+"Send 0.001 BTC to muneeb.btc"
+
+"Boost my position"
+        </code></pre>
+      </section>
+
+      <!-- Deny Mode - By Design -->
+      <section>
+        <h2>Deny Mode</h2>
+        <h3 class="green">Signatures in a Safe Environment</h3>
+        <br>
+        <p>AI orchestrates. <span class="highlight">You sign.</span></p>
+        <br>
+        <ul>
+          <li>Today: sign in the Pillar web app</li>
+          <li>Tomorrow: sign in the Pillar mobile app</li>
+          <li>Your keys never leave the secure environment</li>
+        </ul>
+      </section>
+
+      <!-- The Flow -->
+      <section>
+        <h2>The Flow</h2>
+        <pre><code>
+  ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+  │  Claude / MCP   │────▶│  Pillar Backend │────▶│   Pillar App    │
+  │  (orchestrate)  │     │  (create intent)│     │  (sign safely)  │
+  └─────────────────┘     └─────────────────┘     └─────────────────┘
+          │                                               │
+          │◀──────────────── confirmed txId ─────────────│
+        </code></pre>
+        <p class="small">
+          Chat with Claude anywhere (Desktop, WhatsApp, terminal...)<br>
+          Switch to Pillar app for final signature
+        </p>
+      </section>
+
+      <!-- Demo: Pillar MCP -->
+      <section>
+        <h2>Demo: Pillar MCP</h2>
+        <pre><code>
+# Connect to wallet
+pillar_connect()
+
+# Check balance & position
+pillar_position()
+
+# Send sBTC
+pillar_send({ to: "muneeb.btc", amount: 10000 })
+
+# Boost position (1.5x leverage)
+pillar_boost()
+        </code></pre>
+      </section>
+
+      <!-- 13 Pillar Tools -->
+      <section>
+        <h2>13 Pillar MCP Tools</h2>
+        <table>
+          <tr><th>#</th><th>Tool</th><th>Description</th></tr>
+          <tr><td>1</td><td><code>pillar_connect</code></td><td>Connect to wallet</td></tr>
+          <tr><td>2</td><td><code>pillar_disconnect</code></td><td>Clear session</td></tr>
+          <tr><td>3</td><td><code>pillar_status</code></td><td>Check connection</td></tr>
+          <tr><td>4</td><td><code>pillar_send</code></td><td>Send sBTC</td></tr>
+          <tr><td>5</td><td><code>pillar_fund</code></td><td>Fund wallet</td></tr>
+          <tr><td>6</td><td><code>pillar_add_admin</code></td><td>Add backup admin</td></tr>
+          <tr><td>7</td><td><code>pillar_supply</code></td><td>Supply to Zest</td></tr>
+        </table>
+      </section>
+
+      <!-- 13 Pillar Tools (cont) -->
+      <section>
+        <h2>13 Pillar MCP Tools (cont.)</h2>
+        <table>
+          <tr><th>#</th><th>Tool</th><th>Description</th></tr>
+          <tr><td>8</td><td><code>pillar_auto_compound</code></td><td>Auto-compound</td></tr>
+          <tr><td>9</td><td><code>pillar_unwind</code></td><td>Close position</td></tr>
+          <tr><td>10</td><td><code>pillar_boost</code></td><td>1.5x leverage</td></tr>
+          <tr><td>11</td><td><code>pillar_position</code></td><td>View balance</td></tr>
+          <tr><td>12</td><td><code>pillar_create_wallet</code></td><td>Create wallet</td></tr>
+          <tr><td>13</td><td><code>pillar_invite</code></td><td>Get referral link</td></tr>
+        </table>
+      </section>
+
+      <!-- Smart Recipients -->
+      <section>
+        <h2>Smart Recipient Resolution</h2>
+        <pre><code>
+// BNS names
+"Send to muneeb.btc"
+
+// Pillar wallet names
+"Send to my friend's wallet called iphone"
+
+// Raw addresses
+"Send to SP1234..."
+        </code></pre>
+        <p class="small">Voice-friendly. No copy-pasting addresses.</p>
+      </section>
+
+      <!-- Fund Methods -->
+      <section>
+        <h2>Multiple Fund Methods</h2>
+        <pre><code>
+"Fund my wallet from Coinbase"     // exchange
+"Fund from my Leather wallet"      // btc → sBTC
+"Transfer sBTC from Xverse"        // sbtc direct
+"Buy Bitcoin with credit card"     // coming soon
+        </code></pre>
+      </section>
+
+      <!-- Future: Allow Mode -->
+      <section>
+        <h2>Future: Allow Mode</h2>
+        <p>Pre-approve actions within limits</p>
+        <br>
+        <pre><code>
+// Set allowance once (sign in app)
+pillar_set_allowance({
+  action: "auto_compound",
+  maxAmount: 100000
+})
+
+// Then keeper executes - no signature needed
+        </code></pre>
+        <p class="small green">Already built: <code>pillar_auto_compound</code></p>
+      </section>
+
+      <!-- Architecture -->
+      <section>
+        <h2>Architecture</h2>
+        <pre><code>
+┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│    Claude    │───▶│  Pillar BE   │───▶│  Pillar App  │
+│  (anywhere)  │    │   (Nitro)    │    │ (safe signer)│
+└──────────────┘    └──────────────┘    └──────────────┘
+                           │
+                    ┌──────┴──────┐
+                    │  Stacks +   │
+                    │  sBTC + Zest│
+                    └─────────────┘
+        </code></pre>
+      </section>
+
+      <!-- Bonus: AIBTC Direct -->
+      <section>
+        <h2>Bonus: AIBTC Direct Mode</h2>
+        <p class="small">For automated agents with their own keys</p>
+        <br>
+        <pre><code>
+# Direct signing - key in environment
+transfer_stx({ recipient: "SP...", amount: 1 })
+        </code></pre>
+        <br>
+        <p class="small blue">Demo: Send 1 micro STX</p>
+      </section>
+
+      <!-- Try it -->
+      <section>
+        <h2>Try It!</h2>
+        <pre><code class="language-bash">
+npx @aibtc/mcp-server@latest --install
+        </code></pre>
+        <br>
+        <p>Then ask Claude:</p>
+        <pre><code>
+"Connect to my Pillar wallet"
+"What's my Bitcoin balance?"
+"Boost my position"
+        </code></pre>
+      </section>
+
+      <!-- Clawdbot Integration -->
+      <section>
+        <h2>Clawdbot + Pillar</h2>
+        <p class="small">Users live in WhatsApp & Telegram - bring the wallet to them</p>
+        <br>
+        <p class="small" style="text-align: left; max-width: 700px; margin: 0 auto;">
+          <strong>Confirm mode:</strong> AI suggests a trade, <span class="highlight">you sign with your passkey</span><br><br>
+          <strong>Allow mode:</strong> AI has its own wallet via <span class="blue">AIBTC tools</span> - pre-approved limits
+        </p>
+        <br>
+        <pre><code>
+"DCA $100 into zsBTC every week"
+"Auto-compound when balance > 0.001 BTC"
+        </code></pre>
+        <br>
+        <p class="small">
+          <span class="green">Internal operation</span> - value stays within your smart wallet<br>
+          You control with <span class="highlight">passkey + 2FA admin</span> (Leather/Xverse)
+        </p>
+      </section>
+
+      <!-- Coming Soon -->
+      <section>
+        <h2>Coming Soon</h2>
+        <ul>
+          <li class="green">Stacking with Stacking DAO</li>
+          <li class="green">Fast Pool integration</li>
+          <li class="small">(Already in contracts!)</li>
+        </ul>
+        <br>
+        <p class="small blue">228 Clarinet tests + STXer simulations</p>
+      </section>
+
+      <!-- Links -->
+      <section>
+        <h1>🏛️</h1>
+        <h2>Links</h2>
+        <ul>
+          <li>Pillar: <a href="https://pillarbtc.com">pillarbtc.com</a></li>
+          <li>MCP: <a href="https://github.com/aibtcdev/aibtc-mcp-server">github.com/aibtcdev/aibtc-mcp-server</a></li>
+          <li>PR: <a href="https://github.com/aibtcdev/aibtc-mcp-server/pull/24">#24</a></li>
+        </ul>
+        <br>
+        <h3 class="highlight">Questions?</h3>
+      </section>
+
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/reveal.js"></script>
+  <script>
+    Reveal.initialize({
+      hash: true,
+      slideNumber: true,
+      transition: 'slide'
+    });
+  </script>
+</body>
+</html>
