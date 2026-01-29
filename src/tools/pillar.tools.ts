@@ -534,4 +534,117 @@ export function registerPillarTools(server: McpServer): void {
       }
     }
   );
+
+  // Tool 9: Unwind (close/reduce leveraged position)
+  server.registerTool(
+    "pillar_unwind",
+    {
+      description:
+        "Close or reduce your leveraged sBTC position. " +
+        "Opens a modal to repay borrowed sBTC and withdraw collateral back to your wallet.",
+      inputSchema: {
+        percentage: z.number().optional().describe("Percentage of position to unwind (1-100, optional, can be set in UI)"),
+      },
+    },
+    async ({ percentage }) => {
+      try {
+        const session = loadSession();
+        if (!session) {
+          return createJsonResponse({
+            success: false,
+            message: "Not connected to Pillar. Please use pillar_connect first.",
+          });
+        }
+
+        const api = getPillarApi();
+        const createResult = await api.post<{ opId: string }>("/api/mcp/create-op", {
+          action: "unwind",
+          walletAddress: session.walletAddress,
+          params: { percentage },
+        });
+
+        const { opId } = createResult;
+        await openBrowser(`${PILLAR_FRONTEND_URL}/?op=${opId}`);
+        const result = await pollOperationStatus(opId);
+
+        if (result.status === "completed" && result.txId) {
+          return createJsonResponse({
+            success: true,
+            message: "Unwind position submitted successfully!",
+            txId: result.txId,
+            explorerUrl: `https://explorer.hiro.so/txid/${result.txId}?chain=mainnet`,
+          });
+        }
+
+        if (result.status === "cancelled") {
+          return createJsonResponse({ success: false, message: "Unwind cancelled." });
+        }
+
+        if (result.status === "failed") {
+          return createJsonResponse({ success: false, message: `Unwind failed: ${result.error || "Unknown error"}` });
+        }
+
+        return createJsonResponse({ success: false, message: "Timed out waiting for unwind.", opId });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Tool 10: Boost (create/increase leveraged position)
+  server.registerTool(
+    "pillar_boost",
+    {
+      description:
+        "Create or increase a leveraged sBTC position (up to 1.5x). " +
+        "Opens the Pillar website where you can set the amount and confirm the boost. " +
+        "Your sBTC is supplied to Zest, borrowed against, and re-supplied for amplified exposure.",
+      inputSchema: {
+        amount: z.number().optional().describe("Amount in satoshis to boost (optional, shown as suggestion)"),
+      },
+    },
+    async ({ amount }) => {
+      try {
+        const session = loadSession();
+        if (!session) {
+          return createJsonResponse({
+            success: false,
+            message: "Not connected to Pillar. Please use pillar_connect first.",
+          });
+        }
+
+        const api = getPillarApi();
+        const createResult = await api.post<{ opId: string }>("/api/mcp/create-op", {
+          action: "boost",
+          walletAddress: session.walletAddress,
+          params: { amount },
+        });
+
+        const { opId } = createResult;
+        await openBrowser(`${PILLAR_FRONTEND_URL}/?op=${opId}`);
+        const result = await pollOperationStatus(opId);
+
+        if (result.status === "completed" && result.txId) {
+          return createJsonResponse({
+            success: true,
+            message: "Boost position submitted successfully!",
+            txId: result.txId,
+            explorerUrl: `https://explorer.hiro.so/txid/${result.txId}?chain=mainnet`,
+          });
+        }
+
+        if (result.status === "cancelled") {
+          return createJsonResponse({ success: false, message: "Boost cancelled." });
+        }
+
+        if (result.status === "failed") {
+          return createJsonResponse({ success: false, message: `Boost failed: ${result.error || "Unknown error"}` });
+        }
+
+        return createJsonResponse({ success: false, message: "Timed out waiting for boost.", opId });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
 }
