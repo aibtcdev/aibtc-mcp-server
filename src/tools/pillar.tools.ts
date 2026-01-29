@@ -12,6 +12,7 @@ import * as os from "os";
 const PILLAR_FRONTEND_URL = "https://pillarbtc.com";
 const POLL_INTERVAL_MS = 3000;
 const POLL_TIMEOUT_MS = 300000; // 5 minutes
+const MCP_DEFAULT_REFERRAL = "SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22.beta-v2-wallet";
 const SESSION_FILE = path.join(os.homedir(), ".aibtc", "pillar-session.json");
 
 // Session management
@@ -778,6 +779,110 @@ export function registerPillarTools(server: McpServer): void {
           message: hasPosition
             ? `Wallet: ${formatBtc(sbtcBalance)} sBTC | Position: ${formatBtc(zsbtcBalance)} BTC collateral, ~${currentLtv.toFixed(0)}% LTV`
             : `Wallet: ${formatBtc(sbtcBalance)} sBTC | No active position`,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Tool 12: Create a new Pillar wallet
+  server.registerTool(
+    "pillar_create_wallet",
+    {
+      description:
+        "Create a new Pillar smart wallet. Opens the Pillar website to complete registration. " +
+        "You'll need to enter your email to receive updates. Uses a default referral for MCP users.",
+      inputSchema: {
+        referral: z.string().optional().describe("Referral wallet address (optional, defaults to MCP referral)"),
+      },
+    },
+    async ({ referral }) => {
+      try {
+        // Check if already connected
+        const existingSession = loadSession();
+        if (existingSession) {
+          return createJsonResponse({
+            success: false,
+            message: `Already connected to wallet ${existingSession.walletName || existingSession.walletAddress}. Use pillar_disconnect first if you want to create a new wallet.`,
+          });
+        }
+
+        const api = getPillarApi();
+
+        // Create operation
+        const createResult = await api.post<{ opId: string }>("/api/mcp/create-op", {
+          action: "create-wallet",
+          params: { referral: referral || MCP_DEFAULT_REFERRAL },
+        });
+
+        const { opId } = createResult;
+
+        // Open frontend with referral
+        const ref = referral || MCP_DEFAULT_REFERRAL;
+        const url = `${PILLAR_FRONTEND_URL}/?op=${opId}&ref=${ref}`;
+        await openBrowser(url);
+
+        // Poll for completion
+        const result = await pollOperationStatus(opId);
+
+        if (result.status === "completed" && result.walletAddress) {
+          // Save session
+          const session: PillarSession = {
+            walletAddress: result.walletAddress,
+            walletName: result.walletName,
+            connectedAt: Date.now(),
+          };
+          saveSession(session);
+
+          return createJsonResponse({
+            success: true,
+            message: "Wallet created successfully!",
+            walletAddress: result.walletAddress,
+            walletName: result.walletName,
+          });
+        }
+
+        if (result.status === "cancelled") {
+          return createJsonResponse({ success: false, message: "Wallet creation cancelled." });
+        }
+
+        if (result.status === "failed") {
+          return createJsonResponse({ success: false, message: `Wallet creation failed: ${result.error || "Unknown error"}` });
+        }
+
+        return createJsonResponse({ success: false, message: "Timed out waiting for wallet creation.", opId });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Tool 13: Get referral/invite link
+  server.registerTool(
+    "pillar_invite",
+    {
+      description:
+        "Get your Pillar referral link to invite friends. Share this link and earn rewards when friends sign up.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const session = loadSession();
+        if (!session) {
+          return createJsonResponse({
+            success: false,
+            message: "Not connected to Pillar. Please use pillar_connect first.",
+          });
+        }
+
+        const referralLink = `${PILLAR_FRONTEND_URL}/?ref=${session.walletAddress}`;
+
+        return createJsonResponse({
+          success: true,
+          referralLink,
+          walletAddress: session.walletAddress,
+          message: `Share this link to invite friends: ${referralLink}`,
         });
       } catch (error) {
         return createErrorResponse(error);
