@@ -312,19 +312,34 @@ export function registerPillarTools(server: McpServer): void {
     }
   );
 
-  // Tool 5: Fund wallet (deposit sBTC from Leather/Xverse)
+  // Tool 5: Fund wallet (multiple methods)
   server.registerTool(
     "pillar_fund",
     {
       description:
-        "Fund your Pillar smart wallet by depositing sBTC from your connected Leather or Xverse wallet. " +
-        "Opens the frontend deposit modal for signing.",
+        "Fund your Pillar smart wallet. Supports multiple methods:\n" +
+        "- 'exchange': Deposit BTC from an exchange (Coinbase, Binance, etc.) - generates a deposit address\n" +
+        "- 'btc': Deposit BTC from your Leather/Xverse wallet - auto-converts to sBTC\n" +
+        "- 'sbtc': Deposit sBTC directly from your Leather/Xverse wallet\n" +
+        "- 'buy': Buy Bitcoin with credit card via MoonPay (coming soon)\n" +
+        "Opens the frontend with the appropriate deposit flow.",
       inputSchema: {
+        method: z.enum(["exchange", "btc", "sbtc", "buy"]).describe(
+          "Funding method: 'exchange' (deposit from Coinbase/Binance), 'btc' (from Leather/Xverse BTC), 'sbtc' (from Leather/Xverse sBTC), 'buy' (credit card - coming soon)"
+        ),
         amount: z.number().optional().describe("Amount in satoshis to deposit (optional, can be set in UI)"),
       },
     },
-    async ({ amount }) => {
+    async ({ method, amount }) => {
       try {
+        // Handle "buy" method - coming soon
+        if (method === "buy") {
+          return createJsonResponse({
+            success: false,
+            message: "Buying Bitcoin with credit card via MoonPay is coming soon. Please use 'exchange', 'btc', or 'sbtc' method for now.",
+          });
+        }
+
         const session = loadSession();
         if (!session) {
           return createJsonResponse({
@@ -337,7 +352,7 @@ export function registerPillarTools(server: McpServer): void {
         const createResult = await api.post<{ opId: string }>("/api/mcp/create-op", {
           action: "fund",
           walletAddress: session.walletAddress,
-          params: { amount },
+          params: { method, amount },
         });
 
         const { opId } = createResult;
@@ -345,9 +360,14 @@ export function registerPillarTools(server: McpServer): void {
         const result = await pollOperationStatus(opId);
 
         if (result.status === "completed" && result.txId) {
+          const methodLabels: Record<string, string> = {
+            exchange: "Exchange deposit",
+            btc: "BTC deposit",
+            sbtc: "sBTC deposit",
+          };
           return createJsonResponse({
             success: true,
-            message: "Deposit submitted successfully!",
+            message: `${methodLabels[method] || "Deposit"} submitted successfully!`,
             txId: result.txId,
             explorerUrl: `https://explorer.hiro.so/txid/${result.txId}?chain=mainnet`,
           });
