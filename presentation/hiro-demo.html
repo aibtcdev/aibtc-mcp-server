@@ -15,6 +15,10 @@
     .green { color: #4ade80; }
     .blue { color: #60a5fa; }
     code { background: #333; padding: 0.2em 0.4em; border-radius: 4px; }
+    .logo-row { display: flex; justify-content: center; align-items: center; gap: 30px; margin-top: 20px; }
+    .logo-row img { height: 40px; opacity: 0.9; }
+    .partner-logos { display: flex; justify-content: center; align-items: center; gap: 20px; flex-wrap: wrap; }
+    .partner-logos img { height: 30px; opacity: 0.8; }
   </style>
 </head>
 <body>
@@ -23,10 +27,17 @@
 
       <!-- Title Slide -->
       <section>
-        <h1>🏛️ Pillar MCP</h1>
+        <h1>Pillar MCP</h1>
         <h3>Save Bitcoin. Earn Yield. Boost Made Easy.</h3>
         <p class="small">Hiro Dev Show - January 29, 2026</p>
-        <p class="small blue">AIBTC × Pillar</p>
+        <p class="small blue">AIBTC x Pillar</p>
+        <div class="logo-row">
+          <img src="https://aibtc.dev/logos/aibtcdev-avatar-1000px.png" alt="AIBTC" title="AIBTC">
+          <img src="https://assets.stacks.co/images/pages/stacks-token/stx-token-icon-with-bg.svg" alt="Stacks" title="Stacks">
+        </div>
+        <aside class="notes">
+          Hey everyone, I'm Rapha from Pillar. Today I'm excited to show you how we've integrated MCP to let you talk to your Bitcoin wallet with AI.
+        </aside>
       </section>
 
       <!-- What is Pillar -->
@@ -38,6 +49,13 @@
           <li>Passkey-secured smart wallets</li>
           <li class="highlight">Now with MCP integration!</li>
         </ul>
+        <div class="partner-logos" style="margin-top: 30px;">
+          <img src="https://www.bitflow.finance/logos/bitflow-avatar.png" alt="Bitflow" title="Bitflow">
+          <img src="https://www.zestprotocol.com/images/zest-logo-mark.svg" alt="Zest" title="Zest Protocol">
+        </div>
+        <aside class="notes">
+          Quick intro: Pillar is a Bitcoin savings app. You can get 1.5x leverage on BTC in one click. Or if you want zero liquidation risk, just earn 4%+ yield with auto-compounding and dual stacking. Everything is secured with passkeys - no seed phrases. And now we've added MCP so you can control your wallet with Claude.
+        </aside>
       </section>
 
       <!-- MCP Integration -->
@@ -52,6 +70,9 @@
 
 "Boost my position"
         </code></pre>
+        <aside class="notes">
+          With MCP, you can just talk to Claude naturally. Ask for your balance, send Bitcoin to a BNS name, or boost your position. Claude understands what you want and orchestrates the action.
+        </aside>
       </section>
 
       <!-- Deny Mode - By Design -->
@@ -66,23 +87,29 @@
           <li>Tomorrow: sign in the Pillar mobile app</li>
           <li>Your keys never leave the secure environment</li>
         </ul>
+        <aside class="notes">
+          This is by design - we call it Deny Mode. The AI orchestrates the action, but YOU sign. Your passkey stays in a safe environment - the browser or mobile app. Keys never touch the AI. This isn't a limitation, it's a feature.
+        </aside>
       </section>
 
       <!-- The Flow -->
       <section>
         <h2>The Flow</h2>
         <pre><code>
-  ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-  │  Claude / MCP   │────▶│  Pillar Backend │────▶│   Pillar App    │
-  │  (orchestrate)  │     │  (create intent)│     │  (sign safely)  │
-  └─────────────────┘     └─────────────────┘     └─────────────────┘
-          │                                               │
-          │◀──────────────── confirmed txId ─────────────│
+  +------------------+     +------------------+     +------------------+
+  |  Claude / MCP    |---->|  Pillar Backend  |---->|   Pillar App     |
+  |  (orchestrate)   |     |  (create intent) |     |  (sign safely)   |
+  +------------------+     +------------------+     +------------------+
+          |                                               |
+          |<-------------- confirmed txId ----------------|
         </code></pre>
         <p class="small">
           Chat with Claude anywhere (Desktop, WhatsApp, terminal...)<br>
           Switch to Pillar app for final signature
         </p>
+        <aside class="notes">
+          Here's how it works: Claude sends the intent to our backend. Backend creates a pending operation. Your browser opens with that operation. You sign with your passkey. Transaction goes on-chain. Claude gets the confirmed txId back. You can chat from anywhere - desktop, WhatsApp, terminal - and just switch to the app to sign.
+        </aside>
       </section>
 
       <!-- Demo: Pillar MCP -->
@@ -101,6 +128,9 @@ pillar_send({ to: "muneeb.btc", amount: 10000 })
 # Boost position (1.5x leverage)
 pillar_boost()
         </code></pre>
+        <aside class="notes">
+          Let me show you a quick demo. First I connect to my wallet - this opens the browser and I authenticate with my passkey. Then I can check my position, send sBTC to a BNS name, or boost my position. [DO LIVE DEMO HERE]
+        </aside>
       </section>
 
       <!-- 13 Pillar Tools -->
@@ -116,6 +146,9 @@ pillar_boost()
           <tr><td>6</td><td><code>pillar_add_admin</code></td><td>Add backup admin</td></tr>
           <tr><td>7</td><td><code>pillar_supply</code></td><td>Supply to Zest</td></tr>
         </table>
+        <aside class="notes">
+          We have 13 tools total. Here's the first half - connect, disconnect, status for session management. Send and fund for moving money. Add admin for wallet recovery. Supply to earn yield on Zest.
+        </aside>
       </section>
 
       <!-- 13 Pillar Tools (cont) -->
@@ -130,6 +163,9 @@ pillar_boost()
           <tr><td>12</td><td><code>pillar_create_wallet</code></td><td>Create wallet</td></tr>
           <tr><td>13</td><td><code>pillar_invite</code></td><td>Get referral link</td></tr>
         </table>
+        <aside class="notes">
+          And the rest - auto-compound sets up automatic reinvestment. Unwind closes your leveraged position. Boost creates or increases leverage. Position shows your balance. Create wallet for new users. And invite to get your referral link.
+        </aside>
       </section>
 
       <!-- Smart Recipients -->
@@ -146,6 +182,9 @@ pillar_boost()
 "Send to SP1234..."
         </code></pre>
         <p class="small">Voice-friendly. No copy-pasting addresses.</p>
+        <aside class="notes">
+          One nice feature - you don't need to copy paste addresses. Just say "send to muneeb.btc" and we resolve the BNS name. Or even "send to my friend's wallet called iphone" - we look up Pillar wallet names. This makes it voice-friendly for agents like Clawdbot.
+        </aside>
       </section>
 
       <!-- Fund Methods -->
@@ -153,10 +192,13 @@ pillar_boost()
         <h2>Multiple Fund Methods</h2>
         <pre><code>
 "Fund my wallet from Coinbase"     // exchange
-"Fund from my Leather wallet"      // btc → sBTC
+"Fund from my Leather wallet"      // btc -> sBTC
 "Transfer sBTC from Xverse"        // sbtc direct
 "Buy Bitcoin with credit card"     // coming soon
         </code></pre>
+        <aside class="notes">
+          Multiple ways to fund your wallet. From an exchange like Coinbase - we generate a deposit address. From Leather or Xverse - we handle the BTC to sBTC conversion. Direct sBTC transfer. And credit card coming soon with MoonPay.
+        </aside>
       </section>
 
       <!-- Future: Allow Mode -->
@@ -174,22 +216,28 @@ pillar_set_allowance({
 // Then keeper executes - no signature needed
         </code></pre>
         <p class="small green">Already built: <code>pillar_auto_compound</code></p>
+        <aside class="notes">
+          Looking ahead - Allow Mode. You set an allowance once in the app, then the AI or a keeper can execute within those limits without needing your signature each time. We already have this working for auto-compound.
+        </aside>
       </section>
 
       <!-- Architecture -->
       <section>
         <h2>Architecture</h2>
         <pre><code>
-┌──────────────┐    ┌──────────────┐    ┌──────────────┐
-│    Claude    │───▶│  Pillar BE   │───▶│  Pillar App  │
-│  (anywhere)  │    │   (Nitro)    │    │ (safe signer)│
-└──────────────┘    └──────────────┘    └──────────────┘
-                           │
-                    ┌──────┴──────┐
-                    │  Stacks +   │
-                    │  sBTC + Zest│
-                    └─────────────┘
++---------------+    +---------------+    +---------------+
+|    Claude     |--->|  Pillar BE    |--->|  Pillar App   |
+|  (anywhere)   |    |   (Nitro)     |    | (safe signer) |
++---------------+    +---------------+    +---------------+
+                           |
+                    +------+------+
+                    |  Stacks +   |
+                    |  sBTC + Zest|
+                    +-------------+
         </code></pre>
+        <aside class="notes">
+          Quick architecture overview. Claude can run anywhere. Talks to our Nitro backend. Backend manages operations and talks to the app for signing. Everything settles on Stacks with sBTC and Zest Protocol.
+        </aside>
       </section>
 
       <!-- Bonus: AIBTC Direct -->
@@ -203,6 +251,10 @@ transfer_stx({ recipient: "SP...", amount: 1 })
         </code></pre>
         <br>
         <p class="small blue">Demo: Send 1 micro STX</p>
+        <img src="https://aibtc.dev/logos/aibtcdev-avatar-1000px.png" alt="AIBTC" style="height: 50px; margin-top: 15px; opacity: 0.9;">
+        <aside class="notes">
+          Bonus - for fully autonomous agents that have their own keys, AIBTC MCP also supports direct mode. The agent has a mnemonic in its environment and can sign transactions directly. Let me send 1 micro STX to show you. [DO AIBTC DEMO]
+        </aside>
       </section>
 
       <!-- Try it -->
@@ -218,6 +270,9 @@ npx @aibtc/mcp-server@latest --install
 "What's my Bitcoin balance?"
 "Boost my position"
         </code></pre>
+        <aside class="notes">
+          Want to try it yourself? One command - npx at-aibtc/mcp-server --install. Then just ask Claude to connect to your Pillar wallet. It's that easy.
+        </aside>
       </section>
 
       <!-- Clawdbot Integration -->
@@ -239,6 +294,9 @@ npx @aibtc/mcp-server@latest --install
           <span class="green">Internal operation</span> - value stays within your smart wallet<br>
           You control with <span class="highlight">passkey + 2FA admin</span> (Leather/Xverse)
         </p>
+        <aside class="notes">
+          One more thing - Clawdbot. We keep building apps and asking users to come to us, but they spend their time in WhatsApp and Telegram. So bring the wallet to them. Two modes: Confirm mode - AI suggests an action, you sign with your passkey. Allow mode - AI has its own wallet with pre-approved limits, it can DCA or auto-compound without asking you each time. The value never leaves your smart wallet - you control with passkey plus a 2FA admin like Leather or Xverse.
+        </aside>
       </section>
 
       <!-- Coming Soon -->
@@ -251,11 +309,14 @@ npx @aibtc/mcp-server@latest --install
         </ul>
         <br>
         <p class="small blue">228 Clarinet tests + STXer simulations</p>
+        <aside class="notes">
+          Coming soon - Stacking DAO and Fast Pool integration. Actually these are already in our contracts, just not exposed in the UI yet. We have 228 Clarinet tests and STXer simulations to make sure everything works.
+        </aside>
       </section>
 
       <!-- Links -->
       <section>
-        <h1>🏛️</h1>
+        <h1>Pillar</h1>
         <h2>Links</h2>
         <ul>
           <li>Pillar: <a href="https://pillarbtc.com">pillarbtc.com</a></li>
@@ -264,17 +325,22 @@ npx @aibtc/mcp-server@latest --install
         </ul>
         <br>
         <h3 class="highlight">Questions?</h3>
+        <aside class="notes">
+          Here are the links - pillarbtc.com to try the app, the MCP server repo, and PR #24 with all the Pillar tools. Happy to take questions!
+        </aside>
       </section>
 
     </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/dist/reveal.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.5.0/plugin/notes/notes.js"></script>
   <script>
     Reveal.initialize({
       hash: true,
       slideNumber: true,
-      transition: 'slide'
+      transition: 'slide',
+      plugins: [ RevealNotes ]
     });
   </script>
 </body>
