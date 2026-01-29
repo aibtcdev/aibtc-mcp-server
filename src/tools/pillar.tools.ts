@@ -667,4 +667,121 @@ export function registerPillarTools(server: McpServer): void {
       }
     }
   );
+
+  // Tool 11: Get position and balance (opens modal + returns data)
+  server.registerTool(
+    "pillar_position",
+    {
+      description:
+        "View your Pillar wallet balance and Zest position. " +
+        "Opens the Position modal in the browser AND returns the data (sBTC balance, collateral, borrowed, LTV, liquidation price).",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const session = loadSession();
+        if (!session) {
+          return createJsonResponse({
+            success: false,
+            message: "Not connected to Pillar. Please use pillar_connect first.",
+          });
+        }
+
+        const walletAddress = session.walletAddress;
+
+        // Fetch balances directly from Hiro API
+        const balanceRes = await fetch(
+          `https://api.hiro.so/extended/v1/address/${walletAddress}/balances`
+        );
+
+        let sbtcBalance = 0;
+        let zsbtcBalance = 0;
+
+        if (balanceRes.ok) {
+          const balanceData = await balanceRes.json();
+
+          // sBTC balance (wallet balance)
+          const sbtcKey = Object.keys(balanceData.fungible_tokens || {}).find(
+            (k: string) => k.includes("sbtc-token")
+          );
+          if (sbtcKey) {
+            sbtcBalance = parseInt(balanceData.fungible_tokens[sbtcKey].balance) || 0;
+          }
+
+          // zsBTC balance (collateral in Zest)
+          const zsbtcKey = Object.keys(balanceData.fungible_tokens || {}).find(
+            (k: string) => k.includes("zsbtc")
+          );
+          if (zsbtcKey) {
+            zsbtcBalance = parseInt(balanceData.fungible_tokens[zsbtcKey].balance) || 0;
+          }
+        }
+
+        // Fetch BTC price for USD values
+        let btcPrice = 0;
+        try {
+          const priceRes = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd");
+          if (priceRes.ok) {
+            const priceData = await priceRes.json();
+            btcPrice = priceData.bitcoin?.usd || 0;
+          }
+        } catch {
+          // Price fetch failed, continue without USD values
+        }
+
+        // Calculate position metrics
+        const sbtcBtc = sbtcBalance / 1e8;
+        const collateralBtc = zsbtcBalance / 1e8;
+        const collateralUsd = collateralBtc * btcPrice;
+
+        // Estimate borrowed (collateral / 3 for 1.5x leverage)
+        const borrowedUsd = collateralUsd / 3;
+        const currentLtv = collateralUsd > 0 ? (borrowedUsd / collateralUsd) * 100 : 0;
+
+        // Liquidation price (at 80% LTV)
+        const liquidationLtv = 0.8;
+        const liquidationPrice = collateralBtc > 0 ? borrowedUsd / (collateralBtc * liquidationLtv) : 0;
+
+        // Open the Position modal in frontend
+        const api = getPillarApi();
+        const createResult = await api.post<{ opId: string }>("/api/mcp/create-op", {
+          action: "position",
+          walletAddress,
+        });
+        const { opId } = createResult;
+        await openBrowser(`${PILLAR_FRONTEND_URL}/?op=${opId}`);
+
+        // Return data immediately (don't wait for modal close)
+        const formatBtc = (sats: number) => (sats / 1e8).toFixed(8).replace(/\.?0+$/, "");
+        const formatUsd = (usd: number) => `$${usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+        const hasPosition = zsbtcBalance > 0;
+
+        return createJsonResponse({
+          success: true,
+          walletAddress,
+          walletName: session.walletName,
+          walletBalance: {
+            sbtc: sbtcBalance,
+            sbtcFormatted: `${formatBtc(sbtcBalance)} sBTC`,
+            sbtcUsd: btcPrice > 0 ? formatUsd(sbtcBtc * btcPrice) : null,
+          },
+          position: hasPosition ? {
+            collateral: zsbtcBalance,
+            collateralFormatted: `${formatBtc(zsbtcBalance)} BTC`,
+            collateralUsd: btcPrice > 0 ? formatUsd(collateralUsd) : null,
+            borrowedUsd: `~${formatUsd(borrowedUsd)}`,
+            ltv: `~${currentLtv.toFixed(0)}%`,
+            liquidationPrice: btcPrice > 0 ? `~${formatUsd(liquidationPrice)}` : null,
+            note: "Values are estimates. View modal for details.",
+          } : null,
+          message: hasPosition
+            ? `Wallet: ${formatBtc(sbtcBalance)} sBTC | Position: ${formatBtc(zsbtcBalance)} BTC collateral, ~${currentLtv.toFixed(0)}% LTV`
+            : `Wallet: ${formatBtc(sbtcBalance)} sBTC | No active position`,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
 }
