@@ -730,20 +730,15 @@ export function registerPillarTools(server: McpServer): void {
           // Price fetch failed, continue without USD values
         }
 
-        // Calculate position metrics
-        const sbtcBtc = sbtcBalance / 1e8;
-        const collateralBtc = zsbtcBalance / 1e8;
-        const collateralUsd = collateralBtc * btcPrice;
+        // Calculate display values
+        const formatBtc = (sats: number) => (sats / 1e8).toFixed(8).replace(/\.?0+$/, "");
+        const formatUsd = (usd: number) => `$${usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-        // Estimate borrowed (collateral / 3 for 1.5x leverage)
-        const borrowedUsd = collateralUsd / 3;
-        const currentLtv = collateralUsd > 0 ? (borrowedUsd / collateralUsd) * 100 : 0;
+        const sbtcUsd = (sbtcBalance / 1e8) * btcPrice;
+        const collateralUsd = (zsbtcBalance / 1e8) * btcPrice;
+        const hasPosition = zsbtcBalance > 0;
 
-        // Liquidation price (at 80% LTV)
-        const liquidationLtv = 0.8;
-        const liquidationPrice = collateralBtc > 0 ? borrowedUsd / (collateralBtc * liquidationLtv) : 0;
-
-        // Open the Position modal in frontend
+        // Open the Position modal in frontend for accurate details
         const api = getPillarApi();
         const createResult = await api.post<{ opId: string }>("/api/mcp/create-op", {
           action: "position",
@@ -752,12 +747,7 @@ export function registerPillarTools(server: McpServer): void {
         const { opId } = createResult;
         await openBrowser(`${PILLAR_FRONTEND_URL}/?op=${opId}`);
 
-        // Return data immediately (don't wait for modal close)
-        const formatBtc = (sats: number) => (sats / 1e8).toFixed(8).replace(/\.?0+$/, "");
-        const formatUsd = (usd: number) => `$${usd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-        const hasPosition = zsbtcBalance > 0;
-
+        // Return only accurate data - borrowed/LTV/liq price are shown in modal
         return createJsonResponse({
           success: true,
           walletAddress,
@@ -765,19 +755,15 @@ export function registerPillarTools(server: McpServer): void {
           walletBalance: {
             sbtc: sbtcBalance,
             sbtcFormatted: `${formatBtc(sbtcBalance)} sBTC`,
-            sbtcUsd: btcPrice > 0 ? formatUsd(sbtcBtc * btcPrice) : null,
+            sbtcUsd: btcPrice > 0 ? formatUsd(sbtcUsd) : null,
           },
           position: hasPosition ? {
             collateral: zsbtcBalance,
-            collateralFormatted: `${formatBtc(zsbtcBalance)} BTC`,
+            collateralFormatted: `${formatBtc(zsbtcBalance)} BTC (zsBTC in Zest)`,
             collateralUsd: btcPrice > 0 ? formatUsd(collateralUsd) : null,
-            borrowedUsd: `~${formatUsd(borrowedUsd)}`,
-            ltv: `~${currentLtv.toFixed(0)}%`,
-            liquidationPrice: btcPrice > 0 ? `~${formatUsd(liquidationPrice)}` : null,
-            note: "Values are estimates. View modal for details.",
           } : null,
           message: hasPosition
-            ? `Wallet: ${formatBtc(sbtcBalance)} sBTC | Position: ${formatBtc(zsbtcBalance)} BTC collateral, ~${currentLtv.toFixed(0)}% LTV`
+            ? `Wallet: ${formatBtc(sbtcBalance)} sBTC | Collateral: ${formatBtc(zsbtcBalance)} BTC. See modal for borrowed, LTV, and liquidation price.`
             : `Wallet: ${formatBtc(sbtcBalance)} sBTC | No active position`,
         });
       } catch (error) {
