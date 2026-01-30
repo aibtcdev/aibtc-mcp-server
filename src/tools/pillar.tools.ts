@@ -610,7 +610,9 @@ export function registerPillarTools(server: McpServer): void {
       description:
         "Create or increase a leveraged sBTC position (up to 1.5x). " +
         "Opens the Pillar website where you can set the amount and confirm the boost. " +
-        "Your sBTC is supplied to Zest, borrowed against, and re-supplied for amplified exposure.",
+        "Your sBTC is supplied to Zest, borrowed against, and re-supplied for amplified exposure. " +
+        "Amounts over 100,000 sats automatically enter DCA mode — split into daily 100k-sat chunks " +
+        "(max 700k sats per schedule). The first chunk executes immediately, the rest follow daily.",
       inputSchema: {
         amount: z.number().positive().optional().describe("Amount in satoshis to boost (optional, shown as suggestion)"),
       },
@@ -861,6 +863,250 @@ export function registerPillarTools(server: McpServer): void {
           referralLink,
           walletAddress: session.walletAddress,
           message: `Share this link to invite friends: ${referralLink}`,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Tool 14: Invite a DCA partner (direct API, no handoff)
+  server.registerTool(
+    "pillar_dca_invite",
+    {
+      description:
+        "Invite a DCA partner by email or wallet address. " +
+        "DCA partners hold each other accountable — both must boost each week to keep the streak alive.",
+      inputSchema: {
+        partner: z.string().describe("Partner's email address or Stacks wallet address (SP...)"),
+      },
+    },
+    async ({ partner }) => {
+      try {
+        const session = loadSession();
+        if (!session) {
+          return createJsonResponse({
+            success: false,
+            message: "Not connected to Pillar. Please use pillar_connect first.",
+          });
+        }
+
+        const isEmail = partner.includes("@");
+        const api = getPillarApi();
+        const result = await api.post<{
+          partnershipId: string;
+          status: string;
+          inviteLink?: string;
+        }>("/api/dca-partner/invite", {
+          walletAddress: session.walletAddress,
+          ...(isEmail ? { partnerEmail: partner } : { partnerWalletAddress: partner }),
+        });
+
+        return createJsonResponse({
+          success: true,
+          partnershipId: result.partnershipId,
+          status: result.status,
+          message: isEmail
+            ? `Invite sent to ${partner}. They'll receive an email with a link to accept.`
+            : `Partnership invite sent to ${partner}.`,
+          ...(result.inviteLink ? { inviteLink: result.inviteLink } : {}),
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Tool 15: View DCA partners and weekly status (direct API)
+  server.registerTool(
+    "pillar_dca_partners",
+    {
+      description:
+        "View your DCA partners and weekly status. " +
+        "Shows active partnerships with streak, PnL, and weekly status badges, plus any pending invites.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const session = loadSession();
+        if (!session) {
+          return createJsonResponse({
+            success: false,
+            message: "Not connected to Pillar. Please use pillar_connect first.",
+          });
+        }
+
+        const api = getPillarApi();
+        const result = await api.get<{
+          partnerships: Array<{
+            partnershipId: string;
+            partnerName?: string;
+            partnerAddress: string;
+            streak: number;
+            pnl?: number;
+            myStatus: string;
+            partnerStatus: string;
+            status: string;
+          }>;
+          pendingInvites: Array<{
+            partnershipId: string;
+            partnerEmail?: string;
+            partnerAddress?: string;
+            direction: string;
+          }>;
+        }>("/api/dca-partner/my-partners", { walletAddress: session.walletAddress });
+
+        const active = result.partnerships.filter(p => p.status === "active");
+        const pending = result.pendingInvites || [];
+
+        return createJsonResponse({
+          success: true,
+          activePartnerships: active.map(p => ({
+            partnershipId: p.partnershipId,
+            partner: p.partnerName || p.partnerAddress,
+            streak: p.streak,
+            pnl: p.pnl,
+            myStatus: p.myStatus,
+            partnerStatus: p.partnerStatus,
+          })),
+          pendingInvites: pending.length,
+          pendingDetails: pending.map(p => ({
+            partnershipId: p.partnershipId,
+            partner: p.partnerEmail || p.partnerAddress,
+            direction: p.direction,
+          })),
+          message: active.length > 0
+            ? `${active.length} active partnership${active.length > 1 ? "s" : ""}, ${pending.length} pending invite${pending.length !== 1 ? "s" : ""}`
+            : `No active partnerships. ${pending.length} pending invite${pending.length !== 1 ? "s" : ""}. Use pillar_dca_invite to invite a partner.`,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Tool 16: DCA streak leaderboard (direct API)
+  server.registerTool(
+    "pillar_dca_leaderboard",
+    {
+      description:
+        "View the DCA streak leaderboard. Shows top partnerships by streak length, and highlights your entry if you have one.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const session = loadSession();
+        if (!session) {
+          return createJsonResponse({
+            success: false,
+            message: "Not connected to Pillar. Please use pillar_connect first.",
+          });
+        }
+
+        const api = getPillarApi();
+        const result = await api.get<{
+          leaderboard: Array<{
+            rank: number;
+            partnerNames: string[];
+            streak: number;
+            pnl?: number;
+            isUser?: boolean;
+          }>;
+          userEntry?: {
+            rank: number;
+            partnerName: string;
+            streak: number;
+            pnl?: number;
+          };
+        }>("/api/dca-partner/leaderboard", { walletAddress: session.walletAddress });
+
+        return createJsonResponse({
+          success: true,
+          leaderboard: result.leaderboard.map(entry => ({
+            rank: entry.rank,
+            partners: entry.partnerNames.join(" & "),
+            streak: entry.streak,
+            pnl: entry.pnl,
+            isYou: entry.isUser || false,
+          })),
+          yourRank: result.userEntry ? {
+            rank: result.userEntry.rank,
+            partner: result.userEntry.partnerName,
+            streak: result.userEntry.streak,
+            pnl: result.userEntry.pnl,
+          } : null,
+          message: result.userEntry
+            ? `You're ranked #${result.userEntry.rank} with a ${result.userEntry.streak}-week streak with ${result.userEntry.partnerName}.`
+            : "You don't have an active partnership on the leaderboard yet. Use pillar_dca_invite to get started.",
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Tool 17: Check DCA schedule status (direct API)
+  server.registerTool(
+    "pillar_dca_status",
+    {
+      description:
+        "Check your DCA schedule status. Shows active or recent DCA schedules with chunk progress " +
+        "(completed, pending, failed) and next execution time.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const session = loadSession();
+        if (!session) {
+          return createJsonResponse({
+            success: false,
+            message: "Not connected to Pillar. Please use pillar_connect first.",
+          });
+        }
+
+        const api = getPillarApi();
+        const result = await api.get<{
+          schedule?: {
+            id: string;
+            totalAmount: number;
+            chunkSize: number;
+            totalChunks: number;
+            completedChunks: number;
+            pendingChunks: number;
+            failedChunks: number;
+            nextExecution?: string;
+            status: string;
+            createdAt: string;
+          };
+        }>("/api/pillar/dca-status", { walletAddress: session.walletAddress });
+
+        if (!result.schedule) {
+          return createJsonResponse({
+            success: true,
+            hasSchedule: false,
+            message: "No active DCA schedule. Use pillar_boost with an amount over 100,000 sats to start one.",
+          });
+        }
+
+        const s = result.schedule;
+        return createJsonResponse({
+          success: true,
+          hasSchedule: true,
+          schedule: {
+            id: s.id,
+            status: s.status,
+            totalAmount: s.totalAmount,
+            chunkSize: s.chunkSize,
+            progress: `${s.completedChunks}/${s.totalChunks} chunks completed`,
+            completedChunks: s.completedChunks,
+            pendingChunks: s.pendingChunks,
+            failedChunks: s.failedChunks,
+            nextExecution: s.nextExecution || null,
+            createdAt: s.createdAt,
+          },
+          message: s.status === "active"
+            ? `DCA active: ${s.completedChunks}/${s.totalChunks} chunks done (${s.chunkSize} sats each). Next: ${s.nextExecution || "pending"}.`
+            : `DCA ${s.status}: ${s.completedChunks}/${s.totalChunks} chunks completed.`,
         });
       } catch (error) {
         return createErrorResponse(error);
