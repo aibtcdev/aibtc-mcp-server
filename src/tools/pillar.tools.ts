@@ -1050,7 +1050,7 @@ export function registerPillarTools(server: McpServer): void {
     "pillar_dca_status",
     {
       description:
-        "Check your DCA schedule status. Shows active or recent DCA schedules with chunk progress " +
+        "Check your DCA schedule status. Shows all active DCA schedules (up to 10) with chunk progress " +
         "(completed, pending, failed) and next execution time.",
       inputSchema: {},
     },
@@ -1065,48 +1065,126 @@ export function registerPillarTools(server: McpServer): void {
         }
 
         const api = getPillarApi();
-        const result = await api.get<{
-          schedule?: {
-            id: string;
-            totalAmount: number;
-            chunkSize: number;
-            totalChunks: number;
-            completedChunks: number;
-            pendingChunks: number;
-            failedChunks: number;
-            nextExecution?: string;
-            status: string;
-            createdAt: string;
-          };
-        }>("/api/pillar/dca-status", { walletAddress: session.walletAddress });
 
-        if (!result.schedule) {
+        interface DcaScheduleInfo {
+          id: string;
+          totalSbtcAmount: number;
+          chunkSizeSats: number;
+          totalChunks: number;
+          completedChunks: number;
+          failedChunks: number;
+          status: string;
+          btcPriceAtCreation: number | null;
+          createdAt: number;
+          completedAt: number | null;
+        }
+
+        interface DcaChunkInfo {
+          id: string;
+          chunkIndex: number;
+          sbtcAmount: number;
+          status: string;
+          scheduledAt: number;
+          executedAt: number | null;
+          txId: string | null;
+          retryCount: number;
+          errorMessage: string | null;
+        }
+
+        interface DcaStatusResult {
+          schedule: DcaScheduleInfo;
+          chunks: DcaChunkInfo[];
+          allSchedules?: { schedule: DcaScheduleInfo; chunks: DcaChunkInfo[] }[];
+          activeCount?: number;
+          maxSchedules?: number;
+        }
+
+        const raw = await api.get<{ success: boolean; data: DcaStatusResult | null }>(
+          "/api/pillar/dca-status",
+          { walletAddress: session.walletAddress }
+        );
+
+        const result = raw.data;
+
+        if (!result) {
           return createJsonResponse({
             success: true,
             hasSchedule: false,
+            activeCount: 0,
+            maxSchedules: 10,
             message: "No active DCA schedule. Use pillar_boost with an amount over 100,000 sats to start one.",
           });
         }
 
-        const s = result.schedule;
+        const allSchedules = result.allSchedules || [{ schedule: result.schedule, chunks: result.chunks }];
+        const activeCount = result.activeCount ?? (result.schedule.status === "active" ? 1 : 0);
+        const maxSchedules = result.maxSchedules ?? 10;
+
+        const formatSchedule = (s: DcaScheduleInfo, chunks: DcaChunkInfo[]) => {
+          const pendingChunks = chunks.filter((c) => c.status === "pending" || c.status === "executing").length;
+          const nextPending = chunks
+            .filter((c) => c.status === "pending")
+            .sort((a, b) => a.scheduledAt - b.scheduledAt)[0];
+          const nextExecution = nextPending
+            ? new Date(nextPending.scheduledAt).toISOString()
+            : null;
+
+          return {
+            id: s.id,
+            status: s.status,
+            totalSbtcAmount: s.totalSbtcAmount,
+            chunkSizeSats: s.chunkSizeSats,
+            progress: `${s.completedChunks}/${s.totalChunks} chunks completed`,
+            completedChunks: s.completedChunks,
+            pendingChunks,
+            failedChunks: s.failedChunks,
+            nextExecution,
+            createdAt: new Date(s.createdAt).toISOString(),
+          };
+        };
+
+        const schedules = allSchedules.map((entry) =>
+          formatSchedule(entry.schedule, entry.chunks)
+        );
+
+        const activeSchedules = schedules.filter((s) => s.status === "active");
+
+        if (activeSchedules.length === 0) {
+          // No active, show most recent
+          const latest = schedules[0];
+          return createJsonResponse({
+            success: true,
+            hasSchedule: true,
+            activeCount: 0,
+            maxSchedules,
+            schedule: latest,
+            message: `DCA ${latest.status}: ${latest.progress}.`,
+          });
+        }
+
+        if (activeSchedules.length === 1) {
+          const s = activeSchedules[0];
+          return createJsonResponse({
+            success: true,
+            hasSchedule: true,
+            activeCount,
+            maxSchedules,
+            schedule: s,
+            message: `DCA active: ${s.progress} (${s.chunkSizeSats} sats/chunk). Next: ${s.nextExecution || "pending"}.`,
+          });
+        }
+
+        // Multiple active schedules
+        const summaries = activeSchedules.map(
+          (s) => `Schedule ${s.id.slice(0, 8)}: ${s.progress}, next: ${s.nextExecution || "pending"}`
+        );
         return createJsonResponse({
           success: true,
           hasSchedule: true,
-          schedule: {
-            id: s.id,
-            status: s.status,
-            totalAmount: s.totalAmount,
-            chunkSize: s.chunkSize,
-            progress: `${s.completedChunks}/${s.totalChunks} chunks completed`,
-            completedChunks: s.completedChunks,
-            pendingChunks: s.pendingChunks,
-            failedChunks: s.failedChunks,
-            nextExecution: s.nextExecution || null,
-            createdAt: s.createdAt,
-          },
-          message: s.status === "active"
-            ? `DCA active: ${s.completedChunks}/${s.totalChunks} chunks done (${s.chunkSize} sats each). Next: ${s.nextExecution || "pending"}.`
-            : `DCA ${s.status}: ${s.completedChunks}/${s.totalChunks} chunks completed.`,
+          activeCount,
+          maxSchedules,
+          schedules: activeSchedules,
+          message: `${activeCount} active DCA schedules (max ${maxSchedules}):\n${summaries.join("\n")}`,
         });
       } catch (error) {
         return createErrorResponse(error);
