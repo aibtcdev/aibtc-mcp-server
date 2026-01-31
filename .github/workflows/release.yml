@@ -123,6 +123,7 @@ jobs:
             --name "AIBTC Bitcoin Wallet" \
             --version "$VERSION" \
             --changelog "$CHANGELOG" \
-            --tags latest
+            --tags latest \
+            --token "$CLAWHUB_API_TOKEN"
         env:
           CLAWHUB_API_TOKEN: ${{ secrets.CLAWHUB_API_TOKEN }}
