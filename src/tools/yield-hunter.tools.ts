@@ -14,18 +14,16 @@ import { createJsonResponse, createErrorResponse, getSbtcBalance } from "../util
 /**
  * Fee buffer to reserve for transaction costs (in satoshis).
  *
- * This buffer ensures the agent always has funds to pay for:
- * 1. Stacks transaction fees (~2-10 sats per transaction)
- * 2. x402 API payment fees (~1,000-10,000 sats per call, varies by endpoint)
+ * This buffer ensures the agent always has funds to pay for Stacks transaction
+ * fees (~2-10 sats per transaction). The yield hunter only performs on-chain
+ * supply transactions - it does not call any x402 endpoints.
  *
- * Default: 50,000 sats (0.0005 sBTC, ~$50 at $100k BTC)
- * - Covers ~5,000+ Stacks transactions
- * - Covers ~5-50 x402 API calls depending on endpoint pricing
- * - Provides safety margin for fee fluctuations
+ * Default: 1,000 sats (0.00001 sBTC, ~$1 at $100k BTC)
+ * - Covers 100-500 Stacks transactions
  *
  * Customize via yield_hunter_start or yield_hunter_configure feeBuffer parameter.
  */
-const FEE_BUFFER_SATS = 50_000n;
+const FEE_BUFFER_SATS = 1_000n;
 
 /** Maximum retries for failed transactions */
 const MAX_RETRIES = 3;
@@ -369,7 +367,7 @@ Only works on mainnet (Zest Protocol is mainnet-only).
 
 Default settings:
 - Deposit threshold: 10,000 sats (0.0001 sBTC)
-- Fee buffer: 50,000 sats (0.0005 sBTC) - kept for x402 fees + tx costs
+- Fee buffer: 1,000 sats (0.00001 sBTC) - kept for Stacks tx fees
 - Check interval: 10 minutes`,
       inputSchema: {
         threshold: z
@@ -382,7 +380,7 @@ Default settings:
           .string()
           .optional()
           .describe(
-            "sBTC (in sats) to keep for fees, never deposited. Default: 50000"
+            "sBTC (in sats) to keep for fees, never deposited. Default: 1000"
           ),
         interval: z
           .number()
