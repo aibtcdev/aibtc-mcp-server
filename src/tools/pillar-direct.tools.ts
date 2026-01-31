@@ -73,8 +73,10 @@ export function registerPillarDirectTools(server: McpServer): void {
           .describe("Password to encrypt the private key (min 8 characters)"),
         smartWallet: z
           .string()
+          .default("pending")
           .describe(
-            "Smart wallet contract ID this key is for (e.g. SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22.my-wallet)"
+            "Smart wallet contract ID this key is for (e.g. SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22.my-wallet). " +
+            "Use 'pending' if creating a new wallet — pillar_direct_create_wallet will update it automatically."
           ),
       },
     },
@@ -630,6 +632,91 @@ export function registerPillarDirectTools(server: McpServer): void {
           txId: result.data.txId,
           walletAddress: session.smartWallet,
           newAdmin,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --- pillar_direct_create_wallet (twin of pillar_create_wallet) ---
+  // Calls the unified deploy endpoint with the agent's pubkey.
+  // Backend deploys contract + calls onboard(pubkey) in background.
+  server.registerTool(
+    "pillar_direct_create_wallet",
+    {
+      description:
+        "Create a new Pillar smart wallet for agent direct operations. " +
+        "Uses the signing key's pubkey. Backend deploys the contract and calls onboard() " +
+        "with the pubkey. Status starts as pending_init, then becomes deployed once onboard confirms. " +
+        "Requires pillar_key_generate + pillar_key_unlock first.",
+      inputSchema: {
+        walletName: z
+          .string()
+          .min(3)
+          .max(20)
+          .describe(
+            "Wallet name (3-20 chars, lowercase letters, numbers, hyphens). " +
+            "The contract will be deployed as {walletName}-wallet."
+          ),
+        referredBy: z
+          .string()
+          .describe(
+            "Contract address of the referring wallet (e.g. SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22.alice-wallet). " +
+            "Required signup gate."
+          ),
+      },
+    },
+    async ({ walletName, referredBy }) => {
+      try {
+        const { session } = requireActiveKey();
+
+        // Use the signing key's pubkey for onboarding
+        const pubkey = session.pubkey.startsWith("0x")
+          ? session.pubkey
+          : "0x" + session.pubkey;
+
+        // Placeholders for Privy-specific fields
+        const email = `${walletName}@agent.pillarbtc.com`;
+        const privyWalletAddress = "0x0000000000000000000000000000000000000000";
+
+        const api = getPillarApi();
+        const result = await api.post<{
+          success: boolean;
+          data: {
+            walletName: string;
+            contractName: string;
+            contractAddress: string;
+            deployTxId: string;
+            initTxId: string | null;
+            status: string;
+          };
+        }>("/api/smart-wallet/deploy", {
+          walletName,
+          ownerPubkey: pubkey,
+          email,
+          privyWalletAddress,
+          referredBy,
+        });
+
+        // Automatically associate signing key with the new wallet
+        const keyService = getSigningKeyService();
+        await keyService.updateKeyWallet(
+          session.keyId,
+          result.data.contractAddress
+        );
+
+        return createJsonResponse({
+          success: true,
+          operation: "create-wallet",
+          walletName: result.data.walletName,
+          contractName: result.data.contractName,
+          contractAddress: result.data.contractAddress,
+          deployTxId: result.data.deployTxId,
+          status: result.data.status,
+          pubkey,
+          note: "Wallet deployed and signing key updated. Backend is calling onboard() in background. " +
+            "Status will change from pending_init to deployed once onboard confirms.",
         });
       } catch (error) {
         return createErrorResponse(error);

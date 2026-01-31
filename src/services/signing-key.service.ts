@@ -339,6 +339,24 @@ class SigningKeyService {
     return index.keys;
   }
 
+  async updateKeyWallet(keyId: string, smartWallet: string): Promise<void> {
+    await this.ensureInitialized();
+
+    const index = await this.readIndex();
+    const keyMeta = index.keys.find((k) => k.id === keyId);
+    if (!keyMeta) {
+      throw new Error(`Signing key not found: ${keyId}`);
+    }
+
+    keyMeta.smartWallet = smartWallet;
+    await this.writeIndex(index);
+
+    // Update active session if this key is unlocked
+    if (this.session?.keyId === keyId) {
+      this.session.smartWallet = smartWallet;
+    }
+  }
+
   async deleteKey(keyId: string, password: string): Promise<void> {
     await this.ensureInitialized();
 
