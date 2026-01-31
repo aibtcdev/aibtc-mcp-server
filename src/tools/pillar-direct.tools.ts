@@ -467,34 +467,58 @@ export function registerPillarDirectTools(server: McpServer): void {
     async ({ to, amount, recipientType }) => {
       try {
         const { keyService, session } = await requireActiveKey();
+        const api = getPillarApi();
 
-        // For sip010-transfer, we sign with the sBTC token contract
-        // The backend resolves BNS/wallet names and handles the actual transfer
         const sbtcContract =
           "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
 
-        // We need the resolved recipient address for the hash.
-        // For BNS/wallet types, the backend resolves it, but we also need it in the hash.
-        // Send to the backend which handles resolution + hash verification.
+        // Resolve recipient to a Stacks address before building the hash.
+        // principalCV() only accepts SP/ST addresses — BNS/wallet names must be resolved first.
+        let resolvedAddress: string;
+
+        if (recipientType === "address" || to.startsWith("SP") || to.startsWith("ST")) {
+          resolvedAddress = to;
+        } else if (recipientType === "wallet") {
+          // Pillar wallet name → look up contract address via backend
+          const walletLookup = await api.get<{
+            success: boolean;
+            data: { contractAddress: string } | null;
+          }>(`/api/smart-wallet/${to}`);
+          if (!walletLookup.data?.contractAddress) {
+            throw new Error(`Pillar wallet "${to}" not found.`);
+          }
+          resolvedAddress = walletLookup.data.contractAddress;
+        } else {
+          // BNS name → resolve via backend (same as frontend bnsApi.resolve)
+          const bnsName = to.endsWith(".btc") ? to : `${to}.btc`;
+          const bnsLookup = await api.get<{
+            success: boolean;
+            data: { address: string } | null;
+          }>("/api/bns/resolve", { name: bnsName });
+          if (!bnsLookup.data?.address) {
+            throw new Error(`BNS name "${bnsName}" could not be resolved.`);
+          }
+          resolvedAddress = bnsLookup.data.address;
+        }
+
         const authId = generateAuthId();
         const structuredData = tupleCV({
           topic: stringAsciiCV("sip010-transfer"),
           "auth-id": uintCV(authId),
           amount: uintCV(amount),
-          recipient: principalCV(to), // Backend handles BNS resolution
+          recipient: principalCV(resolvedAddress),
           memo: noneCV(),
           sip010: principalCV(sbtcContract),
         });
 
         const sigAuth = keyService.sign(structuredData, authId);
-        const api = getPillarApi();
         const result = await api.post<{
           success: boolean;
           data: { txId: string };
         }>("/smart-wallet/sip010-transfer", {
           walletAddress: session.smartWallet,
           amount,
-          recipient: to,
+          recipient: resolvedAddress,
           sip010: sbtcContract,
           tokenName: "sBTC",
           sigAuth: formatSigAuthForApi(sigAuth),
@@ -506,6 +530,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           txId: result.data.txId,
           walletAddress: session.smartWallet,
           to,
+          resolvedAddress,
           amount,
         });
       } catch (error) {
