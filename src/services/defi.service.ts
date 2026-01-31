@@ -12,8 +12,6 @@ import {
   listCV,
   tupleCV,
   noneCV,
-  someCV,
-  bufferCV,
 } from "@stacks/transactions";
 import { STACKS_MAINNET } from "@stacks/network";
 import { AlexSDK, Currency, type TokenInfo } from "alex-sdk";
@@ -364,6 +362,7 @@ export class AlexDexService {
 export class ZestProtocolService {
   private hiro: HiroApiService;
   private contracts: ReturnType<typeof getZestContracts>;
+  private assetsListCache: ClarityValue | null = null;
 
   constructor(private network: Network) {
     this.hiro = getHiroApi(network);
@@ -400,13 +399,18 @@ export class ZestProtocolService {
   /**
    * Build the assets-list CV required for borrow/withdraw operations
    * This is a list of tuples containing (asset, lp-token, oracle) for all supported assets
+   * Result is cached since ZEST_ASSETS_LIST is static
    */
   private buildAssetsListCV(): ClarityValue {
-    return listCV(
+    if (this.assetsListCache) {
+      return this.assetsListCache;
+    }
+
+    this.assetsListCache = listCV(
       ZEST_ASSETS_LIST.map((asset) => {
-        const [assetAddr, assetName] = asset.token.split(".");
-        const [lpAddr, lpName] = asset.lpToken.split(".");
-        const [oracleAddr, oracleName] = asset.oracle.split(".");
+        const [assetAddr, assetName] = parseContractIdTuple(asset.token);
+        const [lpAddr, lpName] = parseContractIdTuple(asset.lpToken);
+        const [oracleAddr, oracleName] = parseContractIdTuple(asset.oracle);
 
         return tupleCV({
           asset: contractPrincipalCV(assetAddr, assetName),
@@ -415,6 +419,8 @@ export class ZestProtocolService {
         });
       })
     );
+
+    return this.assetsListCache;
   }
 
   /**
@@ -500,9 +506,9 @@ export class ZestProtocolService {
 
     const assetConfig = this.getAssetConfig(asset);
     const { address, name } = parseContractId(this.contracts!.borrowHelper);
-    const [lpAddr, lpName] = assetConfig.lpToken.split(".");
-    const [assetAddr, assetName] = assetConfig.token.split(".");
-    const [incentivesAddr, incentivesName] = this.contracts!.incentives.split(".");
+    const [lpAddr, lpName] = parseContractIdTuple(assetConfig.lpToken);
+    const [assetAddr, assetName] = parseContractIdTuple(assetConfig.token);
+    const [incentivesAddr, incentivesName] = parseContractIdTuple(this.contracts!.incentives);
 
     const functionArgs: ClarityValue[] = [
       contractPrincipalCV(lpAddr, lpName),                    // lp
@@ -545,10 +551,10 @@ export class ZestProtocolService {
 
     const assetConfig = this.getAssetConfig(asset);
     const { address, name } = parseContractId(this.contracts!.borrowHelper);
-    const [assetAddr, assetName] = assetConfig.token.split(".");
-    const [lpAddr, lpName] = assetConfig.lpToken.split(".");
-    const [oracleAddr, oracleName] = assetConfig.oracle.split(".");
-    const [incentivesAddr, incentivesName] = this.contracts!.incentives.split(".");
+    const [assetAddr, assetName] = parseContractIdTuple(assetConfig.token);
+    const [lpAddr, lpName] = parseContractIdTuple(assetConfig.lpToken);
+    const [oracleAddr, oracleName] = parseContractIdTuple(assetConfig.oracle);
+    const [incentivesAddr, incentivesName] = parseContractIdTuple(this.contracts!.incentives);
 
     const functionArgs: ClarityValue[] = [
       contractPrincipalCV(lpAddr, lpName),                    // lp
@@ -594,9 +600,9 @@ export class ZestProtocolService {
 
     const assetConfig = this.getAssetConfig(asset);
     const { address, name } = parseContractId(this.contracts!.borrowHelper);
-    const [assetAddr, assetName] = assetConfig.token.split(".");
-    const [lpAddr, lpName] = assetConfig.lpToken.split(".");
-    const [oracleAddr, oracleName] = assetConfig.oracle.split(".");
+    const [assetAddr, assetName] = parseContractIdTuple(assetConfig.token);
+    const [lpAddr, lpName] = parseContractIdTuple(assetConfig.lpToken);
+    const [oracleAddr, oracleName] = parseContractIdTuple(assetConfig.oracle);
 
     const functionArgs: ClarityValue[] = [
       principalCV(this.contracts!.poolReserve),               // pool-reserve
@@ -643,7 +649,7 @@ export class ZestProtocolService {
 
     const assetConfig = this.getAssetConfig(asset);
     const { address, name } = parseContractId(this.contracts!.poolBorrow);
-    const [assetAddr, assetName] = assetConfig.token.split(".");
+    const [assetAddr, assetName] = parseContractIdTuple(assetConfig.token);
 
     const functionArgs: ClarityValue[] = [
       contractPrincipalCV(assetAddr, assetName),              // asset
@@ -684,11 +690,11 @@ export class ZestProtocolService {
 
     const assetConfig = this.getAssetConfig(asset);
     const { address, name } = parseContractId(this.contracts!.borrowHelper);
-    const [lpAddr, lpName] = assetConfig.lpToken.split(".");
-    const [assetAddr, assetName] = assetConfig.token.split(".");
-    const [oracleAddr, oracleName] = assetConfig.oracle.split(".");
-    const [incentivesAddr, incentivesName] = this.contracts!.incentives.split(".");
-    const [wstxAddr, wstxName] = this.contracts!.wstx.split(".");
+    const [lpAddr, lpName] = parseContractIdTuple(assetConfig.lpToken);
+    const [assetAddr, assetName] = parseContractIdTuple(assetConfig.token);
+    const [oracleAddr, oracleName] = parseContractIdTuple(assetConfig.oracle);
+    const [incentivesAddr, incentivesName] = parseContractIdTuple(this.contracts!.incentives);
+    const [wstxAddr, wstxName] = parseContractIdTuple(this.contracts!.wstx);
 
     const functionArgs: ClarityValue[] = [
       contractPrincipalCV(lpAddr, lpName),                    // lp

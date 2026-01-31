@@ -5,7 +5,7 @@ import { getAccount, getWalletAddress, NETWORK } from "../services/x402.service.
 import { getZestProtocolService } from "../services/defi.service.js";
 import { getHiroApi } from "../services/hiro-api.js";
 import { ZEST_ASSETS, MAINNET_CONTRACTS } from "../config/contracts.js";
-import { createJsonResponse, createErrorResponse } from "../utils/index.js";
+import { createJsonResponse, createErrorResponse, getSbtcBalance } from "../utils/index.js";
 
 // ============================================================================
 // Constants
@@ -124,22 +124,6 @@ function formatApy(bps: number): string {
 // ============================================================================
 // Core Yield Hunting Logic
 // ============================================================================
-
-async function getSbtcBalance(address: string): Promise<bigint> {
-  const hiro = getHiroApi(NETWORK);
-  const balances = await hiro.getAccountBalances(address);
-
-  const sbtcToken = ZEST_ASSETS.sBTC.token;
-  const sbtcKey = Object.keys(balances.fungible_tokens || {}).find((key) =>
-    key.startsWith(sbtcToken)
-  );
-
-  if (sbtcKey && balances.fungible_tokens[sbtcKey]) {
-    return BigInt(balances.fungible_tokens[sbtcKey].balance);
-  }
-
-  return 0n;
-}
 
 /**
  * Fetch live APY from Zest Protocol on-chain
@@ -284,7 +268,7 @@ async function runYieldCheck(): Promise<void> {
 
     // Get current sBTC balance in wallet
     const walletBalance = await executeWithRetry(
-      () => getSbtcBalance(account.address),
+      () => getSbtcBalance(account.address, NETWORK),
       "Fetch wallet balance"
     );
     addLog("info", `Wallet sBTC: ${formatSats(walletBalance)}`);
@@ -685,7 +669,7 @@ async function getFullStatus() {
       // Fetch all data in parallel
       const [position, walletBalance, apy] = await Promise.all([
         zest.getUserPosition(ZEST_ASSETS.sBTC.token, address),
-        getSbtcBalance(address),
+        getSbtcBalance(address, NETWORK),
         fetchZestApy(),
       ]);
 
