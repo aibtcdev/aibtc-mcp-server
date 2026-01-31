@@ -276,19 +276,23 @@ export interface TokenMetadata {
 
 export class HiroApiService {
   private baseUrl: string;
+  private apiKey: string;
 
   constructor(private network: Network) {
     this.baseUrl = getApiBaseUrl(network);
+    this.apiKey = process.env.HIRO_API_KEY || "";
   }
 
   private async fetch<T>(path: string, options?: RequestInit): Promise<T> {
     const url = `${this.baseUrl}${path}`;
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(this.apiKey ? { "x-hiro-api-key": this.apiKey } : {}),
+      ...(options?.headers as Record<string, string>),
+    };
     const response = await fetch(url, {
       ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...options?.headers,
-      },
+      headers,
     });
 
     if (!response.ok) {
