@@ -708,14 +708,22 @@ export class ZestProtocolService {
       noneCV(),                                               // price-feed-bytes (none for now)
     ];
 
-    // Post-condition: incentives contract will send wSTX rewards
-    // Using Allow mode since we don't know the exact reward amount
+    // Post-condition: pool reserve will send wSTX rewards to user
+    // Using willSendGte(0n) since we don't know the exact reward amount
+    // Deny mode ensures no unexpected token transfers can occur
+    const postConditions = [
+      Pc.principal(this.contracts!.poolReserve)
+        .willSendGte(0n)
+        .ft(this.contracts!.wstx as `${string}.${string}`, wstxName),
+    ];
+
     return callContract(account, {
       contractAddress: address,
       contractName: name,
       functionName: "claim-rewards",
       functionArgs,
-      postConditionMode: PostConditionMode.Allow,
+      postConditionMode: PostConditionMode.Deny,
+      postConditions,
     });
   }
 }
