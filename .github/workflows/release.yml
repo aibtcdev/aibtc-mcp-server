@@ -97,3 +97,25 @@ jobs:
           prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to ClawHub
+        if: ${{ !contains(steps.version.outputs.VERSION, '-') }}
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          PREV_TAG="${{ steps.prev_tag.outputs.PREV_TAG }}"
+
+          # Generate changelog for ClawHub
+          if [ -n "$PREV_TAG" ]; then
+            CHANGELOG=$(git log --pretty=format:"- %s" ${PREV_TAG}..HEAD | head -20)
+          else
+            CHANGELOG="Initial release"
+          fi
+
+          npx clawhub publish ./skill \
+            --slug aibtc-bitcoin-wallet \
+            --name "AIBTC Bitcoin Wallet" \
+            --version "$VERSION" \
+            --changelog "$CHANGELOG" \
+            --tags latest
+        env:
+          CLAWHUB_API_TOKEN: ${{ secrets.CLAWHUB_API_TOKEN }}

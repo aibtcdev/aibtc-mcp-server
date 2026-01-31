@@ -391,6 +391,17 @@ npm run build
 npm run dev       # Run with tsx (development)
 ```
 
+### Repository Secrets (Maintainers)
+
+The following secrets are required for the release workflow:
+
+| Secret | Description |
+|--------|-------------|
+| `NPM_TOKEN` | npm publish token for @aibtc scope |
+| `CLAWHUB_API_TOKEN` | ClawHub API token for skill publishing |
+
+To obtain a ClawHub API token, visit [clawhub.ai](https://www.clawhub.ai) and create an account.
+
 ## License
 
 MIT
