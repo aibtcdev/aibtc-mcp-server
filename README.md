@@ -1,5 +1,8 @@
 # @aibtc/mcp-server
 
+[![npm version](https://img.shields.io/npm/v/@aibtc/mcp-server.svg)](https://www.npmjs.com/package/@aibtc/mcp-server)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 An MCP (Model Context Protocol) server that gives Claude its own Stacks wallet to interact with the blockchain and x402 paid API endpoints.
 
 ## Features
