@@ -4,7 +4,7 @@ description: Bitcoin L1 wallet for agents - check balances, send BTC, manage UTX
 license: MIT
 metadata:
   author: aibtcdev
-  version: 1.7.0
+  version: 1.9.0
   npm: "@aibtc/mcp-server"
   github: https://github.com/aibtcdev/aibtc-mcp-server
 ---

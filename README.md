@@ -3,13 +3,14 @@
 [![npm version](https://img.shields.io/npm/v/@aibtc/mcp-server.svg)](https://www.npmjs.com/package/@aibtc/mcp-server)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-An MCP (Model Context Protocol) server that gives Claude its own Stacks wallet to interact with the blockchain and x402 paid API endpoints.
+A Bitcoin-first MCP (Model Context Protocol) server that gives agents their own wallet for Bitcoin L1 operations, with Stacks L2 support for DeFi and x402 paid API endpoints.
 
 ## Features
 
-- **Agent's Own Wallet** - Claude gets its own wallet to perform blockchain transactions
+- **Bitcoin L1** - Check balances, send BTC, manage UTXOs via mempool.space
+- **Agent's Own Wallet** - Agents get their own wallet to perform blockchain transactions
 - **Secure Storage** - Wallets encrypted with AES-256-GCM and stored locally
-- **50+ Tools** - Comprehensive Stacks blockchain operations
+- **60+ Tools** - Bitcoin L1 + comprehensive Stacks L2 operations
 - **sBTC Support** - Native Bitcoin on Stacks operations
 - **Token Operations** - SIP-010 fungible token transfers and queries
 - **NFT Support** - SIP-009 NFT holdings, transfers, and metadata
