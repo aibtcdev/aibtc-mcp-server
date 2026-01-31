@@ -45,6 +45,7 @@ IMPORTANT: Save the mnemonic securely - it will only be shown once!`,
           address: result.address,
           btcAddress: result.btcAddress,
           network: network || NETWORK,
+          "---": "",
           mnemonic: result.mnemonic,
           warning:
             "CRITICAL: Save this mnemonic phrase securely! It will NOT be shown again. " +
