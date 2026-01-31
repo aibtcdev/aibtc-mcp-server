@@ -17,7 +17,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "skill"
   ],
   "keywords": [
     "claude",
@@ -29,7 +30,9 @@
     "blockchain",
     "crypto",
     "payments",
-    "aibtc"
+    "aibtc",
+    "agent-skills",
+    "clawhub"
   ],
   "author": "aibtcdev",
   "repository": {

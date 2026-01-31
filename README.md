@@ -353,6 +353,34 @@ For automated setups where Claude needs immediate wallet access, set the `CLIENT
 
 This bypasses the wallet creation flow - Claude has immediate access to transact.
 
+## Agent Skill
+
+This package includes an [Agent Skills](https://agentskills.io) compatible skill that teaches any LLM how to use the Bitcoin wallet capabilities effectively.
+
+### What is it?
+
+The `aibtc-bitcoin-wallet` skill provides:
+- Structured workflows for Bitcoin L1 operations (balance, send, fees)
+- Reference guides for Pillar smart wallets and Stacks L2 DeFi
+- LLM-agnostic instructions that work with Claude Code, Cursor, Codex, and 20+ other tools
+
+### Using the Skill
+
+The skill is automatically included when you install the MCP server. Find it at:
+- **Local**: `node_modules/@aibtc/mcp-server/skill/SKILL.md`
+- **ClawHub**: [clawhub.ai/skills](https://www.clawhub.ai/skills) - search for `aibtc-bitcoin-wallet`
+
+### Skill Structure
+
+```
+skill/
+├── SKILL.md                    # Bitcoin L1 core workflows
+└── references/
+    ├── pillar-wallet.md        # Pillar smart wallet guide
+    ├── stacks-defi.md          # Stacks L2 / DeFi operations
+    └── troubleshooting.md      # Common issues and solutions
+```
+
 ## Development
 
 ```bash

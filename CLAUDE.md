@@ -538,6 +538,17 @@ When a user asks for something:
 
 ---
 
+## Agent Skill
+
+This package includes an Agent Skills-compatible skill at `skill/SKILL.md`. The skill provides:
+- Structured workflows for Bitcoin L1 operations
+- Reference guides for Pillar smart wallets and Stacks L2 DeFi
+- LLM-agnostic instructions following the [agentskills.io](https://agentskills.io) spec
+
+When implementing Bitcoin wallet features, consult the skill for standardized patterns and workflows.
+
+---
+
 ## Knowledge Base References
 
 Use the local knowledge base for Stacks/Clarity and protocol guidance: `/Users/biwas/claudex402/claude-knowledge`
