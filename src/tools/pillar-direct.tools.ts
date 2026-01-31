@@ -520,7 +520,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           amount,
           recipient: resolvedAddress,
           sip010: sbtcContract,
-          tokenName: "sBTC",
+          tokenName: "sbtc-token",
           sigAuth: formatSigAuthForApi(sigAuth),
         });
 
