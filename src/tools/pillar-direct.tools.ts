@@ -18,8 +18,17 @@ import {
   type SigAuth,
 } from "../services/signing-key.service.js";
 import { getPillarApi } from "../services/pillar-api.service.js";
+import { getHiroApi } from "../services/hiro-api.js";
+import { NETWORK } from "../config/networks.js";
 import { PILLAR_API_KEY } from "../config/pillar.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
+
+// ============================================================================
+// Token contract IDs (mainnet)
+// ============================================================================
+
+const SBTC_CONTRACT = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
+const AEUSDC_CONTRACT = "SP3Y2ZSH8P7D50B0VBTSX11S7XSG24M1VB9YFQA4K.token-aeusdc";
 
 // ============================================================================
 // Helpers
@@ -571,8 +580,8 @@ export function registerPillarDirectTools(server: McpServer): void {
     "pillar_direct_position",
     {
       description:
-        "View your Pillar smart wallet balance and Zest position. " +
-        "No signing needed — reads on-chain data via backend.",
+        "View your Pillar smart wallet balances (STX, sBTC, aeUSDC) and Zest position. " +
+        "No signing needed — reads on-chain data.",
       inputSchema: {},
     },
     async () => {
@@ -606,7 +615,51 @@ export function registerPillarDirectTools(server: McpServer): void {
           });
         }
 
-        // Wallet is deployed — fetch position
+        // Fetch on-chain balances (STX, sBTC, aeUSDC) from Hiro API
+        const hiro = getHiroApi(NETWORK);
+        let stxBalance = "0";
+        let sbtcBalanceSats = 0;
+        let aeusdcBalance = 0;
+
+        try {
+          const balances = await hiro.getAccountBalances(session.smartWallet);
+
+          // STX balance (in micro-STX)
+          stxBalance = balances.stx?.balance || "0";
+
+          // sBTC balance (in sats)
+          const sbtcKey = Object.keys(balances.fungible_tokens || {}).find(
+            (k) => k.includes("sbtc-token")
+          );
+          if (sbtcKey) {
+            sbtcBalanceSats = parseInt(balances.fungible_tokens[sbtcKey].balance || "0");
+          }
+
+          // aeUSDC balance (6 decimals)
+          const aeusdcKey = Object.keys(balances.fungible_tokens || {}).find(
+            (k) => k.includes("token-aeusdc")
+          );
+          if (aeusdcKey) {
+            aeusdcBalance = parseInt(balances.fungible_tokens[aeusdcKey].balance || "0");
+          }
+        } catch {
+          // Hiro API may fail for very fresh wallets — continue with zeroes
+        }
+
+        const stxMicro = BigInt(stxBalance);
+        const stxFormatted = `${stxMicro / BigInt(1_000_000)}.${(stxMicro % BigInt(1_000_000)).toString().padStart(6, "0")} STX`;
+
+        const walletBalances = {
+          stx: stxFormatted,
+          stxMicroStx: stxBalance,
+          sbtcSats: sbtcBalanceSats,
+          sbtcBtc: sbtcBalanceSats / 1e8,
+          aeusdcRaw: aeusdcBalance,
+          aeusdcFormatted: (aeusdcBalance / 1e6).toFixed(2),
+        };
+
+        // Wallet is deployed — fetch Zest position
+        let position: Record<string, unknown> | null = null;
         try {
           const unwindQuote = await api.get<{
             success: boolean;
@@ -623,25 +676,22 @@ export function registerPillarDirectTools(server: McpServer): void {
             walletAddress: session.smartWallet,
           });
 
-          return createJsonResponse({
-            success: true,
-            walletAddress: session.smartWallet,
-            status: walletStatus,
-            position: unwindQuote.data,
-          });
+          position = unwindQuote.data as Record<string, unknown>;
         } catch {
           // unwind-quote may fail for fresh wallets with no position
-          return createJsonResponse({
-            success: true,
-            walletAddress: session.smartWallet,
-            status: walletStatus,
-            position: {
-              collateralSats: 0,
-              borrowedAeUsdc: 0,
-              message: "No Zest position yet. Supply sBTC or boost to get started.",
-            },
-          });
         }
+
+        return createJsonResponse({
+          success: true,
+          walletAddress: session.smartWallet,
+          status: walletStatus,
+          balances: walletBalances,
+          zestPosition: position || {
+            collateralSats: 0,
+            borrowedAeUsdc: 0,
+            message: "No Zest position yet. Supply sBTC or boost to get started.",
+          },
+        });
       } catch (error) {
         return createErrorResponse(error);
       }
