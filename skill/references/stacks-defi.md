@@ -71,13 +71,16 @@ Lending and borrowing protocol for earning yield on assets.
 
 | Symbol | Description |
 |--------|-------------|
-| sBTC | Synthetic Bitcoin |
+| sBTC | Wrapped Bitcoin |
 | aeUSDC | Bridged USDC |
 | stSTX | Staked STX |
 | wSTX | Wrapped STX |
 | USDH | Stablecoin |
+| sUSDT | Bridged USDT |
 | USDA | Arkadiko stablecoin |
+| DIKO | Arkadiko governance token |
 | ALEX | ALEX token |
+| stSTX-BTC | Staked STX/BTC LP |
 
 ### Check Position
 
@@ -146,7 +149,7 @@ Pay-per-use APIs with automatic micropayments. The agent handles HTTP 402 paymen
 
 ### API Services
 
-Two complementary x402 API services are available:
+Three complementary x402 API services are available:
 
 #### STX402 Directory (stx402.com)
 
@@ -173,6 +176,19 @@ Utility services for agents:
 | **Storage** | `/storage/kv/*`, `/storage/paste/*`, `/storage/db/*`, `/storage/memory/*` |
 
 [API Docs](https://x402.aibtc.com/docs) · [Staging](https://x402.aibtc.dev)
+
+#### x402 Biwas API (x402.biwas.xyz)
+
+DeFi analytics and market data:
+
+| Category | Endpoints |
+|----------|-----------|
+| **Pools** | `/api/pools/trending`, `/api/pools/all` |
+| **Market Data** | `/api/tokens/prices`, `/api/tokens/trending` |
+| **Wallet Analysis** | `/api/wallet/holdings`, `/api/wallet/history` |
+| **Security** | `/api/security/audit`, `/api/security/score` |
+
+[API Docs](https://x402.biwas.xyz/docs)
 
 ### Usage
 

@@ -130,6 +130,7 @@ Uses `pillar_unwind` - repays borrowed sBTC and withdraws collateral.
 
 ### Browser Handoff Tools
 
+**Connection & Transactions:**
 | Tool | Description |
 |------|-------------|
 | `pillar_connect` | Connect to wallet (opens browser) |
@@ -137,25 +138,62 @@ Uses `pillar_unwind` - repays borrowed sBTC and withdraws collateral.
 | `pillar_status` | Check connection |
 | `pillar_send` | Send sBTC |
 | `pillar_fund` | Fund wallet |
+
+**DeFi (Zest Protocol):**
+| Tool | Description |
+|------|-------------|
 | `pillar_supply` | Supply to Zest |
 | `pillar_boost` | Leverage position |
 | `pillar_unwind` | Close position |
+| `pillar_auto_compound` | Configure auto-compound |
 | `pillar_position` | View position |
+
+**Wallet Management:**
+| Tool | Description |
+|------|-------------|
+| `pillar_create_wallet` | Create new wallet |
+| `pillar_add_admin` | Add backup admin |
+| `pillar_invite` | Get referral link |
+
+**DCA Partnerships:**
+| Tool | Description |
+|------|-------------|
+| `pillar_dca_invite` | Invite DCA partner |
+| `pillar_dca_partners` | View DCA partners |
+| `pillar_dca_leaderboard` | View leaderboard |
+| `pillar_dca_status` | Check DCA status |
 
 ### Agent Direct Tools (Recommended for Agents)
 
+**Key Management:**
 | Tool | Description |
 |------|-------------|
 | `pillar_key_generate` | Generate signing keypair |
 | `pillar_key_unlock` | Unlock signing key |
+| `pillar_key_lock` | Lock signing key |
 | `pillar_key_info` | Show key status |
+
+**Direct Operations:**
+| Tool | Description |
+|------|-------------|
 | `pillar_direct_create_wallet` | Create wallet + register key |
 | `pillar_direct_send` | Send sBTC |
 | `pillar_direct_supply` | Supply to Zest |
 | `pillar_direct_boost` | Leverage position |
 | `pillar_direct_unwind` | Close position |
+| `pillar_direct_withdraw_collateral` | Withdraw sBTC from Zest |
+| `pillar_direct_auto_compound` | Configure auto-compound |
+| `pillar_direct_add_admin` | Add backup admin |
 | `pillar_direct_position` | View position |
 | `pillar_direct_quote` | Get boost quote |
+
+**Direct DCA Tools:**
+| Tool | Description |
+|------|-------------|
+| `pillar_direct_dca_invite` | Invite DCA partner |
+| `pillar_direct_dca_partners` | View DCA partners |
+| `pillar_direct_dca_leaderboard` | View leaderboard |
+| `pillar_direct_dca_status` | Check DCA status |
 
 ## Environment Variables
 

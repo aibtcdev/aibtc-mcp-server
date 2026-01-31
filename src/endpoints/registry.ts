@@ -1,6 +1,6 @@
 /**
  * Known x402 endpoints registry
- * Endpoints from x402.biwas.xyz and stx402.com
+ * Endpoints from x402.biwas.xyz, x402.aibtc.com, and stx402.com
  */
 
 export interface X402Endpoint {
@@ -9,7 +9,7 @@ export interface X402Endpoint {
   description: string;
   cost: string;
   category: string;
-  source: "x402.biwas.xyz" | "stx402.com";
+  source: "x402.biwas.xyz" | "x402.aibtc.com" | "stx402.com";
   params?: Record<string, string>;
   body?: Record<string, string>;
 }
@@ -261,6 +261,199 @@ const BIWAS_FREE_ENDPOINTS: X402Endpoint[] = [
     category: "Tokens",
     source: "x402.biwas.xyz",
     body: { token: "Token symbol or contract ID" },
+  },
+];
+
+// =============================================================================
+// x402.aibtc.com ENDPOINTS
+// =============================================================================
+
+const AIBTC_PAID_ENDPOINTS: X402Endpoint[] = [
+  // Inference
+  {
+    path: "/inference/openrouter/chat",
+    method: "POST",
+    description: "Chat completion via OpenRouter (Claude, GPT-4, etc.)",
+    cost: "Dynamic",
+    category: "Inference",
+    source: "x402.aibtc.com",
+    body: { model: "Model name", messages: "Chat messages array" },
+  },
+  {
+    path: "/inference/cloudflare/chat",
+    method: "POST",
+    description: "Chat completion via Cloudflare Workers AI",
+    cost: "Dynamic",
+    category: "Inference",
+    source: "x402.aibtc.com",
+    body: { model: "Model name", messages: "Chat messages array" },
+  },
+
+  // Stacks Utilities
+  {
+    path: "/stacks/address",
+    method: "POST",
+    description: "Convert Stacks address between networks",
+    cost: "0.001 STX",
+    category: "Stacks Utilities",
+    source: "x402.aibtc.com",
+    body: { address: "Stacks address" },
+  },
+  {
+    path: "/stacks/decode",
+    method: "POST",
+    description: "Decode raw Stacks transaction",
+    cost: "0.001 STX",
+    category: "Stacks Utilities",
+    source: "x402.aibtc.com",
+    body: { tx: "Raw transaction hex" },
+  },
+  {
+    path: "/stacks/profile",
+    method: "POST",
+    description: "Get aggregated profile data (BNS, balances, NFTs)",
+    cost: "0.001 STX",
+    category: "Stacks Utilities",
+    source: "x402.aibtc.com",
+    body: { address: "Stacks address" },
+  },
+
+  // Hashing
+  {
+    path: "/hashing/sha256",
+    method: "POST",
+    description: "SHA-256 hash",
+    cost: "0.0005 STX",
+    category: "Hashing",
+    source: "x402.aibtc.com",
+    body: { data: "Data to hash" },
+  },
+  {
+    path: "/hashing/keccak256",
+    method: "POST",
+    description: "Keccak-256 hash",
+    cost: "0.0005 STX",
+    category: "Hashing",
+    source: "x402.aibtc.com",
+    body: { data: "Data to hash" },
+  },
+  {
+    path: "/hashing/hash160",
+    method: "POST",
+    description: "RIPEMD160(SHA256) hash",
+    cost: "0.0005 STX",
+    category: "Hashing",
+    source: "x402.aibtc.com",
+    body: { data: "Data to hash" },
+  },
+
+  // Storage - KV
+  {
+    path: "/storage/kv/set",
+    method: "POST",
+    description: "Store key-value pair",
+    cost: "0.001 STX",
+    category: "Storage",
+    source: "x402.aibtc.com",
+    body: { key: "Key name", value: "Value", ttl: "TTL in seconds (optional)" },
+  },
+  {
+    path: "/storage/kv/get",
+    method: "POST",
+    description: "Retrieve value by key",
+    cost: "0.0005 STX",
+    category: "Storage",
+    source: "x402.aibtc.com",
+    body: { key: "Key name" },
+  },
+  {
+    path: "/storage/kv/delete",
+    method: "POST",
+    description: "Delete key-value pair",
+    cost: "0.0005 STX",
+    category: "Storage",
+    source: "x402.aibtc.com",
+    body: { key: "Key name" },
+  },
+
+  // Storage - Paste
+  {
+    path: "/storage/paste/create",
+    method: "POST",
+    description: "Create a paste/snippet",
+    cost: "0.001 STX",
+    category: "Storage",
+    source: "x402.aibtc.com",
+    body: { content: "Content", language: "Language (optional)" },
+  },
+  {
+    path: "/storage/paste/get",
+    method: "POST",
+    description: "Retrieve paste by ID",
+    cost: "0.0005 STX",
+    category: "Storage",
+    source: "x402.aibtc.com",
+    body: { id: "Paste ID" },
+  },
+
+  // Storage - DB
+  {
+    path: "/storage/db/query",
+    method: "POST",
+    description: "Execute read-only SELECT query",
+    cost: "0.001 STX",
+    category: "Storage",
+    source: "x402.aibtc.com",
+    body: { sql: "SELECT query" },
+  },
+  {
+    path: "/storage/db/execute",
+    method: "POST",
+    description: "Execute write operations (INSERT, UPDATE, DELETE)",
+    cost: "0.001 STX",
+    category: "Storage",
+    source: "x402.aibtc.com",
+    body: { sql: "SQL statement" },
+  },
+
+  // Storage - Memory
+  {
+    path: "/storage/memory/store",
+    method: "POST",
+    description: "Store memory with optional embedding",
+    cost: "0.002 STX",
+    category: "Storage",
+    source: "x402.aibtc.com",
+    body: { key: "Memory key", content: "Content", embed: "Generate embedding (bool)" },
+  },
+  {
+    path: "/storage/memory/recall",
+    method: "POST",
+    description: "Retrieve memory by key",
+    cost: "0.0005 STX",
+    category: "Storage",
+    source: "x402.aibtc.com",
+    body: { key: "Memory key" },
+  },
+  {
+    path: "/storage/memory/search",
+    method: "POST",
+    description: "Semantic search across memories",
+    cost: "0.002 STX",
+    category: "Storage",
+    source: "x402.aibtc.com",
+    body: { query: "Search query", limit: "Max results" },
+  },
+];
+
+const AIBTC_FREE_ENDPOINTS: X402Endpoint[] = [
+  {
+    path: "/health",
+    method: "GET",
+    description: "Service health status",
+    cost: "FREE",
+    category: "System",
+    source: "x402.aibtc.com",
   },
 ];
 
@@ -915,8 +1108,8 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
 // EXPORTS
 // =============================================================================
 
-export const PAID_ENDPOINTS = [...BIWAS_PAID_ENDPOINTS, ...STX402_PAID_ENDPOINTS];
-export const FREE_ENDPOINTS = [...BIWAS_FREE_ENDPOINTS, ...STX402_FREE_ENDPOINTS];
+export const PAID_ENDPOINTS = [...BIWAS_PAID_ENDPOINTS, ...AIBTC_PAID_ENDPOINTS, ...STX402_PAID_ENDPOINTS];
+export const FREE_ENDPOINTS = [...BIWAS_FREE_ENDPOINTS, ...AIBTC_FREE_ENDPOINTS, ...STX402_FREE_ENDPOINTS];
 export const ALL_ENDPOINTS = [...PAID_ENDPOINTS, ...FREE_ENDPOINTS];
 
 /**
@@ -944,7 +1137,7 @@ export function getEndpointsByCategory(category: string): X402Endpoint[] {
 /**
  * Get endpoints by source
  */
-export function getEndpointsBySource(source: "x402.biwas.xyz" | "stx402.com"): X402Endpoint[] {
+export function getEndpointsBySource(source: "x402.biwas.xyz" | "x402.aibtc.com" | "stx402.com"): X402Endpoint[] {
   return ALL_ENDPOINTS.filter((endpoint) => endpoint.source === source);
 }
 

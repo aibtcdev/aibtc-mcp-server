@@ -12,11 +12,12 @@ The plugin automatically handles x402 payment challenges when accessing paid end
 
 ## API Sources
 
-The agent supports two x402 API sources:
+The agent supports three x402 API sources:
 
 | Source | URL | Endpoints |
 |--------|-----|-----------|
 | x402.biwas.xyz | https://x402.biwas.xyz | DeFi analytics, market data, wallet analysis |
+| x402.aibtc.com | https://x402.aibtc.com | Inference, Stacks utilities, hashing, storage |
 | stx402.com | https://stx402.com | AI services, cryptography, storage, utilities, agent registry |
 
 ## Build Commands
@@ -96,7 +97,9 @@ aibtc-mcp-server MCP Server (src/index.ts)
 - `src/services/scaffold.service.ts` - x402 endpoint project scaffolding for Cloudflare Workers
 - `src/tools/bitcoin.tools.ts` - Bitcoin L1 tools (balance, fees, UTXOs, transfer)
 - `src/tools/pillar.tools.ts` - Pillar smart wallet tools (handoff model)
+- `src/tools/pillar-direct.tools.ts` - Pillar direct tools (agent-signed, no browser)
 - `src/services/pillar-api.service.ts` - Pillar API client
+- `src/services/signing-key.service.ts` - Local signing key management for Pillar direct mode
 - `src/config/pillar.ts` - Pillar configuration (API URL, API key)
 
 ### BNS V1 vs V2
@@ -483,6 +486,49 @@ Pillar sessions are stored in `~/.aibtc/pillar-session.json` containing the conn
 - `pillar_add_admin` - Add backup admin address for recovery
 - `pillar_invite` - Get referral link to share with friends
 
+**Tools - DCA Partnerships:**
+- `pillar_dca_invite` - Invite a DCA partner by email or wallet address
+- `pillar_dca_partners` - View DCA partners and weekly status
+- `pillar_dca_leaderboard` - View DCA streak leaderboard
+- `pillar_dca_status` - Check DCA schedule status
+
+### Pillar Direct Mode (Agent-Signed)
+
+For autonomous agents that need to operate without browser interaction. Uses local signing keys with SIP-018 structured data signing. Keys auto-unlock using a password derived from `PILLAR_API_KEY`.
+
+**Key Management:**
+- `pillar_key_generate` - Generate a new secp256k1 signing keypair
+- `pillar_key_unlock` - Unlock a signing key (usually auto-unlocks)
+- `pillar_key_lock` - Lock the signing key, clear from memory
+- `pillar_key_info` - Show signing key status and all stored keys
+
+**Direct Operations (no browser needed):**
+- `pillar_direct_create_wallet` - Create wallet + generate key in one step
+- `pillar_direct_send` - Send sBTC (supports BNS names, wallet names, addresses)
+- `pillar_direct_supply` - Supply sBTC to Zest Protocol
+- `pillar_direct_boost` - Create/increase leveraged position
+- `pillar_direct_unwind` - Close or reduce leveraged position
+- `pillar_direct_withdraw_collateral` - Withdraw sBTC collateral from Zest
+- `pillar_direct_auto_compound` - Configure auto-compound settings
+- `pillar_direct_add_admin` - Add backup admin address
+- `pillar_direct_position` - View wallet balances and Zest position
+- `pillar_direct_quote` - Get boost quote before executing
+
+**Direct DCA Tools:**
+- `pillar_direct_dca_invite` - Invite a DCA partner
+- `pillar_direct_dca_partners` - View DCA partners
+- `pillar_direct_dca_leaderboard` - View DCA leaderboard
+- `pillar_direct_dca_status` - Check DCA schedule status
+
+**Signing Key Storage:**
+Signing keys are stored encrypted in `~/.aibtc/signing-keys/`:
+```
+~/.aibtc/signing-keys/
+├── keys.json              # Key index (metadata only)
+└── [key-id]/
+    └── keystore.json      # Encrypted private key (AES-256-GCM)
+```
+
 ## Agent Behavior Guidelines
 
 When a user asks for something:
@@ -526,6 +572,12 @@ When a user asks for something:
 **x402.biwas.xyz:**
 - News & Research, Security, Wallet Analysis
 - Market Data, Pools, Tokens
+
+**x402.aibtc.com:**
+- Inference (OpenRouter, Cloudflare AI)
+- Stacks Utilities (address conversion, tx decode, profile)
+- Hashing (SHA256, Keccak256, Hash160)
+- Storage (KV, Paste, DB, Memory)
 
 **stx402.com:**
 - AI Services (jokes, summarize, translate, TTS, image generation)
