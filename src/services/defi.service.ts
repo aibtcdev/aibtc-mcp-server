@@ -668,6 +668,50 @@ export class ZestProtocolService {
       postConditions,
     });
   }
+
+  /**
+   * Claim accumulated rewards from Zest incentives program via borrow-helper
+   *
+   * Currently: sBTC suppliers earn wSTX rewards
+   *
+   * Contract signature: claim-rewards(lp, pool-reserve, asset, oracle, owner, assets, reward-asset, incentives, price-feed-bytes)
+   */
+  async claimRewards(
+    account: Account,
+    asset: string
+  ): Promise<TransferResult> {
+    this.ensureMainnet();
+
+    const assetConfig = this.getAssetConfig(asset);
+    const { address, name } = parseContractId(this.contracts!.borrowHelper);
+    const [lpAddr, lpName] = assetConfig.lpToken.split(".");
+    const [assetAddr, assetName] = assetConfig.token.split(".");
+    const [oracleAddr, oracleName] = assetConfig.oracle.split(".");
+    const [incentivesAddr, incentivesName] = this.contracts!.incentives.split(".");
+    const [wstxAddr, wstxName] = this.contracts!.wstx.split(".");
+
+    const functionArgs: ClarityValue[] = [
+      contractPrincipalCV(lpAddr, lpName),                    // lp
+      principalCV(this.contracts!.poolReserve),               // pool-reserve
+      contractPrincipalCV(assetAddr, assetName),              // asset
+      contractPrincipalCV(oracleAddr, oracleName),            // oracle
+      principalCV(account.address),                           // owner
+      this.buildAssetsListCV(),                               // assets
+      contractPrincipalCV(wstxAddr, wstxName),                // reward-asset (wSTX)
+      contractPrincipalCV(incentivesAddr, incentivesName),    // incentives
+      noneCV(),                                               // price-feed-bytes (none for now)
+    ];
+
+    // Post-condition: incentives contract will send wSTX rewards
+    // Using Allow mode since we don't know the exact reward amount
+    return callContract(account, {
+      contractAddress: address,
+      contractName: name,
+      functionName: "claim-rewards",
+      functionArgs,
+      postConditionMode: PostConditionMode.Allow,
+    });
+  }
 }
 
 // ============================================================================

@@ -507,4 +507,53 @@ Note: Zest Protocol is only available on mainnet.`,
       }
     }
   );
+
+  // Claim rewards from Zest
+  server.registerTool(
+    "zest_claim_rewards",
+    {
+      description: `Claim accumulated rewards from Zest Protocol incentives program.
+
+Currently, sBTC suppliers earn wSTX rewards. This function claims any accumulated
+rewards and sends them to your wallet.
+
+You can use the asset symbol (e.g., 'sBTC') or full contract ID.
+
+Note: Zest Protocol is only available on mainnet.`,
+      inputSchema: {
+        asset: z
+          .string()
+          .default("sBTC")
+          .describe("Asset you supplied to earn rewards (default: sBTC)"),
+      },
+    },
+    async ({ asset }) => {
+      try {
+        if (NETWORK !== "mainnet") {
+          return createJsonResponse({
+            error: "Zest Protocol is only available on mainnet",
+            network: NETWORK,
+          });
+        }
+
+        const zestService = getZestProtocolService(NETWORK);
+        const resolvedAsset = await zestService.resolveAsset(asset);
+        const account = await getAccount();
+        const result = await zestService.claimRewards(account, resolvedAsset);
+
+        return createJsonResponse({
+          success: true,
+          txid: result.txid,
+          action: "claim_rewards",
+          asset: resolvedAsset,
+          rewardAsset: "wSTX",
+          network: NETWORK,
+          explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
+          note: "Rewards will be sent to your wallet once the transaction confirms.",
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
 }

@@ -391,6 +391,7 @@ Tools:
 - `zest_withdraw` - Withdraw supplied assets
 - `zest_borrow` - Borrow assets against collateral
 - `zest_repay` - Repay borrowed assets
+- `zest_claim_rewards` - Claim accumulated wSTX rewards from supplying sBTC
 
 All Zest tools accept asset symbols (e.g., 'stSTX', 'aeUSDC') or full contract IDs.
 
