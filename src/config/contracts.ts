@@ -25,8 +25,10 @@ export const MAINNET_CONTRACTS = {
 
   // Zest Protocol
   ZEST_POOL_BORROW: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.pool-borrow-v2-3",
+  ZEST_BORROW_HELPER: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.borrow-helper-v2-1-5",
   ZEST_POOL_RESERVE: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.pool-0-reserve-v2-0",
   ZEST_FEES_CALCULATOR: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.fees-calculator",
+  ZEST_INCENTIVES: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.incentives-v2-2",
 } as const;
 
 /**
@@ -219,8 +221,10 @@ export function getZestContracts(network: Network) {
   if (network === "mainnet") {
     return {
       poolBorrow: MAINNET_CONTRACTS.ZEST_POOL_BORROW,
+      borrowHelper: MAINNET_CONTRACTS.ZEST_BORROW_HELPER,
       poolReserve: MAINNET_CONTRACTS.ZEST_POOL_RESERVE,
       feesCalculator: MAINNET_CONTRACTS.ZEST_FEES_CALCULATOR,
+      incentives: MAINNET_CONTRACTS.ZEST_INCENTIVES,
     };
   }
   // Zest is mainnet-only currently
