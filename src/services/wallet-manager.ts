@@ -142,6 +142,8 @@ class WalletManager {
     const metadata: WalletMetadata = {
       id: walletId,
       name,
+      bitcoinAddress: btcAddress,
+      stacksAddress: address,
       address,
       btcAddress,
       network: walletNetwork,
@@ -156,6 +158,8 @@ class WalletManager {
 
     return {
       walletId,
+      bitcoinAddress: btcAddress,
+      stacksAddress: address,
       address,
       mnemonic, // Only returned once
     };
@@ -212,6 +216,8 @@ class WalletManager {
     const metadata: WalletMetadata = {
       id: walletId,
       name,
+      bitcoinAddress: btcAddress,
+      stacksAddress: address,
       address,
       btcAddress,
       network: walletNetwork,
@@ -226,6 +232,8 @@ class WalletManager {
 
     return {
       walletId,
+      bitcoinAddress: btcAddress,
+      stacksAddress: address,
       address,
     };
   }
@@ -276,6 +284,8 @@ class WalletManager {
     } = deriveBitcoinKeyPair(mnemonic, walletMeta.network);
 
     const account: Account = {
+      bitcoinAddress: btcAddress,
+      stacksAddress: address,
       address,
       btcAddress,
       privateKey: stacksAccount.stxPrivateKey,
@@ -351,7 +361,13 @@ class WalletManager {
    */
   getSessionInfo(): {
     walletId: string;
+    /** Bitcoin L1 address (primary). Added in v2.0. */
+    bitcoinAddress?: string;
+    /** Stacks L2 address. Added in v2.0. */
+    stacksAddress?: string;
+    /** @deprecated Use stacksAddress instead. */
     address: string;
+    /** @deprecated Use bitcoinAddress instead. */
     btcAddress?: string;
     expiresAt: Date | null;
   } | null {
@@ -367,6 +383,8 @@ class WalletManager {
 
     return {
       walletId: this.session.walletId,
+      bitcoinAddress: this.session.account.bitcoinAddress,
+      stacksAddress: this.session.account.stacksAddress,
       address: this.session.account.address,
       btcAddress: this.session.account.btcAddress,
       expiresAt: this.session.expiresAt,
