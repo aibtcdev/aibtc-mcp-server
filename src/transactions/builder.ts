@@ -8,16 +8,9 @@ import {
   PostCondition,
 } from "@stacks/transactions";
 import { getStacksNetwork, getApiBaseUrl, type Network } from "../config/networks.js";
+import type { WalletAddresses } from "../utils/storage.js";
 
-export interface Account {
-  /** Bitcoin L1 address (primary). Added in v2.0, required after migration. */
-  bitcoinAddress?: string;
-  /** Stacks L2 address. Added in v2.0, required after migration. */
-  stacksAddress?: string;
-  /** @deprecated Use stacksAddress instead. Required for backward compatibility. */
-  address: string;
-  /** @deprecated Use bitcoinAddress instead. */
-  btcAddress?: string;
+export interface Account extends WalletAddresses {
   privateKey: string;
   /**
    * Bitcoin private key as raw bytes (32 bytes) for signing BTC transactions.

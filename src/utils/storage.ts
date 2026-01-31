@@ -62,20 +62,26 @@ async function migrateWalletMetadata(): Promise<void> {
 }
 
 /**
- *
- * Wallet metadata (stored in index, no sensitive data)
+ * Common address fields for wallet-related types.
+ * Includes both new Bitcoin-first naming and deprecated fields for backward compatibility.
  */
-export interface WalletMetadata {
-  id: string;
-  name: string;
-  /** Bitcoin L1 address (primary). Added in v2.0, required after migration. */
+export interface WalletAddresses {
+  /** Bitcoin L1 address (primary). Added in v2.0. */
   bitcoinAddress?: string;
-  /** Stacks L2 address. Added in v2.0, required after migration. */
+  /** Stacks L2 address. Added in v2.0. */
   stacksAddress?: string;
   /** @deprecated Use stacksAddress instead. Required for backward compatibility. */
   address: string;
   /** @deprecated Use bitcoinAddress instead. */
   btcAddress?: string;
+}
+
+/**
+ * Wallet metadata (stored in index, no sensitive data)
+ */
+export interface WalletMetadata extends WalletAddresses {
+  id: string;
+  name: string;
   network: Network;
   createdAt: string;
   lastUsed?: string;

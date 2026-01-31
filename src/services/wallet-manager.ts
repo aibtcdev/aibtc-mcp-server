@@ -17,6 +17,7 @@ import {
   updateWalletMetadata,
   type WalletMetadata,
   type KeystoreFile,
+  type WalletAddresses,
 } from "../utils/index.js";
 import {
   WalletNotFoundError,
@@ -38,31 +39,23 @@ interface Session {
 }
 
 /**
- * Result from creating a new wallet
+ * Base result for wallet operations that return addresses
  */
-export interface WalletCreateResult {
+interface WalletResult extends WalletAddresses {
   walletId: string;
-  /** Bitcoin L1 address (primary). Added in v2.0. */
-  bitcoinAddress?: string;
-  /** Stacks L2 address. Added in v2.0. */
-  stacksAddress?: string;
-  /** @deprecated Use stacksAddress instead. Required for backward compatibility. */
-  address: string;
-  mnemonic: string; // Only returned once at creation
+}
+
+/**
+ * Result from creating a new wallet (includes mnemonic shown once)
+ */
+export interface WalletCreateResult extends WalletResult {
+  mnemonic: string;
 }
 
 /**
  * Result from importing a wallet
  */
-export interface WalletImportResult {
-  walletId: string;
-  /** Bitcoin L1 address (primary). Added in v2.0. */
-  bitcoinAddress?: string;
-  /** Stacks L2 address. Added in v2.0. */
-  stacksAddress?: string;
-  /** @deprecated Use stacksAddress instead. Required for backward compatibility. */
-  address: string;
-}
+export type WalletImportResult = WalletResult;
 
 /**
  * Wallet manager singleton - handles wallet creation, encryption, and session management
@@ -96,6 +89,59 @@ class WalletManager {
   }
 
   /**
+   * Store a wallet from mnemonic (shared logic for create/import)
+   */
+  private async storeWallet(
+    name: string,
+    mnemonic: string,
+    password: string,
+    walletNetwork: Network
+  ): Promise<WalletResult> {
+    const wallet = await generateWallet({
+      secretKey: mnemonic,
+      password: "",
+    });
+
+    const stacksAccount = wallet.accounts[0];
+    const stacksAddress = getStxAddress(stacksAccount, walletNetwork);
+    const { address: bitcoinAddress } = deriveBitcoinAddress(mnemonic, walletNetwork);
+
+    const encrypted = await encrypt(mnemonic, password);
+    const walletId = generateWalletId();
+
+    const keystore: KeystoreFile = {
+      version: 1,
+      encrypted,
+      addressIndex: 0,
+    };
+    await writeKeystore(walletId, keystore);
+
+    const metadata: WalletMetadata = {
+      id: walletId,
+      name,
+      bitcoinAddress,
+      stacksAddress,
+      address: stacksAddress,
+      btcAddress: bitcoinAddress,
+      network: walletNetwork,
+      createdAt: new Date().toISOString(),
+    };
+    await addWalletToIndex(metadata);
+
+    const config = await readAppConfig();
+    config.activeWalletId = walletId;
+    await writeAppConfig(config);
+
+    return {
+      walletId,
+      bitcoinAddress,
+      stacksAddress,
+      address: stacksAddress,
+      btcAddress: bitcoinAddress,
+    };
+  }
+
+  /**
    * Create a new wallet with BIP39 mnemonic
    */
   async createWallet(
@@ -105,64 +151,10 @@ class WalletManager {
   ): Promise<WalletCreateResult> {
     await this.ensureInitialized();
 
-    const walletNetwork = network || NETWORK;
-
-    // Generate 24-word mnemonic
     const mnemonic = generateMnemonic(wordlist, 256);
+    const result = await this.storeWallet(name, mnemonic, password, network || NETWORK);
 
-    // Generate wallet from mnemonic
-    const wallet = await generateWallet({
-      secretKey: mnemonic,
-      password: "",
-    });
-
-    const stacksAccount = wallet.accounts[0];
-    const address = getStxAddress(stacksAccount, walletNetwork);
-
-    // Derive Bitcoin address
-    const { address: btcAddress } = deriveBitcoinAddress(mnemonic, walletNetwork);
-
-    // Encrypt mnemonic
-    const encrypted = await encrypt(mnemonic, password);
-
-    // Generate wallet ID
-    const walletId = generateWalletId();
-
-    // Create keystore
-    const keystore: KeystoreFile = {
-      version: 1,
-      encrypted,
-      addressIndex: 0,
-    };
-
-    // Save keystore
-    await writeKeystore(walletId, keystore);
-
-    // Add to index
-    const metadata: WalletMetadata = {
-      id: walletId,
-      name,
-      bitcoinAddress: btcAddress,
-      stacksAddress: address,
-      address,
-      btcAddress,
-      network: walletNetwork,
-      createdAt: new Date().toISOString(),
-    };
-    await addWalletToIndex(metadata);
-
-    // Set as active wallet
-    const config = await readAppConfig();
-    config.activeWalletId = walletId;
-    await writeAppConfig(config);
-
-    return {
-      walletId,
-      bitcoinAddress: btcAddress,
-      stacksAddress: address,
-      address,
-      mnemonic, // Only returned once
-    };
+    return { ...result, mnemonic };
   }
 
   /**
@@ -176,66 +168,12 @@ class WalletManager {
   ): Promise<WalletImportResult> {
     await this.ensureInitialized();
 
-    // Validate mnemonic
     const normalizedMnemonic = mnemonic.trim().toLowerCase();
     if (!validateMnemonic(normalizedMnemonic, wordlist)) {
       throw new InvalidMnemonicError();
     }
 
-    const walletNetwork = network || NETWORK;
-
-    // Generate wallet from mnemonic to get address
-    const wallet = await generateWallet({
-      secretKey: normalizedMnemonic,
-      password: "",
-    });
-
-    const stacksAccount = wallet.accounts[0];
-    const address = getStxAddress(stacksAccount, walletNetwork);
-
-    // Derive Bitcoin address
-    const { address: btcAddress } = deriveBitcoinAddress(normalizedMnemonic, walletNetwork);
-
-    // Encrypt mnemonic
-    const encrypted = await encrypt(normalizedMnemonic, password);
-
-    // Generate wallet ID
-    const walletId = generateWalletId();
-
-    // Create keystore
-    const keystore: KeystoreFile = {
-      version: 1,
-      encrypted,
-      addressIndex: 0,
-    };
-
-    // Save keystore
-    await writeKeystore(walletId, keystore);
-
-    // Add to index
-    const metadata: WalletMetadata = {
-      id: walletId,
-      name,
-      bitcoinAddress: btcAddress,
-      stacksAddress: address,
-      address,
-      btcAddress,
-      network: walletNetwork,
-      createdAt: new Date().toISOString(),
-    };
-    await addWalletToIndex(metadata);
-
-    // Set as active wallet
-    const config = await readAppConfig();
-    config.activeWalletId = walletId;
-    await writeAppConfig(config);
-
-    return {
-      walletId,
-      bitcoinAddress: btcAddress,
-      stacksAddress: address,
-      address,
-    };
+    return this.storeWallet(name, normalizedMnemonic, password, network || NETWORK);
   }
 
   /**
@@ -359,18 +297,10 @@ class WalletManager {
   /**
    * Get session info (without sensitive data)
    */
-  getSessionInfo(): {
+  getSessionInfo(): (WalletAddresses & {
     walletId: string;
-    /** Bitcoin L1 address (primary). Added in v2.0. */
-    bitcoinAddress?: string;
-    /** Stacks L2 address. Added in v2.0. */
-    stacksAddress?: string;
-    /** @deprecated Use stacksAddress instead. */
-    address: string;
-    /** @deprecated Use bitcoinAddress instead. */
-    btcAddress?: string;
     expiresAt: Date | null;
-  } | null {
+  }) | null {
     if (!this.session) {
       return null;
     }
