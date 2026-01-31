@@ -23,13 +23,16 @@ export function registerWalletTools(server: McpServer): void {
 
         // Try to get wallet address
         try {
-          const address = await getWalletAddress();
-          const btcAddress = sessionInfo?.btcAddress;
+          const stacksAddress = await getWalletAddress();
+          const bitcoinAddress = sessionInfo?.bitcoinAddress;
           return createJsonResponse({
             status: "ready",
-            message: "I have a wallet and I'm ready to perform transactions.",
-            address,
-            btcAddress,
+            message: "Wallet ready. Bitcoin and Stacks transactions enabled.",
+            bitcoinAddress,
+            stacksAddress,
+            // Deprecated fields for backward compatibility
+            address: stacksAddress,
+            btcAddress: sessionInfo?.btcAddress,
             network: NETWORK,
             apiUrl: API_URL,
           });
@@ -45,6 +48,9 @@ export function registerWalletTools(server: McpServer): void {
               wallets: wallets.map((w) => ({
                 id: w.id,
                 name: w.name,
+                bitcoinAddress: w.bitcoinAddress,
+                stacksAddress: w.stacksAddress,
+                // Deprecated fields for backward compatibility
                 address: w.address,
                 btcAddress: w.btcAddress,
                 network: w.network,

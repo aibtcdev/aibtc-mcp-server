@@ -37,8 +37,11 @@ IMPORTANT: Save the mnemonic securely - it will only be shown once!`,
         return createJsonResponse({
           success: true,
           message:
-            "I now have a wallet! Here are the details. Please save the mnemonic securely.",
+            "Wallet created! Your Bitcoin address is ready for use. Save the mnemonic securely.",
           walletId: result.walletId,
+          bitcoinAddress: result.bitcoinAddress,
+          stacksAddress: result.stacksAddress,
+          // Deprecated fields for backward compatibility
           address: result.address,
           network: network || NETWORK,
           mnemonic: result.mnemonic,
@@ -85,8 +88,11 @@ The wallet is encrypted locally and stored in ~/.aibtc/.`,
 
         return createJsonResponse({
           success: true,
-          message: "I now have access to this wallet and I'm ready to perform transactions.",
+          message: "Wallet imported! Bitcoin and Stacks transactions are ready.",
           walletId: result.walletId,
+          bitcoinAddress: result.bitcoinAddress,
+          stacksAddress: result.stacksAddress,
+          // Deprecated field for backward compatibility
           address: result.address,
           network: network || NETWORK,
         });
@@ -134,8 +140,11 @@ If no wallet ID is provided, unlocks the active wallet.`,
 
         return createJsonResponse({
           success: true,
-          message: "My wallet is now unlocked. I can perform transactions.",
+          message: "Wallet unlocked. Bitcoin and Stacks transactions enabled.",
           walletId: targetWalletId,
+          bitcoinAddress: account.bitcoinAddress,
+          stacksAddress: account.stacksAddress,
+          // Deprecated field for backward compatibility
           address: account.address,
           network: account.network,
         });
@@ -199,6 +208,9 @@ If no wallet ID is provided, unlocks the active wallet.`,
           wallets: wallets.map((w) => ({
             id: w.id,
             name: w.name,
+            bitcoinAddress: w.bitcoinAddress,
+            stacksAddress: w.stacksAddress,
+            // Deprecated field for backward compatibility
             address: w.address,
             network: w.network,
             createdAt: w.createdAt,
@@ -237,11 +249,14 @@ Note: The new wallet will need to be unlocked before use.`,
 
         return createJsonResponse({
           success: true,
-          activeWalletId: walletId,
-          address: wallet?.address,
-          network: wallet?.network,
           message:
             "Switched to wallet. Use wallet_unlock to unlock it for transactions.",
+          activeWalletId: walletId,
+          bitcoinAddress: wallet?.bitcoinAddress,
+          stacksAddress: wallet?.stacksAddress,
+          // Deprecated field for backward compatibility
+          address: wallet?.address,
+          network: wallet?.network,
         });
       } catch (error) {
         return createErrorResponse(error);
@@ -283,9 +298,12 @@ WARNING: This cannot be undone! Make sure you have backed up your mnemonic.`,
 
         return createJsonResponse({
           success: true,
-          deletedWalletId: walletId,
-          deletedAddress: wallet?.address,
           message: "Wallet deleted permanently.",
+          deletedWalletId: walletId,
+          deletedBitcoinAddress: wallet?.bitcoinAddress,
+          deletedStacksAddress: wallet?.stacksAddress,
+          // Deprecated field for backward compatibility
+          deletedAddress: wallet?.address,
         });
       } catch (error) {
         return createErrorResponse(error);
@@ -435,6 +453,9 @@ WARNING: Only use this in a secure environment! Anyone with the mnemonic can acc
             activeWallet = {
               id: wallet.id,
               name: wallet.name,
+              bitcoinAddress: wallet.bitcoinAddress,
+              stacksAddress: wallet.stacksAddress,
+              // Deprecated fields for backward compatibility
               address: wallet.address,
               btcAddress: wallet.btcAddress,
               network: wallet.network,
@@ -453,6 +474,9 @@ WARNING: Only use this in a secure environment! Anyone with the mnemonic can acc
         if (sessionInfo) {
           response.wallet = {
             id: sessionInfo.walletId,
+            bitcoinAddress: sessionInfo.bitcoinAddress,
+            stacksAddress: sessionInfo.stacksAddress,
+            // Deprecated fields for backward compatibility
             address: sessionInfo.address,
             btcAddress: sessionInfo.btcAddress,
             sessionExpiresAt: sessionInfo.expiresAt?.toISOString() || "never",
@@ -466,6 +490,9 @@ WARNING: Only use this in a secure environment! Anyone with the mnemonic can acc
           response.availableWallets = wallets.map((w) => ({
             id: w.id,
             name: w.name,
+            bitcoinAddress: w.bitcoinAddress,
+            stacksAddress: w.stacksAddress,
+            // Deprecated fields for backward compatibility
             address: w.address,
             btcAddress: w.btcAddress,
           }));
