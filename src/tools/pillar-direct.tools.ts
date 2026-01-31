@@ -678,6 +678,28 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async ({ walletName, password, referredBy }) => {
       try {
+        const api = getPillarApi();
+
+        // Step 0: Check name availability before doing anything
+        const nameCheck = await api.get<{
+          success: boolean;
+          data: {
+            name: string;
+            available: boolean;
+            reason?: string;
+            message?: string;
+            contractName?: string;
+          };
+        }>("/api/smart-wallet/check-name", { name: walletName });
+
+        if (!nameCheck.data.available) {
+          return createJsonResponse({
+            success: false,
+            error: nameCheck.data.message || `Wallet name "${walletName}" is not available.`,
+            reason: nameCheck.data.reason,
+          });
+        }
+
         // Step 1: Generate signing keypair
         const keyService = getSigningKeyService();
         const { keyId, pubkey } = await keyService.generateKey(
@@ -696,7 +718,6 @@ export function registerPillarDirectTools(server: McpServer): void {
         const email = `${walletName}@agent.pillarbtc.com`;
         const privyWalletAddress = "0x0000000000000000000000000000000000000000";
 
-        const api = getPillarApi();
         const result = await api.post<{
           success: boolean;
           data: {
