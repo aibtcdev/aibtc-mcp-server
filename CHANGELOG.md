@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.9.1...v1.10.0) (2026-01-31)
+
+
+### Features
+
+* add BNS registration tools with V1/V2 auto-detection ([#45](https://github.com/aibtcdev/aibtc-mcp-server/issues/45)) ([df90072](https://github.com/aibtcdev/aibtc-mcp-server/commit/df90072bc5bb15144be33dfefc40c0ac97b3fa03))
+
 ## [1.9.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.9.0...v1.9.1) (2026-01-31)
 
 
