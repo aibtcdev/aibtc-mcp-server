@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-aibtc-mcp-server is an MCP (Model Context Protocol) server that enables Claude to:
-1. **Discover and execute x402 API endpoints** - Paid API calls for DeFi analytics, AI services, market data
-2. **Execute Stacks blockchain transactions** - Transfer STX, call smart contracts, deploy contracts
+aibtc-mcp-server is a **Bitcoin-first** MCP (Model Context Protocol) server that enables Claude to:
+1. **Bitcoin L1 operations** - Check balances, send BTC, manage UTXOs (primary)
+2. **Stacks L2 operations** - Transfer STX, call smart contracts, DeFi protocols
+3. **x402 paid APIs** - AI services, analytics, storage with micropayments
 
-The plugin automatically handles x402 payment challenges when accessing paid endpoints.
+The server automatically handles x402 payment challenges when accessing paid endpoints.
 
 ## API Sources
 
@@ -164,25 +165,9 @@ This automatically configures `~/.claude.json` with the MCP server. The `@latest
 
 ## Available Tools
 
-### Endpoint Discovery
-- `list_x402_endpoints` - List all available x402 endpoints with search/filter by source, category, or keyword. **Use this first** to discover what actions are available.
+Tools are organized in Bitcoin-first order, matching how they're registered in the MCP server.
 
-### Wallet & Balance
-- `get_wallet_info` - Get configured wallet address, network, and API URL
-- `get_stx_balance` - Get STX balance for any address
-
-### Wallet Management
-- `wallet_create` - Generate a new wallet with BIP39 mnemonic (encrypted locally)
-- `wallet_import` - Import an existing wallet from mnemonic
-- `wallet_unlock` - Unlock a wallet for transactions (requires password)
-- `wallet_lock` - Lock the wallet (clear from memory)
-- `wallet_list` - List all available wallets
-- `wallet_switch` - Switch active wallet
-- `wallet_delete` - Permanently delete a wallet
-- `wallet_export` - Export mnemonic (with security warning)
-- `wallet_status` - Get current wallet/session status
-
-### Bitcoin L1 Transactions
+### Bitcoin L1 (Primary)
 
 Tools for Bitcoin L1 blockchain operations via mempool.space API:
 
@@ -199,21 +184,27 @@ Tools for Bitcoin L1 blockchain operations via mempool.space API:
 
 **Notes:**
 - All tools work on mainnet (`bc1...` addresses) or testnet (`tb1...` addresses) based on NETWORK config
-- Read operations can use any address or fall back to wallet's Bitcoin address
+- Read operations can use any address or fall back to wallet's `bitcoinAddress`
 - Write operations require an unlocked wallet with BTC balance
 - Uses P2WPKH (native SegWit) transactions for optimal fees
 - Change is sent back to the sender address
 
-**Example Usage:**
-| Request | Action |
-|---------|--------|
-| "What's my BTC balance?" | `get_btc_balance` (uses wallet's btcAddress) |
-| "Check BTC fees" | `get_btc_fees` |
-| "Show UTXOs for bc1q..." | `get_btc_utxos` with address |
-| "Send 50000 sats to tb1q..." | `transfer_btc` with recipient, amount=50000 |
-| "Transfer 0.001 BTC with fast fees" | `transfer_btc` with amount=100000, feeRate="fast" |
+### Wallet Info & Balance
+- `get_wallet_info` - Get wallet info (returns `bitcoinAddress` first, then `stacksAddress`)
+- `get_stx_balance` - Get STX balance for any Stacks address
 
-### Direct Stacks Transactions
+### Wallet Management
+- `wallet_create` - Generate a new wallet (returns `bitcoinAddress` and `stacksAddress`)
+- `wallet_import` - Import an existing wallet from mnemonic
+- `wallet_unlock` - Unlock a wallet for transactions (requires password)
+- `wallet_lock` - Lock the wallet (clear from memory)
+- `wallet_list` - List all available wallets (shows `bitcoinAddress` first per wallet)
+- `wallet_switch` - Switch active wallet
+- `wallet_delete` - Permanently delete a wallet
+- `wallet_export` - Export mnemonic (with security warning)
+- `wallet_status` - Get current wallet/session status
+
+### Stacks L2 Transactions
 - `transfer_stx` - Transfer STX tokens to a recipient (signs and broadcasts)
 - `call_contract` - Call a smart contract function (signs and broadcasts)
 - `deploy_contract` - Deploy a Clarity smart contract
@@ -537,41 +528,48 @@ Signing keys are stored encrypted in `~/.aibtc/signing-keys/`:
 
 ## Agent Behavior Guidelines
 
+**Bitcoin-First Principle**: When users ask about "their wallet" or "their balance" without specifying a chain, default to Bitcoin (L1). Only use Stacks L2 operations when users explicitly mention STX, Stacks, or L2-specific features (smart contracts, DeFi, tokens, NFTs).
+
 When a user asks for something:
 
-1. **For "transfer X STX to Y"** → Use `transfer_stx` directly
+1. **For "what's my balance?"** → Use `get_btc_balance` first (Bitcoin-first)
 2. **For "send X BTC to Y"** → Use `transfer_btc` (wallet must be unlocked)
-3. **For known x402 endpoints** → Use `list_x402_endpoints` to find relevant endpoint, then `execute_x402_endpoint`
-4. **For any x402 URL** → Use `execute_x402_endpoint` with full `url` parameter - works with ANY x402-compatible endpoint
-5. **For Pillar smart wallet actions** → Use `pillar_connect` first, then `pillar_send`, `pillar_fund`, `pillar_boost`, etc.
-6. **For unknown actions** → Ask user for the x402 endpoint URL or check if it's a direct blockchain action
+3. **For "transfer X STX to Y"** → Use `transfer_stx` directly
+4. **For known x402 endpoints** → Use `list_x402_endpoints` to find relevant endpoint, then `execute_x402_endpoint`
+5. **For any x402 URL** → Use `execute_x402_endpoint` with full `url` parameter - works with ANY x402-compatible endpoint
+6. **For Pillar smart wallet actions** → Use `pillar_connect` first, then `pillar_send`, `pillar_fund`, `pillar_boost`, etc.
+7. **For unknown actions** → Ask user for the x402 endpoint URL or check if it's a direct blockchain action
 
 ### Example User Requests
 
 | Request | Action |
 |---------|--------|
-| "Send 2 STX to ST1..." | `transfer_stx` with amount "2000000" |
-| "Send 50000 sats to tb1q..." | `transfer_btc` with recipient, amount=50000 |
+| **Bitcoin L1 (Primary)** | |
+| "What's my balance?" | `get_btc_balance` (Bitcoin-first default) |
+| "What's my BTC balance?" | `get_btc_balance` (uses wallet's bitcoinAddress) |
+| "Send 50000 sats to bc1q..." | `transfer_btc` with recipient, amount=50000 |
 | "Transfer 0.001 BTC with fast fees" | `transfer_btc` with amount=100000, feeRate="fast" |
-| "What's my BTC balance?" | `get_btc_balance` (uses wallet's btcAddress) |
-| "What are trending pools?" | `execute_x402_endpoint` with path="/api/pools/trending" |
+| "Show my wallet" | `get_wallet_info` (returns bitcoinAddress first) |
+| **Stacks L2** | |
+| "What's my STX balance?" | `get_stx_balance` (explicit L2 request) |
+| "Send 2 STX to ST1..." | `transfer_stx` with amount "2000000" |
 | "What pools can I trade on ALEX?" | `alex_list_pools` to discover available pairs |
-| "Swap 0.1 STX for ALEX" | `alex_swap` with tokenX="STX", tokenY="ALEX" (SDK handles resolution) |
-| "How much ALEX for 10 STX?" | `alex_get_swap_quote` with simple symbols |
+| "Swap 0.1 STX for ALEX" | `alex_swap` with tokenX="STX", tokenY="ALEX" |
 | "Supply 1000 stSTX to Zest" | `zest_supply` with asset="stSTX" |
 | "Borrow 100 aeUSDC from Zest" | `zest_borrow` with asset="aeUSDC" |
 | "Check my Zest position" | `zest_get_position` for supplied/borrowed |
 | "Get Bitflow market data" | `bitflow_get_ticker` (no API key required) |
-| "Swap tokens on Bitflow" | `bitflow_swap` with tokenX and tokenY contract IDs |
-| "Get a quote on Bitflow" | `bitflow_get_quote` for expected output |
-| "Tell me a dad joke" | `execute_x402_endpoint` with url="https://stx402.com/api/ai/dad-joke" |
-| "Create a paid API endpoint for jokes" | `scaffold_x402_endpoint` with endpoint config |
-| "Create an AI chatbot API that charges per request" | `scaffold_x402_ai_endpoint` with chat aiType |
+| **Pillar Smart Wallet** | |
 | "Connect my Pillar wallet" | `pillar_connect` to open browser and get wallet address |
 | "Send 10000 sats to muneeb.btc on Pillar" | `pillar_send` with to="muneeb.btc", amount=10000 |
 | "Fund my Pillar wallet from Coinbase" | `pillar_fund` with method="exchange" |
 | "Boost my sBTC position on Pillar" | `pillar_boost` to create leveraged position |
 | "Check my Pillar position" | `pillar_position` for balance and Zest details |
+| **x402 APIs** | |
+| "What are trending pools?" | `execute_x402_endpoint` with path="/api/pools/trending" |
+| "Tell me a dad joke" | `execute_x402_endpoint` with url="https://stx402.com/api/ai/dad-joke" |
+| "Create a paid API endpoint for jokes" | `scaffold_x402_endpoint` with endpoint config |
+| "Create an AI chatbot API that charges per request" | `scaffold_x402_ai_endpoint` with chat aiType |
 
 ### Endpoint Categories
 
