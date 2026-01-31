@@ -140,45 +140,72 @@ Uses `zest_withdraw`.
 | `zest_borrow` | Borrow assets |
 | `zest_repay` | Repay loan |
 
-## x402 Paid Endpoints
+## x402 Protocol
 
-Access paid APIs with automatic micropayments.
+Pay-per-use APIs with automatic micropayments. The agent handles HTTP 402 payment challenges automatically.
 
-### Discover Endpoints
+### API Services
 
-Find available paid APIs:
+Two complementary x402 API services are available:
+
+#### STX402 Directory (stx402.com)
+
+Meta layer for the x402 ecosystem:
+
+| Category | Endpoints |
+|----------|-----------|
+| **Registry** | `/registry/list`, `/registry/probe`, `/registry/register` |
+| **Agent Identity** | `/agent/info`, `/agent/lookup`, `/agent/metadata` |
+| **Reputation** | `/agent/reputation/summary`, `/agent/reputation/feedback` |
+| **Links** | `/links/create`, `/links/stats`, `/links/expand/{slug}` |
+
+[API Docs](https://stx402.com/docs) · [Guide](https://stx402.com/guide) · [Toolbox](https://stx402.com/toolbox)
+
+#### x402 AIBTC API (x402.aibtc.com)
+
+Utility services for agents:
+
+| Category | Endpoints |
+|----------|-----------|
+| **Inference** | `/inference/openrouter/chat`, `/inference/cloudflare/chat` |
+| **Stacks** | `/stacks/address`, `/stacks/decode`, `/stacks/profile` |
+| **Hashing** | `/hashing/sha256`, `/hashing/keccak256`, `/hashing/hash160` |
+| **Storage** | `/storage/kv/*`, `/storage/paste/*`, `/storage/db/*`, `/storage/memory/*` |
+
+[API Docs](https://x402.aibtc.com/docs) · [Staging](https://x402.aibtc.dev)
+
+### Usage
+
+Discover endpoints:
 
 ```
-"What x402 endpoints are available?"
-"Show AI endpoints on stx402.com"
+"List x402 endpoints for inference"
+"What storage APIs are available?"
 ```
 
-Uses `list_x402_endpoints` with optional source and category filters.
-
-### Execute Endpoint
-
-Call a paid endpoint:
+Execute endpoint:
 
 ```
-"Tell me a dad joke"
-"Get trending pools data"
+"Chat with Claude via x402"
+"Store this data in x402 KV"
 ```
 
-Uses `execute_x402_endpoint` - payment handled automatically.
+Uses `list_x402_endpoints` to discover, `execute_x402_endpoint` to call.
 
-### API Sources
+### Payment
 
-| Source | URL | Categories |
-|--------|-----|------------|
-| x402.biwas.xyz | https://x402.biwas.xyz | DeFi, market data, wallet analysis |
-| stx402.com | https://stx402.com | AI, crypto, storage, utilities |
+- **Tokens**: STX, sBTC, USDCx
+- **Pricing**: Standard tier (~0.001 STX) or dynamic (LLM pass-through + 20%)
+- **Flow**: Request → 402 response → sign payment → retry with proof
 
 ### x402 Tool Reference
 
 | Tool | Description |
 |------|-------------|
-| `list_x402_endpoints` | Discover available APIs |
-| `execute_x402_endpoint` | Call paid endpoint |
+| `list_x402_endpoints` | Discover APIs by source/category |
+| `execute_x402_endpoint` | Call endpoint with auto-payment |
+| `scaffold_x402_endpoint` | Generate x402 API project |
+| `scaffold_x402_ai_endpoint` | Generate x402 AI API project |
 
 ## Smart Contract Calls
 
@@ -205,6 +232,9 @@ Uses `call_contract` for write operations, `call_read_only_function` for read-on
 - [Stacks Docs](https://docs.stacks.co)
 - [ALEX DEX](https://alexgo.io)
 - [Zest Protocol](https://zestprotocol.com)
+- [x402 Protocol](https://www.x402.org)
+- [STX402 Docs](https://stx402.com/docs)
+- [x402 AIBTC Docs](https://x402.aibtc.com/docs)
 - [CLAUDE.md DeFi Sections](../../CLAUDE.md#defi---alex-dex-mainnet-only)
 
 ---

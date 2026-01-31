@@ -113,13 +113,15 @@ Bitcoin transactions can take 10 min to 1+ hour depending on fee rate. Use "fast
 
 ## Pillar Issues
 
-### "Browser didn't open"
+### Browser Handoff Mode
+
+#### "Browser didn't open"
 
 **Symptom**: Pillar operation stuck.
 
 **Solution**: Manually open https://pillarbtc.com and check if logged in.
 
-### "Operation timed out"
+#### "Operation timed out"
 
 **Symptom**: Pillar action never completes.
 
@@ -128,15 +130,35 @@ Bitcoin transactions can take 10 min to 1+ hour depending on fee rate. Use "fast
 2. Ensure you're logged into Pillar
 3. Cancel and retry
 
-### "Not connected"
+### Agent Direct Mode
 
-**Symptom**: Pillar tools fail.
+#### "No signing key found"
 
-**Solution**: Run `pillar_connect` first:
+**Symptom**: `pillar_direct_*` tools fail.
+
+**Solution**: Create a signing key and wallet first:
 
 ```
-"Connect my Pillar wallet"
+"Create a Pillar wallet for my agent"
 ```
+
+Uses `pillar_direct_create_wallet` - generates key, deploys wallet, registers pubkey.
+
+#### "Signing key locked"
+
+**Symptom**: Operations fail with lock error.
+
+**Solution**: Keys auto-unlock if `PILLAR_API_KEY` is set. If not:
+
+```
+"Unlock my Pillar signing key"
+```
+
+#### "Wallet pending"
+
+**Symptom**: Operations fail, wallet not ready.
+
+**Solution**: Wait 20-30 seconds after `pillar_direct_create_wallet` for on-chain deployment to complete.
 
 ## Stacks/DeFi Issues
 

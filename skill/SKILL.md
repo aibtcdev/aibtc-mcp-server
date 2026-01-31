@@ -1,6 +1,6 @@
 ---
 name: aibtc-bitcoin-wallet
-description: Bitcoin L1 wallet operations with support for Pillar smart wallets and Stacks L2 DeFi
+description: Bitcoin L1 wallet for agents - check balances, send BTC, manage UTXOs. Extends to Stacks L2 (STX, DeFi) and Pillar smart wallets (sBTC yield).
 license: MIT
 metadata:
   author: aibtcdev
@@ -137,25 +137,26 @@ Wallets are stored encrypted at `~/.aibtc/`.
 
 ## Progressive Layers
 
-This skill focuses on Bitcoin L1. For additional capabilities:
+This skill focuses on Bitcoin L1. Additional capabilities are organized by layer:
 
-### Pillar Smart Wallet
+### Stacks L2 (Layer 2)
 
-Passkey-secured sBTC wallet with DeFi integration:
-- Send to BNS names (alice.btc)
-- Auto-boost yield via Zest Protocol
-- No seed phrase management
-
-See: [references/pillar-wallet.md](references/pillar-wallet.md)
-
-### Stacks L2 DeFi
-
-STX transfers, DEX swaps, lending protocols:
+Bitcoin L2 with smart contracts and DeFi:
+- STX token transfers
 - ALEX DEX token swaps
 - Zest Protocol lending/borrowing
-- x402 paid API endpoints
+- x402 paid API endpoints (AI, storage, utilities)
 
 See: [references/stacks-defi.md](references/stacks-defi.md)
+
+### Pillar Smart Wallet (Layer 3)
+
+sBTC smart wallet with yield automation:
+- Passkey or agent-signed transactions
+- Send to BNS names (alice.btc)
+- Auto-boost yield via Zest Protocol
+
+See: [references/pillar-wallet.md](references/pillar-wallet.md)
 
 ## Troubleshooting
 
