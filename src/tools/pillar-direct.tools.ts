@@ -1,0 +1,1017 @@
+import { z } from "zod";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  tupleCV,
+  stringAsciiCV,
+  uintCV,
+  principalCV,
+  bufferCV,
+  noneCV,
+  someCV,
+  trueCV,
+  falseCV,
+} from "@stacks/transactions";
+import {
+  getSigningKeyService,
+  generateAuthId,
+  type SigAuth,
+} from "../services/signing-key.service.js";
+import { getPillarApi } from "../services/pillar-api.service.js";
+import { createJsonResponse, createErrorResponse } from "../utils/index.js";
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * Get active signing session or throw.
+ */
+function requireActiveKey() {
+  const keyService = getSigningKeyService();
+  const session = keyService.getActiveKey();
+  if (!session) {
+    throw new Error("Signing key locked. Use pillar_key_unlock first.");
+  }
+  return { keyService, session };
+}
+
+/**
+ * Format sig-auth for the Pillar backend API (matches frontend api-client.ts).
+ */
+function formatSigAuthForApi(sigAuth: SigAuth) {
+  return {
+    authId: sigAuth.authId,
+    signature: sigAuth.signature.startsWith("0x")
+      ? sigAuth.signature
+      : "0x" + sigAuth.signature,
+    pubkey: sigAuth.pubkey.startsWith("0x")
+      ? sigAuth.pubkey
+      : "0x" + sigAuth.pubkey,
+  };
+}
+
+// ============================================================================
+// Tool Registration
+// ============================================================================
+
+export function registerPillarDirectTools(server: McpServer): void {
+  // ==========================================================================
+  // Key Management Tools (4)
+  // ==========================================================================
+
+  server.registerTool(
+    "pillar_key_generate",
+    {
+      description:
+        "Generate a new secp256k1 signing keypair for Pillar smart wallet direct operations. " +
+        "Returns the compressed public key (33 bytes hex). " +
+        "After generation, propose this pubkey on your smart wallet contract (admin must do this).",
+      inputSchema: {
+        password: z
+          .string()
+          .min(8)
+          .describe("Password to encrypt the private key (min 8 characters)"),
+        smartWallet: z
+          .string()
+          .describe(
+            "Smart wallet contract ID this key is for (e.g. SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22.my-wallet)"
+          ),
+      },
+    },
+    async ({ password, smartWallet }) => {
+      try {
+        const keyService = getSigningKeyService();
+        const { keyId, pubkey } = await keyService.generateKey(
+          password,
+          smartWallet
+        );
+
+        return createJsonResponse({
+          success: true,
+          keyId,
+          pubkey,
+          smartWallet,
+          note: "Pubkey generated. An admin must propose and confirm this pubkey on the smart wallet contract before it can sign operations.",
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "pillar_key_unlock",
+    {
+      description:
+        "Unlock a signing key for Pillar direct operations. Required before using any pillar_direct_* tools.",
+      inputSchema: {
+        keyId: z.string().describe("The signing key ID to unlock"),
+        password: z.string().describe("Password to decrypt the private key"),
+      },
+    },
+    async ({ keyId, password }) => {
+      try {
+        const keyService = getSigningKeyService();
+        await keyService.unlock(keyId, password);
+        const session = keyService.getActiveKey();
+
+        return createJsonResponse({
+          success: true,
+          message: "Signing key unlocked.",
+          keyId,
+          pubkey: session!.pubkey,
+          smartWallet: session!.smartWallet,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "pillar_key_lock",
+    {
+      description: "Lock the signing key, clearing sensitive data from memory.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const keyService = getSigningKeyService();
+        keyService.lock();
+
+        return createJsonResponse({
+          success: true,
+          message: "Signing key locked.",
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "pillar_key_info",
+    {
+      description:
+        "Show signing key info: pubkey, smart wallet, lock status, and all stored keys.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const keyService = getSigningKeyService();
+        const session = keyService.getActiveKey();
+        const keys = await keyService.listKeys();
+
+        return createJsonResponse({
+          unlocked: session !== null,
+          activeKey: session
+            ? {
+                keyId: session.keyId,
+                pubkey: session.pubkey,
+                smartWallet: session.smartWallet,
+              }
+            : null,
+          storedKeys: keys.map((k) => ({
+            keyId: k.id,
+            pubkey: k.pubkey,
+            smartWallet: k.smartWallet,
+            createdAt: k.createdAt,
+          })),
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ==========================================================================
+  // Direct Operation Tools — twins of handoff tools
+  //
+  // Each tool: build SIP-018 structured data → sign locally → call Pillar
+  // backend API with sigAuth → backend builds tx, sponsors gas, broadcasts.
+  // ==========================================================================
+
+  // --- pillar_direct_boost (twin of pillar_boost) ---
+  server.registerTool(
+    "pillar_direct_boost",
+    {
+      description:
+        "Create or increase a leveraged sBTC position (up to 1.5x) on your Pillar smart wallet. " +
+        "Agent-signed, no browser needed. Your sBTC is supplied to Zest, borrowed against, " +
+        "and re-supplied for amplified exposure. Backend sponsors gas.",
+      inputSchema: {
+        sbtcAmount: z
+          .number()
+          .positive()
+          .describe("sBTC amount in sats to supply as collateral"),
+        aeUsdcToBorrow: z
+          .number()
+          .positive()
+          .describe("aeUSDC amount to borrow (6 decimals)"),
+        minSbtcFromSwap: z
+          .number()
+          .positive()
+          .describe("Min sBTC from swap in sats (slippage protection)"),
+      },
+    },
+    async ({ sbtcAmount, aeUsdcToBorrow, minSbtcFromSwap }) => {
+      try {
+        const { keyService, session } = requireActiveKey();
+        const authId = generateAuthId();
+
+        const structuredData = tupleCV({
+          topic: stringAsciiCV("pillar-boost"),
+          "auth-id": uintCV(authId),
+          "sbtc-amount": uintCV(sbtcAmount),
+          "aeusdc-to-borrow": uintCV(aeUsdcToBorrow),
+          "min-sbtc-from-swap": uintCV(minSbtcFromSwap),
+        });
+
+        const sigAuth = keyService.sign(structuredData, authId);
+        const api = getPillarApi();
+        const result = await api.post<{
+          success: boolean;
+          data: { txId: string };
+        }>("/pillar/boost", {
+          walletAddress: session.smartWallet,
+          sbtcAmount,
+          aeUsdcToBorrow,
+          minSbtcFromSwap,
+          sigAuth: formatSigAuthForApi(sigAuth),
+        });
+
+        return createJsonResponse({
+          success: true,
+          operation: "pillar-boost",
+          txId: result.data.txId,
+          walletAddress: session.smartWallet,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --- pillar_direct_unwind (twin of pillar_unwind) ---
+  server.registerTool(
+    "pillar_direct_unwind",
+    {
+      description:
+        "Close or reduce your leveraged sBTC position. Agent-signed, no browser needed. " +
+        "Swaps sBTC to aeUSDC to repay debt, then withdraws remaining sBTC collateral. Backend sponsors gas.",
+      inputSchema: {
+        sbtcToSwap: z
+          .number()
+          .positive()
+          .describe("sBTC to swap to aeUSDC for repayment (in sats)"),
+        sbtcToWithdraw: z
+          .number()
+          .min(0)
+          .describe("sBTC to withdraw after repayment (in sats)"),
+        minAeUsdcFromSwap: z
+          .number()
+          .positive()
+          .describe("Min aeUSDC from swap (slippage protection, 6 decimals)"),
+      },
+    },
+    async ({ sbtcToSwap, sbtcToWithdraw, minAeUsdcFromSwap }) => {
+      try {
+        const { keyService, session } = requireActiveKey();
+        const authId = generateAuthId();
+
+        const structuredData = tupleCV({
+          topic: stringAsciiCV("pillar-unwind"),
+          "auth-id": uintCV(authId),
+          "sbtc-to-swap": uintCV(sbtcToSwap),
+          "sbtc-to-withdraw": uintCV(sbtcToWithdraw),
+          "min-aeusdc-from-swap": uintCV(minAeUsdcFromSwap),
+        });
+
+        const sigAuth = keyService.sign(structuredData, authId);
+        const api = getPillarApi();
+        const result = await api.post<{
+          success: boolean;
+          data: { txId: string };
+        }>("/pillar/unwind", {
+          walletAddress: session.smartWallet,
+          sbtcToSwap,
+          sbtcToWithdraw,
+          minAeUsdcFromSwap,
+          sigAuth: formatSigAuthForApi(sigAuth),
+        });
+
+        return createJsonResponse({
+          success: true,
+          operation: "pillar-unwind",
+          txId: result.data.txId,
+          walletAddress: session.smartWallet,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --- pillar_direct_supply (twin of pillar_supply) ---
+  // pillar_supply in handoff = add-collateral (0x leverage supply to Zest)
+  server.registerTool(
+    "pillar_direct_supply",
+    {
+      description:
+        "Supply sBTC from your Pillar smart wallet to Zest Protocol to earn yield (0x leverage). " +
+        "Agent-signed, no browser needed. Backend sponsors gas.",
+      inputSchema: {
+        sbtcAmount: z
+          .number()
+          .positive()
+          .describe("sBTC amount in sats to supply"),
+      },
+    },
+    async ({ sbtcAmount }) => {
+      try {
+        const { keyService, session } = requireActiveKey();
+        const authId = generateAuthId();
+
+        const structuredData = tupleCV({
+          topic: stringAsciiCV("pillar-add-collateral"),
+          "auth-id": uintCV(authId),
+          "sbtc-amount": uintCV(sbtcAmount),
+        });
+
+        const sigAuth = keyService.sign(structuredData, authId);
+        const api = getPillarApi();
+        const result = await api.post<{
+          success: boolean;
+          data: { txId: string };
+        }>("/pillar/add-collateral", {
+          walletAddress: session.smartWallet,
+          sbtcAmount,
+          sigAuth: formatSigAuthForApi(sigAuth),
+        });
+
+        return createJsonResponse({
+          success: true,
+          operation: "pillar-add-collateral",
+          txId: result.data.txId,
+          walletAddress: session.smartWallet,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --- pillar_direct_send (twin of pillar_send) ---
+  // pillar_send sends sBTC via sip010-transfer
+  server.registerTool(
+    "pillar_direct_send",
+    {
+      description:
+        "Send sBTC from your Pillar smart wallet to a recipient. " +
+        "Agent-signed, no browser needed. Supports BNS names, wallet names, or Stacks addresses. " +
+        "Backend sponsors gas.",
+      inputSchema: {
+        to: z
+          .string()
+          .describe(
+            "Recipient: BNS name (muneeb.btc), Pillar wallet name, or Stacks address (SP...)"
+          ),
+        amount: z
+          .number()
+          .positive()
+          .describe("Amount in satoshis"),
+        recipientType: z
+          .enum(["bns", "wallet", "address"])
+          .default("bns")
+          .describe("Type of recipient: 'bns' (default), 'wallet', or 'address'"),
+      },
+    },
+    async ({ to, amount, recipientType }) => {
+      try {
+        const { keyService, session } = requireActiveKey();
+
+        // For sip010-transfer, we sign with the sBTC token contract
+        // The backend resolves BNS/wallet names and handles the actual transfer
+        const sbtcContract =
+          "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
+
+        // We need the resolved recipient address for the hash.
+        // For BNS/wallet types, the backend resolves it, but we also need it in the hash.
+        // Send to the backend which handles resolution + hash verification.
+        const authId = generateAuthId();
+        const structuredData = tupleCV({
+          topic: stringAsciiCV("sip010-transfer"),
+          "auth-id": uintCV(authId),
+          amount: uintCV(amount),
+          recipient: principalCV(to), // Backend handles BNS resolution
+          memo: noneCV(),
+          sip010: principalCV(sbtcContract),
+        });
+
+        const sigAuth = keyService.sign(structuredData, authId);
+        const api = getPillarApi();
+        const result = await api.post<{
+          success: boolean;
+          data: { txId: string };
+        }>("/smart-wallet/sip010-transfer", {
+          walletAddress: session.smartWallet,
+          amount,
+          recipient: to,
+          sip010: sbtcContract,
+          tokenName: "sBTC",
+          sigAuth: formatSigAuthForApi(sigAuth),
+        });
+
+        return createJsonResponse({
+          success: true,
+          operation: "sip010-transfer",
+          txId: result.data.txId,
+          walletAddress: session.smartWallet,
+          to,
+          amount,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --- pillar_direct_auto_compound (twin of pillar_auto_compound) ---
+  server.registerTool(
+    "pillar_direct_auto_compound",
+    {
+      description:
+        "Configure auto-compound for your Pillar wallet. " +
+        "When enabled, a keeper automatically boosts when sBTC accumulates above the trigger. " +
+        "Agent-signed, no browser needed. Backend sponsors gas.",
+      inputSchema: {
+        enabled: z.boolean().describe("Enable or disable auto-compound"),
+        minSbtc: z
+          .number()
+          .min(0)
+          .describe("Minimum sBTC to keep in wallet (in sats)"),
+        trigger: z
+          .number()
+          .positive()
+          .describe(
+            "sBTC amount above minimum that triggers auto-compound (in sats)"
+          ),
+      },
+    },
+    async ({ enabled, minSbtc, trigger }) => {
+      try {
+        const { keyService, session } = requireActiveKey();
+        const authId = generateAuthId();
+
+        const structuredData = tupleCV({
+          topic: stringAsciiCV("set-keeper-auto-compound"),
+          "auth-id": uintCV(authId),
+          enabled: enabled ? trueCV() : falseCV(),
+          "min-sbtc": uintCV(minSbtc),
+          trigger: uintCV(trigger),
+        });
+
+        const sigAuth = keyService.sign(structuredData, authId);
+        const api = getPillarApi();
+        const result = await api.post<{
+          success: boolean;
+          data: { txId: string };
+        }>("/pillar/set-auto-compound", {
+          walletAddress: session.smartWallet,
+          enabled,
+          minSbtc,
+          trigger,
+          sigAuth: formatSigAuthForApi(sigAuth),
+        });
+
+        return createJsonResponse({
+          success: true,
+          operation: "set-keeper-auto-compound",
+          txId: result.data.txId,
+          walletAddress: session.smartWallet,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --- pillar_direct_position (twin of pillar_position) ---
+  // Read-only — no signing needed, just fetches balances
+  server.registerTool(
+    "pillar_direct_position",
+    {
+      description:
+        "View your Pillar smart wallet balance and Zest position. " +
+        "No signing needed — reads on-chain balances directly.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const { session } = requireActiveKey();
+
+        // Fetch from Pillar API (same data the handoff tool shows)
+        const api = getPillarApi();
+        const unwindQuote = await api.get<{
+          success: boolean;
+          data: {
+            collateralSats: number;
+            collateralBtc: number;
+            collateralUsd: number;
+            borrowedAeUsdc: number;
+            borrowedUsd: number;
+            btcPrice: number;
+            canUnwind: boolean;
+          };
+        }>("/pillar/unwind-quote", {
+          walletAddress: session.smartWallet,
+        });
+
+        return createJsonResponse({
+          success: true,
+          walletAddress: session.smartWallet,
+          position: unwindQuote.data,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --- pillar_direct_withdraw_collateral ---
+  server.registerTool(
+    "pillar_direct_withdraw_collateral",
+    {
+      description:
+        "Withdraw sBTC collateral from Zest on the Pillar smart wallet. " +
+        "Agent-signed, no browser needed. Backend sponsors gas.",
+      inputSchema: {
+        sbtcAmount: z
+          .number()
+          .positive()
+          .describe("sBTC amount in sats to withdraw"),
+      },
+    },
+    async ({ sbtcAmount }) => {
+      try {
+        const { keyService, session } = requireActiveKey();
+        const authId = generateAuthId();
+
+        const structuredData = tupleCV({
+          topic: stringAsciiCV("pillar-withdraw-collateral"),
+          "auth-id": uintCV(authId),
+          "sbtc-amount": uintCV(sbtcAmount),
+        });
+
+        const sigAuth = keyService.sign(structuredData, authId);
+        const api = getPillarApi();
+        const result = await api.post<{
+          success: boolean;
+          data: { txId: string };
+        }>("/pillar/withdraw-collateral", {
+          walletAddress: session.smartWallet,
+          sbtcAmount,
+          sigAuth: formatSigAuthForApi(sigAuth),
+        });
+
+        return createJsonResponse({
+          success: true,
+          operation: "pillar-withdraw-collateral",
+          txId: result.data.txId,
+          walletAddress: session.smartWallet,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --- pillar_direct_add_admin (twin of pillar_add_admin) ---
+  server.registerTool(
+    "pillar_direct_add_admin",
+    {
+      description:
+        "Add a backup admin address to your Pillar smart wallet for recovery purposes. " +
+        "Agent-signed, no browser needed. The admin can help recover funds if you lose access to your passkey. " +
+        "Backend sponsors gas.",
+      inputSchema: {
+        newAdmin: z
+          .string()
+          .describe(
+            "Stacks address (SP...) to add as backup admin"
+          ),
+      },
+    },
+    async ({ newAdmin }) => {
+      try {
+        const { keyService, session } = requireActiveKey();
+        const authId = generateAuthId();
+
+        const structuredData = tupleCV({
+          topic: stringAsciiCV("add-admin"),
+          "auth-id": uintCV(authId),
+          "new-admin": principalCV(newAdmin),
+        });
+
+        const sigAuth = keyService.sign(structuredData, authId);
+        const api = getPillarApi();
+        const result = await api.post<{
+          success: boolean;
+          data: { txId: string };
+        }>("/smart-wallet/add-admin", {
+          walletAddress: session.smartWallet,
+          newAdmin,
+          sigAuth: formatSigAuthForApi(sigAuth),
+        });
+
+        return createJsonResponse({
+          success: true,
+          operation: "add-admin",
+          txId: result.data.txId,
+          walletAddress: session.smartWallet,
+          newAdmin,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ==========================================================================
+  // DCA Tools — twins of handoff DCA tools
+  //
+  // These are read-only API calls (no signing), but need the wallet address
+  // from the signing key session rather than the handoff session.
+  // ==========================================================================
+
+  // --- pillar_direct_dca_invite (twin of pillar_dca_invite) ---
+  server.registerTool(
+    "pillar_direct_dca_invite",
+    {
+      description:
+        "Invite a DCA partner by email or wallet address. " +
+        "DCA partners hold each other accountable — both must boost each week to keep the streak alive.",
+      inputSchema: {
+        partner: z
+          .string()
+          .describe("Partner's email address or Stacks wallet address (SP...)"),
+      },
+    },
+    async ({ partner }) => {
+      try {
+        const { session } = requireActiveKey();
+        const isEmail = partner.includes("@");
+
+        const api = getPillarApi();
+        const result = await api.post<{
+          partnershipId: string;
+          status: string;
+          inviteLink?: string;
+        }>("/api/dca-partner/invite", {
+          walletAddress: session.smartWallet,
+          ...(isEmail
+            ? { partnerEmail: partner }
+            : { partnerWalletAddress: partner }),
+        });
+
+        return createJsonResponse({
+          success: true,
+          partnershipId: result.partnershipId,
+          status: result.status,
+          message: isEmail
+            ? `Invite sent to ${partner}. They'll receive an email with a link to accept.`
+            : `Partnership invite sent to ${partner}.`,
+          ...(result.inviteLink ? { inviteLink: result.inviteLink } : {}),
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --- pillar_direct_dca_partners (twin of pillar_dca_partners) ---
+  server.registerTool(
+    "pillar_direct_dca_partners",
+    {
+      description:
+        "View your DCA partners and weekly status. " +
+        "Shows active partnerships with streak, PnL, and weekly status badges, plus any pending invites.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const { session } = requireActiveKey();
+
+        const api = getPillarApi();
+        const result = await api.get<{
+          partnerships: Array<{
+            partnershipId: string;
+            partnerName?: string;
+            partnerAddress: string;
+            streak: number;
+            pnl?: number;
+            myStatus: string;
+            partnerStatus: string;
+            status: string;
+          }>;
+          pendingInvites: Array<{
+            partnershipId: string;
+            partnerEmail?: string;
+            partnerAddress?: string;
+            direction: string;
+          }>;
+        }>("/api/dca-partner/my-partners", {
+          walletAddress: session.smartWallet,
+        });
+
+        const active = result.partnerships.filter(
+          (p) => p.status === "active"
+        );
+        const pending = result.pendingInvites || [];
+
+        return createJsonResponse({
+          success: true,
+          activePartnerships: active.map((p) => ({
+            partnershipId: p.partnershipId,
+            partner: p.partnerName || p.partnerAddress,
+            streak: p.streak,
+            pnl: p.pnl,
+            myStatus: p.myStatus,
+            partnerStatus: p.partnerStatus,
+          })),
+          pendingInvites: pending.length,
+          pendingDetails: pending.map((p) => ({
+            partnershipId: p.partnershipId,
+            partner: p.partnerEmail || p.partnerAddress,
+            direction: p.direction,
+          })),
+          message:
+            active.length > 0
+              ? `${active.length} active partnership${active.length > 1 ? "s" : ""}, ${pending.length} pending invite${pending.length !== 1 ? "s" : ""}`
+              : `No active partnerships. ${pending.length} pending invite${pending.length !== 1 ? "s" : ""}. Use pillar_direct_dca_invite to invite a partner.`,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --- pillar_direct_dca_leaderboard (twin of pillar_dca_leaderboard) ---
+  server.registerTool(
+    "pillar_direct_dca_leaderboard",
+    {
+      description:
+        "View the DCA streak leaderboard. Shows top partnerships by streak length, and highlights your entry if you have one.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const { session } = requireActiveKey();
+
+        const api = getPillarApi();
+        const result = await api.get<{
+          leaderboard: Array<{
+            rank: number;
+            partnerNames: string[];
+            streak: number;
+            pnl?: number;
+            isUser?: boolean;
+          }>;
+          userEntry?: {
+            rank: number;
+            partnerName: string;
+            streak: number;
+            pnl?: number;
+          };
+        }>("/api/dca-partner/leaderboard", {
+          walletAddress: session.smartWallet,
+        });
+
+        return createJsonResponse({
+          success: true,
+          leaderboard: result.leaderboard.map((entry) => ({
+            rank: entry.rank,
+            partners: entry.partnerNames.join(" & "),
+            streak: entry.streak,
+            pnl: entry.pnl,
+            isYou: entry.isUser || false,
+          })),
+          yourRank: result.userEntry
+            ? {
+                rank: result.userEntry.rank,
+                partner: result.userEntry.partnerName,
+                streak: result.userEntry.streak,
+                pnl: result.userEntry.pnl,
+              }
+            : null,
+          message: result.userEntry
+            ? `You're ranked #${result.userEntry.rank} with a ${result.userEntry.streak}-week streak with ${result.userEntry.partnerName}.`
+            : "You don't have an active partnership on the leaderboard yet. Use pillar_direct_dca_invite to get started.",
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --- pillar_direct_dca_status (twin of pillar_dca_status) ---
+  server.registerTool(
+    "pillar_direct_dca_status",
+    {
+      description:
+        "Check your DCA schedule status. Shows all active DCA schedules (up to 10) with chunk progress " +
+        "(completed, pending, failed) and next execution time.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const { session } = requireActiveKey();
+        const api = getPillarApi();
+
+        interface DcaScheduleInfo {
+          id: string;
+          totalSbtcAmount: number;
+          chunkSizeSats: number;
+          totalChunks: number;
+          completedChunks: number;
+          failedChunks: number;
+          status: string;
+          btcPriceAtCreation: number | null;
+          createdAt: number;
+          completedAt: number | null;
+        }
+
+        interface DcaChunkInfo {
+          id: string;
+          chunkIndex: number;
+          sbtcAmount: number;
+          status: string;
+          scheduledAt: number;
+          executedAt: number | null;
+          txId: string | null;
+          retryCount: number;
+          errorMessage: string | null;
+        }
+
+        interface DcaStatusResult {
+          schedule: DcaScheduleInfo;
+          chunks: DcaChunkInfo[];
+          allSchedules?: {
+            schedule: DcaScheduleInfo;
+            chunks: DcaChunkInfo[];
+          }[];
+          activeCount?: number;
+          maxSchedules?: number;
+        }
+
+        const raw = await api.get<{
+          success: boolean;
+          data: DcaStatusResult | null;
+        }>("/api/pillar/dca-status", {
+          walletAddress: session.smartWallet,
+        });
+
+        const result = raw.data;
+
+        if (!result) {
+          return createJsonResponse({
+            success: true,
+            hasSchedule: false,
+            activeCount: 0,
+            maxSchedules: 10,
+            message:
+              "No active DCA schedule. Use pillar_direct_boost with an amount over 100,000 sats to start one.",
+          });
+        }
+
+        const allSchedules = result.allSchedules || [
+          { schedule: result.schedule, chunks: result.chunks },
+        ];
+        const activeCount =
+          result.activeCount ??
+          (result.schedule.status === "active" ? 1 : 0);
+        const maxSchedules = result.maxSchedules ?? 10;
+
+        const formatSchedule = (
+          s: DcaScheduleInfo,
+          chunks: DcaChunkInfo[]
+        ) => {
+          const pendingChunks = chunks.filter(
+            (c) => c.status === "pending" || c.status === "executing"
+          ).length;
+          const nextPending = chunks
+            .filter((c) => c.status === "pending")
+            .sort((a, b) => a.scheduledAt - b.scheduledAt)[0];
+          const nextExecution = nextPending
+            ? new Date(nextPending.scheduledAt).toISOString()
+            : null;
+
+          return {
+            id: s.id,
+            status: s.status,
+            totalSbtcAmount: s.totalSbtcAmount,
+            chunkSizeSats: s.chunkSizeSats,
+            progress: `${s.completedChunks}/${s.totalChunks} chunks completed`,
+            completedChunks: s.completedChunks,
+            pendingChunks,
+            failedChunks: s.failedChunks,
+            nextExecution,
+            createdAt: new Date(s.createdAt).toISOString(),
+          };
+        };
+
+        const schedules = allSchedules.map((entry) =>
+          formatSchedule(entry.schedule, entry.chunks)
+        );
+
+        const activeSchedules = schedules.filter(
+          (s) => s.status === "active"
+        );
+
+        if (activeSchedules.length === 0) {
+          const latest = schedules[0];
+          return createJsonResponse({
+            success: true,
+            hasSchedule: true,
+            activeCount: 0,
+            maxSchedules,
+            schedule: latest,
+            message: `DCA ${latest.status}: ${latest.progress}.`,
+          });
+        }
+
+        if (activeSchedules.length === 1) {
+          const s = activeSchedules[0];
+          return createJsonResponse({
+            success: true,
+            hasSchedule: true,
+            activeCount,
+            maxSchedules,
+            schedule: s,
+            message: `DCA active: ${s.progress} (${s.chunkSizeSats} sats/chunk). Next: ${s.nextExecution || "pending"}.`,
+          });
+        }
+
+        const summaries = activeSchedules.map(
+          (s) =>
+            `Schedule ${s.id.slice(0, 8)}: ${s.progress}, next: ${s.nextExecution || "pending"}`
+        );
+        return createJsonResponse({
+          success: true,
+          hasSchedule: true,
+          activeCount,
+          maxSchedules,
+          schedules: activeSchedules,
+          message: `${activeCount} active DCA schedules (max ${maxSchedules}):\n${summaries.join("\n")}`,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ==========================================================================
+  // Utility Tools
+  // ==========================================================================
+
+  // --- pillar_direct_quote ---
+  // Utility tool — get a boost quote before executing
+  server.registerTool(
+    "pillar_direct_quote",
+    {
+      description:
+        "Get a boost quote showing projected leverage, LTV, and swap details. " +
+        "No signing needed. Use this to determine aeUsdcToBorrow and minSbtcFromSwap before calling pillar_direct_boost.",
+      inputSchema: {
+        sbtcAmount: z
+          .number()
+          .positive()
+          .describe("sBTC amount in sats to boost"),
+      },
+    },
+    async ({ sbtcAmount }) => {
+      try {
+        const api = getPillarApi();
+        const result = await api.get<{
+          success: boolean;
+          data: {
+            sbtcAmount: number;
+            aeUsdcToBorrow: number;
+            minSbtcFromSwap: number;
+            totalCollateralSats: number;
+            effectiveLtv: number;
+            leverageMultiplier: number;
+            btcPriceUsd: number;
+          };
+        }>("/pillar/quote", { sbtcAmount });
+
+        return createJsonResponse({
+          success: true,
+          quote: result.data,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+}
