@@ -37,7 +37,13 @@ async function migrateStorage(): Promise<void> {
 export interface WalletMetadata {
   id: string;
   name: string;
+  /** Bitcoin L1 address (primary) */
+  bitcoinAddress: string;
+  /** Stacks L2 address */
+  stacksAddress: string;
+  /** @deprecated Use stacksAddress instead */
   address: string;
+  /** @deprecated Use bitcoinAddress instead */
   btcAddress?: string;
   network: Network;
   createdAt: string;
