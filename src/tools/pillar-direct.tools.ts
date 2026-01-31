@@ -48,7 +48,7 @@ async function requireActiveKey() {
   let session = keyService.getActiveKey();
 
   if (!session) {
-    // Try auto-unlock: find stored keys and unlock the first one
+    // Try auto-unlock: find stored keys and unlock the best one
     const keys = await keyService.listKeys();
     if (keys.length === 0) {
       throw new Error(
@@ -56,10 +56,17 @@ async function requireActiveKey() {
       );
     }
 
+    // Prefer keys with an actual wallet address (not "pending")
+    const sortedKeys = [...keys].sort((a, b) => {
+      const aReady = a.smartWallet !== "pending" ? 0 : 1;
+      const bReady = b.smartWallet !== "pending" ? 0 : 1;
+      return aReady - bReady;
+    });
+
     const password = getDerivedPassword();
-    // Try each key until one unlocks (in case of multiple keys)
+    // Try each key until one unlocks
     let unlocked = false;
-    for (const key of keys) {
+    for (const key of sortedKeys) {
       try {
         await keyService.unlock(key.id, password);
         unlocked = true;
