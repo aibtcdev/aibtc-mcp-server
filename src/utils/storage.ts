@@ -70,7 +70,7 @@ export interface WalletAddresses {
   bitcoinAddress?: string;
   /** Stacks L2 address. Added in v2.0. */
   stacksAddress?: string;
-  /** @deprecated Use stacksAddress instead. Required for backward compatibility. */
+  /** @deprecated Use stacksAddress instead. Required for backward compatibility with existing code. */
   address: string;
   /** @deprecated Use bitcoinAddress instead. */
   btcAddress?: string;

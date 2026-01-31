@@ -43,6 +43,7 @@ IMPORTANT: Save the mnemonic securely - it will only be shown once!`,
           stacksAddress: result.stacksAddress,
           // Deprecated fields for backward compatibility
           address: result.address,
+          btcAddress: result.btcAddress,
           network: network || NETWORK,
           mnemonic: result.mnemonic,
           warning:
@@ -92,8 +93,9 @@ The wallet is encrypted locally and stored in ~/.aibtc/.`,
           walletId: result.walletId,
           bitcoinAddress: result.bitcoinAddress,
           stacksAddress: result.stacksAddress,
-          // Deprecated field for backward compatibility
+          // Deprecated fields for backward compatibility
           address: result.address,
+          btcAddress: result.btcAddress,
           network: network || NETWORK,
         });
       } catch (error) {
@@ -144,8 +146,9 @@ If no wallet ID is provided, unlocks the active wallet.`,
           walletId: targetWalletId,
           bitcoinAddress: account.bitcoinAddress,
           stacksAddress: account.stacksAddress,
-          // Deprecated field for backward compatibility
+          // Deprecated fields for backward compatibility
           address: account.address,
+          btcAddress: account.btcAddress,
           network: account.network,
         });
       } catch (error) {
