@@ -645,6 +645,7 @@ export function registerPillarDirectTools(server: McpServer): void {
         let stxBalance = "0";
         let sbtcBalanceSats = 0;
         let aeusdcBalance = 0;
+        let balanceApiError: string | null = null;
 
         try {
           const balances = await hiro.getAccountBalances(session.smartWallet);
@@ -667,20 +668,23 @@ export function registerPillarDirectTools(server: McpServer): void {
           if (aeusdcKey) {
             aeusdcBalance = parseInt(balances.fungible_tokens[aeusdcKey].balance || "0");
           }
-        } catch {
-          // Hiro API may fail for very fresh wallets — continue with zeroes
+        } catch (err) {
+          // Hiro API may be down or fail for fresh wallets
+          const errMsg = err instanceof Error ? err.message : String(err);
+          balanceApiError = `Hiro API unavailable: ${errMsg}`;
         }
 
         const stxMicro = BigInt(stxBalance);
         const stxFormatted = `${stxMicro / BigInt(1_000_000)}.${(stxMicro % BigInt(1_000_000)).toString().padStart(6, "0")} STX`;
 
-        const walletBalances = {
+        const walletBalances: Record<string, unknown> = {
           stx: stxFormatted,
           stxMicroStx: stxBalance,
           sbtcSats: sbtcBalanceSats,
           sbtcBtc: sbtcBalanceSats / 1e8,
           aeusdcRaw: aeusdcBalance,
           aeusdcFormatted: (aeusdcBalance / 1e6).toFixed(2),
+          ...(balanceApiError ? { apiError: balanceApiError } : {}),
         };
 
         // Wallet is deployed — fetch Zest position
