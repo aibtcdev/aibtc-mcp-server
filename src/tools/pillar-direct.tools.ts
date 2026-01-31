@@ -769,7 +769,9 @@ export function registerPillarDirectTools(server: McpServer): void {
           ? pubkey
           : "0x" + pubkey;
 
-        const email = `${walletName}@agent.pillarbtc.com`;
+        // Replace hyphens — backend DANGEROUS_CHARS regex blocks them in emails
+        const safeWalletName = walletName.replace(/-/g, "");
+        const email = `${safeWalletName}@agent.pillarbtc.com`;
         const privyWalletAddress = "0x0000000000000000000000000000000000000000";
 
         const result = await api.post<{
