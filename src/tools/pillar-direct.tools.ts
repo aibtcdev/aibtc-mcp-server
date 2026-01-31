@@ -565,35 +565,76 @@ export function registerPillarDirectTools(server: McpServer): void {
     {
       description:
         "View your Pillar smart wallet balance and Zest position. " +
-        "No signing needed — reads on-chain balances directly.",
+        "No signing needed — reads on-chain data via backend.",
       inputSchema: {},
     },
     async () => {
       try {
         const { session } = await requireActiveKey();
-
-        // Fetch from Pillar API (same data the handoff tool shows)
         const api = getPillarApi();
-        const unwindQuote = await api.get<{
-          success: boolean;
-          data: {
-            collateralSats: number;
-            collateralBtc: number;
-            collateralUsd: number;
-            borrowedAeUsdc: number;
-            borrowedUsd: number;
-            btcPrice: number;
-            canUnwind: boolean;
-          };
-        }>("/pillar/unwind-quote", {
-          walletAddress: session.smartWallet,
-        });
 
-        return createJsonResponse({
-          success: true,
-          walletAddress: session.smartWallet,
-          position: unwindQuote.data,
-        });
+        // Extract wallet name from contract address (e.g. "SPxxx.telegram-wallet" → "telegram-wallet")
+        const contractParts = session.smartWallet.split(".");
+        const walletName = contractParts[1] || session.smartWallet;
+
+        // First check wallet status in backend
+        let walletStatus: string | null = null;
+        try {
+          const walletInfo = await api.get<{
+            success: boolean;
+            data: { status: string; contractAddress: string } | null;
+          }>(`/api/smart-wallet/${walletName}`);
+          walletStatus = walletInfo.data?.status || null;
+        } catch {
+          // Wallet not found in backend
+        }
+
+        if (!walletStatus || walletStatus === "pending_init") {
+          return createJsonResponse({
+            success: true,
+            walletAddress: session.smartWallet,
+            status: walletStatus || "unknown",
+            message: "Wallet is still being onboarded. The on-chain deployment may be confirmed " +
+              "but the backend hasn't synced yet. Try again in a minute.",
+          });
+        }
+
+        // Wallet is deployed — fetch position
+        try {
+          const unwindQuote = await api.get<{
+            success: boolean;
+            data: {
+              collateralSats: number;
+              collateralBtc: number;
+              collateralUsd: number;
+              borrowedAeUsdc: number;
+              borrowedUsd: number;
+              btcPrice: number;
+              canUnwind: boolean;
+            };
+          }>("/pillar/unwind-quote", {
+            walletAddress: session.smartWallet,
+          });
+
+          return createJsonResponse({
+            success: true,
+            walletAddress: session.smartWallet,
+            status: walletStatus,
+            position: unwindQuote.data,
+          });
+        } catch {
+          // unwind-quote may fail for fresh wallets with no position
+          return createJsonResponse({
+            success: true,
+            walletAddress: session.smartWallet,
+            status: walletStatus,
+            position: {
+              collateralSats: 0,
+              borrowedAeUsdc: 0,
+              message: "No Zest position yet. Supply sBTC or boost to get started.",
+            },
+          });
+        }
       } catch (error) {
         return createErrorResponse(error);
       }
