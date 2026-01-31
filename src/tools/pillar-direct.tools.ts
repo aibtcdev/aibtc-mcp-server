@@ -30,6 +30,11 @@ import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 const SBTC_CONTRACT = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
 const AEUSDC_CONTRACT = "SP3Y2ZSH8P7D50B0VBTSX11S7XSG24M1VB9YFQA4K.token-aeusdc";
 
+function explorerTxUrl(txId: string): string {
+  const id = txId.startsWith("0x") ? txId : `0x${txId}`;
+  return `https://explorer.hiro.so/txid/${id}?chain=mainnet`;
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -322,6 +327,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           success: true,
           operation: "pillar-boost",
           txId: result.data.txId,
+          explorerUrl: explorerTxUrl(result.data.txId),
           walletAddress: session.smartWallet,
         });
       } catch (error) {
@@ -382,6 +388,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           success: true,
           operation: "pillar-unwind",
           txId: result.data.txId,
+          explorerUrl: explorerTxUrl(result.data.txId),
           walletAddress: session.smartWallet,
         });
       } catch (error) {
@@ -431,6 +438,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           success: true,
           operation: "pillar-add-collateral",
           txId: result.data.txId,
+          explorerUrl: explorerTxUrl(result.data.txId),
           walletAddress: session.smartWallet,
         });
       } catch (error) {
@@ -528,6 +536,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           success: true,
           operation: "sip010-transfer",
           txId: result.data.txId,
+          explorerUrl: explorerTxUrl(result.data.txId),
           walletAddress: session.smartWallet,
           to,
           resolvedAddress,
@@ -591,6 +600,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           success: true,
           operation: "set-keeper-auto-compound",
           txId: result.data.txId,
+          explorerUrl: explorerTxUrl(result.data.txId),
           walletAddress: session.smartWallet,
         });
       } catch (error) {
@@ -767,6 +777,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           success: true,
           operation: "pillar-withdraw-collateral",
           txId: result.data.txId,
+          explorerUrl: explorerTxUrl(result.data.txId),
           walletAddress: session.smartWallet,
         });
       } catch (error) {
@@ -817,6 +828,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           success: true,
           operation: "add-admin",
           txId: result.data.txId,
+          explorerUrl: explorerTxUrl(result.data.txId),
           walletAddress: session.smartWallet,
           newAdmin,
         });
@@ -931,6 +943,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           contractName: result.data.contractName,
           contractAddress: result.data.contractAddress,
           deployTxId: result.data.deployTxId,
+          explorerUrl: explorerTxUrl(result.data.deployTxId),
           status: result.data.status,
           note: "Signing key generated, unlocked, and wallet deployed. " +
             "Backend is calling onboard() in background (~20-30s). " +
