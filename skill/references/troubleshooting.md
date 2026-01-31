@@ -35,7 +35,7 @@ After completing transactions, lock for security:
 
 **Symptom**: Unlock fails.
 
-**Solution**: Use `wallet_list` to confirm wallet name, try again with correct password.
+**Solution**: Use `wallet_list` to find and confirm the correct wallet `id` (not just the name). If needed, run `wallet_switch <walletId>`, then retry `wallet_unlock` with that wallet ID and the correct password.
 
 ## Balance Issues
 
