@@ -10,13 +10,13 @@ import {
 import { getStacksNetwork, getApiBaseUrl, type Network } from "../config/networks.js";
 
 export interface Account {
-  /** Bitcoin L1 address (primary) */
-  bitcoinAddress: string;
-  /** Stacks L2 address */
-  stacksAddress: string;
-  /** @deprecated Use stacksAddress instead */
+  /** Bitcoin L1 address (primary). Added in v2.0, required after migration. */
+  bitcoinAddress?: string;
+  /** Stacks L2 address. Added in v2.0, required after migration. */
+  stacksAddress?: string;
+  /** @deprecated Use stacksAddress instead. Required for backward compatibility. */
   address: string;
-  /** @deprecated Use bitcoinAddress instead */
+  /** @deprecated Use bitcoinAddress instead. */
   btcAddress?: string;
   privateKey: string;
   /**
