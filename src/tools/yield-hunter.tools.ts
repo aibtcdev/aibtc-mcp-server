@@ -146,7 +146,8 @@ async function fetchZestApy(): Promise<number> {
     }
 
     const decoded = cvToJSON(hexToCV(result.result));
-    const data = decoded?.value || decoded;
+    // Response is (response (tuple ...)) so we need .value.value to get the tuple fields
+    const data = decoded?.value?.value || decoded?.value || decoded;
 
     // Extract liquidity rate (APY in 1e8 scale)
     // e.g., 5000000 = 5% APY
