@@ -64,13 +64,7 @@ For Bitcoin, you need: amount + (fee_rate * ~200 vBytes).
 
 **Symptom**: Transaction broadcast but not confirmed.
 
-**Solution**: Check status:
-
-```
-"Check transaction status for [txid]"
-```
-
-Bitcoin transactions can take 10 min to 1+ hour depending on fee rate. Use "fast" fees for quicker confirmation.
+**Solution**: Use the `explorerUrl` returned by `transfer_btc` to check status on mempool.space. Bitcoin transactions can take 10 min to 1+ hour depending on fee rate. Use "fast" fees for quicker confirmation.
 
 ### "Transaction failed"
 

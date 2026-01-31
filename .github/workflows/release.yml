@@ -98,6 +98,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Reset npm registry for ClawHub
+        if: ${{ !contains(steps.version.outputs.VERSION, '-') }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
       - name: Publish to ClawHub
         if: ${{ !contains(steps.version.outputs.VERSION, '-') }}
         run: |

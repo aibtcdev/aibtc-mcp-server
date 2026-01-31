@@ -4,7 +4,7 @@ description: Bitcoin L1 wallet for agents - check balances, send BTC, manage UTX
 license: MIT
 metadata:
   author: aibtcdev
-  version: 1.0.0
+  version: 1.7.0
   npm: "@aibtc/mcp-server"
   github: https://github.com/aibtcdev/aibtc-mcp-server
 ---
@@ -72,13 +72,13 @@ Wallets are stored encrypted at `~/.aibtc/`.
 
 ## Tool Reference
 
-### Read Operations (No Wallet Required)
+### Read Operations
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
-| `get_btc_balance` | Get BTC balance | `address` (optional, uses wallet if omitted) |
+| `get_btc_balance` | Get BTC balance | `address` (optional; requires unlocked wallet if omitted) |
 | `get_btc_fees` | Get fee estimates | None |
-| `get_btc_utxos` | List UTXOs | `address`, `confirmedOnly` |
+| `get_btc_utxos` | List UTXOs | `address` (optional; requires unlocked wallet if omitted), `confirmedOnly` |
 
 ### Write Operations (Wallet Required)
 
