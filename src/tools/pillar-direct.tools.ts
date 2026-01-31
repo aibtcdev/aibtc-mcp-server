@@ -1,4 +1,5 @@
 import { z } from "zod";
+import crypto from "crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   tupleCV,
@@ -17,6 +18,7 @@ import {
   type SigAuth,
 } from "../services/signing-key.service.js";
 import { getPillarApi } from "../services/pillar-api.service.js";
+import { PILLAR_API_KEY } from "../config/pillar.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 
 // ============================================================================
@@ -24,14 +26,61 @@ import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 // ============================================================================
 
 /**
- * Get active signing session or throw.
+ * Derive a deterministic password from the PILLAR_API_KEY.
+ * This lets the bot auto-unlock signing keys after restarts
+ * without requiring user input. The key is still encrypted at rest.
  */
-function requireActiveKey() {
+function getDerivedPassword(): string {
+  const secret = PILLAR_API_KEY || "pillar-direct-default";
+  return crypto
+    .createHash("sha256")
+    .update(`pillar-agent-signing-key:${secret}`)
+    .digest("hex");
+}
+
+/**
+ * Get active signing session, auto-unlocking if needed.
+ * On first call after restart, finds the stored key and unlocks it
+ * with the derived password — seamless, no user prompt needed.
+ */
+async function requireActiveKey() {
   const keyService = getSigningKeyService();
-  const session = keyService.getActiveKey();
+  let session = keyService.getActiveKey();
+
   if (!session) {
-    throw new Error("Signing key locked. Use pillar_key_unlock first.");
+    // Try auto-unlock: find stored keys and unlock the first one
+    const keys = await keyService.listKeys();
+    if (keys.length === 0) {
+      throw new Error(
+        "No signing key found. Use pillar_direct_create_wallet to create one."
+      );
+    }
+
+    const password = getDerivedPassword();
+    // Try each key until one unlocks (in case of multiple keys)
+    let unlocked = false;
+    for (const key of keys) {
+      try {
+        await keyService.unlock(key.id, password);
+        unlocked = true;
+        break;
+      } catch {
+        // Wrong password for this key, try next
+      }
+    }
+
+    if (!unlocked) {
+      throw new Error(
+        "Signing key locked and auto-unlock failed. Use pillar_key_unlock with your password."
+      );
+    }
+
+    session = keyService.getActiveKey();
+    if (!session) {
+      throw new Error("Failed to unlock signing key.");
+    }
   }
+
   return { keyService, session };
 }
 
@@ -67,10 +116,6 @@ export function registerPillarDirectTools(server: McpServer): void {
         "Returns the compressed public key (33 bytes hex). " +
         "After generation, propose this pubkey on your smart wallet contract (admin must do this).",
       inputSchema: {
-        password: z
-          .string()
-          .min(8)
-          .describe("Password to encrypt the private key (min 8 characters)"),
         smartWallet: z
           .string()
           .default("pending")
@@ -80,9 +125,10 @@ export function registerPillarDirectTools(server: McpServer): void {
           ),
       },
     },
-    async ({ password, smartWallet }) => {
+    async ({ smartWallet }) => {
       try {
         const keyService = getSigningKeyService();
+        const password = getDerivedPassword();
         const { keyId, pubkey } = await keyService.generateKey(
           password,
           smartWallet
@@ -105,22 +151,36 @@ export function registerPillarDirectTools(server: McpServer): void {
     "pillar_key_unlock",
     {
       description:
-        "Unlock a signing key for Pillar direct operations. Required before using any pillar_direct_* tools.",
+        "Unlock a signing key for Pillar direct operations. " +
+        "Uses auto-derived password. Usually not needed — tools auto-unlock on first use.",
       inputSchema: {
-        keyId: z.string().describe("The signing key ID to unlock"),
-        password: z.string().describe("Password to decrypt the private key"),
+        keyId: z
+          .string()
+          .optional()
+          .describe("The signing key ID to unlock. If omitted, unlocks the first stored key."),
       },
     },
-    async ({ keyId, password }) => {
+    async ({ keyId }) => {
       try {
         const keyService = getSigningKeyService();
-        await keyService.unlock(keyId, password);
+        const password = getDerivedPassword();
+
+        let targetKeyId = keyId;
+        if (!targetKeyId) {
+          const keys = await keyService.listKeys();
+          if (keys.length === 0) {
+            throw new Error("No signing keys found.");
+          }
+          targetKeyId = keys[0].id;
+        }
+
+        await keyService.unlock(targetKeyId, password);
         const session = keyService.getActiveKey();
 
         return createJsonResponse({
           success: true,
           message: "Signing key unlocked.",
-          keyId,
+          keyId: targetKeyId,
           pubkey: session!.pubkey,
           smartWallet: session!.smartWallet,
         });
@@ -218,7 +278,7 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async ({ sbtcAmount, aeUsdcToBorrow, minSbtcFromSwap }) => {
       try {
-        const { keyService, session } = requireActiveKey();
+        const { keyService, session } = await requireActiveKey();
         const authId = generateAuthId();
 
         const structuredData = tupleCV({
@@ -278,7 +338,7 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async ({ sbtcToSwap, sbtcToWithdraw, minAeUsdcFromSwap }) => {
       try {
-        const { keyService, session } = requireActiveKey();
+        const { keyService, session } = await requireActiveKey();
         const authId = generateAuthId();
 
         const structuredData = tupleCV({
@@ -331,7 +391,7 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async ({ sbtcAmount }) => {
       try {
-        const { keyService, session } = requireActiveKey();
+        const { keyService, session } = await requireActiveKey();
         const authId = generateAuthId();
 
         const structuredData = tupleCV({
@@ -390,7 +450,7 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async ({ to, amount, recipientType }) => {
       try {
-        const { keyService, session } = requireActiveKey();
+        const { keyService, session } = await requireActiveKey();
 
         // For sip010-transfer, we sign with the sBTC token contract
         // The backend resolves BNS/wallet names and handles the actual transfer
@@ -462,7 +522,7 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async ({ enabled, minSbtc, trigger }) => {
       try {
-        const { keyService, session } = requireActiveKey();
+        const { keyService, session } = await requireActiveKey();
         const authId = generateAuthId();
 
         const structuredData = tupleCV({
@@ -510,7 +570,7 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async () => {
       try {
-        const { session } = requireActiveKey();
+        const { session } = await requireActiveKey();
 
         // Fetch from Pillar API (same data the handoff tool shows)
         const api = getPillarApi();
@@ -556,7 +616,7 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async ({ sbtcAmount }) => {
       try {
-        const { keyService, session } = requireActiveKey();
+        const { keyService, session } = await requireActiveKey();
         const authId = generateAuthId();
 
         const structuredData = tupleCV({
@@ -606,7 +666,7 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async ({ newAdmin }) => {
       try {
-        const { keyService, session } = requireActiveKey();
+        const { keyService, session } = await requireActiveKey();
         const authId = generateAuthId();
 
         const structuredData = tupleCV({
@@ -660,13 +720,6 @@ export function registerPillarDirectTools(server: McpServer): void {
             "Wallet name (3-20 chars, lowercase letters, numbers, hyphens). " +
             "The contract will be deployed as {walletName}-wallet."
           ),
-        password: z
-          .string()
-          .min(8)
-          .describe(
-            "Password to encrypt the signing key (min 8 chars). " +
-            "Needed to unlock the key after bot restarts."
-          ),
         referredBy: z
           .string()
           .default("SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22.beta-v2-wallet")
@@ -676,9 +729,10 @@ export function registerPillarDirectTools(server: McpServer): void {
           ),
       },
     },
-    async ({ walletName, password, referredBy }) => {
+    async ({ walletName, referredBy }) => {
       try {
         const api = getPillarApi();
+        const password = getDerivedPassword();
 
         // Step 0: Check name availability before doing anything
         const nameCheck = await api.get<{
@@ -781,7 +835,7 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async ({ partner }) => {
       try {
-        const { session } = requireActiveKey();
+        const { session } = await requireActiveKey();
         const isEmail = partner.includes("@");
 
         const api = getPillarApi();
@@ -822,7 +876,7 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async () => {
       try {
-        const { session } = requireActiveKey();
+        const { session } = await requireActiveKey();
 
         const api = getPillarApi();
         const result = await api.get<{
@@ -888,7 +942,7 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async () => {
       try {
-        const { session } = requireActiveKey();
+        const { session } = await requireActiveKey();
 
         const api = getPillarApi();
         const result = await api.get<{
@@ -947,7 +1001,7 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async () => {
       try {
-        const { session } = requireActiveKey();
+        const { session } = await requireActiveKey();
         const api = getPillarApi();
 
         interface DcaScheduleInfo {
