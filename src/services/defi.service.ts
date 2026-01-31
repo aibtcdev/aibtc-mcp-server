@@ -553,12 +553,21 @@ export class ZestProtocolService {
       principalCV(account.address),                           // owner
     ];
 
+    // Post-condition: pool reserve will send us the withdrawn asset
+    // Using willSendLte because actual amount may be slightly different due to interest
+    const postConditions = [
+      Pc.principal(this.contracts!.poolReserve)
+        .willSendLte(amount)
+        .ft(assetConfig.token as `${string}.${string}`, assetName),
+    ];
+
     return callContract(account, {
       contractAddress: address,
       contractName: name,
       functionName: "withdraw",
       functionArgs,
-      postConditionMode: PostConditionMode.Allow, // Allow receiving tokens
+      postConditionMode: PostConditionMode.Deny,
+      postConditions,
     });
   }
 
@@ -592,12 +601,20 @@ export class ZestProtocolService {
       principalCV(account.address),                           // owner
     ];
 
+    // Post-condition: pool reserve will send us the borrowed asset
+    const postConditions = [
+      Pc.principal(this.contracts!.poolReserve)
+        .willSendLte(amount)
+        .ft(assetConfig.token as `${string}.${string}`, assetName),
+    ];
+
     return callContract(account, {
       contractAddress: address,
       contractName: name,
       functionName: "borrow",
       functionArgs,
-      postConditionMode: PostConditionMode.Allow, // Allow receiving borrowed tokens
+      postConditionMode: PostConditionMode.Deny,
+      postConditions,
     });
   }
 
