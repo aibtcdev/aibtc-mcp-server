@@ -5,3 +5,4 @@ dist/
 .claude
 deprecation/
 .planning/
+.planning-archive*/

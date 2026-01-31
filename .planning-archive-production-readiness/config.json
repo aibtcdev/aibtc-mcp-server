@@ -1,6 +1,0 @@
-{
-  "maxRetries": 3,
-  "autoRetry": true,
-  "commitFormat": "conventional",
-  "rpgNotify": true
-}
