@@ -310,7 +310,7 @@ export function registerPillarDirectTools(server: McpServer): void {
         const result = await api.post<{
           success: boolean;
           data: { txId: string };
-        }>("/pillar/boost", {
+        }>("/api/pillar/boost", {
           walletAddress: session.smartWallet,
           sbtcAmount,
           aeUsdcToBorrow,
@@ -370,7 +370,7 @@ export function registerPillarDirectTools(server: McpServer): void {
         const result = await api.post<{
           success: boolean;
           data: { txId: string };
-        }>("/pillar/unwind", {
+        }>("/api/pillar/unwind", {
           walletAddress: session.smartWallet,
           sbtcToSwap,
           sbtcToWithdraw,
@@ -421,7 +421,7 @@ export function registerPillarDirectTools(server: McpServer): void {
         const result = await api.post<{
           success: boolean;
           data: { txId: string };
-        }>("/pillar/add-collateral", {
+        }>("/api/pillar/add-collateral", {
           walletAddress: session.smartWallet,
           sbtcAmount,
           sigAuth: formatSigAuthForApi(sigAuth),
@@ -515,7 +515,7 @@ export function registerPillarDirectTools(server: McpServer): void {
         const result = await api.post<{
           success: boolean;
           data: { txId: string };
-        }>("/smart-wallet/sip010-transfer", {
+        }>("/api/smart-wallet/sip010-transfer", {
           walletAddress: session.smartWallet,
           amount,
           recipient: resolvedAddress,
@@ -579,7 +579,7 @@ export function registerPillarDirectTools(server: McpServer): void {
         const result = await api.post<{
           success: boolean;
           data: { txId: string };
-        }>("/pillar/set-auto-compound", {
+        }>("/api/pillar/set-auto-compound", {
           walletAddress: session.smartWallet,
           enabled,
           minSbtc,
@@ -701,7 +701,7 @@ export function registerPillarDirectTools(server: McpServer): void {
               btcPrice: number;
               canUnwind: boolean;
             };
-          }>("/pillar/unwind-quote", {
+          }>("/api/pillar/unwind-quote", {
             walletAddress: session.smartWallet,
           });
 
@@ -757,7 +757,7 @@ export function registerPillarDirectTools(server: McpServer): void {
         const result = await api.post<{
           success: boolean;
           data: { txId: string };
-        }>("/pillar/withdraw-collateral", {
+        }>("/api/pillar/withdraw-collateral", {
           walletAddress: session.smartWallet,
           sbtcAmount,
           sigAuth: formatSigAuthForApi(sigAuth),
@@ -807,7 +807,7 @@ export function registerPillarDirectTools(server: McpServer): void {
         const result = await api.post<{
           success: boolean;
           data: { txId: string };
-        }>("/smart-wallet/add-admin", {
+        }>("/api/smart-wallet/add-admin", {
           walletAddress: session.smartWallet,
           newAdmin,
           sigAuth: formatSigAuthForApi(sigAuth),
@@ -1308,7 +1308,7 @@ export function registerPillarDirectTools(server: McpServer): void {
             leverageMultiplier: number;
             btcPriceUsd: number;
           };
-        }>("/pillar/quote", { sbtcAmount });
+        }>("/api/pillar/quote", { sbtcAmount });
 
         return createJsonResponse({
           success: true,
