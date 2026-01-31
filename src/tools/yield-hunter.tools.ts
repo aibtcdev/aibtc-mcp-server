@@ -11,7 +11,20 @@ import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 // Constants
 // ============================================================================
 
-/** Buffer to keep for x402 fees + tx costs (in sats). ~0.0005 sBTC = 50k sats */
+/**
+ * Fee buffer to reserve for transaction costs (in satoshis).
+ *
+ * This buffer ensures the agent always has funds to pay for:
+ * 1. Stacks transaction fees (~2-10 sats per transaction)
+ * 2. x402 API payment fees (~1,000-10,000 sats per call, varies by endpoint)
+ *
+ * Default: 50,000 sats (0.0005 sBTC, ~$50 at $100k BTC)
+ * - Covers ~5,000+ Stacks transactions
+ * - Covers ~5-50 x402 API calls depending on endpoint pricing
+ * - Provides safety margin for fee fluctuations
+ *
+ * Customize via yield_hunter_start or yield_hunter_configure feeBuffer parameter.
+ */
 const FEE_BUFFER_SATS = 50_000n;
 
 /** Maximum retries for failed transactions */
