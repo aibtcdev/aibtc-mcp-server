@@ -42,6 +42,11 @@ interface Session {
  */
 export interface WalletCreateResult {
   walletId: string;
+  /** Bitcoin L1 address (primary) */
+  bitcoinAddress: string;
+  /** Stacks L2 address */
+  stacksAddress: string;
+  /** @deprecated Use stacksAddress instead */
   address: string;
   mnemonic: string; // Only returned once at creation
 }
@@ -51,6 +56,11 @@ export interface WalletCreateResult {
  */
 export interface WalletImportResult {
   walletId: string;
+  /** Bitcoin L1 address (primary) */
+  bitcoinAddress: string;
+  /** Stacks L2 address */
+  stacksAddress: string;
+  /** @deprecated Use stacksAddress instead */
   address: string;
 }
 
