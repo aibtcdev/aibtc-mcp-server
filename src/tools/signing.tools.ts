@@ -62,8 +62,9 @@ const CHAIN_IDS = {
 } as const;
 
 /**
- * SIP-018 structured data prefix (ASCII "SIP018")
- * Used for reference in response objects to show hash construction
+ * SIP-018 structured data prefix as hex.
+ * ASCII "SIP018" = 0x534950303138
+ * Included in responses to show how the verification hash is constructed.
  */
 const SIP018_MSG_PREFIX = "0x534950303138";
 
@@ -171,7 +172,20 @@ function getRecoveryIdFromHeader(header: number): number {
 }
 
 /**
- * Convert a JSON value to a ClarityValue
+ * Type guard for explicit Clarity type hint objects.
+ * Checks if value is an object with a "type" string property.
+ */
+function isTypedValue(value: unknown): value is { type: string; value?: unknown } {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "type" in value &&
+    typeof (value as { type: unknown }).type === "string"
+  );
+}
+
+/**
+ * Convert a JSON value to a ClarityValue.
  *
  * Supports explicit type hints for typed arguments:
  * - { type: "uint", value: 100 }
@@ -194,92 +208,78 @@ function getRecoveryIdFromHeader(header: number): number {
  * - array -> listCV
  * - object -> tupleCV (recursively)
  */
-/**
- * Type guard for explicit type hint objects
- */
-function isTypedValue(value: unknown): value is { type: string; value?: unknown } {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    "type" in value &&
-    typeof (value as { type: unknown }).type === "string"
-  );
-}
-
 function jsonToClarityValue(value: unknown): ClarityValue {
   // Handle explicit type hints
   if (isTypedValue(value)) {
-    const typed = value;
-
-    switch (typed.type) {
+    switch (value.type) {
       case "uint":
-        if (typeof typed.value !== "number" && typeof typed.value !== "string") {
+        if (typeof value.value !== "number" && typeof value.value !== "string") {
           throw new Error("uint type requires a numeric value");
         }
-        return uintCV(BigInt(typed.value));
+        return uintCV(BigInt(value.value));
 
       case "int":
-        if (typeof typed.value !== "number" && typeof typed.value !== "string") {
+        if (typeof value.value !== "number" && typeof value.value !== "string") {
           throw new Error("int type requires a numeric value");
         }
-        return intCV(BigInt(typed.value));
+        return intCV(BigInt(value.value));
 
       case "principal":
-        if (typeof typed.value !== "string") {
+        if (typeof value.value !== "string") {
           throw new Error("principal type requires a string value");
         }
-        return principalCV(typed.value);
+        return principalCV(value.value);
 
       case "ascii":
-        if (typeof typed.value !== "string") {
+        if (typeof value.value !== "string") {
           throw new Error("ascii type requires a string value");
         }
-        return stringAsciiCV(typed.value);
+        return stringAsciiCV(value.value);
 
       case "utf8":
-        if (typeof typed.value !== "string") {
+        if (typeof value.value !== "string") {
           throw new Error("utf8 type requires a string value");
         }
-        return stringUtf8CV(typed.value);
+        return stringUtf8CV(value.value);
 
       case "buff":
       case "buffer":
-        if (typeof typed.value !== "string") {
+        if (typeof value.value !== "string") {
           throw new Error("buff type requires a hex string value");
         }
         // Support both "0x..." and raw hex
-        const hexStr = typed.value.startsWith("0x")
-          ? typed.value.slice(2)
-          : typed.value;
+        const hexStr = value.value.startsWith("0x")
+          ? value.value.slice(2)
+          : value.value;
         return bufferCV(Uint8Array.from(Buffer.from(hexStr, "hex")));
 
       case "bool":
-        return typed.value ? trueCV() : falseCV();
+        return value.value ? trueCV() : falseCV();
 
       case "none":
         return noneCV();
 
       case "some":
-        return someCV(jsonToClarityValue(typed.value));
+        return someCV(jsonToClarityValue(value.value));
 
       case "list":
-        if (!Array.isArray(typed.value)) {
+        if (!Array.isArray(value.value)) {
           throw new Error("list type requires an array value");
         }
-        return listCV(typed.value.map(jsonToClarityValue));
+        return listCV(value.value.map(jsonToClarityValue));
 
       case "tuple":
-        if (typeof typed.value !== "object" || typed.value === null) {
+        if (typeof value.value !== "object" || value.value === null) {
           throw new Error("tuple type requires an object value");
         }
         const tupleData: { [key: string]: ClarityValue } = {};
-        for (const [k, v] of Object.entries(typed.value)) {
+        for (const [k, v] of Object.entries(value.value)) {
           tupleData[k] = jsonToClarityValue(v);
         }
         return tupleCV(tupleData);
 
       default:
-        throw new Error(`Unknown type hint: ${typed.type}`);
+        throw new Error(`Unknown type hint: ${value.type}`);
     }
   }
 
