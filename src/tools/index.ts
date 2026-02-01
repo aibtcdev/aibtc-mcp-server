@@ -4,6 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerBitcoinTools } from "./bitcoin.tools.js";
 import { registerWalletTools } from "./wallet.tools.js";
 import { registerWalletManagementTools } from "./wallet-management.tools.js";
+import { registerSigningTools } from "./signing.tools.js";
 
 // Layer 2: Stacks L2 (On-Demand)
 import { registerTransferTools } from "./transfer.tools.js";
@@ -48,6 +49,7 @@ export function registerAllTools(server: McpServer): void {
   registerBitcoinTools(server);
   registerWalletTools(server);
   registerWalletManagementTools(server);
+  registerSigningTools(server);
 
   // =========================================================================
   // Layer 2: Stacks L2 (On-Demand)
