@@ -2,12 +2,18 @@
  * Message Signing Tools
  *
  * These tools provide message signing capabilities for agent identity and authentication:
+ *
+ * SIP-018 (Structured Data Signing):
  * - sip018_sign: Sign structured Clarity data (SIP-018 standard)
  * - sip018_verify: Verify SIP-018 signature and recover signer
  * - sip018_hash: Compute SIP-018 message hash without signing
  *
+ * Stacks Message Signing (SIWS-Compatible):
+ * - stacks_sign_message: Sign plain text messages with Stacks prefix
+ * - stacks_verify_message: Verify message signature and recover signer
+ *
  * SIP-018 signatures can be verified both off-chain and on-chain by smart contracts.
- * Use cases: meta-transactions, off-chain voting, permits, proving address control.
+ * Stacks message signatures are SIWS-compatible for web authentication flows.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -18,6 +24,7 @@ import {
   encodeStructuredDataBytes,
   publicKeyFromSignatureRsv,
   getAddressFromPublicKey,
+  signMessageHashRsv,
   tupleCV,
   stringAsciiCV,
   stringUtf8CV,
@@ -32,6 +39,7 @@ import {
   falseCV,
   type ClarityValue,
 } from "@stacks/transactions";
+import { hashMessage, verifyMessageSignatureRsv } from "@stacks/encryption";
 import { bytesToHex } from "@stacks/common";
 import { sha256 } from "@noble/hashes/sha256";
 import { NETWORK } from "../config/networks.js";
@@ -50,6 +58,13 @@ const CHAIN_IDS = {
  * SIP-018 structured data prefix (ASCII "SIP018")
  */
 const SIP018_PREFIX = "0x534950303138";
+
+/**
+ * Stacks message signing prefix (SIWS-compatible)
+ * 'Stacks Signed Message:\n'.length === 23 (0x17 in hex)
+ * This prefix is prepended to messages before hashing for signature.
+ */
+const STACKS_MESSAGE_PREFIX = "\x17Stacks Signed Message:\n";
 
 /**
  * Convert a JSON value to a ClarityValue
@@ -443,6 +458,154 @@ export function registerSigningTools(server: McpServer): void {
             example:
               "(secp256k1-recover? (sha256 encoded-data) signature)",
           },
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Sign plain text message (SIWS-compatible)
+  server.registerTool(
+    "stacks_sign_message",
+    {
+      description:
+        "Sign a plain text message using the Stacks message signing format. " +
+        "The message is prefixed with '\\x17Stacks Signed Message:\\n' before hashing (SIWS-compatible). " +
+        "Use cases: proving address ownership, authentication, sign-in flows. " +
+        "Requires an unlocked wallet.",
+      inputSchema: {
+        message: z
+          .string()
+          .describe(
+            "The plain text message to sign. Will be prefixed with Stacks message prefix before signing."
+          ),
+      },
+    },
+    async ({ message }) => {
+      try {
+        // Get wallet account (requires unlocked wallet)
+        const walletManager = getWalletManager();
+        const account = walletManager.getActiveAccount();
+
+        if (!account) {
+          throw new Error(
+            "Wallet is not unlocked. Use wallet_unlock first to enable signing."
+          );
+        }
+
+        // Hash the message with the Stacks prefix
+        const messageHash = hashMessage(message);
+        const messageHashHex = bytesToHex(messageHash);
+
+        // Sign the message hash
+        const signature = signMessageHashRsv({
+          messageHash: messageHashHex,
+          privateKey: account.privateKey,
+        });
+
+        return createJsonResponse({
+          success: true,
+          signature,
+          signatureFormat: "RSV (65 bytes hex)",
+          signer: account.stacksAddress,
+          network: NETWORK,
+          message: {
+            original: message,
+            prefix: STACKS_MESSAGE_PREFIX,
+            prefixHex: bytesToHex(new TextEncoder().encode(STACKS_MESSAGE_PREFIX)),
+            hash: messageHashHex,
+          },
+          verificationNote:
+            "Use stacks_verify_message with the original message and signature to verify. " +
+            "Compatible with SIWS (Sign In With Stacks) authentication flows.",
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Verify plain text message signature (SIWS-compatible)
+  server.registerTool(
+    "stacks_verify_message",
+    {
+      description:
+        "Verify a Stacks message signature and recover the signer's address. " +
+        "Takes the original message and signature, applies the Stacks prefix, and verifies. " +
+        "Compatible with SIWS (Sign In With Stacks) authentication flows.",
+      inputSchema: {
+        message: z
+          .string()
+          .describe(
+            "The original plain text message that was signed."
+          ),
+        signature: z
+          .string()
+          .describe(
+            "The signature in RSV format (65 bytes hex from stacks_sign_message or wallet signature)."
+          ),
+        expectedSigner: z
+          .string()
+          .optional()
+          .describe(
+            "Optional: expected signer address to verify against. " +
+              "If provided, returns whether the signature is valid for this signer."
+          ),
+      },
+    },
+    async ({ message, signature, expectedSigner }) => {
+      try {
+        // Hash the message with the Stacks prefix
+        const messageHash = hashMessage(message);
+        const messageHashHex = bytesToHex(messageHash);
+
+        // Recover public key from signature
+        const recoveredPubKey = publicKeyFromSignatureRsv(messageHashHex, signature);
+
+        // Derive address from public key for current network
+        const recoveredAddress = getAddressFromPublicKey(recoveredPubKey, NETWORK);
+
+        // Verify the signature using the encryption library
+        const signatureValid = verifyMessageSignatureRsv({
+          signature,
+          message,
+          publicKey: recoveredPubKey,
+        });
+
+        // Check against expected signer if provided
+        const signerMatches = expectedSigner
+          ? recoveredAddress === expectedSigner
+          : undefined;
+
+        const isFullyValid = signatureValid && (expectedSigner ? signerMatches : true);
+
+        return createJsonResponse({
+          success: true,
+          signatureValid,
+          recoveredPublicKey: recoveredPubKey,
+          recoveredAddress,
+          network: NETWORK,
+          message: {
+            original: message,
+            prefix: STACKS_MESSAGE_PREFIX,
+            hash: messageHashHex,
+          },
+          verification: expectedSigner
+            ? {
+                expectedSigner,
+                signerMatches,
+                isFullyValid,
+                message: isFullyValid
+                  ? "Signature is valid and matches expected signer"
+                  : signatureValid
+                    ? "Signature is valid but does NOT match expected signer"
+                    : "Signature is invalid",
+              }
+            : undefined,
+          note:
+            "The recovered address is derived from the public key recovered from the signature. " +
+            "Compatible with SIWS (Sign In With Stacks) authentication flows.",
         });
       } catch (error) {
         return createErrorResponse(error);
