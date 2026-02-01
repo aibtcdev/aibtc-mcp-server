@@ -12,18 +12,19 @@ import { createJsonResponse, createErrorResponse, getSbtcBalance } from "../util
 // ============================================================================
 
 /**
- * Fee buffer to reserve for transaction costs (in satoshis).
+ * Default reserve amount to keep liquid in wallet (in satoshis).
  *
- * This buffer ensures the agent always has funds to pay for Stacks transaction
- * fees (~2-10 sats per transaction). The yield hunter only performs on-chain
- * supply transactions - it does not call any x402 endpoints.
+ * This reserve is sBTC that won't be deposited to Zest, keeping it available
+ * for other purposes (transfers, x402 API payments, etc.).
  *
- * Default: 1,000 sats (0.00001 sBTC, ~$1 at $100k BTC)
- * - Covers 100-500 Stacks transactions
+ * Note: Stacks transaction fees are paid in STX, not sBTC. This reserve does
+ * NOT help pay for Zest deposit transaction fees.
  *
- * Customize via yield_hunter_start or yield_hunter_configure feeBuffer parameter.
+ * Default: 0 sats (deposit all sBTC to maximize yield)
+ *
+ * Customize via yield_hunter_start or yield_hunter_configure reserve parameter.
  */
-const FEE_BUFFER_SATS = 1_000n;
+const DEFAULT_RESERVE_SATS = 0n;
 
 /** Maximum retries for failed transactions */
 const MAX_RETRIES = 3;
@@ -46,7 +47,7 @@ interface YieldHunterState {
   intervalId: NodeJS.Timeout | null;
   config: {
     minDepositThreshold: bigint;
-    feeBuffer: bigint;
+    reserve: bigint;
     checkIntervalMs: number;
     asset: string;
   };
@@ -77,7 +78,7 @@ const state: YieldHunterState = {
   intervalId: null,
   config: {
     minDepositThreshold: 10_000n, // 0.0001 sBTC
-    feeBuffer: FEE_BUFFER_SATS,
+    reserve: DEFAULT_RESERVE_SATS,
     checkIntervalMs: 10 * 60 * 1000, // 10 minutes
     asset: "sBTC",
   },
@@ -280,10 +281,10 @@ async function runYieldCheck(): Promise<void> {
     const zestSupplied = position ? BigInt(position.supplied) : 0n;
     addLog("info", `Zest supplied: ${formatSats(zestSupplied)}`);
 
-    // Calculate amount to deposit (keep fee buffer)
-    const effectiveThreshold = state.config.minDepositThreshold + state.config.feeBuffer;
-    const depositAmount = walletBalance > state.config.feeBuffer
-      ? walletBalance - state.config.feeBuffer
+    // Calculate amount to deposit (keep reserve if configured)
+    const effectiveThreshold = state.config.minDepositThreshold + state.config.reserve;
+    const depositAmount = walletBalance > state.config.reserve
+      ? walletBalance - state.config.reserve
       : 0n;
 
     // Check if we should deposit
@@ -291,7 +292,7 @@ async function runYieldCheck(): Promise<void> {
       addLog(
         "action",
         `Balance (${formatSats(walletBalance)}) above threshold (${formatSats(effectiveThreshold)}). ` +
-        `Depositing ${formatSats(depositAmount)}, keeping ${formatSats(state.config.feeBuffer)} as fee buffer...`
+        `Depositing ${formatSats(depositAmount)}${state.config.reserve > 0n ? `, keeping ${formatSats(state.config.reserve)} as reserve` : ""}...`
       );
 
       try {
@@ -358,7 +359,7 @@ export function registerYieldHunterTools(server: McpServer): void {
 This will:
 1. Monitor your wallet for sBTC
 2. Automatically deposit sBTC to Zest Protocol when balance exceeds threshold
-3. Keep a fee buffer for x402 payments and transaction costs
+3. Keep a configurable reserve (default: 0, deposits all sBTC)
 4. Wait for transaction confirmations before proceeding
 5. Retry failed transactions with exponential backoff
 6. Run continuously until stopped
@@ -366,9 +367,11 @@ This will:
 Requires an unlocked wallet (use wallet_unlock first).
 Only works on mainnet (Zest Protocol is mainnet-only).
 
+Note: Stacks transaction fees are paid in STX, not sBTC.
+
 Default settings:
 - Deposit threshold: 10,000 sats (0.0001 sBTC)
-- Fee buffer: 1,000 sats (0.00001 sBTC) - kept for Stacks tx fees
+- Reserve: 0 sats (deposit all sBTC to maximize yield)
 - Check interval: 10 minutes`,
       inputSchema: {
         threshold: z
@@ -377,11 +380,11 @@ Default settings:
           .describe(
             "Minimum sBTC balance (in sats) before depositing. Default: 10000"
           ),
-        feeBuffer: z
+        reserve: z
           .string()
           .optional()
           .describe(
-            "sBTC (in sats) to keep for fees, never deposited. Default: 1000"
+            "sBTC (in sats) to keep liquid, never deposited. Default: 0 (deposit all)"
           ),
         interval: z
           .number()
@@ -389,7 +392,7 @@ Default settings:
           .describe("Check interval in seconds. Default: 600 (10 minutes)"),
       },
     },
-    async ({ threshold, feeBuffer, interval }) => {
+    async ({ threshold, reserve, interval }) => {
       try {
         if (NETWORK !== "mainnet") {
           return createJsonResponse({
@@ -421,8 +424,8 @@ Default settings:
         if (threshold) {
           state.config.minDepositThreshold = BigInt(threshold);
         }
-        if (feeBuffer) {
-          state.config.feeBuffer = BigInt(feeBuffer);
+        if (reserve) {
+          state.config.reserve = BigInt(reserve);
         }
         if (interval) {
           state.config.checkIntervalMs = interval * 1000;
@@ -452,10 +455,10 @@ Default settings:
           config: {
             minDepositThreshold: state.config.minDepositThreshold.toString(),
             minDepositThresholdFormatted: formatSats(state.config.minDepositThreshold),
-            feeBuffer: state.config.feeBuffer.toString(),
-            feeBufferFormatted: formatSats(state.config.feeBuffer),
-            effectiveThreshold: (state.config.minDepositThreshold + state.config.feeBuffer).toString(),
-            effectiveThresholdFormatted: formatSats(state.config.minDepositThreshold + state.config.feeBuffer),
+            reserve: state.config.reserve.toString(),
+            reserveFormatted: formatSats(state.config.reserve),
+            effectiveThreshold: (state.config.minDepositThreshold + state.config.reserve).toString(),
+            effectiveThresholdFormatted: formatSats(state.config.minDepositThreshold + state.config.reserve),
             checkIntervalMs: state.config.checkIntervalMs,
             asset: state.config.asset,
           },
@@ -540,24 +543,24 @@ Shows:
     {
       description: `Configure yield hunter settings.
 
-Adjust the deposit threshold, fee buffer, or check interval.
+Adjust the deposit threshold, reserve, or check interval.
 Changes take effect on the next check cycle.`,
       inputSchema: {
         threshold: z
           .string()
           .optional()
           .describe("Minimum sBTC balance (in sats) before depositing"),
-        feeBuffer: z
+        reserve: z
           .string()
           .optional()
-          .describe("sBTC (in sats) to keep for fees, never deposited"),
+          .describe("sBTC (in sats) to keep liquid, never deposited"),
         interval: z
           .number()
           .optional()
           .describe("Check interval in seconds"),
       },
     },
-    async ({ threshold, feeBuffer, interval }) => {
+    async ({ threshold, reserve, interval }) => {
       try {
         const changes: string[] = [];
 
@@ -568,10 +571,10 @@ Changes take effect on the next check cycle.`,
           );
         }
 
-        if (feeBuffer) {
-          state.config.feeBuffer = BigInt(feeBuffer);
+        if (reserve) {
+          state.config.reserve = BigInt(reserve);
           changes.push(
-            `Fee buffer set to ${formatSats(state.config.feeBuffer)}`
+            `Reserve set to ${formatSats(state.config.reserve)}`
           );
         }
 
@@ -616,10 +619,10 @@ function getConfigObject() {
   return {
     minDepositThreshold: state.config.minDepositThreshold.toString(),
     minDepositThresholdFormatted: formatSats(state.config.minDepositThreshold),
-    feeBuffer: state.config.feeBuffer.toString(),
-    feeBufferFormatted: formatSats(state.config.feeBuffer),
-    effectiveThreshold: (state.config.minDepositThreshold + state.config.feeBuffer).toString(),
-    effectiveThresholdFormatted: formatSats(state.config.minDepositThreshold + state.config.feeBuffer),
+    reserve: state.config.reserve.toString(),
+    reserveFormatted: formatSats(state.config.reserve),
+    effectiveThreshold: (state.config.minDepositThreshold + state.config.reserve).toString(),
+    effectiveThresholdFormatted: formatSats(state.config.minDepositThreshold + state.config.reserve),
     checkIntervalMs: state.config.checkIntervalMs,
     checkIntervalFormatted: `${state.config.checkIntervalMs / 1000} seconds`,
     asset: state.config.asset,
@@ -673,8 +676,8 @@ async function getFullStatus() {
       ]);
 
       const zestSupplied = BigInt(position?.supplied || "0");
-      const availableToDeposit = walletBalance > state.config.feeBuffer
-        ? walletBalance - state.config.feeBuffer
+      const availableToDeposit = walletBalance > state.config.reserve
+        ? walletBalance - state.config.reserve
         : 0n;
 
       return {
@@ -686,8 +689,8 @@ async function getFullStatus() {
           walletSbtcFormatted: formatSats(walletBalance),
           availableToDeposit: availableToDeposit.toString(),
           availableToDepositFormatted: formatSats(availableToDeposit),
-          reservedForFees: state.config.feeBuffer.toString(),
-          reservedForFeesFormatted: formatSats(state.config.feeBuffer),
+          reserve: state.config.reserve.toString(),
+          reserveFormatted: formatSats(state.config.reserve),
           zestSupplied: position?.supplied || "0",
           zestSuppliedFormatted: formatSats(zestSupplied),
           zestBorrowed: position?.borrowed || "0",

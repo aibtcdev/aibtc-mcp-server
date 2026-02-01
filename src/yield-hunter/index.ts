@@ -36,8 +36,8 @@ interface YieldHunterConfig {
  * Default configuration for CLI yield hunter daemon.
  *
  * Note: The CLI daemon deposits the full wallet balance when above threshold.
- * For fee buffer functionality (reserving sats for tx costs), use the MCP tools
- * version via yield_hunter_start which has feeBuffer configuration.
+ * To keep some sBTC liquid, use the MCP tools version via yield_hunter_start
+ * which has a configurable reserve parameter.
  */
 const DEFAULT_CONFIG: YieldHunterConfig = {
   minDepositThreshold: 10_000n, // 0.0001 sBTC (~$10 at $100k BTC)
