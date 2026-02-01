@@ -15,7 +15,7 @@ import { z } from "zod";
 import {
   signStructuredData,
   hashStructuredData,
-  encodeStructuredData,
+  encodeStructuredDataBytes,
   publicKeyFromSignatureRsv,
   getAddressFromPublicKey,
   tupleCV,
@@ -32,6 +32,8 @@ import {
   falseCV,
   type ClarityValue,
 } from "@stacks/transactions";
+import { bytesToHex } from "@stacks/common";
+import { sha256 } from "@noble/hashes/sha256";
 import { NETWORK } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { getWalletManager } from "../services/wallet-manager.js";
@@ -259,13 +261,17 @@ export function registerSigningTools(server: McpServer): void {
           privateKey: account.privateKey,
         });
 
-        // Compute the message hash for reference
+        // Compute hashes for reference and verification
         const messageHash = hashStructuredData(messageCV);
         const domainHash = hashStructuredData(domainCV);
-        const fullEncodedHash = encodeStructuredData({
+
+        // Compute the full encoded bytes and its sha256 hash (used for signing/verification)
+        const encodedBytes = encodeStructuredDataBytes({
           message: messageCV,
           domain: domainCV,
         });
+        const encodedHex = bytesToHex(encodedBytes);
+        const verificationHash = bytesToHex(sha256(encodedBytes));
 
         return createJsonResponse({
           success: true,
@@ -277,7 +283,8 @@ export function registerSigningTools(server: McpServer): void {
           hashes: {
             message: messageHash,
             domain: domainHash,
-            full: fullEncodedHash,
+            encoded: encodedHex,
+            verification: verificationHash,
             prefix: SIP018_PREFIX,
           },
           domain: {
@@ -286,8 +293,8 @@ export function registerSigningTools(server: McpServer): void {
             chainId,
           },
           verificationNote:
-            "Use sip018_verify with the signature and full hash to recover the signer. " +
-            "For on-chain verification, use secp256k1-recover? with the full hash.",
+            "Use sip018_verify with the 'verification' hash and signature to recover the signer. " +
+            "For on-chain verification, use secp256k1-recover? with sha256 of the 'encoded' hash.",
         });
       } catch (error) {
         return createErrorResponse(error);
@@ -301,13 +308,13 @@ export function registerSigningTools(server: McpServer): void {
     {
       description:
         "Verify a SIP-018 signature and recover the signer's address. " +
-        "Takes the full encoded hash (from sip018_sign or sip018_hash) and the signature, " +
+        "Takes the verification hash (from sip018_sign or sip018_hash 'verification' field) and the signature, " +
         "then recovers the public key and derives the signer's Stacks address.",
       inputSchema: {
         messageHash: z
           .string()
           .describe(
-            "The full SIP-018 encoded hash (from sip018_sign 'full' hash or sip018_hash). " +
+            "The SIP-018 verification hash (from sip018_sign/sip018_hash 'verification' field). " +
               "This is sha256(prefix || domainHash || messageHash)."
           ),
         signature: z
@@ -403,21 +410,27 @@ export function registerSigningTools(server: McpServer): void {
         // Compute hashes
         const messageHash = hashStructuredData(messageCV);
         const domainHash = hashStructuredData(domainCV);
-        const fullEncodedHash = encodeStructuredData({
+
+        // Compute the full encoded bytes and its sha256 hash
+        const encodedBytes = encodeStructuredDataBytes({
           message: messageCV,
           domain: domainCV,
         });
+        const encodedHex = bytesToHex(encodedBytes);
+        const verificationHash = bytesToHex(sha256(encodedBytes));
 
         return createJsonResponse({
           success: true,
           hashes: {
             message: messageHash,
             domain: domainHash,
-            full: fullEncodedHash,
+            encoded: encodedHex,
+            verification: verificationHash,
           },
           hashConstruction: {
             prefix: SIP018_PREFIX,
-            formula: "sha256(prefix || domainHash || messageHash)",
+            formula: "verification = sha256(prefix || domainHash || messageHash)",
+            note: "Use 'verification' hash with sip018_verify. Use 'encoded' with secp256k1-recover? on-chain.",
           },
           domain: {
             name: domain.name,
@@ -426,9 +439,9 @@ export function registerSigningTools(server: McpServer): void {
           },
           network: NETWORK,
           clarityVerification: {
-            note: "For on-chain verification, use these hashes with secp256k1-recover?",
+            note: "For on-chain verification, use sha256 of 'encoded' with secp256k1-recover?",
             example:
-              "(secp256k1-recover? (sha256 (concat 0x534950303138 (concat domain-hash message-hash))) signature)",
+              "(secp256k1-recover? (sha256 encoded-data) signature)",
           },
         });
       } catch (error) {
