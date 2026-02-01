@@ -98,6 +98,7 @@ aibtc-mcp-server MCP Server (src/index.ts)
 - `src/services/mempool-api.ts` - mempool.space API client for Bitcoin UTXO, fee, and broadcast
 - `src/transactions/bitcoin-builder.ts` - Bitcoin transaction building and signing (P2WPKH)
 - `src/endpoints/registry.ts` - Known x402 endpoint registry from all three API sources
+- `src/tools/signing.tools.ts` - Message signing tools (SIP-018, SIWS, BIP-137)
 - `src/services/bns.service.ts` - BNS name resolution (supports both V1 and V2)
 - `src/services/hiro-api.ts` - Hiro API client + BNS V2 API client
 - `src/config/contracts.ts` - Contract addresses and Zest asset configuration (LP tokens, oracles, decimals)
@@ -210,6 +211,36 @@ Tools for Bitcoin L1 blockchain operations via mempool.space API:
 - `deploy_contract` - Deploy a Clarity smart contract
 - `get_transaction_status` - Check transaction status by txid
 - `broadcast_transaction` - Broadcast a pre-signed transaction
+
+### Message Signing
+
+Tools for proving address ownership and signing messages across Bitcoin and Stacks.
+
+| Standard | Tools | Verification | Use Case |
+|----------|-------|--------------|----------|
+| **SIP-018** | `sip018_sign`, `sip018_verify`, `sip018_hash` | On-chain (Clarity) + off-chain | Meta-tx, permits, voting |
+| **SIWS** | `stacks_sign_message`, `stacks_verify_message` | Off-chain only | Web app login, attestations |
+| **BIP-137** | `btc_sign_message`, `btc_verify_message` | Off-chain | Bitcoin L1 identity proof |
+
+**SIP-018 Structured Data:**
+- `sip018_sign` - Sign Clarity tuples for on-chain verification (requires unlocked wallet)
+- `sip018_verify` - Recover signer address from SIP-018 signature
+- `sip018_hash` - Compute message hash without signing
+
+**Stacks Message Signing (SIWS-Compatible):**
+- `stacks_sign_message` - Sign plain text with `\x17Stacks Signed Message:\n` prefix
+- `stacks_verify_message` - Verify message signature and recover signer
+
+**Bitcoin Message Signing (BIP-137):**
+- `btc_sign_message` - Sign with Bitcoin message magic prefix (65-byte recoverable signature)
+- `btc_verify_message` - Verify BIP-137 signature (accepts hex or base64)
+
+**Example Requests:**
+| Request | Tool |
+|---------|------|
+| "Sign this vote for proposal 5" | `sip018_sign` with domain and vote tuple |
+| "Prove I own this Stacks address" | `stacks_sign_message` with challenge message |
+| "Sign a message with my Bitcoin key" | `btc_sign_message` |
 
 ### x402 API Endpoints
 - `execute_x402_endpoint` - Execute ANY x402 endpoint URL with automatic payment handling. Can use full URL or path+apiUrl.
