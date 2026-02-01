@@ -63,21 +63,22 @@ const CHAIN_IDS = {
 
 /**
  * SIP-018 structured data prefix (ASCII "SIP018")
+ * Used for reference in response objects to show hash construction
  */
-const SIP018_PREFIX = "0x534950303138";
+const SIP018_MSG_PREFIX = "0x534950303138";
 
 /**
  * Stacks message signing prefix (SIWS-compatible)
  * 'Stacks Signed Message:\n'.length === 23 (0x17 in hex)
- * This prefix is prepended to messages before hashing for signature.
+ * The hashMessage function from @stacks/encryption applies this internally
  */
-const STACKS_MESSAGE_PREFIX = "\x17Stacks Signed Message:\n";
+const STACKS_MSG_PREFIX = "\x17Stacks Signed Message:\n";
 
 /**
  * Bitcoin message signing prefix (BIP-137)
  * '\x18Bitcoin Signed Message:\n' where 0x18 = 24 (length of "Bitcoin Signed Message:\n")
  */
-const BITCOIN_MESSAGE_PREFIX = "\x18Bitcoin Signed Message:\n";
+const BITCOIN_MSG_PREFIX = "\x18Bitcoin Signed Message:\n";
 
 /**
  * BIP-137 header byte base values for different address types.
@@ -126,7 +127,7 @@ function encodeVarInt(n: number): Uint8Array {
  * Returns: prefix || varint(message.length) || message
  */
 function formatBitcoinMessage(message: string): Uint8Array {
-  const prefixBytes = new TextEncoder().encode(BITCOIN_MESSAGE_PREFIX);
+  const prefixBytes = new TextEncoder().encode(BITCOIN_MSG_PREFIX);
   const messageBytes = new TextEncoder().encode(message);
   const lengthBytes = encodeVarInt(messageBytes.length);
 
@@ -193,15 +194,22 @@ function getRecoveryIdFromHeader(header: number): number {
  * - array -> listCV
  * - object -> tupleCV (recursively)
  */
-function jsonToClarityValue(value: unknown): ClarityValue {
-  // Handle explicit type hints
-  if (
+/**
+ * Type guard for explicit type hint objects
+ */
+function isTypedValue(value: unknown): value is { type: string; value?: unknown } {
+  return (
     value !== null &&
     typeof value === "object" &&
     "type" in value &&
     typeof (value as { type: unknown }).type === "string"
-  ) {
-    const typed = value as { type: string; value?: unknown };
+  );
+}
+
+function jsonToClarityValue(value: unknown): ClarityValue {
+  // Handle explicit type hints
+  if (isTypedValue(value)) {
+    const typed = value;
 
     switch (typed.type) {
       case "uint":
@@ -324,6 +332,22 @@ function buildDomainCV(
   });
 }
 
+/**
+ * Get the active wallet account or throw a consistent error message
+ */
+function requireUnlockedWallet() {
+  const walletManager = getWalletManager();
+  const account = walletManager.getActiveAccount();
+
+  if (!account) {
+    throw new Error(
+      "Wallet is not unlocked. Use wallet_unlock first to enable signing."
+    );
+  }
+
+  return account;
+}
+
 export function registerSigningTools(server: McpServer): void {
   // Sign structured data (SIP-018)
   server.registerTool(
@@ -355,15 +379,7 @@ export function registerSigningTools(server: McpServer): void {
     },
     async ({ message, domain }) => {
       try {
-        // Get wallet account (requires unlocked wallet)
-        const walletManager = getWalletManager();
-        const account = walletManager.getActiveAccount();
-
-        if (!account) {
-          throw new Error(
-            "Wallet is not unlocked. Use wallet_unlock first to enable signing."
-          );
-        }
+        const account = requireUnlockedWallet();
 
         // Build domain CV with chain-id
         const chainId = CHAIN_IDS[NETWORK];
@@ -403,7 +419,7 @@ export function registerSigningTools(server: McpServer): void {
             domain: domainHash,
             encoded: encodedHex,
             verification: verificationHash,
-            prefix: SIP018_PREFIX,
+            prefix: SIP018_MSG_PREFIX,
           },
           domain: {
             name: domain.name,
@@ -546,7 +562,7 @@ export function registerSigningTools(server: McpServer): void {
             verification: verificationHash,
           },
           hashConstruction: {
-            prefix: SIP018_PREFIX,
+            prefix: SIP018_MSG_PREFIX,
             formula: "verification = sha256(prefix || domainHash || messageHash)",
             note: "Use 'verification' hash with sip018_verify. Use 'encoded' with secp256k1-recover? on-chain.",
           },
@@ -587,23 +603,15 @@ export function registerSigningTools(server: McpServer): void {
     },
     async ({ message }) => {
       try {
-        // Get wallet account (requires unlocked wallet)
-        const walletManager = getWalletManager();
-        const account = walletManager.getActiveAccount();
-
-        if (!account) {
-          throw new Error(
-            "Wallet is not unlocked. Use wallet_unlock first to enable signing."
-          );
-        }
+        const account = requireUnlockedWallet();
 
         // Hash the message with the Stacks prefix
-        const messageHash = hashMessage(message);
-        const messageHashHex = bytesToHex(messageHash);
+        const msgHash = hashMessage(message);
+        const msgHashHex = bytesToHex(msgHash);
 
         // Sign the message hash
         const signature = signMessageHashRsv({
-          messageHash: messageHashHex,
+          messageHash: msgHashHex,
           privateKey: account.privateKey,
         });
 
@@ -615,9 +623,9 @@ export function registerSigningTools(server: McpServer): void {
           network: NETWORK,
           message: {
             original: message,
-            prefix: STACKS_MESSAGE_PREFIX,
-            prefixHex: bytesToHex(new TextEncoder().encode(STACKS_MESSAGE_PREFIX)),
-            hash: messageHashHex,
+            prefix: STACKS_MSG_PREFIX,
+            prefixHex: bytesToHex(new TextEncoder().encode(STACKS_MSG_PREFIX)),
+            hash: msgHashHex,
           },
           verificationNote:
             "Use stacks_verify_message with the original message and signature to verify. " +
@@ -691,7 +699,7 @@ export function registerSigningTools(server: McpServer): void {
           network: NETWORK,
           message: {
             original: message,
-            prefix: STACKS_MESSAGE_PREFIX,
+            prefix: STACKS_MSG_PREFIX,
             hash: messageHashHex,
           },
           verification: expectedSigner
@@ -735,15 +743,7 @@ export function registerSigningTools(server: McpServer): void {
     },
     async ({ message }) => {
       try {
-        // Get wallet account (requires unlocked wallet)
-        const walletManager = getWalletManager();
-        const account = walletManager.getActiveAccount();
-
-        if (!account) {
-          throw new Error(
-            "Wallet is not unlocked. Use wallet_unlock first to enable signing."
-          );
-        }
+        const account = requireUnlockedWallet();
 
         if (!account.btcPrivateKey || !account.btcPublicKey) {
           throw new Error(
@@ -751,39 +751,34 @@ export function registerSigningTools(server: McpServer): void {
           );
         }
 
-        // Format the message according to BIP-137
-        const formattedMessage = formatBitcoinMessage(message);
-
-        // Double SHA-256 hash (Bitcoin standard)
-        const messageHash = doubleSha256(formattedMessage);
+        // Format and hash the message according to BIP-137
+        const formattedMsg = formatBitcoinMessage(message);
+        const msgHash = doubleSha256(formattedMsg);
 
         // Sign with recoverable signature
-        // Using prehash: false because we've already hashed
         // format: 'recovered' returns 65 bytes: [recoveryId][32 r][32 s]
-        const recoveredSig = secp256k1.sign(messageHash, account.btcPrivateKey, {
+        const sigWithRecovery = secp256k1.sign(msgHash, account.btcPrivateKey, {
           prehash: false,
           lowS: true,
           format: "recovered",
         });
 
-        // Get recovery ID from first byte (0-3)
-        const recoveryId = recoveredSig[0];
-
-        // Create BIP-137 signature: [header][r][s]
+        // Build BIP-137 signature: [header][r][s]
         // For P2WPKH (native SegWit), header = 39 + recoveryId
+        const recoveryId = sigWithRecovery[0];
         const header = BIP137_HEADER_BASE.P2WPKH + recoveryId;
 
-        // Build the 65-byte BIP-137 signature
-        const rBytes = recoveredSig.slice(1, 33);
-        const sBytes = recoveredSig.slice(33, 65);
+        // Build the 65-byte BIP-137 signature: [header][r][s]
+        const rBytes = sigWithRecovery.slice(1, 33);
+        const sBytes = sigWithRecovery.slice(33, 65);
 
-        const bip137Signature = new Uint8Array(65);
-        bip137Signature[0] = header;
-        bip137Signature.set(rBytes, 1);
-        bip137Signature.set(sBytes, 33);
+        const bip137Sig = new Uint8Array(65);
+        bip137Sig[0] = header;
+        bip137Sig.set(rBytes, 1);
+        bip137Sig.set(sBytes, 33);
 
-        const signatureHex = hex.encode(bip137Signature);
-        const signatureBase64 = Buffer.from(bip137Signature).toString("base64");
+        const signatureHex = hex.encode(bip137Sig);
+        const signatureBase64 = Buffer.from(bip137Sig).toString("base64");
 
         return createJsonResponse({
           success: true,
@@ -795,10 +790,10 @@ export function registerSigningTools(server: McpServer): void {
           addressType: "P2WPKH (native SegWit)",
           message: {
             original: message,
-            prefix: BITCOIN_MESSAGE_PREFIX,
-            prefixHex: hex.encode(new TextEncoder().encode(BITCOIN_MESSAGE_PREFIX)),
-            formattedHex: hex.encode(formattedMessage),
-            hash: hex.encode(messageHash),
+            prefix: BITCOIN_MSG_PREFIX,
+            prefixHex: hex.encode(new TextEncoder().encode(BITCOIN_MSG_PREFIX)),
+            formattedHex: hex.encode(formattedMsg),
+            hash: hex.encode(msgHash),
           },
           header: {
             value: header,
@@ -874,15 +869,9 @@ export function registerSigningTools(server: McpServer): void {
         const rBytes = signatureBytes.slice(1, 33);
         const sBytes = signatureBytes.slice(33, 65);
 
-        // Get recovery ID from header
+        // Get recovery ID and address type from header
         const recoveryId = getRecoveryIdFromHeader(header);
         const addressType = getAddressTypeFromHeader(header);
-
-        // Reconstruct compact signature with recovery byte
-        const compactSigWithRecovery = new Uint8Array(65);
-        compactSigWithRecovery.set(rBytes, 0);
-        compactSigWithRecovery.set(sBytes, 32);
-        compactSigWithRecovery[64] = recoveryId;
 
         // Format the message and hash it
         const formattedMessage = formatBitcoinMessage(message);
@@ -927,7 +916,7 @@ export function registerSigningTools(server: McpServer): void {
           network: NETWORK,
           message: {
             original: message,
-            prefix: BITCOIN_MESSAGE_PREFIX,
+            prefix: BITCOIN_MSG_PREFIX,
             hash: hex.encode(messageHash),
           },
           header: {
