@@ -12,8 +12,13 @@
  * - stacks_sign_message: Sign plain text messages with Stacks prefix
  * - stacks_verify_message: Verify message signature and recover signer
  *
+ * Bitcoin Message Signing (BIP-137):
+ * - btc_sign_message: Sign messages with Bitcoin private key (BIP-137 format)
+ * - btc_verify_message: Verify Bitcoin message signatures
+ *
  * SIP-018 signatures can be verified both off-chain and on-chain by smart contracts.
  * Stacks message signatures are SIWS-compatible for web authentication flows.
+ * Bitcoin signatures use BIP-137 format compatible with most Bitcoin wallets.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -42,6 +47,8 @@ import {
 import { hashMessage, verifyMessageSignatureRsv } from "@stacks/encryption";
 import { bytesToHex } from "@stacks/common";
 import { sha256 } from "@noble/hashes/sha256";
+import { secp256k1 } from "@noble/curves/secp256k1.js";
+import { hex } from "@scure/base";
 import { NETWORK } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { getWalletManager } from "../services/wallet-manager.js";
@@ -65,6 +72,102 @@ const SIP018_PREFIX = "0x534950303138";
  * This prefix is prepended to messages before hashing for signature.
  */
 const STACKS_MESSAGE_PREFIX = "\x17Stacks Signed Message:\n";
+
+/**
+ * Bitcoin message signing prefix (BIP-137)
+ * '\x18Bitcoin Signed Message:\n' where 0x18 = 24 (length of "Bitcoin Signed Message:\n")
+ */
+const BITCOIN_MESSAGE_PREFIX = "\x18Bitcoin Signed Message:\n";
+
+/**
+ * BIP-137 header byte base values for different address types.
+ * The actual header = base + recoveryId (0-3)
+ *
+ * - 27-30: P2PKH uncompressed
+ * - 31-34: P2PKH compressed
+ * - 35-38: P2SH-P2WPKH (SegWit wrapped)
+ * - 39-42: P2WPKH native SegWit (bech32)
+ */
+const BIP137_HEADER_BASE = {
+  P2PKH_UNCOMPRESSED: 27,
+  P2PKH_COMPRESSED: 31,
+  P2SH_P2WPKH: 35,
+  P2WPKH: 39,
+} as const;
+
+/**
+ * Encode a variable-length integer (Bitcoin varint format)
+ * Used for encoding message length in BIP-137
+ */
+function encodeVarInt(n: number): Uint8Array {
+  if (n < 0xfd) {
+    return new Uint8Array([n]);
+  } else if (n <= 0xffff) {
+    const buf = new Uint8Array(3);
+    buf[0] = 0xfd;
+    buf[1] = n & 0xff;
+    buf[2] = (n >> 8) & 0xff;
+    return buf;
+  } else if (n <= 0xffffffff) {
+    const buf = new Uint8Array(5);
+    buf[0] = 0xfe;
+    buf[1] = n & 0xff;
+    buf[2] = (n >> 8) & 0xff;
+    buf[3] = (n >> 16) & 0xff;
+    buf[4] = (n >> 24) & 0xff;
+    return buf;
+  } else {
+    throw new Error("Message too long for varint encoding");
+  }
+}
+
+/**
+ * Format a message for Bitcoin signing (BIP-137)
+ * Returns: prefix || varint(message.length) || message
+ */
+function formatBitcoinMessage(message: string): Uint8Array {
+  const prefixBytes = new TextEncoder().encode(BITCOIN_MESSAGE_PREFIX);
+  const messageBytes = new TextEncoder().encode(message);
+  const lengthBytes = encodeVarInt(messageBytes.length);
+
+  const result = new Uint8Array(
+    prefixBytes.length + lengthBytes.length + messageBytes.length
+  );
+  result.set(prefixBytes, 0);
+  result.set(lengthBytes, prefixBytes.length);
+  result.set(messageBytes, prefixBytes.length + lengthBytes.length);
+
+  return result;
+}
+
+/**
+ * Double SHA-256 hash (Bitcoin standard)
+ */
+function doubleSha256(data: Uint8Array): Uint8Array {
+  return sha256(sha256(data));
+}
+
+/**
+ * Get Bitcoin address type from BIP-137 header byte
+ */
+function getAddressTypeFromHeader(header: number): string {
+  if (header >= 27 && header <= 30) return "P2PKH (uncompressed)";
+  if (header >= 31 && header <= 34) return "P2PKH (compressed)";
+  if (header >= 35 && header <= 38) return "P2SH-P2WPKH (SegWit wrapped)";
+  if (header >= 39 && header <= 42) return "P2WPKH (native SegWit)";
+  return "Unknown";
+}
+
+/**
+ * Extract recovery ID from BIP-137 header byte
+ */
+function getRecoveryIdFromHeader(header: number): number {
+  if (header >= 27 && header <= 30) return header - 27;
+  if (header >= 31 && header <= 34) return header - 31;
+  if (header >= 35 && header <= 38) return header - 35;
+  if (header >= 39 && header <= 42) return header - 39;
+  throw new Error(`Invalid BIP-137 header byte: ${header}`);
+}
 
 /**
  * Convert a JSON value to a ClarityValue
@@ -606,6 +709,247 @@ export function registerSigningTools(server: McpServer): void {
           note:
             "The recovered address is derived from the public key recovered from the signature. " +
             "Compatible with SIWS (Sign In With Stacks) authentication flows.",
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Sign Bitcoin message (BIP-137)
+  server.registerTool(
+    "btc_sign_message",
+    {
+      description:
+        "Sign a plain text message using the Bitcoin message signing format (BIP-137). " +
+        "Creates a 65-byte signature compatible with most Bitcoin wallets. " +
+        "Use cases: proving Bitcoin address ownership, authentication, off-chain verification. " +
+        "Requires an unlocked wallet with Bitcoin keys.",
+      inputSchema: {
+        message: z
+          .string()
+          .describe(
+            "The plain text message to sign. Will be formatted with Bitcoin message prefix before signing."
+          ),
+      },
+    },
+    async ({ message }) => {
+      try {
+        // Get wallet account (requires unlocked wallet)
+        const walletManager = getWalletManager();
+        const account = walletManager.getActiveAccount();
+
+        if (!account) {
+          throw new Error(
+            "Wallet is not unlocked. Use wallet_unlock first to enable signing."
+          );
+        }
+
+        if (!account.btcPrivateKey || !account.btcPublicKey) {
+          throw new Error(
+            "Bitcoin keys not available. Ensure the wallet has Bitcoin key derivation."
+          );
+        }
+
+        // Format the message according to BIP-137
+        const formattedMessage = formatBitcoinMessage(message);
+
+        // Double SHA-256 hash (Bitcoin standard)
+        const messageHash = doubleSha256(formattedMessage);
+
+        // Sign with recoverable signature
+        // Using prehash: false because we've already hashed
+        // format: 'recovered' returns 65 bytes: [recoveryId][32 r][32 s]
+        const recoveredSig = secp256k1.sign(messageHash, account.btcPrivateKey, {
+          prehash: false,
+          lowS: true,
+          format: "recovered",
+        });
+
+        // Get recovery ID from first byte (0-3)
+        const recoveryId = recoveredSig[0];
+
+        // Create BIP-137 signature: [header][r][s]
+        // For P2WPKH (native SegWit), header = 39 + recoveryId
+        const header = BIP137_HEADER_BASE.P2WPKH + recoveryId;
+
+        // Build the 65-byte BIP-137 signature
+        const rBytes = recoveredSig.slice(1, 33);
+        const sBytes = recoveredSig.slice(33, 65);
+
+        const bip137Signature = new Uint8Array(65);
+        bip137Signature[0] = header;
+        bip137Signature.set(rBytes, 1);
+        bip137Signature.set(sBytes, 33);
+
+        const signatureHex = hex.encode(bip137Signature);
+        const signatureBase64 = Buffer.from(bip137Signature).toString("base64");
+
+        return createJsonResponse({
+          success: true,
+          signature: signatureHex,
+          signatureBase64,
+          signatureFormat: "BIP-137 (65 bytes: 1 header + 32 r + 32 s)",
+          signer: account.bitcoinAddress,
+          network: NETWORK,
+          addressType: "P2WPKH (native SegWit)",
+          message: {
+            original: message,
+            prefix: BITCOIN_MESSAGE_PREFIX,
+            prefixHex: hex.encode(new TextEncoder().encode(BITCOIN_MESSAGE_PREFIX)),
+            formattedHex: hex.encode(formattedMessage),
+            hash: hex.encode(messageHash),
+          },
+          header: {
+            value: header,
+            recoveryId,
+            addressType: getAddressTypeFromHeader(header),
+          },
+          verificationNote:
+            "Use btc_verify_message with the original message and signature to verify. " +
+            "Base64 format is commonly used by wallets like Electrum and Bitcoin Core.",
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Verify Bitcoin message signature (BIP-137)
+  server.registerTool(
+    "btc_verify_message",
+    {
+      description:
+        "Verify a BIP-137 Bitcoin message signature and recover the signer's address. " +
+        "Takes the original message and signature (hex or base64), recovers the public key, " +
+        "and derives the Bitcoin address. Compatible with signatures from most Bitcoin wallets.",
+      inputSchema: {
+        message: z
+          .string()
+          .describe("The original plain text message that was signed."),
+        signature: z
+          .string()
+          .describe(
+            "The BIP-137 signature (65 bytes as hex or base64). " +
+              "Hex format: 130 characters. Base64 format: 88 characters."
+          ),
+        expectedSigner: z
+          .string()
+          .optional()
+          .describe(
+            "Optional: expected signer Bitcoin address to verify against. " +
+              "If provided, returns whether the signature is valid for this address."
+          ),
+      },
+    },
+    async ({ message, signature, expectedSigner }) => {
+      try {
+        // Parse signature from hex or base64
+        let signatureBytes: Uint8Array;
+
+        // Try to detect format
+        if (signature.length === 130 && /^[0-9a-fA-F]+$/.test(signature)) {
+          // Hex format (65 bytes = 130 hex chars)
+          signatureBytes = hex.decode(signature);
+        } else if (signature.length === 88 && /^[A-Za-z0-9+/=]+$/.test(signature)) {
+          // Base64 format
+          signatureBytes = new Uint8Array(Buffer.from(signature, "base64"));
+        } else {
+          // Try hex first, then base64
+          try {
+            signatureBytes = hex.decode(signature);
+          } catch {
+            signatureBytes = new Uint8Array(Buffer.from(signature, "base64"));
+          }
+        }
+
+        if (signatureBytes.length !== 65) {
+          throw new Error(
+            `Invalid signature length: ${signatureBytes.length} bytes. Expected 65 bytes.`
+          );
+        }
+
+        // Extract header and signature components
+        const header = signatureBytes[0];
+        const rBytes = signatureBytes.slice(1, 33);
+        const sBytes = signatureBytes.slice(33, 65);
+
+        // Get recovery ID from header
+        const recoveryId = getRecoveryIdFromHeader(header);
+        const addressType = getAddressTypeFromHeader(header);
+
+        // Reconstruct compact signature with recovery byte
+        const compactSigWithRecovery = new Uint8Array(65);
+        compactSigWithRecovery.set(rBytes, 0);
+        compactSigWithRecovery.set(sBytes, 32);
+        compactSigWithRecovery[64] = recoveryId;
+
+        // Format the message and hash it
+        const formattedMessage = formatBitcoinMessage(message);
+        const messageHash = doubleSha256(formattedMessage);
+
+        // Recover public key from signature
+        // Create signature object from r, s, and recovery
+        const r = BigInt("0x" + hex.encode(rBytes));
+        const s = BigInt("0x" + hex.encode(sBytes));
+
+        const sig = new secp256k1.Signature(r, s, recoveryId);
+        const recoveredPoint = sig.recoverPublicKey(messageHash);
+        const recoveredPubKey = recoveredPoint.toBytes(true); // compressed
+
+        // Verify the signature
+        const isValidSig = secp256k1.verify(
+          sig.toBytes(),
+          messageHash,
+          recoveredPubKey,
+          { prehash: false }
+        );
+
+        // Derive Bitcoin address from public key
+        // Import btc-signer for address derivation
+        const btc = await import("@scure/btc-signer");
+        const btcNetwork = NETWORK === "testnet" ? btc.TEST_NETWORK : btc.NETWORK;
+        const p2wpkh = btc.p2wpkh(recoveredPubKey, btcNetwork);
+        const recoveredAddress = p2wpkh.address!;
+
+        // Check against expected signer if provided
+        const signerMatches = expectedSigner
+          ? recoveredAddress === expectedSigner
+          : undefined;
+
+        const isFullyValid = isValidSig && (expectedSigner ? signerMatches : true);
+
+        return createJsonResponse({
+          success: true,
+          signatureValid: isValidSig,
+          recoveredPublicKey: hex.encode(recoveredPubKey),
+          recoveredAddress,
+          network: NETWORK,
+          message: {
+            original: message,
+            prefix: BITCOIN_MESSAGE_PREFIX,
+            hash: hex.encode(messageHash),
+          },
+          header: {
+            value: header,
+            recoveryId,
+            addressType,
+          },
+          verification: expectedSigner
+            ? {
+                expectedSigner,
+                signerMatches,
+                isFullyValid,
+                message: isFullyValid
+                  ? "Signature is valid and matches expected signer"
+                  : isValidSig
+                    ? "Signature is valid but does NOT match expected signer"
+                    : "Signature is invalid",
+              }
+            : undefined,
+          note:
+            "The recovered address is derived from the public key recovered from the signature. " +
+            "BIP-137 signatures are compatible with most Bitcoin wallets (Electrum, Bitcoin Core, etc.).",
         });
       } catch (error) {
         return createErrorResponse(error);
