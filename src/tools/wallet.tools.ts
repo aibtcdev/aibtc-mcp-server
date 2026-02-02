@@ -24,19 +24,30 @@ export function registerWalletTools(server: McpServer): void {
         try {
           const address = await getWalletAddress();
           const btcAddress = sessionInfo?.btcAddress;
-          // Only include btcAddress if available (managed wallets only)
+          const taprootAddress = sessionInfo?.taprootAddress;
+
+          // Only include Bitcoin addresses if available (managed wallets only)
           const response: Record<string, unknown> = {
             status: "ready",
             message: btcAddress
-              ? "Wallet ready. Bitcoin and Stacks transactions enabled."
-              : "Wallet ready. Stacks transactions enabled.",
-            address,
+              ? "Wallet ready. Bitcoin L1 (SegWit + Taproot) and Stacks L2 transactions enabled."
+              : "Wallet ready. Stacks L2 transactions enabled.",
             network: NETWORK,
             apiUrl: API_URL,
           };
-          if (btcAddress) {
-            response.btcAddress = btcAddress;
+
+          if (btcAddress && taprootAddress) {
+            response["Bitcoin (L1)"] = {
+              "Native SegWit": `${btcAddress} (send/receive BTC)`,
+              "Taproot": `${taprootAddress} (receive inscriptions)`,
+            };
           }
+
+          response["Stacks (L2)"] = {
+            "Address": address,
+            "Tip": "Register a BNS name for on-chain identity",
+          };
+
           return createJsonResponse(response);
         } catch {
           // No wallet available - provide helpful guidance
@@ -50,8 +61,11 @@ export function registerWalletTools(server: McpServer): void {
               wallets: wallets.map((w) => ({
                 id: w.id,
                 name: w.name,
-                btcAddress: w.btcAddress,
-                address: w.address,
+                "Bitcoin (L1)": {
+                  "Native SegWit": w.btcAddress,
+                  "Taproot": w.taprootAddress,
+                },
+                "Stacks (L2)": w.address,
                 network: w.network,
               })),
               network: NETWORK,

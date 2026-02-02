@@ -36,8 +36,10 @@ async function migrateStorage(): Promise<void> {
 export interface WalletAddresses {
   /** Stacks L2 address */
   address: string;
-  /** Bitcoin L1 address */
+  /** Bitcoin L1 address (P2WPKH - native SegWit) */
   btcAddress?: string;
+  /** Bitcoin L1 Taproot address (P2TR - for receiving inscriptions) */
+  taprootAddress?: string;
 }
 
 /**

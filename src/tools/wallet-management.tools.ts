@@ -37,10 +37,16 @@ IMPORTANT: Save the mnemonic securely - it will only be shown once!`,
         return createJsonResponse({
           success: true,
           message:
-            "Wallet created! Your Bitcoin address is ready for use. Save the mnemonic securely.",
+            "Wallet created successfully! Bitcoin L1 (SegWit + Taproot) and Stacks L2 addresses ready.",
           walletId: result.walletId,
-          btcAddress: result.btcAddress,
-          address: result.address,
+          "Bitcoin (L1)": {
+            "Native SegWit": `${result.btcAddress} (send/receive BTC)`,
+            "Taproot": `${result.taprootAddress} (receive inscriptions)`,
+          },
+          "Stacks (L2)": {
+            "Address": result.address,
+            "Tip": "Register a BNS name for on-chain identity",
+          },
           network: network || NETWORK,
           "---": "",
           mnemonic: result.mnemonic,
@@ -87,10 +93,16 @@ The wallet is encrypted locally and stored in ~/.aibtc/.`,
 
         return createJsonResponse({
           success: true,
-          message: "Wallet imported! Bitcoin and Stacks transactions are ready.",
+          message: "Wallet imported successfully! Bitcoin L1 (SegWit + Taproot) and Stacks L2 addresses ready.",
           walletId: result.walletId,
-          btcAddress: result.btcAddress,
-          address: result.address,
+          "Bitcoin (L1)": {
+            "Native SegWit": `${result.btcAddress} (send/receive BTC)`,
+            "Taproot": `${result.taprootAddress} (receive inscriptions)`,
+          },
+          "Stacks (L2)": {
+            "Address": result.address,
+            "Tip": "Register a BNS name for on-chain identity",
+          },
           network: network || NETWORK,
         });
       } catch (error) {
@@ -137,10 +149,16 @@ If no wallet ID is provided, unlocks the active wallet.`,
 
         return createJsonResponse({
           success: true,
-          message: "Wallet unlocked. Bitcoin and Stacks transactions enabled.",
+          message: "Wallet unlocked successfully! Bitcoin L1 (SegWit + Taproot) and Stacks L2 transactions enabled.",
           walletId: targetWalletId,
-          btcAddress: account.btcAddress,
-          address: account.address,
+          "Bitcoin (L1)": {
+            "Native SegWit": `${account.btcAddress} (send/receive BTC)`,
+            "Taproot": `${account.taprootAddress} (receive inscriptions)`,
+          },
+          "Stacks (L2)": {
+            "Address": account.address,
+            "Tip": "Register a BNS name for on-chain identity",
+          },
           network: account.network,
         });
       } catch (error) {

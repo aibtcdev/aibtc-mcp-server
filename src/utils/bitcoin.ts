@@ -18,6 +18,20 @@ export interface BitcoinAddress {
 }
 
 /**
+ * Taproot address derivation result
+ */
+export interface TaprootAddress {
+  /**
+   * Taproot address (bc1p... for mainnet, tb1p... for testnet)
+   */
+  address: string;
+  /**
+   * Internal public key (x-only, 32 bytes) as hex string
+   */
+  internalPubKey: string;
+}
+
+/**
  * Bitcoin key pair derivation result (includes private key for signing)
  *
  * SECURITY: This interface exposes the private key as Uint8Array.
@@ -200,5 +214,77 @@ export function deriveBitcoinKeyPair(
     publicKey,
     privateKey,
     publicKeyBytes,
+  };
+}
+
+/**
+ * Derive Bitcoin L1 Taproot address from BIP39 mnemonic
+ *
+ * Follows BIP86 derivation path:
+ * - Mainnet: m/86'/0'/0'/0/0 (coin type 0)
+ * - Testnet: m/86'/1'/0'/0/0 (coin type 1)
+ *
+ * Returns Taproot (P2TR) address:
+ * - Mainnet: bc1p... prefix
+ * - Testnet: tb1p... prefix
+ *
+ * Security: Only returns address and internal public key. Private key is never exposed.
+ *
+ * @param mnemonic - BIP39 mnemonic phrase (12 or 24 words)
+ * @param network - Network to derive address for ('mainnet' | 'testnet')
+ * @returns Taproot address and internal public key
+ *
+ * @example
+ * ```typescript
+ * const { address, internalPubKey } = deriveTaprootAddress(mnemonic, 'mainnet');
+ * console.log(address); // bc1p...
+ * console.log(internalPubKey); // 32-byte x-only pubkey (hex)
+ * ```
+ */
+export function deriveTaprootAddress(
+  mnemonic: string,
+  network: Network
+): TaprootAddress {
+  // Convert mnemonic to seed
+  const seed = mnemonicToSeedSync(mnemonic);
+
+  // Create master key from seed
+  const masterKey = HDKey.fromMasterSeed(seed);
+
+  // BIP86 derivation path for Taproot
+  // m / purpose' / coin_type' / account' / change / address_index
+  // Purpose: 86 (Taproot)
+  // Coin type: 0 (Bitcoin mainnet) or 1 (Bitcoin testnet)
+  // Account: 0 (first account)
+  // Change: 0 (external/receiving addresses)
+  // Address index: 0 (first address)
+  const coinType = network === "mainnet" ? 0 : 1;
+  const derivationPath = `m/86'/${coinType}'/0'/0/0`;
+
+  // Derive key at path
+  const derivedKey = masterKey.derive(derivationPath);
+
+  if (!derivedKey.publicKey) {
+    throw new Error("Failed to derive public key");
+  }
+
+  // Get the network params
+  const btcNetwork = network === "testnet" ? btc.TEST_NETWORK : btc.NETWORK;
+
+  // Create Taproot address (P2TR) using internal key
+  // For BIP86, we use the x-only pubkey directly (no script path)
+  const p2tr = btc.p2tr(derivedKey.publicKey, undefined, btcNetwork);
+
+  if (!p2tr.address) {
+    throw new Error("Failed to generate Taproot address");
+  }
+
+  // Get x-only internal public key (32 bytes, no prefix)
+  // For x-only pubkeys, we take the 32-byte x-coordinate
+  const internalPubKey = Buffer.from(derivedKey.publicKey.slice(1)).toString("hex");
+
+  return {
+    address: p2tr.address,
+    internalPubKey,
   };
 }

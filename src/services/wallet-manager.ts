@@ -26,7 +26,7 @@ import {
 } from "../utils/errors.js";
 import { NETWORK, type Network } from "../config/networks.js";
 import type { Account } from "../transactions/builder.js";
-import { deriveBitcoinAddress, deriveBitcoinKeyPair } from "../utils/bitcoin.js";
+import { deriveBitcoinAddress, deriveBitcoinKeyPair, deriveTaprootAddress } from "../utils/bitcoin.js";
 
 /**
  * Session state for unlocked wallet
@@ -105,6 +105,7 @@ class WalletManager {
     const stacksAccount = wallet.accounts[0];
     const stacksAddress = getStxAddress(stacksAccount, walletNetwork);
     const { address: bitcoinAddress } = deriveBitcoinAddress(mnemonic, walletNetwork);
+    const { address: taprootAddress } = deriveTaprootAddress(mnemonic, walletNetwork);
 
     const encrypted = await encrypt(mnemonic, password);
     const walletId = generateWalletId();
@@ -121,6 +122,7 @@ class WalletManager {
       name,
       address: stacksAddress,
       btcAddress: bitcoinAddress,
+      taprootAddress,
       network: walletNetwork,
       createdAt: new Date().toISOString(),
     };
@@ -134,6 +136,7 @@ class WalletManager {
       walletId,
       address: stacksAddress,
       btcAddress: bitcoinAddress,
+      taprootAddress,
     };
   }
 
@@ -217,9 +220,13 @@ class WalletManager {
       publicKeyBytes: btcPublicKey,
     } = deriveBitcoinKeyPair(mnemonic, walletMeta.network);
 
+    // Derive Taproot address for receiving inscriptions
+    const { address: taprootAddress } = deriveTaprootAddress(mnemonic, walletMeta.network);
+
     const account: Account = {
       address,
       btcAddress,
+      taprootAddress,
       privateKey: stacksAccount.stxPrivateKey,
       btcPrivateKey,
       btcPublicKey,
@@ -309,8 +316,27 @@ class WalletManager {
       walletId: this.session.walletId,
       address: this.session.account.address,
       btcAddress: this.session.account.btcAddress,
+      taprootAddress: this.session.account.taprootAddress,
       expiresAt: this.session.expiresAt,
     };
+  }
+
+  /**
+   * Get the full account (with private keys for signing)
+   * WARNING: Returns sensitive data. Only use for transaction signing.
+   */
+  getAccount(): Account | null {
+    if (!this.session) {
+      return null;
+    }
+
+    // Check expiry
+    if (this.session.expiresAt && new Date() > this.session.expiresAt) {
+      this.lock();
+      return null;
+    }
+
+    return this.session.account;
   }
 
   /**
