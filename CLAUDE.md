@@ -138,16 +138,21 @@ Managed wallets are stored encrypted in `~/.aibtc/`:
         └── keystore.json  # Encrypted mnemonic (AES-256-GCM)
 ```
 
-## Adding to Claude Code
+## Adding to Claude Code or Claude Desktop
 
-**One-command install:**
+**Claude Code (terminal):**
 ```bash
 npx @aibtc/mcp-server@latest --install
 ```
 
-This automatically configures `~/.claude.json` with the MCP server. The `@latest` tag ensures users always get the newest features.
+**Claude Desktop (app):**
+```bash
+npx @aibtc/mcp-server@latest --install --desktop
+```
 
-**For testnet:** `npx @aibtc/mcp-server@latest --install --testnet`
+The `--desktop` flag auto-detects your OS and writes to the correct Claude Desktop config path. The `@latest` tag ensures users always get the newest features.
+
+**For testnet:** Add `--testnet` to either command, e.g. `npx @aibtc/mcp-server@latest --install --desktop --testnet`
 
 **Note:** `CLIENT_MNEMONIC` is optional. Users can either:
 1. **Managed wallets (recommended)**: Use `wallet_create` or `wallet_import` to generate/import wallets with password protection
