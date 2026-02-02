@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.11.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.10.0...v1.11.0) (2026-02-02)
+
+
+### Features
+
+* add message signing tools (SIP-018, SIWS, BIP-137) ([#49](https://github.com/aibtcdev/aibtc-mcp-server/issues/49)) ([d39ace7](https://github.com/aibtcdev/aibtc-mcp-server/commit/d39ace799bd011a4143a5675c2bb1cc19abf9d89))
+
+
+### Bug Fixes
+
+* **signing:** update Account field names after refactor ([#52](https://github.com/aibtcdev/aibtc-mcp-server/issues/52)) ([0a41ef3](https://github.com/aibtcdev/aibtc-mcp-server/commit/0a41ef3ad63357ff2a6140b64611426e4c43ad55))
+* **yield-hunter:** rename feeBuffer to reserve with default 0 ([#48](https://github.com/aibtcdev/aibtc-mcp-server/issues/48)) ([6ad7c43](https://github.com/aibtcdev/aibtc-mcp-server/commit/6ad7c434aa17af660d1b348ffabf3aa9e4a5a5b6)), closes [#44](https://github.com/aibtcdev/aibtc-mcp-server/issues/44)
+* **zest:** security improvements and yield hunter documentation ([#42](https://github.com/aibtcdev/aibtc-mcp-server/issues/42)) ([5b5dbde](https://github.com/aibtcdev/aibtc-mcp-server/commit/5b5dbde4fbd8e7ddebe00d9a35902c5d2727a7e3))
+
 ## [1.10.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.9.1...v1.10.0) (2026-01-31)
 
 
