@@ -271,17 +271,18 @@ export function deriveTaprootAddress(
   // Get the network params
   const btcNetwork = network === "testnet" ? btc.TEST_NETWORK : btc.NETWORK;
 
-  // Create Taproot address (P2TR) using internal key
-  // For BIP86, we use the x-only pubkey directly (no script path)
-  const p2tr = btc.p2tr(derivedKey.publicKey, undefined, btcNetwork);
+  // Get x-only internal public key (32 bytes, no prefix)
+  // Compressed pubkey is 33 bytes (1 prefix + 32 x-coord), p2tr needs just x-coord
+  const xOnlyPubkey = derivedKey.publicKey.slice(1);
+
+  // Create Taproot address (P2TR) using x-only internal key
+  const p2tr = btc.p2tr(xOnlyPubkey, undefined, btcNetwork);
 
   if (!p2tr.address) {
     throw new Error("Failed to generate Taproot address");
   }
 
-  // Get x-only internal public key (32 bytes, no prefix)
-  // For x-only pubkeys, we take the 32-byte x-coordinate
-  const internalPubKey = Buffer.from(derivedKey.publicKey.slice(1)).toString("hex");
+  const internalPubKey = Buffer.from(xOnlyPubkey).toString("hex");
 
   return {
     address: p2tr.address,
