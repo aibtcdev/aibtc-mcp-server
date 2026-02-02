@@ -1,0 +1,240 @@
+/**
+ * Ordinal Indexer Service
+ *
+ * Combines Hiro Ordinals API with mempool.space to classify UTXOs:
+ * - Cardinal: Safe to spend (no inscriptions)
+ * - Ordinal: Contains inscriptions (must not spend accidentally)
+ *
+ * Uses free APIs:
+ * - Hiro Ordinals API: https://api.hiro.so/ordinals/v1/inscriptions?address={address}
+ * - mempool.space API: via MempoolApi service
+ */
+
+import type { Network } from "../config/networks.js";
+import type { UTXO } from "./mempool-api.js";
+import { MempoolApi } from "./mempool-api.js";
+
+/**
+ * Inscription data from Hiro Ordinals API
+ */
+export interface Inscription {
+  /**
+   * Inscription ID (txid + inscription number)
+   */
+  id: string;
+  /**
+   * Inscription number (global ordinal)
+   */
+  number: number;
+  /**
+   * Content type (e.g., "text/plain", "image/png")
+   */
+  content_type: string;
+  /**
+   * Content length in bytes
+   */
+  content_length: number;
+  /**
+   * Genesis transaction ID
+   */
+  genesis_tx_id: string;
+  /**
+   * Genesis block height
+   */
+  genesis_block_height: number;
+  /**
+   * Genesis block hash
+   */
+  genesis_block_hash: string;
+  /**
+   * Genesis timestamp
+   */
+  genesis_timestamp: number;
+  /**
+   * Location of the inscription (txid:vout:offset)
+   */
+  location: string;
+  /**
+   * Output reference (txid:vout) - this is what we use to match UTXOs
+   */
+  output: string;
+  /**
+   * Current owner address
+   */
+  address: string;
+  /**
+   * Offset within the output
+   */
+  offset: string;
+}
+
+/**
+ * Hiro Ordinals API response
+ */
+interface HiroInscriptionsResponse {
+  limit: number;
+  offset: number;
+  total: number;
+  results: Inscription[];
+}
+
+/**
+ * Classified UTXOs
+ */
+export interface ClassifiedUtxos {
+  /**
+   * Cardinal UTXOs - safe to spend (no inscriptions)
+   */
+  cardinal: UTXO[];
+  /**
+   * Ordinal UTXOs - contain inscriptions (do not spend)
+   */
+  ordinal: UTXO[];
+}
+
+/**
+ * Get Hiro Ordinals API base URL for a network
+ */
+function getHiroOrdinalsApiUrl(network: Network): string {
+  // Hiro Ordinals API only supports mainnet
+  if (network !== "mainnet") {
+    throw new Error(
+      "Hiro Ordinals API only supports mainnet. Testnet inscriptions are not indexed."
+    );
+  }
+  return "https://api.hiro.so/ordinals/v1";
+}
+
+/**
+ * Ordinal Indexer Service
+ */
+export class OrdinalIndexer {
+  private readonly network: Network;
+  private readonly hiroBaseUrl: string;
+  private readonly mempoolApi: MempoolApi;
+
+  constructor(network: Network) {
+    this.network = network;
+    this.hiroBaseUrl = getHiroOrdinalsApiUrl(network);
+    this.mempoolApi = new MempoolApi(network);
+  }
+
+  /**
+   * Get all inscriptions for a Bitcoin address
+   *
+   * @param address - Bitcoin address (bc1... for mainnet)
+   * @returns Array of inscriptions with their output references
+   * @throws Error if API request fails or network is not mainnet
+   */
+  async getInscriptionsForAddress(address: string): Promise<Inscription[]> {
+    const allInscriptions: Inscription[] = [];
+    let offset = 0;
+    const limit = 60; // Hiro API default/max per page
+
+    try {
+      // Fetch all pages
+      while (true) {
+        const url = `${this.hiroBaseUrl}/inscriptions?address=${address}&limit=${limit}&offset=${offset}`;
+        const response = await fetch(url);
+
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => "Unknown error");
+          throw new Error(
+            `Failed to fetch inscriptions from Hiro API: ${response.status} ${response.statusText} - ${errorText}`
+          );
+        }
+
+        const data = (await response.json()) as HiroInscriptionsResponse;
+        allInscriptions.push(...data.results);
+
+        // Check if we've fetched all inscriptions
+        if (offset + data.results.length >= data.total) {
+          break;
+        }
+
+        offset += limit;
+      }
+
+      return allInscriptions;
+    } catch (error) {
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error(`Failed to fetch inscriptions: ${String(error)}`);
+    }
+  }
+
+  /**
+   * Classify UTXOs into cardinal (safe to spend) and ordinal (contains inscriptions)
+   *
+   * @param address - Bitcoin address
+   * @returns Classified UTXOs
+   * @throws Error if API requests fail
+   */
+  async classifyUtxos(address: string): Promise<ClassifiedUtxos> {
+    // Fetch UTXOs from mempool.space
+    const utxos = await this.mempoolApi.getUtxos(address);
+
+    // Fetch inscriptions from Hiro Ordinals API
+    const inscriptions = await this.getInscriptionsForAddress(address);
+
+    // Build set of outputs that contain inscriptions
+    // Hiro API returns "output" field as "txid:vout"
+    const ordinalOutputs = new Set<string>(
+      inscriptions.map((inscription) => inscription.output)
+    );
+
+    // Classify UTXOs
+    const cardinal: UTXO[] = [];
+    const ordinal: UTXO[] = [];
+
+    for (const utxo of utxos) {
+      const outputRef = `${utxo.txid}:${utxo.vout}`;
+      if (ordinalOutputs.has(outputRef)) {
+        ordinal.push(utxo);
+      } else {
+        cardinal.push(utxo);
+      }
+    }
+
+    return { cardinal, ordinal };
+  }
+
+  /**
+   * Get cardinal UTXOs (safe to spend - no inscriptions)
+   *
+   * @param address - Bitcoin address
+   * @returns Cardinal UTXOs only
+   * @throws Error if API requests fail
+   */
+  async getCardinalUtxos(address: string): Promise<UTXO[]> {
+    const classified = await this.classifyUtxos(address);
+    return classified.cardinal;
+  }
+
+  /**
+   * Get ordinal UTXOs (contain inscriptions - do not spend)
+   *
+   * @param address - Bitcoin address
+   * @returns Ordinal UTXOs only
+   * @throws Error if API requests fail
+   */
+  async getOrdinalUtxos(address: string): Promise<UTXO[]> {
+    const classified = await this.classifyUtxos(address);
+    return classified.ordinal;
+  }
+
+  /**
+   * Get the network this indexer is configured for
+   */
+  getNetwork(): Network {
+    return this.network;
+  }
+}
+
+/**
+ * Create an ordinal indexer for the given network
+ */
+export function createOrdinalIndexer(network: Network): OrdinalIndexer {
+  return new OrdinalIndexer(network);
+}

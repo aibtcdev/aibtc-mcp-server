@@ -23,6 +23,7 @@ import {
   type UTXO,
 } from "../services/mempool-api.js";
 import { buildAndSignBtcTransaction } from "../transactions/bitcoin-builder.js";
+import { OrdinalIndexer } from "../services/ordinal-indexer.js";
 
 /**
  * Get the Bitcoin address to use for queries.
@@ -350,6 +351,154 @@ export function registerBitcoinTools(server: McpServer): void {
           },
           sender: account.btcAddress,
           network: NETWORK,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Get cardinal UTXOs (safe to spend)
+  server.registerTool(
+    "get_cardinal_utxos",
+    {
+      description:
+        "Get cardinal UTXOs (safe to spend - no inscriptions). " +
+        "Cardinal UTXOs are regular Bitcoin outputs that do not contain ordinal inscriptions. " +
+        "These UTXOs can be safely used for regular Bitcoin transfers and fees. " +
+        "Only available on mainnet (Hiro Ordinals API does not index testnet).",
+      inputSchema: {
+        address: z
+          .string()
+          .optional()
+          .describe(
+            "Bitcoin address to check. Uses wallet's Bitcoin address if not provided."
+          ),
+        confirmedOnly: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Only return confirmed UTXOs (default: false)"),
+      },
+    },
+    async ({ address, confirmedOnly }) => {
+      try {
+        const btcAddress = await getBtcAddress(address);
+        const indexer = new OrdinalIndexer(NETWORK);
+        let utxos = await indexer.getCardinalUtxos(btcAddress);
+
+        // Filter to confirmed only if requested
+        if (confirmedOnly) {
+          utxos = utxos.filter((u) => u.status.confirmed);
+        }
+
+        // Calculate total value
+        const totalValue = utxos.reduce((sum, u) => sum + u.value, 0);
+
+        // Format UTXOs for response
+        const formattedUtxos = utxos.map((u: UTXO) => ({
+          txid: u.txid,
+          vout: u.vout,
+          value: {
+            satoshis: u.value,
+            btc: formatBtc(u.value),
+          },
+          confirmed: u.status.confirmed,
+          blockHeight: u.status.block_height,
+          blockTime: u.status.block_time
+            ? new Date(u.status.block_time * 1000).toISOString()
+            : undefined,
+        }));
+
+        return createJsonResponse({
+          address: btcAddress,
+          network: NETWORK,
+          type: "cardinal",
+          utxos: formattedUtxos,
+          summary: {
+            count: utxos.length,
+            totalValue: {
+              satoshis: totalValue,
+              btc: formatBtc(totalValue),
+            },
+            confirmedCount: utxos.filter((u) => u.status.confirmed).length,
+            unconfirmedCount: utxos.filter((u) => !u.status.confirmed).length,
+          },
+          explorerUrl: getMempoolAddressUrl(btcAddress, NETWORK),
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Get ordinal UTXOs (contain inscriptions)
+  server.registerTool(
+    "get_ordinal_utxos",
+    {
+      description:
+        "Get ordinal UTXOs (contain inscriptions - do not spend). " +
+        "Ordinal UTXOs contain Bitcoin inscriptions and should not be spent in regular transfers. " +
+        "These UTXOs are valuable as they carry ordinal data (text, images, etc.). " +
+        "Only available on mainnet (Hiro Ordinals API does not index testnet).",
+      inputSchema: {
+        address: z
+          .string()
+          .optional()
+          .describe(
+            "Bitcoin address to check. Uses wallet's Bitcoin address if not provided."
+          ),
+        confirmedOnly: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Only return confirmed UTXOs (default: false)"),
+      },
+    },
+    async ({ address, confirmedOnly }) => {
+      try {
+        const btcAddress = await getBtcAddress(address);
+        const indexer = new OrdinalIndexer(NETWORK);
+        let utxos = await indexer.getOrdinalUtxos(btcAddress);
+
+        // Filter to confirmed only if requested
+        if (confirmedOnly) {
+          utxos = utxos.filter((u) => u.status.confirmed);
+        }
+
+        // Calculate total value
+        const totalValue = utxos.reduce((sum, u) => sum + u.value, 0);
+
+        // Format UTXOs for response
+        const formattedUtxos = utxos.map((u: UTXO) => ({
+          txid: u.txid,
+          vout: u.vout,
+          value: {
+            satoshis: u.value,
+            btc: formatBtc(u.value),
+          },
+          confirmed: u.status.confirmed,
+          blockHeight: u.status.block_height,
+          blockTime: u.status.block_time
+            ? new Date(u.status.block_time * 1000).toISOString()
+            : undefined,
+        }));
+
+        return createJsonResponse({
+          address: btcAddress,
+          network: NETWORK,
+          type: "ordinal",
+          utxos: formattedUtxos,
+          summary: {
+            count: utxos.length,
+            totalValue: {
+              satoshis: totalValue,
+              btc: formatBtc(totalValue),
+            },
+            confirmedCount: utxos.filter((u) => u.status.confirmed).length,
+            unconfirmedCount: utxos.filter((u) => !u.status.confirmed).length,
+          },
+          explorerUrl: getMempoolAddressUrl(btcAddress, NETWORK),
         });
       } catch (error) {
         return createErrorResponse(error);

@@ -96,6 +96,7 @@ aibtc-mcp-server MCP Server (src/index.ts)
 - `src/services/defi.service.ts` - ALEX DEX (via alex-sdk) and Zest Protocol integrations
 - `src/services/bitflow.service.ts` - Bitflow DEX integration (via @bitflowlabs/core-sdk)
 - `src/services/mempool-api.ts` - mempool.space API client for Bitcoin UTXO, fee, and broadcast
+- `src/services/ordinal-indexer.ts` - Ordinal UTXO classification using Hiro Ordinals API
 - `src/transactions/bitcoin-builder.ts` - Bitcoin transaction building and signing (P2WPKH)
 - `src/endpoints/registry.ts` - Known x402 endpoint registry from all three API sources
 - `src/tools/signing.tools.ts` - Message signing tools (SIP-018, SIWS, BIP-137)
@@ -121,6 +122,32 @@ The agent supports both BNS naming systems:
 | BNS V2 | `api.bnsv2.com/names/{name}` | Current system (most .btc names) |
 
 BNS tools automatically check V2 first for `.btc` names, falling back to V1 for legacy support.
+
+### Ordinal Indexer Service
+
+The ordinal indexer classifies Bitcoin UTXOs as cardinal (safe to spend) or ordinal (contains inscriptions).
+
+**Data Sources:**
+| API | Purpose | Auth |
+|-----|---------|------|
+| Hiro Ordinals API | Fetch inscriptions for address, returns `output` (txid:vout) | Free, mainnet only |
+| mempool.space API | Fetch all UTXOs for address | Free |
+
+**Classification Algorithm:**
+1. Fetch all UTXOs from mempool.space
+2. Fetch all inscriptions from Hiro Ordinals API (paginated)
+3. Build set of outputs containing inscriptions: `txid:vout`
+4. Match UTXOs against inscription outputs:
+   - If UTXO output matches inscription → **Ordinal** (do not spend)
+   - Otherwise → **Cardinal** (safe to spend)
+
+**Limitations:**
+- Mainnet only (Hiro Ordinals API does not index testnet)
+- Does not classify runes (requires Best In Slot API or alternative)
+
+**Tools:**
+- `get_cardinal_utxos` - Returns UTXOs safe for regular transfers
+- `get_ordinal_utxos` - Returns UTXOs containing inscriptions
 
 ### x402 Payment Flow
 
@@ -177,6 +204,8 @@ Tools for Bitcoin L1 blockchain operations via mempool.space API:
 - `get_btc_balance` - Get BTC balance for any Bitcoin address (total, confirmed, unconfirmed)
 - `get_btc_fees` - Get current fee estimates (fast ~10min, medium ~30min, slow ~1hr) in sat/vB
 - `get_btc_utxos` - List UTXOs for a Bitcoin address (useful for debugging/transparency)
+- `get_cardinal_utxos` - List cardinal UTXOs (safe to spend - no inscriptions, mainnet only)
+- `get_ordinal_utxos` - List ordinal UTXOs (contain inscriptions - do not spend, mainnet only)
 
 **Write Operations:**
 - `transfer_btc` - Transfer BTC to a recipient address (requires unlocked wallet)
