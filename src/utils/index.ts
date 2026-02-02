@@ -6,3 +6,4 @@ export * from "./storage.js";
 export * from "./redact.js";
 export * from "./bitcoin.js";
 export * from "./tokens.js";
+export * from "./fee.js";
