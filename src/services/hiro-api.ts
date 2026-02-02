@@ -255,6 +255,28 @@ export interface FeeEstimation {
   cost_scalar_change_by_byte: number;
 }
 
+/**
+ * Fee priorities from the mempool.
+ * Values are in micro-STX.
+ */
+export interface MempoolFeePriorities {
+  no_priority: number;
+  low_priority: number;
+  medium_priority: number;
+  high_priority: number;
+}
+
+/**
+ * Response from /extended/v2/mempool/fees endpoint.
+ * Contains fee priorities for different transaction types.
+ */
+export interface MempoolFeeResponse {
+  all: MempoolFeePriorities;
+  token_transfer: MempoolFeePriorities;
+  contract_call: MempoolFeePriorities;
+  smart_contract: MempoolFeePriorities;
+}
+
 export interface TokenMetadata {
   name: string;
   symbol: string;
@@ -529,6 +551,15 @@ export class HiroApiService {
       method: "POST",
       body: JSON.stringify({ transaction_payload: txPayload }),
     });
+  }
+
+  /**
+   * Get fee priorities from the mempool.
+   * Returns estimated fees (in micro-STX) for different priority levels
+   * and transaction types.
+   */
+  async getMempoolFees(): Promise<MempoolFeeResponse> {
+    return this.fetch<MempoolFeeResponse>("/extended/v2/mempool/fees");
   }
 
   // ==========================================================================

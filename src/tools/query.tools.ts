@@ -5,7 +5,77 @@ import { getHiroApi } from "../services/hiro-api.js";
 import { getExplorerTxUrl, getExplorerAddressUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 
+/**
+ * Format micro-STX to STX with appropriate decimal places
+ */
+function formatStx(microStx: number): string {
+  const stx = microStx / 1_000_000;
+  return stx.toFixed(6).replace(/\.?0+$/, "") + " STX";
+}
+
 export function registerQueryTools(server: McpServer): void {
+  // Get STX fee estimates
+  server.registerTool(
+    "get_stx_fees",
+    {
+      description:
+        "Get current STX fee estimates for different priority levels. " +
+        "Returns low, medium, and high fee tiers in micro-STX, based on mempool analysis.",
+    },
+    async () => {
+      try {
+        const hiro = getHiroApi(NETWORK);
+        const fees = await hiro.getMempoolFees();
+
+        // Use token_transfer fees as the default since they're most common
+        // and provide a good baseline for STX operations
+        const transferFees = fees.token_transfer;
+
+        return createJsonResponse({
+          network: NETWORK,
+          fees: {
+            low: {
+              microStx: transferFees.low_priority,
+              stx: formatStx(transferFees.low_priority),
+              description: "Lower fee, may take longer to confirm",
+            },
+            medium: {
+              microStx: transferFees.medium_priority,
+              stx: formatStx(transferFees.medium_priority),
+              description: "Standard fee, typical confirmation time",
+            },
+            high: {
+              microStx: transferFees.high_priority,
+              stx: formatStx(transferFees.high_priority),
+              description: "Higher fee, faster confirmation",
+            },
+          },
+          byTransactionType: {
+            tokenTransfer: {
+              low: transferFees.low_priority,
+              medium: transferFees.medium_priority,
+              high: transferFees.high_priority,
+            },
+            contractCall: {
+              low: fees.contract_call.low_priority,
+              medium: fees.contract_call.medium_priority,
+              high: fees.contract_call.high_priority,
+            },
+            smartContract: {
+              low: fees.smart_contract.low_priority,
+              medium: fees.smart_contract.medium_priority,
+              high: fees.smart_contract.high_priority,
+            },
+          },
+          unit: "micro-STX",
+          note: "1 STX = 1,000,000 micro-STX. Fees are estimates based on current mempool conditions.",
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
   // Get account info
   server.registerTool(
     "get_account_info",
