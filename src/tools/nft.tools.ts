@@ -78,13 +78,17 @@ export function registerNftTools(server: McpServer): void {
         contractId: z.string().describe("NFT collection contract ID"),
         tokenId: z.number().describe("Token ID of the NFT to transfer"),
         recipient: z.string().describe("The recipient's Stacks address"),
+        fee: z
+          .string()
+          .optional()
+          .describe("Optional fee in micro-STX. If omitted, fee is auto-estimated. Example: '100000' for 0.1 STX"),
       },
     },
-    async ({ contractId, tokenId, recipient }) => {
+    async ({ contractId, tokenId, recipient, fee }) => {
       try {
         const nftService = getNftService(NETWORK);
         const account = await getAccount();
-        const result = await nftService.transfer(account, contractId, tokenId, recipient);
+        const result = await nftService.transfer(account, contractId, tokenId, recipient, fee ? BigInt(fee) : undefined);
 
         return createJsonResponse({
           success: true,

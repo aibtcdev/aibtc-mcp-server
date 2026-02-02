@@ -162,12 +162,14 @@ export class NftService {
 
   /**
    * Transfer an NFT (SIP-009 standard)
+   * @param fee Optional fee in micro-STX. If omitted, fee is auto-estimated.
    */
   async transfer(
     account: Account,
     contractId: string,
     tokenId: number,
-    recipient: string
+    recipient: string,
+    fee?: bigint
   ): Promise<TransferResult> {
     const { address: contractAddress, name: contractName } = parseContractId(contractId);
 
@@ -184,6 +186,7 @@ export class NftService {
       contractName,
       functionName: "transfer",
       functionArgs,
+      fee,
     });
   }
 
