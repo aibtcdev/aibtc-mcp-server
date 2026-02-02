@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getAccount, getWalletAddress, NETWORK } from "../services/x402.service.js";
 import { getBitflowService } from "../services/bitflow.service.js";
 import { getExplorerTxUrl } from "../config/networks.js";
-import { createJsonResponse, createErrorResponse } from "../utils/index.js";
+import { createJsonResponse, createErrorResponse, resolveFee } from "../utils/index.js";
 
 export function registerBitflowTools(server: McpServer): void {
   // ==========================================================================
@@ -285,7 +285,7 @@ Note: Bitflow is only available on mainnet.`,
         fee: z
           .string()
           .optional()
-          .describe("Optional fee in micro-STX. If omitted, fee is auto-estimated. Example: '100000' for 0.1 STX"),
+          .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount. If omitted, auto-estimated."),
       },
     },
     async ({ tokenX, tokenY, amountIn, slippageTolerance, fee }) => {
@@ -307,13 +307,14 @@ Note: Bitflow is only available on mainnet.`,
         }
 
         const account = await getAccount();
+        const resolvedFee = await resolveFee(fee, NETWORK, "contract_call");
         const result = await bitflowService.swap(
           account,
           tokenX,
           tokenY,
           Number(amountIn),
           slippageTolerance || 0.01,
-          fee ? BigInt(fee) : undefined
+          resolvedFee
         );
 
         return createJsonResponse({

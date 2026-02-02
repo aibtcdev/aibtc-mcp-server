@@ -6,7 +6,7 @@ import { callContract, deployContract } from "../transactions/builder.js";
 import { parseArgToClarityValue } from "../transactions/clarity-values.js";
 import { getHiroApi, getTransactionStatus } from "../services/hiro-api.js";
 import { getExplorerTxUrl } from "../config/networks.js";
-import { createJsonResponse, createErrorResponse } from "../utils/index.js";
+import { createJsonResponse, createErrorResponse, resolveFee } from "../utils/index.js";
 
 export function registerContractTools(server: McpServer): void {
   // Call contract
@@ -31,13 +31,14 @@ For typed arguments, use objects like {type: 'uint', value: 100} or {type: 'prin
         fee: z
           .string()
           .optional()
-          .describe("Optional fee in micro-STX. If omitted, fee is auto-estimated. Example: '100000' for 0.1 STX"),
+          .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount. If omitted, auto-estimated."),
       },
     },
     async ({ contractAddress, contractName, functionName, functionArgs, postConditionMode, fee }) => {
       try {
         const account = await getAccount();
         const clarityArgs = functionArgs.map(parseArgToClarityValue);
+        const resolvedFee = await resolveFee(fee, NETWORK, "contract_call");
 
         const result = await callContract(account, {
           contractAddress,
@@ -46,7 +47,7 @@ For typed arguments, use objects like {type: 'uint', value: 100} or {type: 'prin
           functionArgs: clarityArgs,
           postConditionMode:
             postConditionMode === "allow" ? PostConditionMode.Allow : PostConditionMode.Deny,
-          ...(fee !== undefined && { fee: BigInt(fee) }),
+          ...(resolvedFee !== undefined && { fee: resolvedFee }),
         });
 
         return createJsonResponse({
@@ -75,16 +76,17 @@ For typed arguments, use objects like {type: 'uint', value: 100} or {type: 'prin
         fee: z
           .string()
           .optional()
-          .describe("Optional fee in micro-STX. If omitted, fee is auto-estimated. Example: '100000' for 0.1 STX"),
+          .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount. If omitted, auto-estimated."),
       },
     },
     async ({ contractName, codeBody, fee }) => {
       try {
         const account = await getAccount();
+        const resolvedFee = await resolveFee(fee, NETWORK, "smart_contract");
         const result = await deployContract(account, {
           contractName,
           codeBody,
-          ...(fee !== undefined && { fee: BigInt(fee) }),
+          ...(resolvedFee !== undefined && { fee: resolvedFee }),
         });
 
         return createJsonResponse({
