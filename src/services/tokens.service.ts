@@ -111,13 +111,15 @@ export class TokensService {
 
   /**
    * Transfer tokens to a recipient (SIP-010 standard)
+   * @param fee Optional fee in micro-STX. If omitted, fee is auto-estimated.
    */
   async transfer(
     account: Account,
     tokenContractOrSymbol: string,
     recipient: string,
     amount: bigint,
-    memo?: string
+    memo?: string,
+    fee?: bigint
   ): Promise<TransferResult> {
     const contractId = this.resolveToken(tokenContractOrSymbol);
     const { address: contractAddress, name: contractName } = parseContractId(contractId);
@@ -136,6 +138,7 @@ export class TokensService {
       contractName,
       functionName: "transfer",
       functionArgs,
+      ...(fee !== undefined && { fee }),
     });
   }
 

@@ -50,13 +50,17 @@ Example: To send 0.001 sBTC, use amount "100000" (satoshis).`,
         recipient: z.string().describe("The recipient's Stacks address"),
         amount: z.string().describe("Amount in satoshis (0.00000001 sBTC). Example: '100000' for 0.001 sBTC"),
         memo: z.string().optional().describe("Optional memo message"),
+        fee: z
+          .string()
+          .optional()
+          .describe("Optional fee in micro-STX. If omitted, fee is auto-estimated. Example: '100000' for 0.1 STX"),
       },
     },
-    async ({ recipient, amount, memo }) => {
+    async ({ recipient, amount, memo, fee }) => {
       try {
         const sbtcService = getSbtcService(NETWORK);
         const account = await getAccount();
-        const result = await sbtcService.transfer(account, recipient, BigInt(amount), memo);
+        const result = await sbtcService.transfer(account, recipient, BigInt(amount), memo, fee ? BigInt(fee) : undefined);
 
         const btcAmount = (BigInt(amount) / BigInt(100_000_000)).toString();
 

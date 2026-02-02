@@ -61,13 +61,17 @@ Or use the full contract ID.`,
         recipient: z.string().describe("The recipient's Stacks address"),
         amount: z.string().describe("Amount in smallest unit (depends on token decimals)"),
         memo: z.string().optional().describe("Optional memo message (max 34 bytes)"),
+        fee: z
+          .string()
+          .optional()
+          .describe("Optional fee in micro-STX. If omitted, fee is auto-estimated. Example: '100000' for 0.1 STX"),
       },
     },
-    async ({ token, recipient, amount, memo }) => {
+    async ({ token, recipient, amount, memo, fee }) => {
       try {
         const tokensService = getTokensService(NETWORK);
         const account = await getAccount();
-        const result = await tokensService.transfer(account, token, recipient, BigInt(amount), memo);
+        const result = await tokensService.transfer(account, token, recipient, BigInt(amount), memo, fee ? BigInt(fee) : undefined);
 
         return createJsonResponse({
           success: true,

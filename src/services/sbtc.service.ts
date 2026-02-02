@@ -60,12 +60,14 @@ export class SbtcService {
 
   /**
    * Transfer sBTC to a recipient
+   * @param fee Optional fee in micro-STX. If omitted, fee is auto-estimated.
    */
   async transfer(
     account: Account,
     recipient: string,
     amount: bigint,
-    memo?: string
+    memo?: string,
+    fee?: bigint
   ): Promise<TransferResult> {
     const sbtcContract = this.contracts.SBTC_TOKEN;
     const { address: contractAddress, name: contractName } = parseContractId(sbtcContract);
@@ -87,6 +89,7 @@ export class SbtcService {
       contractName,
       functionName: "transfer",
       functionArgs,
+      ...(fee !== undefined && { fee }),
     });
   }
 
