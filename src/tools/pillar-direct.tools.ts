@@ -281,7 +281,8 @@ export function registerPillarDirectTools(server: McpServer): void {
       description:
         "Create or increase a leveraged sBTC position (up to 1.5x) on your Pillar smart wallet. " +
         "Agent-signed, no browser needed. Your sBTC is supplied to Zest, borrowed against, " +
-        "and re-supplied for amplified exposure. Backend sponsors gas.",
+        "and re-supplied for amplified Bitcoin exposure. Backend sponsors gas. " +
+        "For simple yield without leverage, use pillar_direct_supply instead.",
       inputSchema: {
         sbtcAmount: z
           .number()
@@ -397,14 +398,15 @@ export function registerPillarDirectTools(server: McpServer): void {
     }
   );
 
-  // --- pillar_direct_supply (twin of pillar_supply) ---
+  // --- pillar_direct_supply (twin of pillar_supply / Earn) ---
   // pillar_supply in handoff = add-collateral (0x leverage supply to Zest)
   server.registerTool(
     "pillar_direct_supply",
     {
       description:
-        "Supply sBTC from your Pillar smart wallet to Zest Protocol to earn yield (0x leverage). " +
-        "Agent-signed, no browser needed. Backend sponsors gas.",
+        "Earn yield on your Bitcoin. Supply sBTC from your Pillar smart wallet to Zest Protocol. " +
+        "No leverage, no liquidation risk. Agent-signed, no browser needed. Backend sponsors gas. " +
+        "For leveraged exposure (1.5x), use pillar_direct_boost instead.",
       inputSchema: {
         sbtcAmount: z
           .number()
