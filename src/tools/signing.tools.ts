@@ -411,7 +411,7 @@ export function registerSigningTools(server: McpServer): void {
           success: true,
           signature,
           signatureFormat: "RSV (65 bytes hex)",
-          signer: account.stacksAddress,
+          signer: account.address,
           network: NETWORK,
           chainId,
           hashes: {
@@ -619,7 +619,7 @@ export function registerSigningTools(server: McpServer): void {
           success: true,
           signature,
           signatureFormat: "RSV (65 bytes hex)",
-          signer: account.stacksAddress,
+          signer: account.address,
           network: NETWORK,
           message: {
             original: message,
@@ -785,7 +785,7 @@ export function registerSigningTools(server: McpServer): void {
           signature: signatureHex,
           signatureBase64,
           signatureFormat: "BIP-137 (65 bytes: 1 header + 32 r + 32 s)",
-          signer: account.bitcoinAddress,
+          signer: account.btcAddress,
           network: NETWORK,
           addressType: "P2WPKH (native SegWit)",
           message: {
