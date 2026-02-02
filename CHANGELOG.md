@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.12.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.11.0...v1.12.0) (2026-02-02)
+
+
+### Features
+
+* add custom fee support for Stacks transactions ([#54](https://github.com/aibtcdev/aibtc-mcp-server/issues/54)) ([b6f16d8](https://github.com/aibtcdev/aibtc-mcp-server/commit/b6f16d8ef43a44326279d7d50f6afc8830e323ad))
+* complete fee support and fix ClawHub CI ([#57](https://github.com/aibtcdev/aibtc-mcp-server/issues/57)) ([da6471b](https://github.com/aibtcdev/aibtc-mcp-server/commit/da6471b69b7865f58a7a05000f0447f79f4dadfb)), closes [#53](https://github.com/aibtcdev/aibtc-mcp-server/issues/53)
+
 ## [1.11.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.10.0...v1.11.0) (2026-02-02)
 
 
