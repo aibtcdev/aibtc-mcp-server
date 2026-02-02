@@ -109,6 +109,7 @@ aibtc-mcp-server MCP Server (src/index.ts)
 - `src/services/pillar-api.service.ts` - Pillar API client
 - `src/services/signing-key.service.ts` - Local signing key management for Pillar direct mode
 - `src/config/pillar.ts` - Pillar configuration (API URL, API key)
+- `src/utils/fee.ts` - Fee utility for resolving preset strings (low/medium/high) to micro-STX
 
 ### BNS V1 vs V2
 
@@ -193,6 +194,7 @@ Tools for Bitcoin L1 blockchain operations via mempool.space API:
 ### Wallet Info & Balance
 - `get_wallet_info` - Get wallet info (returns `btcAddress` and `address`)
 - `get_stx_balance` - Get STX balance for any Stacks address
+- `get_stx_fees` - Get current STX fee estimates (low, medium, high) in micro-STX
 
 ### Wallet Management
 - `wallet_create` - Generate a new wallet (returns `btcAddress` and `address`)
@@ -206,9 +208,26 @@ Tools for Bitcoin L1 blockchain operations via mempool.space API:
 - `wallet_status` - Get current wallet/session status
 
 ### Stacks L2 Transactions
+
+All write operations support an optional `fee` parameter:
+- **Presets:** `"low"` | `"medium"` | `"high"` - Fetches current fee estimates from mempool
+- **Custom:** Numeric string in micro-STX (e.g., `"100000"`)
+- **Auto:** Omit for automatic fee estimation
+
+**Tools:**
 - `transfer_stx` - Transfer STX tokens to a recipient (signs and broadcasts)
+  - `recipient`: Stacks address (SP... or ST...)
+  - `amount`: Amount in micro-STX (1 STX = 1,000,000 micro-STX)
+  - `memo`: Optional memo message
+  - `fee`: Optional fee preset or micro-STX amount
 - `call_contract` - Call a smart contract function (signs and broadcasts)
+  - `contractAddress`, `contractName`, `functionName`, `functionArgs`
+  - `postConditionMode`: "allow" | "deny" (default: deny)
+  - `fee`: Optional fee preset or micro-STX amount
 - `deploy_contract` - Deploy a Clarity smart contract
+  - `contractName`: Unique name (lowercase, hyphens allowed)
+  - `codeBody`: Complete Clarity source code
+  - `fee`: Optional fee preset or micro-STX amount
 - `get_transaction_status` - Check transaction status by txid
 - `broadcast_transaction` - Broadcast a pre-signed transaction
 
@@ -241,6 +260,39 @@ Tools for proving address ownership and signing messages across Bitcoin and Stac
 | "Sign this vote for proposal 5" | `sip018_sign` with domain and vote tuple |
 | "Prove I own this Stacks address" | `stacks_sign_message` with challenge message |
 | "Sign a message with my Bitcoin key" | `btc_sign_message` |
+
+### Token & NFT Transfers
+
+Tools for transferring sBTC, SIP-010 tokens, and SIP-009 NFTs. All write operations support optional fee presets.
+
+**Fee Parameter Format:**
+- `"low"` | `"medium"` | `"high"` - Fetches current estimates from mempool
+- Numeric string in micro-STX (e.g., `"100000"`)
+- Omit for automatic fee estimation
+
+**sBTC Tools:**
+- `sbtc_get_balance` - Get sBTC balance for any address
+- `sbtc_transfer` - Transfer sBTC (8 decimals, amount in satoshis)
+  - `fee`: Optional fee preset or micro-STX amount
+- `sbtc_get_deposit_info` - Get BTC deposit info for sBTC
+- `sbtc_get_peg_info` - Get sBTC peg ratio and supply
+
+**SIP-010 Token Tools:**
+- `get_token_balance` - Get balance of any SIP-010 token
+- `transfer_token` - Transfer any SIP-010 token
+  - `fee`: Optional fee preset or micro-STX amount
+- `get_token_info` - Get token metadata (name, symbol, decimals)
+- `get_token_holders` - Get top holders of a token
+- `list_user_tokens` - List all tokens owned by an address
+
+**SIP-009 NFT Tools:**
+- `get_nft_holdings` - List NFTs owned by an address
+- `get_nft_metadata` - Get metadata for a specific NFT
+- `transfer_nft` - Transfer an NFT to a recipient
+  - `fee`: Optional fee preset or micro-STX amount
+- `get_nft_owner` - Get current owner of an NFT
+- `get_collection_info` - Get NFT collection info
+- `get_nft_history` - Get transfer history of an NFT collection
 
 ### x402 API Endpoints
 - `execute_x402_endpoint` - Execute ANY x402 endpoint URL with automatic payment handling. Can use full URL or path+apiUrl.
@@ -453,7 +505,7 @@ Uses the official `@bitflowlabs/core-sdk` for swap operations. Bitflow is a DEX 
 - `bitflow_get_swap_targets` - Get possible swap destinations for a token
 - `bitflow_get_quote` - Get swap quote with expected output
 - `bitflow_get_routes` - Get all available swap routes between tokens
-- `bitflow_swap` - Execute a token swap
+- `bitflow_swap` - Execute a token swap (supports fee presets)
 
 **Tools (Requires BITFLOW_KEEPER_API_KEY):**
 - `bitflow_get_keeper_contract` - Get or create Keeper contract for automated swaps
@@ -584,7 +636,12 @@ When a user asks for something:
 | "Show my wallet" | `get_wallet_info` (returns btcAddress and address) |
 | **Stacks L2** | |
 | "What's my STX balance?" | `get_stx_balance` (explicit L2 request) |
+| "What are current STX fees?" | `get_stx_fees` to get low/medium/high estimates |
 | "Send 2 STX to ST1..." | `transfer_stx` with amount "2000000" |
+| "Send 2 STX with high fee" | `transfer_stx` with amount "2000000", fee="high" |
+| "Transfer 100 USDCx with low fee" | `transfer_token` with token="USDCx", fee="low" |
+| "Send 0.001 sBTC quickly" | `sbtc_transfer` with amount "100000", fee="high" |
+| "Transfer NFT #5 with medium fee" | `transfer_nft` with tokenId=5, fee="medium" |
 | "What pools can I trade on ALEX?" | `alex_list_pools` to discover available pairs |
 | "Swap 0.1 STX for ALEX" | `alex_swap` with tokenX="STX", tokenY="ALEX" |
 | "Supply 1000 stSTX to Zest" | `zest_supply` with asset="stSTX" |
