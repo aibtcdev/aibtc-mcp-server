@@ -28,9 +28,13 @@ For typed arguments, use objects like {type: 'uint', value: 100} or {type: 'prin
           .enum(["allow", "deny"])
           .default("deny")
           .describe("'deny' (default): Blocks unexpected transfers. 'allow': Permits any transfers."),
+        fee: z
+          .string()
+          .optional()
+          .describe("Optional fee in micro-STX. If omitted, fee is auto-estimated. Example: '100000' for 0.1 STX"),
       },
     },
-    async ({ contractAddress, contractName, functionName, functionArgs, postConditionMode }) => {
+    async ({ contractAddress, contractName, functionName, functionArgs, postConditionMode, fee }) => {
       try {
         const account = await getAccount();
         const clarityArgs = functionArgs.map(parseArgToClarityValue);
@@ -42,6 +46,7 @@ For typed arguments, use objects like {type: 'uint', value: 100} or {type: 'prin
           functionArgs: clarityArgs,
           postConditionMode:
             postConditionMode === "allow" ? PostConditionMode.Allow : PostConditionMode.Deny,
+          ...(fee !== undefined && { fee: BigInt(fee) }),
         });
 
         return createJsonResponse({
@@ -67,12 +72,20 @@ For typed arguments, use objects like {type: 'uint', value: 100} or {type: 'prin
       inputSchema: {
         contractName: z.string().describe("Unique name for the contract (lowercase, hyphens allowed)"),
         codeBody: z.string().describe("The complete Clarity source code"),
+        fee: z
+          .string()
+          .optional()
+          .describe("Optional fee in micro-STX. If omitted, fee is auto-estimated. Example: '100000' for 0.1 STX"),
       },
     },
-    async ({ contractName, codeBody }) => {
+    async ({ contractName, codeBody, fee }) => {
       try {
         const account = await getAccount();
-        const result = await deployContract(account, { contractName, codeBody });
+        const result = await deployContract(account, {
+          contractName,
+          codeBody,
+          ...(fee !== undefined && { fee: BigInt(fee) }),
+        });
 
         return createJsonResponse({
           success: true,

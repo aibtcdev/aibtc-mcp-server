@@ -20,12 +20,16 @@ Example: To send 2 STX, use amount "2000000" (micro-STX).
           .string()
           .describe("Amount in micro-STX (1 STX = 1,000,000 micro-STX). Example: '2000000' for 2 STX"),
         memo: z.string().optional().describe("Optional memo message to include with the transfer"),
+        fee: z
+          .string()
+          .optional()
+          .describe("Optional fee in micro-STX. If omitted, fee is auto-estimated. Example: '100000' for 0.1 STX"),
       },
     },
-    async ({ recipient, amount, memo }) => {
+    async ({ recipient, amount, memo, fee }) => {
       try {
         const account = await getAccount();
-        const result = await transferStx(account, recipient, BigInt(amount), memo);
+        const result = await transferStx(account, recipient, BigInt(amount), memo, fee ? BigInt(fee) : undefined);
 
         const stxAmount = (BigInt(amount) / BigInt(1000000)).toString();
 

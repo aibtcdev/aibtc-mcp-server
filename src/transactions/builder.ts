@@ -36,21 +36,27 @@ export interface ContractCallOptions {
   functionArgs: ClarityValue[];
   postConditionMode?: PostConditionMode;
   postConditions?: PostCondition[];
+  /** Optional fee in micro-STX. If omitted, fee is auto-estimated. */
+  fee?: bigint;
 }
 
 export interface ContractDeployOptions {
   contractName: string;
   codeBody: string;
+  /** Optional fee in micro-STX. If omitted, fee is auto-estimated. */
+  fee?: bigint;
 }
 
 /**
  * Transfer STX tokens to a recipient
+ * @param fee Optional fee in micro-STX. If omitted, fee is auto-estimated.
  */
 export async function transferStx(
   account: Account,
   recipient: string,
   amount: bigint,
-  memo?: string
+  memo?: string,
+  fee?: bigint
 ): Promise<TransferResult> {
   const networkName = getStacksNetwork(account.network);
 
@@ -60,6 +66,7 @@ export async function transferStx(
     senderKey: account.privateKey,
     network: networkName,
     memo: memo || "",
+    ...(fee !== undefined && { fee }),
   });
 
   const broadcastResponse = await broadcastTransaction({
@@ -97,6 +104,7 @@ export async function callContract(
     network: networkName,
     postConditionMode: options.postConditionMode || PostConditionMode.Deny,
     postConditions: options.postConditions || [],
+    ...(options.fee !== undefined && { fee: options.fee }),
   });
 
   const broadcastResponse = await broadcastTransaction({
@@ -130,6 +138,7 @@ export async function deployContract(
     codeBody: options.codeBody,
     senderKey: account.privateKey,
     network: networkName,
+    ...(options.fee !== undefined && { fee: options.fee }),
   });
 
   const broadcastResponse = await broadcastTransaction({
@@ -156,7 +165,8 @@ export async function signStxTransfer(
   account: Account,
   recipient: string,
   amount: bigint,
-  memo?: string
+  memo?: string,
+  fee?: bigint
 ): Promise<{ signedTx: string; txid: string }> {
   const networkName = getStacksNetwork(account.network);
 
@@ -166,6 +176,7 @@ export async function signStxTransfer(
     senderKey: account.privateKey,
     network: networkName,
     memo: memo || "",
+    ...(fee !== undefined && { fee }),
   });
 
   return {
@@ -192,6 +203,7 @@ export async function signContractCall(
     network: networkName,
     postConditionMode: options.postConditionMode || PostConditionMode.Deny,
     postConditions: options.postConditions || [],
+    ...(options.fee !== undefined && { fee: options.fee }),
   });
 
   return {

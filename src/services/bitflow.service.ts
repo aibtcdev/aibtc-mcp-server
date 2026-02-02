@@ -243,13 +243,15 @@ export class BitflowService {
 
   /**
    * Execute a swap
+   * @param fee Optional fee in micro-STX. If omitted, fee is auto-estimated.
    */
   async swap(
     account: Account,
     tokenXId: string,
     tokenYId: string,
     amountIn: number,
-    slippageTolerance: number = 0.01
+    slippageTolerance: number = 0.01,
+    fee?: bigint
   ): Promise<TransferResult> {
     this.ensureMainnet();
     const sdk = this.ensureSdk();
@@ -288,6 +290,7 @@ export class BitflowService {
       senderKey: account.privateKey,
       network,
       postConditionMode: PostConditionMode.Deny,
+      ...(fee !== undefined && { fee }),
     });
 
     const broadcastResult = await broadcastTransaction({

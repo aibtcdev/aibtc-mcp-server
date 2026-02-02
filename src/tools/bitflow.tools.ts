@@ -282,9 +282,13 @@ Note: Bitflow is only available on mainnet.`,
           .optional()
           .default(0.01)
           .describe("Slippage tolerance as decimal (default 0.01 = 1%)"),
+        fee: z
+          .string()
+          .optional()
+          .describe("Optional fee in micro-STX. If omitted, fee is auto-estimated. Example: '100000' for 0.1 STX"),
       },
     },
-    async ({ tokenX, tokenY, amountIn, slippageTolerance }) => {
+    async ({ tokenX, tokenY, amountIn, slippageTolerance, fee }) => {
       try {
         if (NETWORK !== "mainnet") {
           return createJsonResponse({
@@ -308,7 +312,8 @@ Note: Bitflow is only available on mainnet.`,
           tokenX,
           tokenY,
           Number(amountIn),
-          slippageTolerance || 0.01
+          slippageTolerance || 0.01,
+          fee ? BigInt(fee) : undefined
         );
 
         return createJsonResponse({
