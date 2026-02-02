@@ -643,15 +643,37 @@ Signing keys are stored encrypted in `~/.aibtc/signing-keys/`:
 
 **Bitcoin-First Principle**: When users ask about "their wallet" or "their balance" without specifying a chain, default to Bitcoin (L1). Only use Stacks L2 operations when users explicitly mention STX, Stacks, or L2-specific features (smart contracts, DeFi, tokens, NFTs).
 
+**Ordinal Safety Principle**: The `transfer_btc` tool automatically protects users from accidentally destroying valuable inscriptions by using only cardinal UTXOs (safe to spend - no inscriptions) by default. Users must explicitly set `includeOrdinals=true` to override this safety. Never suggest using `includeOrdinals=true` unless the user explicitly wants to spend ordinal UTXOs.
+
 When a user asks for something:
 
 1. **For "what's my balance?"** → Use `get_btc_balance` first (Bitcoin-first)
-2. **For "send X BTC to Y"** → Use `transfer_btc` (wallet must be unlocked)
+2. **For "send X BTC to Y"** → Use `transfer_btc` (wallet must be unlocked, uses cardinal UTXOs only)
 3. **For "transfer X STX to Y"** → Use `transfer_stx` directly
 4. **For known x402 endpoints** → Use `list_x402_endpoints` to find relevant endpoint, then `execute_x402_endpoint`
 5. **For any x402 URL** → Use `execute_x402_endpoint` with full `url` parameter - works with ANY x402-compatible endpoint
 6. **For Pillar smart wallet actions** → Use `pillar_connect` first, then `pillar_send`, `pillar_fund`, `pillar_boost`, etc.
 7. **For unknown actions** → Ask user for the x402 endpoint URL or check if it's a direct blockchain action
+
+### Ordinal Safety
+
+Bitcoin inscriptions (ordinals) are valuable digital artifacts stored in transaction witness data. Accidentally spending a UTXO containing an inscription destroys the inscription forever.
+
+**Default Protection:**
+- `transfer_btc` uses cardinal UTXOs (no inscriptions) by default on mainnet
+- On testnet, uses all UTXOs (Hiro Ordinals API is mainnet-only)
+- If no cardinal UTXOs available, transaction fails with helpful error message
+
+**Power User Override:**
+- Set `includeOrdinals=true` to allow spending ordinal UTXOs
+- Only suggest this if user explicitly wants to spend inscriptions
+- Warn users that this may destroy valuable inscriptions
+
+**Ordinal Management:**
+- `get_inscriptions_by_address` - List all inscriptions owned by an address
+- `get_cardinal_utxos` - UTXOs safe to spend (no inscriptions)
+- `get_ordinal_utxos` - UTXOs containing inscriptions (do not spend)
+- `get_inscription` - Fetch and parse inscription content from reveal transaction
 
 ### Example User Requests
 
