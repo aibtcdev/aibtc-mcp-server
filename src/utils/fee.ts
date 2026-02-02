@@ -81,6 +81,12 @@ export async function resolveFee(
     return BigInt(Math.ceil(feeValue));
   }
 
-  // Otherwise, treat as numeric string
-  return BigInt(fee);
+  // Otherwise, treat as numeric string - validate format first
+  const normalizedFee = fee.trim();
+  if (!/^\d+$/.test(normalizedFee)) {
+    throw new Error(
+      `Invalid fee value "${fee}" – expected a non-negative integer string in micro-STX or preset ("low", "medium", "high").`
+    );
+  }
+  return BigInt(normalizedFee);
 }

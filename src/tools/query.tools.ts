@@ -6,11 +6,24 @@ import { getExplorerTxUrl, getExplorerAddressUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 
 /**
- * Format micro-STX to STX with appropriate decimal places
+ * Format micro-STX to STX with appropriate decimal places.
+ * Uses BigInt arithmetic to avoid floating-point precision loss.
  */
-function formatStx(microStx: number): string {
-  const stx = microStx / 1_000_000;
-  return stx.toFixed(6).replace(/\.?0+$/, "") + " STX";
+function formatStx(microStx: number | bigint): string {
+  const micro = typeof microStx === "bigint" ? microStx : BigInt(Math.round(microStx));
+  const whole = micro / 1_000_000n;
+  const fraction = micro % 1_000_000n;
+
+  // Convert fractional micro-STX to a 6-digit decimal part, then trim trailing zeros
+  const rawFractionStr = fraction.toString().padStart(6, "0");
+  const trimmedFractionStr = rawFractionStr.replace(/0+$/, "");
+
+  const stxStr =
+    trimmedFractionStr.length > 0
+      ? `${whole.toString()}.${trimmedFractionStr}`
+      : whole.toString();
+
+  return stxStr + " STX";
 }
 
 export function registerQueryTools(server: McpServer): void {
