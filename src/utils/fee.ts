@@ -29,16 +29,13 @@ export function isFeePreset(value: string): value is FeePreset {
  * Map fee preset to mempool priority key.
  */
 function presetToPriorityKey(preset: FeePreset): keyof MempoolFeePriorities {
-  switch (preset.toLowerCase()) {
-    case "low":
-      return "low_priority";
-    case "medium":
-      return "medium_priority";
-    case "high":
-      return "high_priority";
-    default:
-      return "medium_priority";
-  }
+  const normalized = preset.toLowerCase() as FeePreset;
+  const mapping: Record<FeePreset, keyof MempoolFeePriorities> = {
+    low: "low_priority",
+    medium: "medium_priority",
+    high: "high_priority",
+  };
+  return mapping[normalized];
 }
 
 /**
@@ -77,7 +74,7 @@ export async function resolveFee(
 
     // Get the appropriate fee tier based on transaction type
     const feeTier = mempoolFees[txType];
-    const priorityKey = presetToPriorityKey(fee as FeePreset);
+    const priorityKey = presetToPriorityKey(fee);
     const feeValue = feeTier[priorityKey];
 
     // Return as bigint (values are already in micro-STX)
@@ -86,21 +83,4 @@ export async function resolveFee(
 
   // Otherwise, treat as numeric string
   return BigInt(fee);
-}
-
-/**
- * Get the transaction type for fee resolution based on the operation.
- * This helps provide more accurate fee estimates.
- */
-export function getFeeTransactionType(
-  operation: "transfer" | "contract_call" | "deploy"
-): "token_transfer" | "contract_call" | "smart_contract" {
-  switch (operation) {
-    case "transfer":
-      return "token_transfer";
-    case "contract_call":
-      return "contract_call";
-    case "deploy":
-      return "smart_contract";
-  }
 }

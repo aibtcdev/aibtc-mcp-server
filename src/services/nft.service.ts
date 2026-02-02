@@ -186,7 +186,7 @@ export class NftService {
       contractName,
       functionName: "transfer",
       functionArgs,
-      fee,
+      ...(fee !== undefined && { fee }),
     });
   }
 
