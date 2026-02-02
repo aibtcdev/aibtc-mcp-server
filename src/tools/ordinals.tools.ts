@@ -13,6 +13,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { NETWORK } from "../config/networks.js";
+import {
+  P2WPKH_INPUT_VBYTES,
+  P2WPKH_OUTPUT_VBYTES,
+  P2TR_OUTPUT_VBYTES,
+  TX_OVERHEAD_VBYTES,
+  DUST_THRESHOLD,
+  P2TR_INPUT_BASE_VBYTES,
+} from "../config/bitcoin-constants.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import {
   InscriptionParser,
@@ -128,24 +136,22 @@ export function registerOrdinalsTools(server: McpServer): void {
           actualFeeRate = fees.halfHourFee;
         }
 
-        // Estimate sizes
-        const DUST_THRESHOLD = 546;
-        const TX_OVERHEAD = 10.5;
-        const P2WPKH_INPUT = 68;
-        const P2WPKH_OUTPUT = 31;
-        const P2TR_OUTPUT = 43;
-
         // Commit tx size (assuming 1-2 inputs for simplicity)
         const commitInputs = 2;
-        const commitOutputs = 2; // reveal output + change
         const commitSize =
-          TX_OVERHEAD + commitInputs * P2WPKH_INPUT + P2TR_OUTPUT + P2WPKH_OUTPUT;
+          TX_OVERHEAD_VBYTES +
+          commitInputs * P2WPKH_INPUT_VBYTES +
+          P2TR_OUTPUT_VBYTES +
+          P2WPKH_OUTPUT_VBYTES;
         const commitFee = Math.ceil(commitSize * actualFeeRate);
 
         // Reveal tx size (1 input with inscription witness + 1 output)
-        const revealInputSize = 57.5;
         const revealWitnessSize = Math.ceil(body.length / 4); // Witness at 1/4 weight
-        const revealSize = TX_OVERHEAD + revealInputSize + revealWitnessSize + P2TR_OUTPUT;
+        const revealSize =
+          TX_OVERHEAD_VBYTES +
+          P2TR_INPUT_BASE_VBYTES +
+          revealWitnessSize +
+          P2TR_OUTPUT_VBYTES;
         const revealFee = Math.ceil(revealSize * actualFeeRate);
 
         // Amount locked in reveal output

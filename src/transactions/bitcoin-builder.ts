@@ -6,27 +6,14 @@
  */
 
 import * as btc from "@scure/btc-signer";
-import { hex } from "@scure/base";
 import type { Network } from "../config/networks.js";
+import {
+  P2WPKH_INPUT_VBYTES,
+  P2WPKH_OUTPUT_VBYTES,
+  TX_OVERHEAD_VBYTES,
+  DUST_THRESHOLD,
+} from "../config/bitcoin-constants.js";
 import type { UTXO } from "../services/mempool-api.js";
-
-/**
- * P2WPKH transaction size constants (virtual bytes)
- *
- * Based on Bitcoin Core and @scure/btc-signer calculations:
- * - P2WPKH input: ~68 vB (includes witness data at 1/4 weight)
- * - P2WPKH output: ~31 vB
- * - Base overhead: ~10.5 vB (version, locktime, witness marker/flag)
- */
-const P2WPKH_INPUT_VBYTES = 68;
-const P2WPKH_OUTPUT_VBYTES = 31;
-const TX_OVERHEAD_VBYTES = 10.5;
-
-/**
- * Minimum output value (dust threshold)
- * Below this value, outputs are non-standard and won't be relayed
- */
-const DUST_THRESHOLD = 546;
 
 /**
  * Options for building a Bitcoin transaction

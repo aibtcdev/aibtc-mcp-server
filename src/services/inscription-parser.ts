@@ -13,11 +13,10 @@
 
 import {
   parseWitness as microOrdinalsParseWitness,
-  parseInscriptions as microOrdinalsParseInscriptions,
   type Inscription,
 } from "micro-ordinals";
 import type { Network } from "../config/networks.js";
-import { MempoolApi } from "./mempool-api.js";
+import { getMempoolApiUrl } from "./mempool-api.js";
 
 /**
  * Transaction data from mempool.space API
@@ -175,11 +174,11 @@ function enhanceInscription(inscription: Inscription): ParsedInscription {
  */
 export class InscriptionParser {
   private readonly network: Network;
-  private readonly mempoolApi: MempoolApi;
+  private readonly mempoolApiUrl: string;
 
   constructor(network: Network) {
     this.network = network;
-    this.mempoolApi = new MempoolApi(network);
+    this.mempoolApiUrl = getMempoolApiUrl(network);
   }
 
   /**
@@ -216,27 +215,6 @@ export class InscriptionParser {
   }
 
   /**
-   * Parse inscriptions from a transaction script
-   *
-   * Note: This method is not currently implemented as it requires ScriptOP[]
-   * format which needs additional parsing. Use parseWitness or getInscriptionsFromTx
-   * for most use cases.
-   *
-   * @param scriptHex - Hex-encoded script
-   * @param strict - Whether to use strict parsing (default: false)
-   * @returns Array of parsed inscriptions, or undefined if no inscriptions found
-   * @throws Error - Not implemented
-   */
-  parseInscriptions(
-    scriptHex: string,
-    strict = false
-  ): ParsedInscription[] | undefined {
-    throw new Error(
-      "parseInscriptions is not implemented. Use parseWitness or getInscriptionsFromTx instead."
-    );
-  }
-
-  /**
    * Fetch a transaction and parse inscriptions from its witness data
    *
    * This is a convenience method that fetches a transaction from mempool.space
@@ -263,9 +241,7 @@ export class InscriptionParser {
   ): Promise<ParsedInscription[] | undefined> {
     try {
       // Fetch transaction from mempool.space
-      const response = await fetch(
-        `${this.mempoolApi["baseUrl"]}/tx/${txid}`
-      );
+      const response = await fetch(`${this.mempoolApiUrl}/tx/${txid}`);
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "Unknown error");
@@ -299,12 +275,6 @@ export class InscriptionParser {
     }
   }
 
-  /**
-   * Get the network this parser is configured for
-   */
-  getNetwork(): Network {
-    return this.network;
-  }
 }
 
 /**

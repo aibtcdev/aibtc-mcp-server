@@ -55,6 +55,41 @@ function formatBtc(satoshis: number): string {
   return btc.toFixed(8).replace(/\.?0+$/, "") + " BTC";
 }
 
+/**
+ * Format a UTXO for API response
+ */
+function formatUtxo(utxo: UTXO) {
+  return {
+    txid: utxo.txid,
+    vout: utxo.vout,
+    value: {
+      satoshis: utxo.value,
+      btc: formatBtc(utxo.value),
+    },
+    confirmed: utxo.status.confirmed,
+    blockHeight: utxo.status.block_height,
+    blockTime: utxo.status.block_time
+      ? new Date(utxo.status.block_time * 1000).toISOString()
+      : undefined,
+  };
+}
+
+/**
+ * Summarize a list of UTXOs
+ */
+function summarizeUtxos(utxos: UTXO[]) {
+  const totalValue = utxos.reduce((sum, u) => sum + u.value, 0);
+  return {
+    count: utxos.length,
+    totalValue: {
+      satoshis: totalValue,
+      btc: formatBtc(totalValue),
+    },
+    confirmedCount: utxos.filter((u) => u.status.confirmed).length,
+    unconfirmedCount: utxos.filter((u) => !u.status.confirmed).length,
+  };
+}
+
 export function registerBitcoinTools(server: McpServer): void {
   // Get BTC balance
   server.registerTool(
@@ -189,42 +224,15 @@ export function registerBitcoinTools(server: McpServer): void {
         const api = new MempoolApi(NETWORK);
         let utxos = await api.getUtxos(btcAddress);
 
-        // Filter to confirmed only if requested
         if (confirmedOnly) {
           utxos = utxos.filter((u) => u.status.confirmed);
         }
 
-        // Calculate total value
-        const totalValue = utxos.reduce((sum, u) => sum + u.value, 0);
-
-        // Format UTXOs for response
-        const formattedUtxos = utxos.map((u: UTXO) => ({
-          txid: u.txid,
-          vout: u.vout,
-          value: {
-            satoshis: u.value,
-            btc: formatBtc(u.value),
-          },
-          confirmed: u.status.confirmed,
-          blockHeight: u.status.block_height,
-          blockTime: u.status.block_time
-            ? new Date(u.status.block_time * 1000).toISOString()
-            : undefined,
-        }));
-
         return createJsonResponse({
           address: btcAddress,
           network: NETWORK,
-          utxos: formattedUtxos,
-          summary: {
-            count: utxos.length,
-            totalValue: {
-              satoshis: totalValue,
-              btc: formatBtc(totalValue),
-            },
-            confirmedCount: utxos.filter((u) => u.status.confirmed).length,
-            unconfirmedCount: utxos.filter((u) => !u.status.confirmed).length,
-          },
+          utxos: utxos.map(formatUtxo),
+          summary: summarizeUtxos(utxos),
           explorerUrl: getMempoolAddressUrl(btcAddress, NETWORK),
         });
       } catch (error) {
@@ -418,43 +426,16 @@ export function registerBitcoinTools(server: McpServer): void {
         const indexer = new OrdinalIndexer(NETWORK);
         let utxos = await indexer.getCardinalUtxos(btcAddress);
 
-        // Filter to confirmed only if requested
         if (confirmedOnly) {
           utxos = utxos.filter((u) => u.status.confirmed);
         }
-
-        // Calculate total value
-        const totalValue = utxos.reduce((sum, u) => sum + u.value, 0);
-
-        // Format UTXOs for response
-        const formattedUtxos = utxos.map((u: UTXO) => ({
-          txid: u.txid,
-          vout: u.vout,
-          value: {
-            satoshis: u.value,
-            btc: formatBtc(u.value),
-          },
-          confirmed: u.status.confirmed,
-          blockHeight: u.status.block_height,
-          blockTime: u.status.block_time
-            ? new Date(u.status.block_time * 1000).toISOString()
-            : undefined,
-        }));
 
         return createJsonResponse({
           address: btcAddress,
           network: NETWORK,
           type: "cardinal",
-          utxos: formattedUtxos,
-          summary: {
-            count: utxos.length,
-            totalValue: {
-              satoshis: totalValue,
-              btc: formatBtc(totalValue),
-            },
-            confirmedCount: utxos.filter((u) => u.status.confirmed).length,
-            unconfirmedCount: utxos.filter((u) => !u.status.confirmed).length,
-          },
+          utxos: utxos.map(formatUtxo),
+          summary: summarizeUtxos(utxos),
           explorerUrl: getMempoolAddressUrl(btcAddress, NETWORK),
         });
       } catch (error) {
@@ -492,43 +473,16 @@ export function registerBitcoinTools(server: McpServer): void {
         const indexer = new OrdinalIndexer(NETWORK);
         let utxos = await indexer.getOrdinalUtxos(btcAddress);
 
-        // Filter to confirmed only if requested
         if (confirmedOnly) {
           utxos = utxos.filter((u) => u.status.confirmed);
         }
-
-        // Calculate total value
-        const totalValue = utxos.reduce((sum, u) => sum + u.value, 0);
-
-        // Format UTXOs for response
-        const formattedUtxos = utxos.map((u: UTXO) => ({
-          txid: u.txid,
-          vout: u.vout,
-          value: {
-            satoshis: u.value,
-            btc: formatBtc(u.value),
-          },
-          confirmed: u.status.confirmed,
-          blockHeight: u.status.block_height,
-          blockTime: u.status.block_time
-            ? new Date(u.status.block_time * 1000).toISOString()
-            : undefined,
-        }));
 
         return createJsonResponse({
           address: btcAddress,
           network: NETWORK,
           type: "ordinal",
-          utxos: formattedUtxos,
-          summary: {
-            count: utxos.length,
-            totalValue: {
-              satoshis: totalValue,
-              btc: formatBtc(totalValue),
-            },
-            confirmedCount: utxos.filter((u) => u.status.confirmed).length,
-            unconfirmedCount: utxos.filter((u) => !u.status.confirmed).length,
-          },
+          utxos: utxos.map(formatUtxo),
+          summary: summarizeUtxos(utxos),
           explorerUrl: getMempoolAddressUrl(btcAddress, NETWORK),
         });
       } catch (error) {

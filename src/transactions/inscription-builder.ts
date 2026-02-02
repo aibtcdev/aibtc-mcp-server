@@ -8,9 +8,16 @@
  */
 
 import * as btc from "@scure/btc-signer";
-import { hex } from "@scure/base";
 import { p2tr_ord_reveal } from "micro-ordinals";
 import type { Network } from "../config/networks.js";
+import {
+  P2WPKH_INPUT_VBYTES,
+  P2WPKH_OUTPUT_VBYTES,
+  P2TR_OUTPUT_VBYTES,
+  TX_OVERHEAD_VBYTES,
+  DUST_THRESHOLD,
+  P2TR_INPUT_BASE_VBYTES,
+} from "../config/bitcoin-constants.js";
 import type { UTXO } from "../services/mempool-api.js";
 
 /**
@@ -139,14 +146,6 @@ export interface BuildRevealTransactionResult {
   outputAmount: number;
 }
 
-/**
- * Constants for transaction size estimation
- */
-const P2WPKH_INPUT_VBYTES = 68;
-const P2WPKH_OUTPUT_VBYTES = 31;
-const P2TR_OUTPUT_VBYTES = 43;
-const TX_OVERHEAD_VBYTES = 10.5;
-const DUST_THRESHOLD = 546;
 
 /**
  * Get the @scure/btc-signer network object for a network name
@@ -234,7 +233,7 @@ export function buildCommitTransaction(
   // Estimate reveal transaction size to determine commit amount
   // Reveal tx: 1 input (Taproot with inscription witness) + 1 output (recipient)
   // The witness includes the inscription data, so it's larger than typical
-  const revealInputSize = 57.5; // Taproot input base size (vbytes)
+  const revealInputSize = P2TR_INPUT_BASE_VBYTES; // Taproot input base size (vbytes)
   const revealWitnessSize = Math.ceil(inscription.body.length / 4); // Witness data at 1/4 weight
   const revealTxSize = TX_OVERHEAD_VBYTES + revealInputSize + revealWitnessSize + P2TR_OUTPUT_VBYTES;
   const revealFee = Math.ceil(revealTxSize * feeRate);
@@ -384,7 +383,7 @@ export function buildRevealTransaction(
 
   // Estimate reveal transaction size
   // 1 input (Taproot with inscription witness) + 1 output (recipient)
-  const revealInputSize = 57.5;
+  const revealInputSize = P2TR_INPUT_BASE_VBYTES;
   const revealWitnessSize = Math.ceil(
     (revealScript.script?.byteLength || 0) / 4
   );

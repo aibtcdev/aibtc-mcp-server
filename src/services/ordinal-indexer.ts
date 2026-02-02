@@ -92,30 +92,22 @@ export interface ClassifiedUtxos {
   ordinal: UTXO[];
 }
 
-/**
- * Get Hiro Ordinals API base URL for a network
- */
-function getHiroOrdinalsApiUrl(network: Network): string {
-  // Hiro Ordinals API only supports mainnet
-  if (network !== "mainnet") {
-    throw new Error(
-      "Hiro Ordinals API only supports mainnet. Testnet inscriptions are not indexed."
-    );
-  }
-  return "https://api.hiro.so/ordinals/v1";
-}
+const HIRO_ORDINALS_API_URL = "https://api.hiro.so/ordinals/v1";
 
 /**
  * Ordinal Indexer Service
  */
 export class OrdinalIndexer {
   private readonly network: Network;
-  private readonly hiroBaseUrl: string;
   private readonly mempoolApi: MempoolApi;
 
   constructor(network: Network) {
+    if (network !== "mainnet") {
+      throw new Error(
+        "Hiro Ordinals API only supports mainnet. Testnet inscriptions are not indexed."
+      );
+    }
     this.network = network;
-    this.hiroBaseUrl = getHiroOrdinalsApiUrl(network);
     this.mempoolApi = new MempoolApi(network);
   }
 
@@ -134,7 +126,7 @@ export class OrdinalIndexer {
     try {
       // Fetch all pages
       while (true) {
-        const url = `${this.hiroBaseUrl}/inscriptions?address=${address}&limit=${limit}&offset=${offset}`;
+        const url = `${HIRO_ORDINALS_API_URL}/inscriptions?address=${address}&limit=${limit}&offset=${offset}`;
         const response = await fetch(url);
 
         if (!response.ok) {
@@ -224,12 +216,6 @@ export class OrdinalIndexer {
     return classified.ordinal;
   }
 
-  /**
-   * Get the network this indexer is configured for
-   */
-  getNetwork(): Network {
-    return this.network;
-  }
 }
 
 /**
