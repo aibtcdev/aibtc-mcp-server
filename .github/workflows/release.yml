@@ -111,6 +111,9 @@ jobs:
           VERSION="${GITHUB_REF#refs/tags/v}"
           PREV_TAG="${{ steps.prev_tag.outputs.PREV_TAG }}"
 
+          # Authenticate with ClawHub (--token is on login, not publish)
+          npx clawhub login --token "$CLAWHUB_API_TOKEN" --no-browser
+
           # Generate changelog for ClawHub
           if [ -n "$PREV_TAG" ]; then
             CHANGELOG=$(git log --pretty=format:"- %s" ${PREV_TAG}..HEAD | head -20)
@@ -123,7 +126,6 @@ jobs:
             --name "AIBTC Bitcoin Wallet" \
             --version "$VERSION" \
             --changelog "$CHANGELOG" \
-            --tags latest \
-            --token "$CLAWHUB_API_TOKEN"
+            --tags latest
         env:
           CLAWHUB_API_TOKEN: ${{ secrets.CLAWHUB_API_TOKEN }}
