@@ -1416,4 +1416,198 @@ export function registerPillarDirectTools(server: McpServer): void {
       }
     }
   );
+
+  // ==========================================================================
+  // Stacking Tools
+  //
+  // Stack STX via Fast Pool or Stacking DAO through the smart wallet.
+  // Backend: POST /api/pillar/stack-stx
+  // Contract: stack-stx-fast-pool / stake-stx-stacking-dao
+  // ==========================================================================
+
+  // --- pillar_direct_stack_stx ---
+  server.registerTool(
+    "pillar_direct_stack_stx",
+    {
+      description:
+        "Stack STX from your Pillar smart wallet via Fast Pool or Stacking DAO. " +
+        "Agent-signed, no browser needed. Backend sponsors gas. " +
+        "Fast Pool delegates STX to the pox4-fast-pool-v3 contract. " +
+        "Stacking DAO deposits STX into Stacking DAO core for stSTX yield. " +
+        "Your wallet must be enrolled in dual stacking first (automatic for v2 wallets with sBTC).",
+      inputSchema: {
+        stxAmount: z
+          .number()
+          .positive()
+          .describe("Amount of STX to stack in micro-STX (1 STX = 1,000,000 micro-STX)"),
+        pool: z
+          .enum(["fast-pool", "stacking-dao"])
+          .describe(
+            "Stacking pool to use: 'fast-pool' (delegates to pox4-fast-pool-v3) " +
+            "or 'stacking-dao' (deposits into Stacking DAO for stSTX)"
+          ),
+      },
+    },
+    async ({ stxAmount, pool }) => {
+      try {
+        const { keyService, session } = await requireActiveKey();
+        const authId = generateAuthId();
+
+        // Build SIP-018 structured data matching the contract's hash builder.
+        // Fast Pool uses topic "stack-stx-fast-pool" with {auth-id, amount-ustx}
+        // Stacking DAO uses topic "stake-stx-stacking-dao" with {auth-id, stx-amount}
+        const structuredData =
+          pool === "fast-pool"
+            ? tupleCV({
+                topic: stringAsciiCV("stack-stx-fast-pool"),
+                "auth-id": uintCV(authId),
+                "amount-ustx": uintCV(stxAmount),
+              })
+            : tupleCV({
+                topic: stringAsciiCV("stake-stx-stacking-dao"),
+                "auth-id": uintCV(authId),
+                "stx-amount": uintCV(stxAmount),
+              });
+
+        const sigAuth = keyService.sign(structuredData, authId);
+        const api = getPillarApi();
+        const result = await api.post<{
+          success: boolean;
+          data: { txId: string; walletAddress: string; stxAmount: number; pool: string };
+        }>("/api/pillar/stack-stx", {
+          walletAddress: session.smartWallet,
+          stxAmount,
+          pool,
+          sigAuth: formatSigAuthForApi(sigAuth),
+        });
+
+        const stxFormatted = (stxAmount / 1_000_000).toFixed(6);
+        const poolLabel = pool === "fast-pool" ? "Fast Pool" : "Stacking DAO";
+
+        return createJsonResponse({
+          success: true,
+          operation: pool === "fast-pool" ? "stack-stx-fast-pool" : "stake-stx-stacking-dao",
+          txId: result.data.txId,
+          explorerUrl: explorerTxUrl(result.data.txId),
+          walletAddress: session.smartWallet,
+          stxAmount,
+          stxFormatted: `${stxFormatted} STX`,
+          pool: poolLabel,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --- pillar_direct_stacking_status ---
+  // Read-only — fetches STX balance (locked vs liquid), PoX cycle info,
+  // and enrollment status from on-chain data.
+  server.registerTool(
+    "pillar_direct_stacking_status",
+    {
+      description:
+        "Check stacking status for your Pillar smart wallet. " +
+        "No signing needed — reads on-chain data. " +
+        "Shows STX balance (locked vs liquid), current PoX cycle info, " +
+        "and dual stacking enrollment status.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const { session } = await requireActiveKey();
+        const hiro = getHiroApi(NETWORK);
+
+        // Fetch STX balance (includes locked amount from stacking)
+        const stxBalance = await hiro.getStxBalance(session.smartWallet);
+
+        const balanceMicro = BigInt(stxBalance.balance || "0");
+        const lockedMicro = BigInt(stxBalance.locked || "0");
+        const liquidMicro = balanceMicro - lockedMicro;
+
+        const formatStx = (micro: bigint) => {
+          const whole = micro / BigInt(1_000_000);
+          const frac = (micro % BigInt(1_000_000)).toString().padStart(6, "0");
+          return `${whole}.${frac} STX`;
+        };
+
+        // Fetch PoX cycle info
+        let poxInfo: {
+          currentCycleId: number;
+          nextCycleId: number;
+          blocksUntilNextCycle: number;
+          minAmountUstx: number;
+          isPoxActive: boolean;
+        } | null = null;
+
+        try {
+          const pox = await hiro.getPoxInfo();
+          poxInfo = {
+            currentCycleId: pox.current_cycle.id,
+            nextCycleId: pox.next_cycle.id,
+            blocksUntilNextCycle: pox.next_cycle.blocks_until_reward_phase,
+            minAmountUstx: pox.min_amount_ustx,
+            isPoxActive: pox.current_cycle.is_pox_active,
+          };
+        } catch {
+          // PoX info fetch failed, continue without it
+        }
+
+        // Check enrollment status via backend
+        const api = getPillarApi();
+        const contractParts = session.smartWallet.split(".");
+        const walletName = contractParts[1] || session.smartWallet;
+
+        let enrollmentStatus: {
+          enrolled: boolean;
+          dualStackingTxId: string | null;
+        } = { enrolled: false, dualStackingTxId: null };
+
+        try {
+          const walletInfo = await api.get<{
+            success: boolean;
+            data: {
+              status: string;
+              dualStackingTxId?: string | null;
+            } | null;
+          }>(`/api/smart-wallet/${walletName}`);
+
+          if (walletInfo.data) {
+            enrollmentStatus = {
+              enrolled: !!walletInfo.data.dualStackingTxId,
+              dualStackingTxId: walletInfo.data.dualStackingTxId || null,
+            };
+          }
+        } catch {
+          // Backend lookup failed, continue without enrollment info
+        }
+
+        const isStacking = lockedMicro > BigInt(0);
+
+        return createJsonResponse({
+          success: true,
+          walletAddress: session.smartWallet,
+          stxBalance: {
+            total: formatStx(balanceMicro),
+            totalMicroStx: stxBalance.balance,
+            locked: formatStx(lockedMicro),
+            lockedMicroStx: stxBalance.locked,
+            liquid: formatStx(liquidMicro),
+            lockHeight: stxBalance.lock_height || 0,
+            burnchainUnlockHeight: stxBalance.burnchain_unlock_height || 0,
+          },
+          isStacking,
+          enrollment: enrollmentStatus,
+          poxCycle: poxInfo,
+          message: isStacking
+            ? `Stacking ${formatStx(lockedMicro)} (${formatStx(liquidMicro)} liquid). ` +
+              `${enrollmentStatus.enrolled ? "Dual stacking enrolled." : "Not enrolled in dual stacking."}`
+            : `Not currently stacking. ${formatStx(balanceMicro)} STX available. ` +
+              `${enrollmentStatus.enrolled ? "Dual stacking enrolled." : "Not enrolled in dual stacking."}`,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
 }
