@@ -257,3 +257,92 @@ Issued At: 2025-01-06T12:00:00.000Z`;
     });
   });
 });
+
+/**
+ * Fixture-based tests for hash functions
+ *
+ * These tests lock in expected hash values to prevent regressions when
+ * changing hash implementations (e.g., @noble/hashes → @stacks/encryption).
+ */
+describe("Hash Function Fixtures", () => {
+  // Import hashSha256Sync which replaced @noble/hashes/sha256
+  const { hashSha256Sync } = require("@stacks/encryption");
+  const { bytesToHex, hexToBytes } = require("@stacks/common");
+
+  describe("SHA-256 (hashSha256Sync)", () => {
+    it("should produce correct hash for empty input", () => {
+      const input = new Uint8Array(0);
+      const hash = hashSha256Sync(input);
+      const expected =
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+      expect(bytesToHex(hash)).toBe(expected);
+    });
+
+    it("should produce correct hash for 'hello'", () => {
+      const input = new TextEncoder().encode("hello");
+      const hash = hashSha256Sync(input);
+      const expected =
+        "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
+      expect(bytesToHex(hash)).toBe(expected);
+    });
+
+    it("should produce correct hash for known hex input", () => {
+      // SHA256 of 0x0102030405
+      const input = hexToBytes("0102030405");
+      const hash = hashSha256Sync(input);
+      const expected =
+        "74f81fe167d99b4cb41d6d0ccda82278caee9f3e2f25d5e5a3936ff3dcec60d0";
+      expect(bytesToHex(hash)).toBe(expected);
+    });
+  });
+
+  describe("Double SHA-256 (Bitcoin standard)", () => {
+    // doubleSha256 implementation using hashSha256Sync
+    function doubleSha256(data: Uint8Array): Uint8Array {
+      return hashSha256Sync(hashSha256Sync(data));
+    }
+
+    it("should produce correct double hash for empty input", () => {
+      const input = new Uint8Array(0);
+      const hash = doubleSha256(input);
+      // SHA256(SHA256("")) = SHA256(e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855)
+      const expected =
+        "5df6e0e2761359d30a8275058e299fcc0381534545f55cf43e41983f5d4c9456";
+      expect(bytesToHex(hash)).toBe(expected);
+    });
+
+    it("should produce correct double hash for 'hello'", () => {
+      const input = new TextEncoder().encode("hello");
+      const hash = doubleSha256(input);
+      const expected =
+        "9595c9df90075148eb06860365df33584b75bff782a510c6cd4883a419833d50";
+      expect(bytesToHex(hash)).toBe(expected);
+    });
+  });
+
+  describe("Stacks message hash (SIWS prefix)", () => {
+    it("should produce consistent hash for known message", () => {
+      const message = "Hello, Stacks!";
+      const hash = hashMessage(message);
+
+      // This fixture ensures hashMessage (which uses the SIWS prefix) is stable
+      // Format: SHA256("\x17Stacks Signed Message:\n" + message)
+      expect(hash.length).toBe(32);
+
+      // Lock in the expected hash for "Hello, Stacks!"
+      // SHA256("\x17Stacks Signed Message:\n" + "Hello, Stacks!")
+      const expected =
+        "040e43757933d6df896cc8956d70699e6163af7b75bfdb6ae8c098023abc0e97";
+      expect(bytesToHex(hash)).toBe(expected);
+    });
+
+    it("should produce consistent hash for empty message", () => {
+      const message = "";
+      const hash = hashMessage(message);
+      // SHA256("\x17Stacks Signed Message:\n" + "")
+      const expected =
+        "89da565bd5b575c8d3b4370ce0b5965eb43e51d4434680cfe72c9420f8e790b4";
+      expect(bytesToHex(hash)).toBe(expected);
+    });
+  });
+});
