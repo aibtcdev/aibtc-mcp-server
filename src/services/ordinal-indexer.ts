@@ -96,29 +96,34 @@ const HIRO_ORDINALS_API_URL = "https://api.hiro.so/ordinals/v1";
 
 /**
  * Ordinal Indexer Service
+ *
+ * Note: Hiro Ordinals API only supports mainnet. On testnet, all UTXOs are
+ * treated as cardinal (safe to spend) since we cannot index inscriptions.
  */
 export class OrdinalIndexer {
   private readonly network: Network;
   private readonly mempoolApi: MempoolApi;
+  private readonly isMainnet: boolean;
 
   constructor(network: Network) {
-    if (network !== "mainnet") {
-      throw new Error(
-        "Hiro Ordinals API only supports mainnet. Testnet inscriptions are not indexed."
-      );
-    }
     this.network = network;
     this.mempoolApi = new MempoolApi(network);
+    this.isMainnet = network === "mainnet";
   }
 
   /**
    * Get all inscriptions for a Bitcoin address
    *
    * @param address - Bitcoin address (bc1... for mainnet)
-   * @returns Array of inscriptions with their output references
-   * @throws Error if API request fails or network is not mainnet
+   * @returns Array of inscriptions with their output references (empty on testnet)
+   * @throws Error if API request fails
    */
   async getInscriptionsForAddress(address: string): Promise<Inscription[]> {
+    // Testnet: return empty (Hiro API doesn't index testnet inscriptions)
+    if (!this.isMainnet) {
+      return [];
+    }
+
     const allInscriptions: Inscription[] = [];
     let offset = 0;
     const limit = 60; // Hiro API default/max per page

@@ -305,6 +305,7 @@ export function registerBitcoinTools(server: McpServer): void {
 
         // Fetch UTXOs - use cardinal UTXOs by default for safety
         let utxos: UTXO[];
+        let testnetWarning = "";
 
         if (includeOrdinals) {
           // Power user mode: use all UTXOs
@@ -314,6 +315,8 @@ export function registerBitcoinTools(server: McpServer): void {
           // On testnet, Hiro API is not available, so fall back to all UTXOs
           if (NETWORK === "testnet") {
             utxos = await api.getUtxos(account.btcAddress);
+            testnetWarning =
+              " Note: Ordinal protection is not available on testnet. All UTXOs were used.";
           } else {
             const indexer = new OrdinalIndexer(NETWORK);
             utxos = await indexer.getCardinalUtxos(account.btcAddress);
@@ -366,7 +369,7 @@ export function registerBitcoinTools(server: McpServer): void {
         // Broadcast the transaction
         const txid = await api.broadcastTransaction(txResult.txHex);
 
-        return createJsonResponse({
+        const response: Record<string, unknown> = {
           success: true,
           txid,
           explorerUrl: getMempoolTxUrl(txid, NETWORK),
@@ -390,7 +393,13 @@ export function registerBitcoinTools(server: McpServer): void {
           },
           sender: account.btcAddress,
           network: NETWORK,
-        });
+        };
+
+        if (testnetWarning) {
+          response.warning = testnetWarning.trim();
+        }
+
+        return createJsonResponse(response);
       } catch (error) {
         return createErrorResponse(error);
       }
@@ -430,14 +439,21 @@ export function registerBitcoinTools(server: McpServer): void {
           utxos = utxos.filter((u) => u.status.confirmed);
         }
 
-        return createJsonResponse({
+        const response: Record<string, unknown> = {
           address: btcAddress,
           network: NETWORK,
           type: "cardinal",
           utxos: utxos.map(formatUtxo),
           summary: summarizeUtxos(utxos),
           explorerUrl: getMempoolAddressUrl(btcAddress, NETWORK),
-        });
+        };
+
+        if (NETWORK === "testnet") {
+          response.warning =
+            "Ordinal indexing not available on testnet. All UTXOs shown as cardinal.";
+        }
+
+        return createJsonResponse(response);
       } catch (error) {
         return createErrorResponse(error);
       }
@@ -477,14 +493,21 @@ export function registerBitcoinTools(server: McpServer): void {
           utxos = utxos.filter((u) => u.status.confirmed);
         }
 
-        return createJsonResponse({
+        const response: Record<string, unknown> = {
           address: btcAddress,
           network: NETWORK,
           type: "ordinal",
           utxos: utxos.map(formatUtxo),
           summary: summarizeUtxos(utxos),
           explorerUrl: getMempoolAddressUrl(btcAddress, NETWORK),
-        });
+        };
+
+        if (NETWORK === "testnet") {
+          response.warning =
+            "Ordinal indexing not available on testnet. No inscriptions can be detected.";
+        }
+
+        return createJsonResponse(response);
       } catch (error) {
         return createErrorResponse(error);
       }

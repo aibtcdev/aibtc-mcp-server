@@ -32,10 +32,6 @@ export interface InscriptionData {
    * Content body as Uint8Array
    */
   body: Uint8Array;
-  /**
-   * Optional Brotli compression (default: true)
-   */
-  compress?: boolean;
 }
 
 /**
@@ -232,9 +228,11 @@ export function buildCommitTransaction(
 
   // Estimate reveal transaction size to determine commit amount
   // Reveal tx: 1 input (Taproot with inscription witness) + 1 output (recipient)
-  // The witness includes the inscription data, so it's larger than typical
+  // The witness includes the inscription data plus script & control-block overhead
   const revealInputSize = P2TR_INPUT_BASE_VBYTES; // Taproot input base size (vbytes)
-  const revealWitnessSize = Math.ceil(inscription.body.length / 4); // Witness data at 1/4 weight
+  const WITNESS_OVERHEAD_VBYTES = 80; // Control block + script + protocol framing
+  const revealWitnessSize =
+    Math.ceil((inscription.body.length / 4) * 1.25) + WITNESS_OVERHEAD_VBYTES;
   const revealTxSize = TX_OVERHEAD_VBYTES + revealInputSize + revealWitnessSize + P2TR_OUTPUT_VBYTES;
   const revealFee = Math.ceil(revealTxSize * feeRate);
 
@@ -406,21 +404,16 @@ export function buildRevealTransaction(
 
   // Add input spending from commit transaction
   // For Taproot script path spending, we need to provide the witness data
-  const inputOpts: any = {
+  tx.addInput({
     txid: commitTxid,
     index: commitVout,
     witnessUtxo: {
       script: revealScript.script,
       amount: BigInt(commitAmount),
     },
-  };
-
-  // Add taproot script path info if available
-  if (revealScript.tapLeafScript) {
-    Object.assign(inputOpts, revealScript.tapLeafScript);
-  }
-
-  tx.addInput(inputOpts);
+    // Include taproot script path info for script-path spending
+    ...revealScript.tapLeafScript,
+  });
 
   // Add output to recipient (Taproot address)
   tx.addOutputAddress(recipientAddress, BigInt(outputAmount), btcNetwork);

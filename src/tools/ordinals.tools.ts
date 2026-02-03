@@ -3,7 +3,8 @@
  *
  * These tools provide Bitcoin ordinals operations:
  * - get_inscription: Fetch and parse inscription content from a reveal transaction
- * - inscribe: Create a new inscription using commit/reveal pattern
+ * - inscribe: Create a new inscription (broadcasts commit tx, returns immediately)
+ * - inscribe_reveal: Complete inscription by broadcasting reveal tx after commit confirms
  * - estimate_inscription_fee: Calculate total cost for an inscription
  * - get_taproot_address: Get wallet's Taproot address for receiving inscriptions
  *
@@ -117,13 +118,9 @@ export function registerOrdinalsTools(server: McpServer): void {
           .positive()
           .optional()
           .describe("Fee rate in sat/vB (optional, defaults to current medium fee)"),
-        compress: z
-          .boolean()
-          .optional()
-          .describe("Use Brotli compression (default: true)"),
       },
     },
-    async ({ contentType, contentBase64, feeRate, compress }) => {
+    async ({ contentType, contentBase64, feeRate }) => {
       try {
         // Decode base64 content
         const body = Buffer.from(contentBase64, "base64");
@@ -146,7 +143,10 @@ export function registerOrdinalsTools(server: McpServer): void {
         const commitFee = Math.ceil(commitSize * actualFeeRate);
 
         // Reveal tx size (1 input with inscription witness + 1 output)
-        const revealWitnessSize = Math.ceil(body.length / 4); // Witness at 1/4 weight
+        // Include overhead for control block, script, and protocol framing
+        const WITNESS_OVERHEAD_VBYTES = 80;
+        const revealWitnessSize =
+          Math.ceil((body.length / 4) * 1.25) + WITNESS_OVERHEAD_VBYTES;
         const revealSize =
           TX_OVERHEAD_VBYTES +
           P2TR_INPUT_BASE_VBYTES +
@@ -163,7 +163,6 @@ export function registerOrdinalsTools(server: McpServer): void {
         return createJsonResponse({
           contentType,
           contentSize: body.length,
-          compressed: compress !== false,
           feeRate: actualFeeRate,
           fees: {
             commitFee,
@@ -180,21 +179,16 @@ export function registerOrdinalsTools(server: McpServer): void {
     }
   );
 
-  // Create inscription (commit/reveal pattern)
+  // Create inscription - Step 1: Commit (non-blocking)
   server.registerTool(
     "inscribe",
     {
       description:
-        "Create a Bitcoin inscription using the commit/reveal pattern. " +
-        "This is a TWO-STEP process:\n" +
-        "1. Commit transaction: Locks funds to a Taproot address\n" +
-        "2. Reveal transaction: Spends from commit and inscribes data on-chain\n\n" +
-        "The tool handles both steps automatically:\n" +
-        "- Builds and broadcasts commit tx\n" +
-        "- Waits for commit confirmation (~10 min)\n" +
-        "- Builds and broadcasts reveal tx\n" +
-        "- Returns inscription ID (reveal txid:0)\n\n" +
-        "Content should be base64-encoded. Brotli compression is enabled by default to save fees.",
+        "Create a Bitcoin inscription - STEP 1: Broadcast commit transaction.\n\n" +
+        "This tool broadcasts the commit tx and returns immediately. It does NOT wait for confirmation.\n\n" +
+        "After the commit confirms (typically 10-60 min), use `inscribe_reveal` with the same " +
+        "contentType and contentBase64 to complete the inscription.\n\n" +
+        "Returns: commitTxid, revealAddress, revealAmount, and feeRate (save these for inscribe_reveal)",
       inputSchema: {
         contentType: z
           .string()
@@ -206,13 +200,9 @@ export function registerOrdinalsTools(server: McpServer): void {
           .union([z.enum(["fast", "medium", "slow"]), z.number().positive()])
           .optional()
           .describe("Fee rate: 'fast' (~10 min), 'medium' (~30 min), 'slow' (~1 hr), or number in sat/vB (default: medium)"),
-        compress: z
-          .boolean()
-          .optional()
-          .describe("Use Brotli compression to reduce size and fees (default: true)"),
       },
     },
-    async ({ contentType, contentBase64, feeRate, compress }) => {
+    async ({ contentType, contentBase64, feeRate }) => {
       try {
         // Check wallet session
         const walletManager = getWalletManager();
@@ -243,7 +233,6 @@ export function registerOrdinalsTools(server: McpServer): void {
         const inscription: InscriptionData = {
           contentType,
           body,
-          compress: compress !== false,
         };
 
         // Get fee rate
@@ -276,7 +265,7 @@ export function registerOrdinalsTools(server: McpServer): void {
           );
         }
 
-        // STEP 1: Build and broadcast commit transaction
+        // Build and broadcast commit transaction
         const commitResult = buildCommitTransaction({
           utxos,
           inscription,
@@ -288,52 +277,140 @@ export function registerOrdinalsTools(server: McpServer): void {
 
         const commitSigned = signBtcTransaction(commitResult.tx, account.btcPrivateKey);
         const commitTxid = await mempoolApi.broadcastTransaction(commitSigned.txHex);
-
-        // STEP 2: Wait for commit confirmation
         const commitExplorerUrl = getMempoolTxUrl(commitTxid, NETWORK);
 
-        // Poll for confirmation (max 30 minutes)
-        const maxPollTime = 30 * 60 * 1000; // 30 minutes
-        const pollInterval = 10 * 1000; // 10 seconds
-        const startTime = Date.now();
-        let commitConfirmed = false;
+        // Return immediately with commit info
+        return createJsonResponse({
+          status: "commit_broadcast",
+          message:
+            "Commit transaction broadcast successfully. " +
+            "Wait for confirmation (typically 10-60 min), then call inscribe_reveal to complete.",
+          commitTxid,
+          commitExplorerUrl,
+          revealAddress: commitResult.revealAddress,
+          revealAmount: commitResult.revealAmount,
+          commitFee: commitResult.fee,
+          feeRate: actualFeeRate,
+          contentType,
+          contentSize: body.length,
+          nextStep:
+            "After commit confirms, call inscribe_reveal with the same contentType, contentBase64, " +
+            "plus commitTxid and revealAmount from this response.",
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
 
-        while (Date.now() - startTime < maxPollTime) {
-          await new Promise((resolve) => setTimeout(resolve, pollInterval));
+  // Complete inscription - Step 2: Reveal (after commit confirms)
+  server.registerTool(
+    "inscribe_reveal",
+    {
+      description:
+        "Complete a Bitcoin inscription - STEP 2: Broadcast reveal transaction.\n\n" +
+        "Call this AFTER the commit transaction from `inscribe` has confirmed.\n" +
+        "You must provide the same contentType and contentBase64 used in the commit step.\n\n" +
+        "Returns: inscriptionId (revealTxid:0) on success",
+      inputSchema: {
+        commitTxid: z
+          .string()
+          .length(64)
+          .describe("Transaction ID of the confirmed commit transaction"),
+        revealAmount: z
+          .number()
+          .positive()
+          .describe("Amount in the commit output (from inscribe response)"),
+        contentType: z
+          .string()
+          .describe("MIME type (must match the commit step)"),
+        contentBase64: z
+          .string()
+          .describe("Content as base64-encoded string (must match the commit step)"),
+        feeRate: z
+          .union([z.enum(["fast", "medium", "slow"]), z.number().positive()])
+          .optional()
+          .describe("Fee rate for reveal tx (default: medium)"),
+      },
+    },
+    async ({ commitTxid, revealAmount, contentType, contentBase64, feeRate }) => {
+      try {
+        // Check wallet session
+        const walletManager = getWalletManager();
+        const sessionInfo = walletManager.getSessionInfo();
 
-          try {
-            const commitUtxos = await mempoolApi.getUtxos(commitResult.revealAddress);
-            const commitUtxo = commitUtxos.find(
-              (u) => u.txid === commitTxid && u.vout === 0
-            );
+        if (!sessionInfo) {
+          return createErrorResponse(
+            new Error("Wallet not unlocked. Use wallet_unlock first.")
+          );
+        }
 
-            if (commitUtxo?.status.confirmed) {
-              commitConfirmed = true;
+        if (!sessionInfo.taprootAddress) {
+          return createErrorResponse(
+            new Error("Wallet doesn't have Taproot address. Use a managed wallet.")
+          );
+        }
+
+        // Get account with keys
+        const account = walletManager.getAccount();
+        if (!account || !account.btcPrivateKey || !account.btcPublicKey) {
+          return createErrorResponse(
+            new Error("Bitcoin keys not available. Wallet may not be unlocked.")
+          );
+        }
+
+        // Verify commit is confirmed
+        const mempoolApi = new MempoolApi(NETWORK);
+
+        // Reconstruct the inscription and reveal script
+        const body = Buffer.from(contentBase64, "base64");
+        const inscription: InscriptionData = {
+          contentType,
+          body,
+        };
+
+        // We need to rebuild the commit to get the reveal script
+        // Use a dummy UTXO list since we only need the reveal script derivation
+        const dummyUtxos = [{
+          txid: commitTxid,
+          vout: 0,
+          value: revealAmount,
+          status: { confirmed: true, block_height: 0, block_hash: "", block_time: 0 },
+        }];
+
+        // Get fee rate
+        let actualFeeRate: number;
+        if (typeof feeRate === "string") {
+          const fees = await mempoolApi.getFeeEstimates();
+          switch (feeRate) {
+            case "fast":
+              actualFeeRate = fees.fastestFee;
               break;
-            }
-          } catch {
-            // Continue polling
+            case "slow":
+              actualFeeRate = fees.hourFee;
+              break;
+            default:
+              actualFeeRate = fees.halfHourFee;
           }
+        } else {
+          actualFeeRate = feeRate || (await mempoolApi.getFeeEstimates()).halfHourFee;
         }
 
-        if (!commitConfirmed) {
-          return createJsonResponse({
-            status: "commit_pending",
-            message:
-              "Commit transaction broadcast but not confirmed yet. " +
-              "The reveal transaction will need to be broadcast manually once confirmed.",
-            commitTxid,
-            commitExplorerUrl,
-            revealAddress: commitResult.revealAddress,
-            note: "Check the explorer URL and wait for confirmation, then use a separate tool to broadcast the reveal transaction.",
-          });
-        }
+        // Rebuild commit to get reveal script (we need the same script derivation)
+        const commitResult = buildCommitTransaction({
+          utxos: dummyUtxos,
+          inscription,
+          feeRate: actualFeeRate,
+          senderPubKey: account.btcPublicKey,
+          senderAddress: sessionInfo.btcAddress || "",
+          network: NETWORK,
+        });
 
-        // STEP 3: Build and broadcast reveal transaction
+        // Build reveal transaction
         const revealResult = buildRevealTransaction({
           commitTxid,
           commitVout: 0,
-          commitAmount: commitResult.revealAmount,
+          commitAmount: revealAmount,
           revealScript: commitResult.revealScript,
           recipientAddress: sessionInfo.taprootAddress,
           feeRate: actualFeeRate,
@@ -346,6 +423,7 @@ export function registerOrdinalsTools(server: McpServer): void {
         // Inscription ID is reveal txid + output index (always 0 for first inscription)
         const inscriptionId = `${revealTxid}i0`;
         const revealExplorerUrl = getMempoolTxUrl(revealTxid, NETWORK);
+        const commitExplorerUrl = getMempoolTxUrl(commitTxid, NETWORK);
 
         return createJsonResponse({
           status: "success",
@@ -353,10 +431,8 @@ export function registerOrdinalsTools(server: McpServer): void {
           inscriptionId,
           contentType,
           contentSize: body.length,
-          compressed: compress !== false,
           commit: {
             txid: commitTxid,
-            fee: commitResult.fee,
             explorerUrl: commitExplorerUrl,
           },
           reveal: {
@@ -364,7 +440,6 @@ export function registerOrdinalsTools(server: McpServer): void {
             fee: revealResult.fee,
             explorerUrl: revealExplorerUrl,
           },
-          totalCost: commitResult.fee + commitResult.revealAmount,
           recipientAddress: sessionInfo.taprootAddress,
           note: "Inscription will appear at the recipient address once the reveal transaction confirms.",
         });
