@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.13.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.13.0...v1.13.1) (2026-02-03)
+
+
+### Bug Fixes
+
+* replace @noble/hashes import with @stacks/encryption ([#62](https://github.com/aibtcdev/aibtc-mcp-server/issues/62)) ([dc6a7a4](https://github.com/aibtcdev/aibtc-mcp-server/commit/dc6a7a4e2b31976f7e8178fa8e484e28484665fd))
+
 ## [1.13.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.12.0...v1.13.0) (2026-02-03)
 
 
