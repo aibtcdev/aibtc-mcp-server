@@ -44,9 +44,8 @@ import {
   falseCV,
   type ClarityValue,
 } from "@stacks/transactions";
-import { hashMessage, verifyMessageSignatureRsv } from "@stacks/encryption";
+import { hashMessage, verifyMessageSignatureRsv, hashSha256Sync } from "@stacks/encryption";
 import { bytesToHex } from "@stacks/common";
-import { sha256 } from "@noble/hashes/sha256";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { hex } from "@scure/base";
 import { NETWORK } from "../config/networks.js";
@@ -146,7 +145,7 @@ function formatBitcoinMessage(message: string): Uint8Array {
  * Double SHA-256 hash (Bitcoin standard)
  */
 function doubleSha256(data: Uint8Array): Uint8Array {
-  return sha256(sha256(data));
+  return hashSha256Sync(hashSha256Sync(data));
 }
 
 /**
@@ -405,7 +404,7 @@ export function registerSigningTools(server: McpServer): void {
           domain: domainCV,
         });
         const encodedHex = bytesToHex(encodedBytes);
-        const verificationHash = bytesToHex(sha256(encodedBytes));
+        const verificationHash = bytesToHex(hashSha256Sync(encodedBytes));
 
         return createJsonResponse({
           success: true,
@@ -551,7 +550,7 @@ export function registerSigningTools(server: McpServer): void {
           domain: domainCV,
         });
         const encodedHex = bytesToHex(encodedBytes);
-        const verificationHash = bytesToHex(sha256(encodedBytes));
+        const verificationHash = bytesToHex(hashSha256Sync(encodedBytes));
 
         return createJsonResponse({
           success: true,
