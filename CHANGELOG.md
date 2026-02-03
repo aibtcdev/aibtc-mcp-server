@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.13.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.12.0...v1.13.0) (2026-02-03)
+
+
+### Features
+
+* add micro-ordinals support with ordinal-aware UTXO management ([#58](https://github.com/aibtcdev/aibtc-mcp-server/issues/58)) ([d2e274a](https://github.com/aibtcdev/aibtc-mcp-server/commit/d2e274a270291b34727cea61511326cedad921fb))
+
+
+### Bug Fixes
+
+* **ci:** integrate publish workflow into release-please ([#60](https://github.com/aibtcdev/aibtc-mcp-server/issues/60)) ([abdc2fd](https://github.com/aibtcdev/aibtc-mcp-server/commit/abdc2fdd36c410ea0f6c1a1cd0570d797484b36e))
+
 ## [1.12.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.11.0...v1.12.0) (2026-02-02)
 
 
