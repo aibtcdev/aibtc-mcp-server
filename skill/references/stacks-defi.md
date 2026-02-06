@@ -20,6 +20,78 @@ Check STX balance:
 
 Uses `get_stx_balance`.
 
+## sBTC Bridge
+
+sBTC is Bitcoin wrapped on Stacks L2. You can deposit BTC to receive sBTC, or withdraw sBTC back to BTC.
+
+### Deposit BTC to Get sBTC
+
+Deposit Bitcoin L1 to receive sBTC on Stacks L2:
+
+```
+"Deposit 0.001 BTC to get sBTC"
+"Deposit 100000 sats with fast fees"
+```
+
+Uses `sbtc_deposit` - builds a Bitcoin Taproot deposit transaction:
+- Amount in satoshis (1 BTC = 100,000,000 satoshis)
+- Fee rate: "fast", "medium", "slow", or custom sat/vB
+- Max signer fee: Maximum fee sBTC signers can charge (default: 80,000 sats)
+- Reclaim lock time: Bitcoin blocks until reclaim available (default: 950 blocks ≈ 6.6 days)
+
+### Check Deposit Status
+
+Track your deposit progress:
+
+```
+"Check my deposit status for txid abc123"
+```
+
+Uses `sbtc_deposit_status` - queries Emily API for deposit processing status.
+
+### Get Deposit Address
+
+Get instructions for manual deposits (advanced):
+
+```
+"How do I deposit BTC for sBTC?"
+"Show me my sBTC deposit address"
+```
+
+Uses `sbtc_get_deposit_info` - returns deposit address when wallet is unlocked.
+
+### Transfer sBTC
+
+Send sBTC to any Stacks address:
+
+```
+"Send 0.001 sBTC to ST1..."
+"Transfer 100000 sats of sBTC with high fee"
+```
+
+Uses `sbtc_transfer` - 8 decimals, amount in satoshis.
+
+### Check Balance
+
+View sBTC holdings:
+
+```
+"What's my sBTC balance?"
+```
+
+Uses `sbtc_get_balance`.
+
+### sBTC Tool Reference
+
+| Tool | Description |
+|------|-------------|
+| `sbtc_deposit` | Deposit BTC to receive sBTC |
+| `sbtc_deposit_status` | Check deposit status |
+| `sbtc_get_deposit_info` | Get deposit address/instructions |
+| `sbtc_get_balance` | Check sBTC balance |
+| `sbtc_transfer` | Send sBTC to address |
+| `sbtc_get_peg_info` | Get peg ratio and supply |
+
 ## ALEX DEX (Mainnet Only)
 
 Decentralized exchange for token swaps on Stacks.
