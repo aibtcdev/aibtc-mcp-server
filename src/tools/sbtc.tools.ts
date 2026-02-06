@@ -2,8 +2,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getAccount, getWalletAddress, NETWORK } from "../services/x402.service.js";
 import { getSbtcService } from "../services/sbtc.service.js";
+import { getSbtcDepositService } from "../services/sbtc-deposit.service.js";
 import { getExplorerTxUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse, resolveFee } from "../utils/index.js";
+import { getWalletManager } from "../services/wallet-manager.js";
+import { getMempoolTxUrl } from "../services/mempool-api.js";
 
 export function registerSbtcTools(server: McpServer): void {
   // Get sBTC balance
@@ -89,6 +92,45 @@ Example: To send 0.001 sBTC, use amount "100000" (satoshis).`,
     },
     async () => {
       try {
+        // Try to get wallet account (don't throw if not unlocked)
+        const walletManager = getWalletManager();
+        let account;
+        try {
+          account = walletManager.getActiveAccount();
+        } catch {
+          // Wallet not unlocked - return generic instructions
+          account = null;
+        }
+
+        // If wallet is unlocked and has Taproot keys, generate real deposit address
+        if (account?.taprootPublicKey) {
+          const depositService = getSbtcDepositService(NETWORK);
+          const reclaimPublicKey = Buffer.from(account.taprootPublicKey).toString("hex");
+
+          const depositAddressInfo = await depositService.buildDepositAddress(
+            account.address,
+            reclaimPublicKey,
+            80000, // Default max signer fee
+            950 // Default reclaim lock time (blocks)
+          );
+
+          return createJsonResponse({
+            network: NETWORK,
+            depositAddress: depositAddressInfo.depositAddress,
+            maxSignerFee: `${depositAddressInfo.maxFee} satoshis`,
+            reclaimLockTime: `${depositAddressInfo.lockTime} blocks`,
+            stacksAddress: account.address,
+            instructions: [
+              "1. Send BTC to the deposit address above",
+              "2. Wait for Bitcoin block confirmations",
+              "3. sBTC tokens will be minted to your Stacks address",
+              "4. If the deposit fails, you can reclaim your BTC after the lock time expires",
+              "Alternatively, use the sbtc_deposit tool to build and broadcast the transaction automatically."
+            ],
+          });
+        }
+
+        // Wallet not unlocked - return generic instructions
         const sbtcService = getSbtcService(NETWORK);
         const depositInfo = await sbtcService.getDepositInfo();
 
@@ -122,6 +164,192 @@ Example: To send 0.001 sBTC, use amount "100000" (satoshis).`,
           pegRatio: pegInfo.pegRatio,
         });
       } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Deposit BTC → sBTC
+  server.registerTool(
+    "sbtc_deposit",
+    {
+      description: `Deposit BTC to receive sBTC on Stacks L2.
+
+This builds, signs, and broadcasts a Bitcoin transaction to the sBTC deposit address.
+After confirmation, sBTC tokens are minted to your Stacks address.
+
+The transaction uses your wallet's Taproot address for the reclaim path.
+If the deposit fails, you can reclaim your BTC after the lock time expires.`,
+      inputSchema: {
+        amount: z
+          .number()
+          .int()
+          .positive()
+          .describe("Amount to deposit in satoshis (1 BTC = 100,000,000 satoshis)"),
+        feeRate: z
+          .union([
+            z.enum(["fast", "medium", "slow"]),
+            z.number().int().positive(),
+          ])
+          .optional()
+          .default("medium")
+          .describe(
+            "Fee rate: 'fast' (~10 min), 'medium' (~30 min), 'slow' (~1 hr), or number in sat/vB"
+          ),
+        maxSignerFee: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .default(80000)
+          .describe(
+            "Max fee the sBTC system can charge in satoshis (default: 80000 sats)"
+          ),
+        reclaimLockTime: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .default(950)
+          .describe(
+            "Block height when reclaim becomes available if deposit fails (default: 950 blocks)"
+          ),
+      },
+    },
+    async ({ amount, feeRate, maxSignerFee, reclaimLockTime }) => {
+      try {
+        // Get wallet account (requires unlocked wallet)
+        const walletManager = getWalletManager();
+        const account = walletManager.getActiveAccount();
+
+        if (!account) {
+          throw new Error(
+            "Wallet is not unlocked. Use wallet_unlock first to enable transactions."
+          );
+        }
+
+        if (!account.btcAddress || !account.taprootAddress || !account.taprootPrivateKey || !account.taprootPublicKey) {
+          throw new Error(
+            "Bitcoin or Taproot keys not available. Please unlock your wallet again."
+          );
+        }
+
+        // Resolve fee rate
+        let resolvedFeeRate: number;
+        if (typeof feeRate === "number") {
+          resolvedFeeRate = feeRate;
+        } else {
+          const { MempoolApi } = await import("../services/mempool-api.js");
+          const api = new MempoolApi(NETWORK);
+          const feeTiers = await api.getFeeTiers();
+          switch (feeRate) {
+            case "fast":
+              resolvedFeeRate = feeTiers.fast;
+              break;
+            case "slow":
+              resolvedFeeRate = feeTiers.slow;
+              break;
+            case "medium":
+            default:
+              resolvedFeeRate = feeTiers.medium;
+              break;
+          }
+        }
+
+        // Get deposit service
+        const depositService = getSbtcDepositService(NETWORK);
+
+        // Reclaim public key is the Taproot internal public key (x-only, 32 bytes)
+        // Convert Uint8Array to hex string
+        const reclaimPublicKey = Buffer.from(account.taprootPublicKey).toString("hex");
+
+        // Step 1: Build and sign the deposit transaction
+        // Passing btcPrivateKey allows the service to sign internally using
+        // the sbtc package's @scure/btc-signer (avoids version mismatch)
+        const depositResult = await depositService.buildDepositTransaction(
+          amount,
+          account.address, // Stacks address to receive sBTC
+          account.btcAddress, // Bitcoin address for UTXOs and change
+          reclaimPublicKey,
+          resolvedFeeRate,
+          maxSignerFee,
+          reclaimLockTime,
+          account.btcPrivateKey // Sign with P2WPKH key (inputs are from user's address)
+        );
+
+        // Step 2: Broadcast signed transaction and notify Emily API
+        const result = await depositService.broadcastAndNotify(
+          depositResult.txHex,
+          depositResult.depositScript,
+          depositResult.reclaimScript,
+          depositResult.vout
+        );
+
+        const btcAmount = (amount / 100_000_000).toFixed(8);
+
+        return createJsonResponse({
+          success: true,
+          txid: result.txid,
+          explorerUrl: getMempoolTxUrl(result.txid, NETWORK),
+          deposit: {
+            amount: btcAmount + " BTC",
+            amountSats: amount,
+            recipient: account.address,
+            bitcoinAddress: account.btcAddress,
+            taprootAddress: account.taprootAddress,
+            maxSignerFee: maxSignerFee + " sats",
+            reclaimLockTime: reclaimLockTime + " blocks",
+            feeRate: `${resolvedFeeRate} sat/vB`,
+          },
+          network: NETWORK,
+          note: "sBTC tokens will be minted to your Stacks address after Bitcoin transaction confirms.",
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Check sBTC deposit status
+  server.registerTool(
+    "sbtc_deposit_status",
+    {
+      description: "Check the status of an sBTC deposit transaction from Emily API.",
+      inputSchema: {
+        txid: z.string().describe("Bitcoin transaction ID of the deposit"),
+        vout: z
+          .number()
+          .int()
+          .nonnegative()
+          .optional()
+          .default(0)
+          .describe("Output index of the deposit (default: 0)"),
+      },
+    },
+    async ({ txid, vout }) => {
+      try {
+        const depositService = getSbtcDepositService(NETWORK);
+        const status = await depositService.getDepositStatus(txid, vout);
+
+        return createJsonResponse({
+          txid,
+          vout,
+          status,
+          explorerUrl: getMempoolTxUrl(txid, NETWORK),
+          network: NETWORK,
+        });
+      } catch (error) {
+        // Handle 404 (deposit not found) gracefully
+        if (error instanceof Error && error.message.includes("404")) {
+          return createJsonResponse({
+            txid,
+            vout,
+            status: "not_found",
+            message: "Deposit not found in Emily API. It may not be indexed yet, or the transaction may not be a valid sBTC deposit.",
+            explorerUrl: getMempoolTxUrl(txid, NETWORK),
+            network: NETWORK,
+          });
+        }
         return createErrorResponse(error);
       }
     }
