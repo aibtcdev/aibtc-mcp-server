@@ -262,6 +262,33 @@ export class MempoolApi {
   }
 
   /**
+   * Get raw transaction hex by txid
+   *
+   * @param txid - Transaction ID
+   * @returns Transaction as hex string
+   * @throws Error if API request fails
+   *
+   * @example
+   * ```typescript
+   * const api = new MempoolApi('mainnet');
+   * const txHex = await api.getTxHex('abc123...');
+   * ```
+   */
+  async getTxHex(txid: string): Promise<string> {
+    const response = await fetch(`${this.baseUrl}/tx/${txid}/hex`);
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "Unknown error");
+      throw new Error(
+        `Failed to fetch transaction hex for ${txid}: ${response.status} ${response.statusText} - ${errorText}`
+      );
+    }
+
+    const txHex = await response.text();
+    return txHex.trim();
+  }
+
+  /**
    * Get the network this client is configured for
    */
   getNetwork(): Network {
