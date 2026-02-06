@@ -30,7 +30,7 @@ import {
 } from "../utils/errors.js";
 import { NETWORK, type Network } from "../config/networks.js";
 import type { Account } from "../transactions/builder.js";
-import { deriveBitcoinAddress, deriveBitcoinKeyPair, deriveTaprootAddress } from "../utils/bitcoin.js";
+import { deriveBitcoinAddress, deriveBitcoinKeyPair, deriveTaprootAddress, deriveTaprootKeyPair } from "../utils/bitcoin.js";
 
 /**
  * Session state for unlocked wallet
@@ -224,8 +224,12 @@ class WalletManager {
       publicKeyBytes: btcPublicKey,
     } = deriveBitcoinKeyPair(mnemonic, walletMeta.network);
 
-    // Derive Taproot address for receiving inscriptions
-    const { address: taprootAddress } = deriveTaprootAddress(mnemonic, walletMeta.network);
+    // Derive Taproot key pair (includes private key for sBTC deposits)
+    const {
+      address: taprootAddress,
+      privateKey: taprootPrivateKey,
+      internalPubKeyBytes: taprootPublicKey,
+    } = deriveTaprootKeyPair(mnemonic, walletMeta.network);
 
     const account: Account = {
       address,
@@ -234,6 +238,8 @@ class WalletManager {
       privateKey: stacksAccount.stxPrivateKey,
       btcPrivateKey,
       btcPublicKey,
+      taprootPrivateKey,
+      taprootPublicKey,
       network: walletMeta.network,
     };
 
