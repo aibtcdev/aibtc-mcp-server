@@ -32,6 +32,29 @@ export interface TaprootAddress {
 }
 
 /**
+ * Taproot key pair derivation result (includes private key for signing)
+ *
+ * SECURITY: This interface exposes the private key as Uint8Array.
+ * The private key should:
+ * - NEVER be serialized to hex string
+ * - NEVER be logged or stored persistently
+ * - Only be held in memory during signing operations
+ * - Be cleared after use (session lock)
+ */
+export interface TaprootKeyPair extends TaprootAddress {
+  /**
+   * Private key as raw bytes (32 bytes)
+   * SECURITY: Never serialize. Use only for Taproot signing.
+   */
+  privateKey: Uint8Array;
+  /**
+   * Internal public key as raw bytes (32 bytes, x-only)
+   * Used for building Taproot transactions.
+   */
+  internalPubKeyBytes: Uint8Array;
+}
+
+/**
  * Bitcoin key pair derivation result (includes private key for signing)
  *
  * SECURITY: This interface exposes the private key as Uint8Array.
@@ -287,5 +310,92 @@ export function deriveTaprootAddress(
   return {
     address: p2tr.address,
     internalPubKey,
+  };
+}
+
+/**
+ * Derive Bitcoin L1 Taproot key pair from BIP39 mnemonic (includes private key for signing)
+ *
+ * Follows BIP86 derivation path:
+ * - Mainnet: m/86'/0'/0'/0/0 (coin type 0)
+ * - Testnet: m/86'/1'/0'/0/0 (coin type 1)
+ *
+ * Returns Taproot (P2TR) address and key pair:
+ * - Mainnet: bc1p... prefix
+ * - Testnet: tb1p... prefix
+ *
+ * SECURITY WARNING: This function returns the private key as Uint8Array.
+ * - NEVER serialize the private key
+ * - NEVER log or store the private key persistently
+ * - Only hold in memory during signing operations
+ * - Clear from memory when wallet is locked
+ *
+ * @param mnemonic - BIP39 mnemonic phrase (12 or 24 words)
+ * @param network - Network to derive keys for ('mainnet' | 'testnet')
+ * @returns Taproot address, internal public key, and private key (Uint8Array)
+ *
+ * @example
+ * ```typescript
+ * const { address, internalPubKey, privateKey } = deriveTaprootKeyPair(mnemonic, 'mainnet');
+ * console.log(address); // bc1p...
+ * console.log(internalPubKey); // 32-byte x-only pubkey (hex)
+ * // privateKey is Uint8Array(32) - use for signing, never serialize
+ * ```
+ */
+export function deriveTaprootKeyPair(
+  mnemonic: string,
+  network: Network
+): TaprootKeyPair {
+  // Convert mnemonic to seed
+  const seed = mnemonicToSeedSync(mnemonic);
+
+  // Create master key from seed
+  const masterKey = HDKey.fromMasterSeed(seed);
+
+  // BIP86 derivation path for Taproot
+  // m / purpose' / coin_type' / account' / change / address_index
+  // Purpose: 86 (Taproot)
+  // Coin type: 0 (Bitcoin mainnet) or 1 (Bitcoin testnet)
+  // Account: 0 (first account)
+  // Change: 0 (external/receiving addresses)
+  // Address index: 0 (first address)
+  const coinType = network === "mainnet" ? 0 : 1;
+  const derivationPath = `m/86'/${coinType}'/0'/0/0`;
+
+  // Derive key at path
+  const derivedKey = masterKey.derive(derivationPath);
+
+  if (!derivedKey.publicKey) {
+    throw new Error("Failed to derive public key");
+  }
+
+  if (!derivedKey.privateKey) {
+    throw new Error("Failed to derive private key");
+  }
+
+  // Get the network params
+  const btcNetwork = network === "testnet" ? btc.TEST_NETWORK : btc.NETWORK;
+
+  // Get x-only internal public key (32 bytes, no prefix)
+  // Compressed pubkey is 33 bytes (1 prefix + 32 x-coord), p2tr needs just x-coord
+  const xOnlyPubkey = derivedKey.publicKey.slice(1);
+  const internalPubKeyBytes = new Uint8Array(xOnlyPubkey);
+  const internalPubKey = Buffer.from(xOnlyPubkey).toString("hex");
+
+  // Get private key as Uint8Array (never convert to hex)
+  const privateKey = new Uint8Array(derivedKey.privateKey);
+
+  // Create Taproot address (P2TR) using x-only internal key
+  const p2tr = btc.p2tr(xOnlyPubkey, undefined, btcNetwork);
+
+  if (!p2tr.address) {
+    throw new Error("Failed to generate Taproot address");
+  }
+
+  return {
+    address: p2tr.address,
+    internalPubKey,
+    privateKey,
+    internalPubKeyBytes,
   };
 }
