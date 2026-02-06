@@ -21,6 +21,15 @@ export interface Account extends WalletAddresses {
    * Bitcoin public key as raw bytes (33 bytes compressed) for building transactions.
    */
   btcPublicKey?: Uint8Array;
+  /**
+   * Taproot private key as raw bytes (32 bytes) for signing Taproot transactions.
+   * SECURITY: Never serialize. Only held in memory during session.
+   */
+  taprootPrivateKey?: Uint8Array;
+  /**
+   * Taproot internal public key as raw bytes (32 bytes, x-only) for building Taproot transactions.
+   */
+  taprootPublicKey?: Uint8Array;
   network: Network;
 }
 
