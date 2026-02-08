@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.aibtcdev/mcp-server",
-  "description": "Bitcoin-first MCP server for BTC/STX wallets, DeFi, sBTC, NFTs, and x402 paid APIs.",
+  "description": "Bitcoin-native MCP server for AI agents: BTC/STX wallets, DeFi yield, sBTC peg, NFTs, and x402 payments.",
   "repository": {
     "url": "https://github.com/aibtcdev/aibtc-mcp-server",
     "source": "github"
   },
-  "version": "1.13.1",
+  "version": "1.14.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@aibtc/mcp-server",
-      "version": "1.13.1",
+      "version": "1.14.0",
       "transport": {
         "type": "stdio"
       }
