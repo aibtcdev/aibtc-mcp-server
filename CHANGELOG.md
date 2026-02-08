@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.13.1...v1.14.0) (2026-02-08)
+
+
+### Features
+
+* add MCP registry configuration for modelcontextprotocol.io ([#68](https://github.com/aibtcdev/aibtc-mcp-server/issues/68)) ([2864b3a](https://github.com/aibtcdev/aibtc-mcp-server/commit/2864b3a07b6dc613feddfc77116c6795f70aa715))
+
 ## [1.13.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.13.0...v1.13.1) (2026-02-03)
 
 
