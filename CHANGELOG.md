@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.14.1...v1.14.2) (2026-02-08)
+
+
+### Bug Fixes
+
+* update README description to match package metadata ([#73](https://github.com/aibtcdev/aibtc-mcp-server/issues/73)) ([b9fc23f](https://github.com/aibtcdev/aibtc-mcp-server/commit/b9fc23f968a04c442af0f4f1a5ef10268787522a))
+
 ## [1.14.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.14.0...v1.14.1) (2026-02-08)
 
 
