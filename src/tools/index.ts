@@ -14,6 +14,7 @@ import { registerSbtcTools } from "./sbtc.tools.js";
 import { registerTokenTools } from "./tokens.tools.js";
 import { registerNftTools } from "./nft.tools.js";
 import { registerBnsTools } from "./bns.tools.js";
+import { registerErc8004Tools } from "./erc8004.tools.js";
 
 // Layer 2b: DeFi (Advanced)
 import { registerDefiTools } from "./defi.tools.js";
@@ -63,6 +64,7 @@ export function registerAllTools(server: McpServer): void {
   registerTokenTools(server);
   registerNftTools(server);
   registerBnsTools(server);
+  registerErc8004Tools(server);
 
   // =========================================================================
   // Layer 2b: DeFi (Advanced)
