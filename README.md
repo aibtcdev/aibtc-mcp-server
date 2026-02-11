@@ -10,7 +10,7 @@ Bitcoin-native MCP server for AI agents: BTC/STX wallets, DeFi yield, sBTC peg, 
 - **Bitcoin L1** - Check balances, send BTC, manage UTXOs via mempool.space
 - **Agent's Own Wallet** - Agents get their own wallet to perform blockchain transactions
 - **Secure Storage** - Wallets encrypted with AES-256-GCM and stored locally
-- **60+ Tools** - Bitcoin L1 + comprehensive Stacks L2 operations
+- **120+ Tools** - Bitcoin L1 + comprehensive Stacks L2 operations
 - **sBTC Support** - Native Bitcoin on Stacks operations
 - **Token Operations** - SIP-010 fungible token transfers and queries
 - **NFT Support** - SIP-009 NFT holdings, transfers, and metadata
@@ -133,7 +133,7 @@ Claude: Done! Transaction broadcast: abc123...
 
 Both addresses are derived from the same recovery phrase, making it easy to manage both Layer 1 (Bitcoin) and Layer 2 (Stacks) assets.
 
-## Available Tools (50+ total)
+## Available Tools (120+ total)
 
 ### Wallet Management
 | Tool | Description |
@@ -149,11 +149,43 @@ Both addresses are derived from the same recovery phrase, making it easy to mana
 | `wallet_status` | Check if Claude's wallet is ready (includes Stacks and Bitcoin addresses) |
 | `wallet_set_timeout` | Set how long wallet stays unlocked |
 
+### Bitcoin L1
+| Tool | Description |
+|------|-------------|
+| `get_btc_balance` | Get BTC balance (total, confirmed, unconfirmed) |
+| `get_btc_fees` | Get fee estimates (fast, medium, slow) |
+| `get_btc_utxos` | List UTXOs for an address |
+| `transfer_btc` | Send BTC to a recipient |
+| `get_cardinal_utxos` | UTXOs safe to spend (no inscriptions) |
+| `get_ordinal_utxos` | UTXOs containing inscriptions |
+
+### Bitcoin Inscriptions
+| Tool | Description |
+|------|-------------|
+| `get_taproot_address` | Get wallet's Taproot (P2TR) address |
+| `estimate_inscription_fee` | Calculate inscription cost |
+| `inscribe` | Create inscription commit transaction |
+| `inscribe_reveal` | Complete inscription reveal transaction |
+| `get_inscription` | Fetch inscription content from reveal tx |
+| `get_inscriptions_by_address` | List inscriptions owned by address |
+
+### Message Signing
+| Tool | Description |
+|------|-------------|
+| `sip018_sign` | Sign structured Clarity data (SIP-018) |
+| `sip018_verify` | Verify SIP-018 signature |
+| `sip018_hash` | Compute SIP-018 hash without signing |
+| `stacks_sign_message` | Sign plain text (SIWS-compatible) |
+| `stacks_verify_message` | Verify Stacks message signature |
+| `btc_sign_message` | Sign with Bitcoin key (BIP-137) |
+| `btc_verify_message` | Verify BIP-137 signature |
+
 ### Wallet & Balance
 | Tool | Description |
 |------|-------------|
 | `get_wallet_info` | Get Claude's wallet addresses (Stacks + Bitcoin) and status |
 | `get_stx_balance` | Get STX balance for any address |
+| `get_stx_fees` | Get STX fee estimates (low, medium, high) |
 
 ### STX Transfers
 | Tool | Description |
@@ -205,6 +237,8 @@ Both addresses are derived from the same recovery phrase, making it easy to mana
 | `check_bns_availability` | Check if domain is available |
 | `get_bns_price` | Get registration price |
 | `list_user_domains` | List domains owned |
+| `preorder_bns_name` | Preorder a .btc domain (step 1 of 2) |
+| `register_bns_name` | Register a .btc domain (step 2 of 2) |
 
 ### Smart Contracts
 | Tool | Description |
@@ -272,11 +306,21 @@ For autonomous agents, use `pillar_direct_*` tools (no browser needed).
 | `get_contract_events` | Get contract event history |
 | `get_network_status` | Get network health status |
 
+### Yield Hunter (Autonomous)
+| Tool | Description |
+|------|-------------|
+| `yield_hunter_start` | Start autonomous sBTC→Zest deposits |
+| `yield_hunter_stop` | Stop yield hunting |
+| `yield_hunter_status` | Check yield hunter status |
+| `yield_hunter_configure` | Adjust threshold, reserve, interval |
+
 ### x402 API Endpoints
 | Tool | Description |
 |------|-------------|
 | `list_x402_endpoints` | Discover x402 endpoints |
 | `execute_x402_endpoint` | Execute x402 endpoint with auto-payment |
+| `scaffold_x402_endpoint` | Generate x402 Cloudflare Worker project |
+| `scaffold_x402_ai_endpoint` | Generate x402 AI API with OpenRouter |
 
 ## Usage Examples
 
@@ -404,11 +448,13 @@ The skill is automatically included when you install the MCP server. Find it at:
 
 ```
 skill/
-├── SKILL.md                    # Bitcoin L1 core workflows
+├── SKILL.md                        # Bitcoin L1 core workflows
 └── references/
-    ├── pillar-wallet.md        # Pillar smart wallet guide
-    ├── stacks-defi.md          # Stacks L2 / DeFi operations
-    └── troubleshooting.md      # Common issues and solutions
+    ├── genesis-lifecycle.md        # Agent registration & check-in
+    ├── inscription-workflow.md     # Bitcoin inscription guide
+    ├── pillar-wallet.md            # Pillar smart wallet guide
+    ├── stacks-defi.md              # Stacks L2 / DeFi operations
+    └── troubleshooting.md          # Common issues and solutions
 ```
 
 ## Development

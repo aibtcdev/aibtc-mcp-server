@@ -220,6 +220,23 @@ Tools for Bitcoin L1 blockchain operations via mempool.space API:
 - Uses P2WPKH (native SegWit) transactions for optimal fees
 - Change is sent back to the sender address
 
+### Bitcoin Inscriptions
+
+Tools for creating and managing Bitcoin inscriptions (ordinals):
+
+- `get_taproot_address` - Get wallet's Taproot (P2TR) address for receiving inscriptions
+- `estimate_inscription_fee` - Calculate total inscription cost (commit + reveal fees)
+  - `contentType`: MIME type (e.g., 'text/plain', 'image/png')
+  - `contentBase64`: Content as base64-encoded string
+  - `feeRate`: Optional fee rate in sat/vB
+- `inscribe` - Create inscription commit transaction (step 1 of 2)
+  - Returns `commitTxid`, `revealAddress`, `revealAmount`, `feeRate` (save all for reveal)
+- `inscribe_reveal` - Complete inscription reveal transaction (step 2 of 2, after commit confirms)
+  - `commitTxid`, `revealAmount`, `contentType`, `contentBase64` must match commit step
+  - Returns `inscriptionId` (revealTxid:0)
+- `get_inscription` - Fetch and parse inscription content from reveal transaction
+- `get_inscriptions_by_address` - List all inscriptions owned by an address (mainnet only)
+
 ### Wallet Info & Balance
 - `get_wallet_info` - Get wallet info (returns `btcAddress` and `address`)
 - `get_stx_balance` - Get STX balance for any Stacks address
@@ -322,6 +339,31 @@ Tools for transferring sBTC, SIP-010 tokens, and SIP-009 NFTs. All write operati
 - `get_nft_owner` - Get current owner of an NFT
 - `get_collection_info` - Get NFT collection info
 - `get_nft_history` - Get transfer history of an NFT collection
+
+### BNS Domains
+
+Tools for .btc domain name resolution and registration (supports V1 + V2):
+
+- `lookup_bns_name` - Resolve a .btc domain to its Stacks address
+- `reverse_bns_lookup` - Get .btc domain names for an address
+- `get_bns_info` - Get detailed info about a domain name
+- `check_bns_availability` - Check if a domain is available
+- `get_bns_price` - Get registration price for a domain
+- `list_user_domains` - List all domains owned by an address
+- `preorder_bns_name` - Preorder a .btc domain (step 1 of 2-step registration)
+- `register_bns_name` - Register a .btc domain after preorder confirms (step 2 of 2)
+
+### Yield Hunter (Autonomous)
+
+Autonomous sBTC yield hunting — monitors wallet and deposits to Zest Protocol:
+
+- `yield_hunter_start` - Start autonomous monitoring and deposits (mainnet only)
+  - `threshold`: Minimum sBTC balance before depositing (default: 10000 sats)
+  - `reserve`: sBTC to keep liquid, never deposited (default: 0)
+  - `interval`: Check interval in seconds (default: 600)
+- `yield_hunter_stop` - Stop the yield hunter (existing Zest positions remain)
+- `yield_hunter_status` - Check status, config, stats, and recent activity
+- `yield_hunter_configure` - Adjust threshold, reserve, or interval on the fly
 
 ### x402 API Endpoints
 - `execute_x402_endpoint` - Execute ANY x402 endpoint URL with automatic payment handling. Can use full URL or path+apiUrl.
