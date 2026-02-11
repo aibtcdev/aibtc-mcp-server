@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.14.2...v1.15.0) (2026-02-11)
+
+
+### Features
+
+* add genesis skill reference files ([#80](https://github.com/aibtcdev/aibtc-mcp-server/issues/80)) ([824acee](https://github.com/aibtcdev/aibtc-mcp-server/commit/824acee6ddd0f61822037e0ff8c6a2168cd89678))
+
 ## [1.14.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.14.1...v1.14.2) (2026-02-08)
 
 
