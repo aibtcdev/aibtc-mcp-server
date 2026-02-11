@@ -74,7 +74,7 @@ Uses `inscribe_reveal` with:
 - `contentBase64` - Same as step 3 (must match)
 
 Returns:
-- `inscriptionId` - Unique ID (revealTxid:0)
+- `inscriptionId` - Unique ID (`{revealTxid}i0`)
 - Commit and reveal transaction details
 - Explorer URLs for both transactions
 
