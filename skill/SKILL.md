@@ -4,7 +4,7 @@ description: Bitcoin L1 wallet for agents - check balances, send BTC, manage UTX
 license: MIT
 metadata:
   author: aibtcdev
-  version: 1.9.0
+  version: 1.14.2
   npm: "@aibtc/mcp-server"
   github: https://github.com/aibtcdev/aibtc-mcp-server
 ---
@@ -157,6 +157,25 @@ sBTC smart wallet with yield automation:
 - Auto-boost yield via Zest Protocol
 
 See: [references/pillar-wallet.md](references/pillar-wallet.md)
+
+### Bitcoin Inscriptions
+
+Inscribe and retrieve digital artifacts on Bitcoin:
+- Commit-reveal inscription workflow
+- Get inscription content and metadata
+- Protect ordinal UTXOs from accidental spending
+
+See: [references/inscription-workflow.md](references/inscription-workflow.md)
+
+### Genesis Lifecycle
+
+Agent identity and reputation on Stacks:
+- L0: Local key generation
+- L1: Bitcoin inscription with SIP-018 signature
+- L2: Stacks genesis contract registration
+- Active: Weekly check-ins to maintain reputation
+
+See: [references/genesis-lifecycle.md](references/genesis-lifecycle.md)
 
 ## Troubleshooting
 
