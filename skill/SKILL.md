@@ -169,11 +169,11 @@ See: [references/inscription-workflow.md](references/inscription-workflow.md)
 
 ### Genesis Lifecycle
 
-Agent identity and reputation on Stacks:
-- L0: Local key generation
-- L1: Bitcoin inscription with SIP-018 signature
-- L2: Stacks genesis contract registration
-- Active: Weekly check-ins to maintain reputation
+Agent identity and reputation on Bitcoin and Stacks:
+- L0: Local agent key generation
+- L1: Dual-chain plain-message signatures (btc_sign_message + stacks_sign_message)
+- L2: X claim + BTC airdrop activation
+- Active: 5-minute check-ins to maintain reputation and liveness
 
 See: [references/genesis-lifecycle.md](references/genesis-lifecycle.md)
 

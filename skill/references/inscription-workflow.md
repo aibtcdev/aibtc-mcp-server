@@ -54,7 +54,7 @@ Uses `inscribe` - broadcasts commit tx and returns immediately with:
 
 ### 4. Wait for Confirmation
 
-Check commit transaction status using the `explorerUrl` from the inscribe response. Typical confirmation times:
+Check commit transaction status using the `commitExplorerUrl` from the inscribe response. Typical confirmation times:
 - **Fast fees** (~10 sat/vB) - 10-20 minutes
 - **Medium fees** (~5 sat/vB) - 30-60 minutes
 - **Slow fees** (~2 sat/vB) - 1+ hours
@@ -290,7 +290,7 @@ This demonstrates the agent's ability to create permanent records on Bitcoin L1.
 - [Bitcoin Ordinals Theory](https://docs.ordinals.com/inscriptions.html)
 - [BIP86 Taproot Derivation](https://github.com/bitcoin/bips/blob/master/bip-0086.mediawiki)
 - [mempool.space](https://mempool.space) - Block explorer and fee estimates
-- [CLAUDE.md Inscription Tools](../../CLAUDE.md#bitcoin-l1-primary)
+- [CLAUDE.md Ordinal Safety](../../CLAUDE.md#ordinal-safety)
 
 ---
 
