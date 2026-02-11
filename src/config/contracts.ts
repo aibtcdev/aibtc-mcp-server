@@ -30,6 +30,11 @@ export const MAINNET_CONTRACTS = {
   ZEST_FEES_CALCULATOR: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.fees-calculator",
   ZEST_INCENTIVES: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.incentives-v2-2",
   ZEST_WSTX: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.wstx",
+
+  // ERC-8004 Identity & Reputation
+  IDENTITY_REGISTRY: "SP1NMR7MY0TJ1QA7WQBZ6504KC79PZNTRQH4YGFJD.identity-registry-v2",
+  REPUTATION_REGISTRY: "SP1NMR7MY0TJ1QA7WQBZ6504KC79PZNTRQH4YGFJD.reputation-registry-v2",
+  VALIDATION_REGISTRY: "SP1NMR7MY0TJ1QA7WQBZ6504KC79PZNTRQH4YGFJD.validation-registry-v2",
 } as const;
 
 /**
@@ -162,6 +167,11 @@ export const TESTNET_CONTRACTS = {
 
   // Stacking
   POX_4: "ST000000000000000000002AMW42H.pox-4",
+
+  // ERC-8004 Identity & Reputation
+  IDENTITY_REGISTRY: "ST3YT0XW92E6T2FE59B2G5N2WNNFSBZ6MZKQS5D18.identity-registry-v2",
+  REPUTATION_REGISTRY: "ST3YT0XW92E6T2FE59B2G5N2WNNFSBZ6MZKQS5D18.reputation-registry-v2",
+  VALIDATION_REGISTRY: "ST3YT0XW92E6T2FE59B2G5N2WNNFSBZ6MZKQS5D18.validation-registry-v2",
 } as const;
 
 /**
@@ -302,3 +312,15 @@ export function getBitflowContracts(network: Network) {
  * Bitflow public API base URL (no API key required)
  */
 export const BITFLOW_PUBLIC_API = "https://bitflow-sdk-api-gateway-7owjsmt8.uc.gateway.dev";
+
+/**
+ * Get ERC-8004 contract addresses for the network
+ */
+export function getErc8004Contracts(network: Network) {
+  const contracts = network === "mainnet" ? MAINNET_CONTRACTS : TESTNET_CONTRACTS;
+  return {
+    identityRegistry: contracts.IDENTITY_REGISTRY,
+    reputationRegistry: contracts.REPUTATION_REGISTRY,
+    validationRegistry: contracts.VALIDATION_REGISTRY,
+  };
+}
