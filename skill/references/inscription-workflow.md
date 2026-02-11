@@ -100,7 +100,7 @@ Uses `get_inscription` with reveal txid. Returns:
 | `inscribe` | Broadcast commit transaction (non-blocking) | `contentType`, `contentBase64`, `feeRate?` |
 | `inscribe_reveal` | Broadcast reveal transaction (after commit confirms) | `commitTxid`, `revealAmount`, `contentType`, `contentBase64`, `feeRate?` |
 | `get_inscription` | Fetch inscription content from reveal tx | `txid` |
-| `get_inscriptions_by_address` | List all inscriptions owned by address | `address?` |
+| `get_inscriptions_by_address` | List all inscriptions owned by address (mainnet only) | `address?` |
 
 ## Content Types and Encoding
 
@@ -254,10 +254,10 @@ Uses `get_taproot_address` - this is where your inscriptions will appear after t
 
 5. "Complete reveal for commit xyz789..."
    → Provide exact same HTML content
-   → Returns inscriptionId
+   → Returns inscriptionId ({revealTxid}i0) and reveal txid
 
-6. "Verify inscription abc...i0"
-   → Fetch and display HTML content
+6. "Get inscription from reveal transaction def456..."
+   → Use reveal txid with get_inscription to fetch and display HTML content
 ```
 
 ## Cost Considerations

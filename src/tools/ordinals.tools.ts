@@ -311,7 +311,7 @@ export function registerOrdinalsTools(server: McpServer): void {
         "Complete a Bitcoin inscription - STEP 2: Broadcast reveal transaction.\n\n" +
         "Call this AFTER the commit transaction from `inscribe` has confirmed.\n" +
         "You must provide the same contentType and contentBase64 used in the commit step.\n\n" +
-        "Returns: inscriptionId (revealTxid:0) on success",
+        "Returns: inscriptionId ({revealTxid}i0) on success",
       inputSchema: {
         commitTxid: z
           .string()

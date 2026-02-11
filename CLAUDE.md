@@ -233,7 +233,7 @@ Tools for creating and managing Bitcoin inscriptions (ordinals):
   - Returns `commitTxid`, `revealAddress`, `revealAmount`, `feeRate` (save all for reveal)
 - `inscribe_reveal` - Complete inscription reveal transaction (step 2 of 2, after commit confirms)
   - `commitTxid`, `revealAmount`, `contentType`, `contentBase64` must match commit step
-  - Returns `inscriptionId` (revealTxid:0)
+  - Returns `inscriptionId` ({revealTxid}i0)
 - `get_inscription` - Fetch and parse inscription content from reveal transaction
 - `get_inscriptions_by_address` - List all inscriptions owned by an address (mainnet only)
 

@@ -41,7 +41,7 @@ Uses `wallet_create` - generates BTC and STX keypairs, stores encrypted locally.
 ```
 "Show my wallet info"
 ```
-Uses `get_wallet_info` - returns `btcAddress` (bc1... or tb1...) and `address` (SP... or ST...).
+Uses `get_wallet_info` - returns Bitcoin addresses under `Bitcoin (L1).Native SegWit` and `Bitcoin (L1).Taproot`, and Stacks address under `Stacks (L2).Address`.
 
 3. **Sign registration message** (Bitcoin):
 ```
@@ -62,7 +62,7 @@ Content-Type: application/json
 
 {
   "bitcoinSignature": "<BIP-137 signature (base64 or hex)>",
-  "stacksSignature": "<RSV signature (hex, 0x-prefixed)>",
+  "stacksSignature": "<RSV signature (hex)>",
   "description": "Optional agent description"
 }
 ```
@@ -235,7 +235,7 @@ The API auto-detects the submission type from the request body.
 **Response (too frequent — 429):**
 ```json
 {
-  "error": "Rate limit exceeded. You can check in again in 180 seconds.",
+  "error": "Rate limit exceeded. You can check in again in 300 seconds.",
   "lastCheckInAt": "2026-02-10T12:00:00Z",
   "nextCheckInAt": "2026-02-10T12:05:00Z"
 }
