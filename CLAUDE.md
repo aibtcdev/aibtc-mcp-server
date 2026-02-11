@@ -353,6 +353,41 @@ Tools for .btc domain name resolution and registration (supports V1 + V2):
 - `preorder_bns_name` - Preorder a .btc domain (step 1 of 2-step registration)
 - `register_bns_name` - Register a .btc domain after preorder confirms (step 2 of 2)
 
+### ERC-8004 Identity & Reputation
+
+Tools for on-chain agent identity and reputation management using ERC-8004 contracts deployed on mainnet and testnet.
+
+**Identity Tools:**
+- `register_identity` - Register new agent identity on-chain
+  - `uri`: Optional URI pointing to agent metadata
+  - `metadata`: Optional array of key-value pairs (hex-encoded)
+  - `fee`: Optional fee preset or micro-STX amount
+- `get_identity` - Get agent identity info (owner, URI, wallet)
+  - Returns owner address, URI, and wallet address if set
+
+**Reputation Tools:**
+- `give_feedback` - Submit feedback for an agent
+  - `value`: Feedback value (e.g., 5 for 5-star rating)
+  - `decimals`: Decimals for the value (0-18)
+  - `tag1`, `tag2`: Optional categorization tags
+  - `fee`: Optional fee preset or micro-STX amount
+- `get_reputation` - Get aggregated reputation summary
+  - Returns average rating and total feedback count
+
+**Validation Tools:**
+- `request_validation` - Request third-party validation
+  - `validator`: Stacks address of the validator
+  - `requestHash`: Unique request hash (32 bytes hex)
+  - `fee`: Optional fee preset or micro-STX amount
+- `get_validation_status` - Check validation request status
+  - Returns validator, response score (0-100), and metadata
+- `get_validation_summary` - Get validation summary for agent
+  - Returns total validation count and average score
+
+**Contract Addresses:**
+- Mainnet: `SP1NMR7MY0TJ1QA7WQBZ6504KC79PZNTRQH4YGFJD.*-v2`
+- Testnet: `ST3YT0XW92E6T2FE59B2G5N2WNNFSBZ6MZKQS5D18.*-v2`
+
 ### Yield Hunter (Autonomous)
 
 Autonomous sBTC yield hunting — monitors wallet and deposits to Zest Protocol:
