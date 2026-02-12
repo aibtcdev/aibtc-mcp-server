@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.18.0...v1.19.0) (2026-02-12)
+
+
+### Features
+
+* add sponsored transaction support for ERC-8004 and sBTC ([#96](https://github.com/aibtcdev/aibtc-mcp-server/issues/96)) ([30f9061](https://github.com/aibtcdev/aibtc-mcp-server/commit/30f90619bf58c101c81a651761079cecacb6affa))
+
 ## [1.18.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.17.0...v1.18.0) (2026-02-12)
 
 
