@@ -229,15 +229,14 @@ export class SbtcDepositService {
   }
 
   /**
-   * Build a signed sBTC deposit transaction
+   * Build an sBTC deposit transaction, optionally signed
    *
    * This method:
    * 1. Fetches UTXOs for the Bitcoin address
    * 2. Builds a deposit address with deposit/reclaim scripts
    * 3. Constructs a transaction that sends BTC to the deposit address
-   * 4. Returns the unsigned transaction and deposit details
-   *
-   * The transaction must be signed by the user before broadcasting.
+   * 4. If `privateKey` is provided, signs and finalizes the transaction
+   * 5. Returns the transaction hex (signed or unsigned), txid, and deposit details
    *
    * @param amountSats - Amount to deposit in satoshis
    * @param stacksAddress - Stacks L2 address to receive sBTC

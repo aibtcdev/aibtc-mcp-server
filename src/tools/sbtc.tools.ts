@@ -239,7 +239,7 @@ Set includeOrdinals=true to allow spending ordinal UTXOs (advanced users only).`
           );
         }
 
-        if (!account.btcAddress || !account.taprootAddress || !account.taprootPrivateKey || !account.taprootPublicKey) {
+        if (!account.btcAddress || !account.taprootAddress || !account.taprootPublicKey) {
           throw new Error(
             "Bitcoin or Taproot keys not available. Please unlock your wallet again."
           );

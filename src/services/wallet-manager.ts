@@ -278,6 +278,14 @@ class WalletManager {
    */
   lock(): void {
     this.clearAutoLockTimer();
+    // Zero out sensitive key buffers before dropping references
+    if (this.session?.account) {
+      const acct = this.session.account;
+      if (acct.btcPrivateKey) acct.btcPrivateKey.fill(0);
+      if (acct.btcPublicKey) acct.btcPublicKey.fill(0);
+      if (acct.taprootPrivateKey) acct.taprootPrivateKey.fill(0);
+      if (acct.taprootPublicKey) acct.taprootPublicKey.fill(0);
+    }
     this.session = null;
   }
 
