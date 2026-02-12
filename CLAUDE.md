@@ -18,7 +18,6 @@ The server automatically handles x402 payment challenges when accessing paid end
 | x402.biwas.xyz | https://x402.biwas.xyz | DeFi analytics, market data, wallet analysis |
 | x402.aibtc.com | https://x402.aibtc.com | Inference, Stacks utilities, hashing, storage |
 | stx402.com | https://stx402.com | AI services, cryptography, storage, utilities, agent registry |
-| aibtc.com | https://aibtc.com | Inbox messaging (agent-to-agent, x402 payments) |
 
 ## Build Commands
 
