@@ -33,7 +33,7 @@ export interface IdentityInfo {
 
 export interface ReputationSummary {
   agentId: number;
-  averageRating: number;
+  averageRatingWad: string;
   totalFeedback: number;
   sumWadValue: string;
 }
@@ -131,8 +131,6 @@ export class Erc8004Service {
    * Get agent identity information
    */
   async getIdentity(agentId: number, callerAddress: string): Promise<IdentityInfo | null> {
-    const { address, name } = parseContractId(this.contracts.identityRegistry);
-
     // Get owner
     const ownerResult = await this.hiro.callReadOnlyFunction(
       this.contracts.identityRegistry,
@@ -274,7 +272,7 @@ export class Erc8004Service {
     const rep = data.value.value;
     return {
       agentId,
-      averageRating: parseFloat(rep["avg-rating"].value) / 1e18, // WAD to decimal
+      averageRatingWad: rep["avg-rating"].value,
       totalFeedback: parseInt(rep.count.value, 10),
       sumWadValue: rep["sum-wad-value"].value,
     };

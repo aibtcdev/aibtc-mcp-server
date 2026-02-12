@@ -25,6 +25,33 @@ import { getWalletManager } from "../services/wallet-manager.js";
 import { Erc8004Service } from "../services/erc8004.service.js";
 import { resolveFee } from "../utils/fee.js";
 
+/** Default read-only caller address per network (boot addresses) */
+const DEFAULT_CALLER: Record<string, string> = {
+  mainnet: "SP000000000000000000002Q6VF78",
+  testnet: "ST000000000000000000002AMW42H",
+};
+
+/** Strip optional 0x prefix and validate hex string */
+function normalizeHex(hex: string, label: string, exactBytes?: number): string {
+  let normalized = hex;
+  if (normalized.startsWith("0x") || normalized.startsWith("0X")) {
+    normalized = normalized.slice(2);
+  }
+  if (normalized.length === 0 || normalized.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(normalized)) {
+    throw new Error(`${label} must be a non-empty, even-length hex string`);
+  }
+  if (exactBytes !== undefined && normalized.length !== exactBytes * 2) {
+    throw new Error(`${label} must be exactly ${exactBytes} bytes (${exactBytes * 2} hex characters)`);
+  }
+  return normalized;
+}
+
+function getCallerAddress(): string {
+  const walletManager = getWalletManager();
+  const sessionInfo = walletManager.getSessionInfo();
+  return sessionInfo?.address || DEFAULT_CALLER[NETWORK] || DEFAULT_CALLER.testnet;
+}
+
 export function registerErc8004Tools(server: McpServer): void {
   const service = new Erc8004Service(NETWORK);
 
@@ -38,7 +65,7 @@ export function registerErc8004Tools(server: McpServer): void {
     {
       description:
         "Register a new agent identity on-chain using ERC-8004 identity registry. " +
-        "Returns the agent ID (uint) that can be used for reputation and validation. " +
+        "Returns a transaction ID. Check the transaction result to get the assigned agent ID. " +
         "Requires an unlocked wallet.",
       inputSchema: {
         uri: z
@@ -73,10 +100,10 @@ export function registerErc8004Tools(server: McpServer): void {
         // Parse metadata if provided
         let parsedMetadata: Array<{ key: string; value: Buffer }> | undefined;
         if (metadata && metadata.length > 0) {
-          parsedMetadata = metadata.map((m) => ({
-            key: m.key,
-            value: Buffer.from(m.value, "hex"),
-          }));
+          parsedMetadata = metadata.map((m) => {
+            const normalized = normalizeHex(m.value, `metadata value for key "${m.key}"`);
+            return { key: m.key, value: Buffer.from(normalized, "hex") };
+          });
         }
 
         const feeAmount = fee ? await resolveFee(fee, NETWORK) : undefined;
@@ -110,11 +137,7 @@ export function registerErc8004Tools(server: McpServer): void {
     },
     async ({ agentId }) => {
       try {
-        const walletManager = getWalletManager();
-        const sessionInfo = walletManager.getSessionInfo();
-        const callerAddress =
-          sessionInfo?.address || "ST000000000000000000002AMW42H"; // Fallback address
-
+        const callerAddress = getCallerAddress();
         const identity = await service.getIdentity(agentId, callerAddress);
 
         if (!identity) {
@@ -186,7 +209,9 @@ export function registerErc8004Tools(server: McpServer): void {
           throw new Error("No active wallet. Please unlock your wallet first.");
         }
 
-        const hashBuffer = feedbackHash ? Buffer.from(feedbackHash, "hex") : undefined;
+        const hashBuffer = feedbackHash
+          ? Buffer.from(normalizeHex(feedbackHash, "feedbackHash", 32), "hex")
+          : undefined;
         const feeAmount = fee ? await resolveFee(fee, NETWORK) : undefined;
 
         const result = await service.giveFeedback(
@@ -224,25 +249,21 @@ export function registerErc8004Tools(server: McpServer): void {
     {
       description:
         "Get aggregated reputation summary for an agent from ERC-8004 reputation registry. " +
-        "Returns average rating (normalized to 18 decimals) and total feedback count.",
+        "Returns average rating as a raw WAD string (18 decimals) and total feedback count.",
       inputSchema: {
         agentId: z.number().int().min(0).describe("Agent ID to get reputation for"),
       },
     },
     async ({ agentId }) => {
       try {
-        const walletManager = getWalletManager();
-        const sessionInfo = walletManager.getSessionInfo();
-        const callerAddress =
-          sessionInfo?.address || "ST000000000000000000002AMW42H";
-
+        const callerAddress = getCallerAddress();
         const reputation = await service.getReputation(agentId, callerAddress);
 
         if (!reputation || reputation.totalFeedback === 0) {
           return createJsonResponse({
             success: true,
             agentId,
-            averageRating: 0,
+            averageRatingWad: "0",
             totalFeedback: 0,
             message: "No feedback yet for this agent",
             network: NETWORK,
@@ -252,7 +273,7 @@ export function registerErc8004Tools(server: McpServer): void {
         return createJsonResponse({
           success: true,
           agentId: reputation.agentId,
-          averageRating: reputation.averageRating,
+          averageRatingWad: reputation.averageRatingWad,
           totalFeedback: reputation.totalFeedback,
           sumWadValue: reputation.sumWadValue,
           network: NETWORK,
@@ -294,10 +315,8 @@ export function registerErc8004Tools(server: McpServer): void {
           throw new Error("No active wallet. Please unlock your wallet first.");
         }
 
-        const hashBuffer = Buffer.from(requestHash, "hex");
-        if (hashBuffer.length !== 32) {
-          throw new Error("Request hash must be exactly 32 bytes");
-        }
+        const normalizedHash = normalizeHex(requestHash, "requestHash", 32);
+        const hashBuffer = Buffer.from(normalizedHash, "hex");
 
         const feeAmount = fee ? await resolveFee(fee, NETWORK) : undefined;
         const result = await service.requestValidation(
@@ -338,15 +357,9 @@ export function registerErc8004Tools(server: McpServer): void {
     },
     async ({ requestHash }) => {
       try {
-        const walletManager = getWalletManager();
-        const sessionInfo = walletManager.getSessionInfo();
-        const callerAddress =
-          sessionInfo?.address || "ST000000000000000000002AMW42H";
-
-        const hashBuffer = Buffer.from(requestHash, "hex");
-        if (hashBuffer.length !== 32) {
-          throw new Error("Request hash must be exactly 32 bytes");
-        }
+        const callerAddress = getCallerAddress();
+        const normalizedHash = normalizeHex(requestHash, "requestHash", 32);
+        const hashBuffer = Buffer.from(normalizedHash, "hex");
 
         const status = await service.getValidationStatus(hashBuffer, callerAddress);
 
@@ -390,11 +403,7 @@ export function registerErc8004Tools(server: McpServer): void {
     },
     async ({ agentId }) => {
       try {
-        const walletManager = getWalletManager();
-        const sessionInfo = walletManager.getSessionInfo();
-        const callerAddress =
-          sessionInfo?.address || "ST000000000000000000002AMW42H";
-
+        const callerAddress = getCallerAddress();
         const summary = await service.getValidationSummary(agentId, callerAddress);
 
         return createJsonResponse({
