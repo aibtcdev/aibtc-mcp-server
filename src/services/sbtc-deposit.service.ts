@@ -76,6 +76,7 @@ import { getContracts } from "../config/contracts.js";
 import { MempoolApi } from "./mempool-api.js";
 import type { UTXO } from "./mempool-api.js";
 import { deriveTaprootAddress } from "../utils/bitcoin.js";
+import { OrdinalIndexer } from "./ordinal-indexer.js";
 
 /**
  * Result from generating a deposit address
@@ -250,6 +251,8 @@ export class SbtcDepositService {
    * @param privateKey - Optional BTC private key (Uint8Array) to sign the transaction.
    *                     When provided, signs using the sbtc package's internal @scure/btc-signer
    *                     to avoid version mismatch issues. The inputs are P2WPKH from the user's address.
+   * @param includeOrdinals - Include UTXOs with inscriptions (default: false for safety).
+   *                          WARNING: Setting this to true may destroy valuable inscriptions!
    * @returns Transaction hex (signed if privateKey provided), txid, and deposit details
    */
   async buildDepositTransaction(
@@ -260,13 +263,34 @@ export class SbtcDepositService {
     feeRate: number,
     maxSignerFee?: number,
     reclaimLockTime?: number,
-    privateKey?: Uint8Array
+    privateKey?: Uint8Array,
+    includeOrdinals?: boolean
   ): Promise<DepositResult> {
     try {
-      // Fetch UTXOs from mempool.space
-      const utxos = await this.mempoolApi.getUtxos(bitcoinAddress);
+      // Fetch UTXOs - use cardinal UTXOs by default for safety
+      let utxos: UTXO[];
+
+      if (includeOrdinals) {
+        // Power user mode: use all UTXOs
+        utxos = await this.mempoolApi.getUtxos(bitcoinAddress);
+      } else {
+        // Safe mode: only use cardinal UTXOs (no inscriptions)
+        // On testnet, Hiro API is not available, so fall back to all UTXOs
+        if (this.network === "testnet") {
+          utxos = await this.mempoolApi.getUtxos(bitcoinAddress);
+        } else {
+          const indexer = new OrdinalIndexer(this.network);
+          utxos = await indexer.getCardinalUtxos(bitcoinAddress);
+        }
+      }
+
       if (utxos.length === 0) {
-        throw new Error(`No UTXOs found for address ${bitcoinAddress}`);
+        const errorMsg = includeOrdinals
+          ? `No UTXOs found for address ${bitcoinAddress}`
+          : `No cardinal (non-inscription) UTXOs available for deposit. ` +
+            `You may have ordinal UTXOs (containing inscriptions). ` +
+            `Use includeOrdinals=true to override ordinal safety (WARNING: may destroy inscriptions).`;
+        throw new Error(errorMsg);
       }
 
       // Convert to sbtc's UtxoWithTx format (with tx hex)
@@ -453,6 +477,7 @@ export class SbtcDepositService {
    * @param signTransaction - Callback function to sign the transaction hex
    * @param maxSignerFee - Max fee sBTC system can charge (default: 80000 sats)
    * @param reclaimLockTime - Block height when reclaim becomes available (default: 950)
+   * @param includeOrdinals - Include UTXOs with inscriptions (default: false for safety)
    * @returns Broadcast result with txid and notification
    */
   async deposit(
@@ -463,7 +488,8 @@ export class SbtcDepositService {
     feeRate: number,
     signTransaction: (txHex: string) => Promise<string>,
     maxSignerFee?: number,
-    reclaimLockTime?: number
+    reclaimLockTime?: number,
+    includeOrdinals?: boolean
   ): Promise<{ txid: string; notification: unknown }> {
     // Step 1: Build deposit transaction
     const depositResult = await this.buildDepositTransaction(
@@ -473,7 +499,9 @@ export class SbtcDepositService {
       reclaimPublicKey,
       feeRate,
       maxSignerFee,
-      reclaimLockTime
+      reclaimLockTime,
+      undefined, // privateKey - not used in this flow (external signing callback)
+      includeOrdinals
     );
 
     // Step 2: Sign transaction via callback

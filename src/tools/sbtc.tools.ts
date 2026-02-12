@@ -179,7 +179,10 @@ This builds, signs, and broadcasts a Bitcoin transaction to the sBTC deposit add
 After confirmation, sBTC tokens are minted to your Stacks address.
 
 The transaction uses your wallet's Taproot address for the reclaim path.
-If the deposit fails, you can reclaim your BTC after the lock time expires.`,
+If the deposit fails, you can reclaim your BTC after the lock time expires.
+
+By default, only uses cardinal UTXOs (safe to spend - no inscriptions).
+Set includeOrdinals=true to allow spending ordinal UTXOs (advanced users only).`,
       inputSchema: {
         amount: z
           .number()
@@ -214,9 +217,17 @@ If the deposit fails, you can reclaim your BTC after the lock time expires.`,
           .describe(
             "Block height when reclaim becomes available if deposit fails (default: 950 blocks)"
           ),
+        includeOrdinals: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe(
+            "Include ordinal UTXOs (contains inscriptions). Default: false (cardinal only). " +
+            "WARNING: Setting this to true may destroy valuable inscriptions!"
+          ),
       },
     },
-    async ({ amount, feeRate, maxSignerFee, reclaimLockTime }) => {
+    async ({ amount, feeRate, maxSignerFee, reclaimLockTime, includeOrdinals }) => {
       try {
         // Get wallet account (requires unlocked wallet)
         const walletManager = getWalletManager();
@@ -274,7 +285,8 @@ If the deposit fails, you can reclaim your BTC after the lock time expires.`,
           resolvedFeeRate,
           maxSignerFee,
           reclaimLockTime,
-          account.btcPrivateKey // Sign with P2WPKH key (inputs are from user's address)
+          account.btcPrivateKey, // Sign with P2WPKH key (inputs are from user's address)
+          includeOrdinals
         );
 
         // Step 2: Broadcast signed transaction and notify Emily API
