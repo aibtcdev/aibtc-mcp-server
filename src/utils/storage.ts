@@ -40,6 +40,8 @@ export interface WalletAddresses {
   btcAddress?: string;
   /** Bitcoin L1 Taproot address (P2TR - for receiving inscriptions) */
   taprootAddress?: string;
+  /** Sponsor relay API key (optional, per-wallet) */
+  sponsorApiKey?: string;
 }
 
 /**
