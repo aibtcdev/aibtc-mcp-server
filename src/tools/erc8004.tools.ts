@@ -19,11 +19,14 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { NETWORK } from "../config/networks.js";
+import { NETWORK, getExplorerTxUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { getWalletManager } from "../services/wallet-manager.js";
 import { Erc8004Service } from "../services/erc8004.service.js";
 import { resolveFee } from "../utils/fee.js";
+
+const MAX_METADATA_KEY_LENGTH = 128;
+const MAX_METADATA_VALUE_BYTES = 512;
 
 /** Default read-only caller address per network (boot addresses) */
 const DEFAULT_CALLER: Record<string, string> = {
@@ -75,7 +78,7 @@ export function registerErc8004Tools(server: McpServer): void {
         metadata: z
           .array(
             z.object({
-              key: z.string().describe("Metadata key (max 128 chars)"),
+              key: z.string().max(MAX_METADATA_KEY_LENGTH).describe("Metadata key (max 128 chars)"),
               value: z.string().describe("Metadata value as hex string (max 512 bytes)"),
             })
           )
@@ -102,11 +105,15 @@ export function registerErc8004Tools(server: McpServer): void {
         if (metadata && metadata.length > 0) {
           parsedMetadata = metadata.map((m) => {
             const normalized = normalizeHex(m.value, `metadata value for key "${m.key}"`);
-            return { key: m.key, value: Buffer.from(normalized, "hex") };
+            const buf = Buffer.from(normalized, "hex");
+            if (buf.length > MAX_METADATA_VALUE_BYTES) {
+              throw new Error(`metadata value for key "${m.key}" exceeds ${MAX_METADATA_VALUE_BYTES} bytes (got ${buf.length})`);
+            }
+            return { key: m.key, value: buf };
           });
         }
 
-        const feeAmount = fee ? await resolveFee(fee, NETWORK) : undefined;
+        const feeAmount = fee ? await resolveFee(fee, NETWORK, "contract_call") : undefined;
         const result = await service.registerIdentity(account, uri, parsedMetadata, feeAmount);
 
         return createJsonResponse({
@@ -116,7 +123,7 @@ export function registerErc8004Tools(server: McpServer): void {
             "Identity registration transaction submitted. " +
             "Check transaction result to get your agent ID.",
           network: NETWORK,
-          explorerUrl: `https://explorer.stacks.co/txid/${result.txid}?chain=${NETWORK}`,
+          explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
         });
       } catch (error) {
         return createErrorResponse(error);
@@ -212,7 +219,7 @@ export function registerErc8004Tools(server: McpServer): void {
         const hashBuffer = feedbackHash
           ? Buffer.from(normalizeHex(feedbackHash, "feedbackHash", 32), "hex")
           : undefined;
-        const feeAmount = fee ? await resolveFee(fee, NETWORK) : undefined;
+        const feeAmount = fee ? await resolveFee(fee, NETWORK, "contract_call") : undefined;
 
         const result = await service.giveFeedback(
           account,
@@ -235,7 +242,7 @@ export function registerErc8004Tools(server: McpServer): void {
           value,
           decimals,
           network: NETWORK,
-          explorerUrl: `https://explorer.stacks.co/txid/${result.txid}?chain=${NETWORK}`,
+          explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
         });
       } catch (error) {
         return createErrorResponse(error);
@@ -259,7 +266,7 @@ export function registerErc8004Tools(server: McpServer): void {
         const callerAddress = getCallerAddress();
         const reputation = await service.getReputation(agentId, callerAddress);
 
-        if (!reputation || reputation.totalFeedback === 0) {
+        if (reputation.totalFeedback === 0) {
           return createJsonResponse({
             success: true,
             agentId,
@@ -318,7 +325,7 @@ export function registerErc8004Tools(server: McpServer): void {
         const normalizedHash = normalizeHex(requestHash, "requestHash", 32);
         const hashBuffer = Buffer.from(normalizedHash, "hex");
 
-        const feeAmount = fee ? await resolveFee(fee, NETWORK) : undefined;
+        const feeAmount = fee ? await resolveFee(fee, NETWORK, "contract_call") : undefined;
         const result = await service.requestValidation(
           account,
           validator,
@@ -336,7 +343,7 @@ export function registerErc8004Tools(server: McpServer): void {
           agentId,
           requestHash,
           network: NETWORK,
-          explorerUrl: `https://explorer.stacks.co/txid/${result.txid}?chain=${NETWORK}`,
+          explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
         });
       } catch (error) {
         return createErrorResponse(error);

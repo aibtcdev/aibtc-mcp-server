@@ -252,7 +252,7 @@ export class Erc8004Service {
   /**
    * Get aggregated reputation for an agent
    */
-  async getReputation(agentId: number, callerAddress: string): Promise<ReputationSummary | null> {
+  async getReputation(agentId: number, callerAddress: string): Promise<ReputationSummary> {
     const result = await this.hiro.callReadOnlyFunction(
       this.contracts.reputationRegistry,
       "get-agent-reputation",
@@ -261,12 +261,16 @@ export class Erc8004Service {
     );
 
     if (!result.okay || !result.result) {
-      return null;
+      throw new Error(
+        `Failed to read reputation for agent ${agentId}: ${result.cause || "unknown error"}`
+      );
     }
 
     const data = cvToJSON(hexToCV(result.result));
     if (!data.success) {
-      return null;
+      throw new Error(
+        `Failed to parse reputation response for agent ${agentId}`
+      );
     }
 
     const rep = data.value.value;
