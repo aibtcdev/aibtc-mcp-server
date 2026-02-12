@@ -281,7 +281,7 @@ function getMiddlewareTemplate(): string {
  * - https://github.com/aibtcdev/x402-api
  * - https://github.com/whoabuddy/stx402
  *
- * Uses the x402-stacks library for payment verification.
+ * Uses the x402-stacks v2 library for payment verification.
  */
 
 import type { Context, Next } from 'hono';
@@ -592,7 +592,7 @@ function getPackageJsonTemplate(projectName: string): string {
   },
   "dependencies": {
     "hono": "^4.7.0",
-    "x402-stacks": "^1.1.1"
+    "x402-stacks": "^2.0.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250109.0",
@@ -1146,7 +1146,7 @@ function getAIPackageJsonTemplate(projectName: string): string {
   },
   "dependencies": {
     "hono": "^4.7.0",
-    "x402-stacks": "^1.1.1"
+    "x402-stacks": "^2.0.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250109.0",

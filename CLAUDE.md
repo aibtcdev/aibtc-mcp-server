@@ -169,12 +169,20 @@ The sBTC bridge enables Bitcoin L1 to be deposited and minted as sBTC on Stacks 
 
 ### x402 Payment Flow
 
+The MCP server uses x402-stacks v2 for automatic payment handling:
+
+**Client-side (MCP server):**
 1. Client makes request to x402 endpoint
 2. Endpoint returns HTTP 402 with payment requirements
-3. `withPaymentInterceptor` from x402-stacks intercepts the 402
+3. `wrapAxiosWithPayment` from x402-stacks v2 intercepts the 402
 4. Interceptor signs and broadcasts payment transaction
-5. Request is retried with payment proof
+5. Request is retried with payment proof header
 6. Endpoint returns actual response
+
+**Server-side (generated scaffold projects):**
+- Use `X402PaymentVerifier` from x402-stacks v2 for payment verification
+- Verify payment via facilitator before granting access
+- Scaffold templates include v2 middleware with proper error handling
 
 ## Configuration
 
@@ -429,7 +437,14 @@ Autonomous sBTC yield hunting — monitors wallet and deposits to Zest Protocol:
 - `yield_hunter_configure` - Adjust threshold, reserve, or interval on the fly
 
 ### x402 API Endpoints
-- `execute_x402_endpoint` - Execute ANY x402 endpoint URL with automatic payment handling. Can use full URL or path+apiUrl.
+- `execute_x402_endpoint` - Execute ANY x402 endpoint URL with automatic payment handling
+  - `url`: Full x402-compatible URL (e.g., `"https://stx402.com/api/ai/joke"`)
+  - `path`: Endpoint path (e.g., `"/api/pools/trending"`) - requires `apiUrl` parameter
+  - `apiUrl`: Base URL for path-based requests (default: `https://x402.biwas.xyz`)
+  - `method`: HTTP method (default: `"GET"`)
+  - `data`: Optional request body for POST requests
+  - The `url` parameter takes precedence over `path` + `apiUrl` when both are provided
+  - Works with ANY x402-compatible endpoint from any service
 
 ### x402 Endpoint Scaffolding
 - `scaffold_x402_endpoint` - Generate a complete Cloudflare Worker project with x402 payment integration
@@ -827,6 +842,10 @@ Bitcoin inscriptions (ordinals) are valuable digital artifacts stored in transac
 - Market Data, Pools, Tokens
 
 **x402.aibtc.com:**
+- **Inbox Messaging** (on-chain message storage)
+  - GET `/api/inbox/{address}` - Retrieve messages (FREE)
+  - POST `/api/inbox/{address}` - Send message (0.00001 sBTC)
+  - DELETE `/api/inbox/{address}/{messageId}` - Delete message (FREE)
 - Inference (OpenRouter, Cloudflare AI)
 - Stacks Utilities (address conversion, tx decode, profile)
 - Hashing (SHA256, Keccak256, Hash160)
