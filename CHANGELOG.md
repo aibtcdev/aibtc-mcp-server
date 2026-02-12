@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.19.1...v1.19.2) (2026-02-12)
+
+
+### Bug Fixes
+
+* correct contract call arguments in sbtc_transfer, give_feedback, and get_reputation ([#103](https://github.com/aibtcdev/aibtc-mcp-server/issues/103)) ([b10bfa4](https://github.com/aibtcdev/aibtc-mcp-server/commit/b10bfa40b41e6412d8fef4e856dd0e910bcd0474)), closes [#102](https://github.com/aibtcdev/aibtc-mcp-server/issues/102)
+
 ## [1.19.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.19.0...v1.19.1) (2026-02-12)
 
 
