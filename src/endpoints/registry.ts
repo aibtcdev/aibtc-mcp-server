@@ -529,7 +529,7 @@ const AIBTC_INBOX_PAID_ENDPOINTS: X402Endpoint[] = [
     path: "/api/inbox/{address}",
     method: "POST",
     description: "Send a message to an address",
-    cost: "0.00001 sBTC",
+    cost: "0.000001 sBTC",
     category: "Inbox",
     source: "aibtc.com",
     params: { address: "Recipient Stacks address" },

@@ -158,14 +158,22 @@ Use list_x402_endpoints to discover available endpoints.`,
       },
     },
     async ({ method, url, path, apiUrl, params, data }) => {
-      try {
-        let baseUrl: string;
-        let requestPath: string;
+      let baseUrl = "";
+      let requestPath = "";
 
+      try {
         if (url) {
           const parsed = new URL(url);
+          if (parsed.protocol !== "https:") {
+            throw new Error("Only HTTPS URLs are allowed for x402 endpoints");
+          }
           baseUrl = `${parsed.protocol}//${parsed.host}`;
-          requestPath = parsed.pathname + parsed.search;
+          requestPath = parsed.pathname;
+          // Merge URL query params into params to avoid duplication
+          if (parsed.search) {
+            const urlParams = Object.fromEntries(parsed.searchParams);
+            params = { ...urlParams, ...params };
+          }
         } else if (path) {
           baseUrl = apiUrl || API_URL;
           requestPath = path;
@@ -173,16 +181,20 @@ Use list_x402_endpoints to discover available endpoints.`,
           throw new Error("Either 'url' or 'path' parameter must be provided");
         }
 
+        if (apiUrl && !apiUrl.startsWith("https://")) {
+          throw new Error("Only HTTPS URLs are allowed for x402 endpoints");
+        }
+
         const api = await createApiClient(baseUrl);
         const response = await api.request({ method, url: requestPath, params, data });
-        const endpoint = url || `${baseUrl}${requestPath}`;
+        const endpoint = `${baseUrl}${requestPath}`;
 
         return createJsonResponse({
           endpoint: `${method} ${endpoint}`,
           response: response.data,
         });
       } catch (error) {
-        const endpoint = url || path || "unknown";
+        const endpoint = baseUrl ? `${baseUrl}${requestPath}` : (url || path || "unknown");
         let message = "Unknown error";
         if (error instanceof Error) {
           message = error.message;

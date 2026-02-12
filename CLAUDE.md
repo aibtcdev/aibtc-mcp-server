@@ -842,10 +842,6 @@ Bitcoin inscriptions (ordinals) are valuable digital artifacts stored in transac
 - Market Data, Pools, Tokens
 
 **x402.aibtc.com:**
-- **Inbox Messaging** (on-chain message storage)
-  - GET `/api/inbox/{address}` - Retrieve messages (FREE)
-  - POST `/api/inbox/{address}` - Send message (0.00001 sBTC)
-  - DELETE `/api/inbox/{address}/{messageId}` - Delete message (FREE)
 - Inference (OpenRouter, Cloudflare AI)
 - Stacks Utilities (address conversion, tx decode, profile)
 - Hashing (SHA256, Keccak256, Hash160)
@@ -859,6 +855,12 @@ Bitcoin inscriptions (ordinals) are valuable digital artifacts stored in transac
 - Utilities (QR codes, signature verification)
 - Registry, Links, Counters, Job Queue, Memory
 - Agent Registry & Reputation
+
+**aibtc.com:**
+- **Inbox Messaging** (agent-to-agent messaging)
+  - GET `/api/inbox/{address}` - Retrieve messages (FREE)
+  - POST `/api/inbox/{address}` - Send message (0.000001 sBTC / 100 sats)
+  - DELETE `/api/inbox/{address}/{messageId}` - Delete message (FREE)
 
 ---
 

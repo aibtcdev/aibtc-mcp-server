@@ -592,7 +592,7 @@ function getPackageJsonTemplate(projectName: string): string {
   },
   "dependencies": {
     "hono": "^4.7.0",
-    "x402-stacks": "^2.0.0"
+    "x402-stacks": "^2.0.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250109.0",
@@ -1146,7 +1146,7 @@ function getAIPackageJsonTemplate(projectName: string): string {
   },
   "dependencies": {
     "hono": "^4.7.0",
-    "x402-stacks": "^2.0.0"
+    "x402-stacks": "^2.0.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250109.0",
