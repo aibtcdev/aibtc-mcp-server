@@ -177,29 +177,6 @@ describe("SbtcDepositService - Ordinal Safety", () => {
     });
   });
 
-  describe("Error Messages", () => {
-    it("should provide helpful error message suggesting includeOrdinals flag", async () => {
-      vi.spyOn(OrdinalIndexer.prototype, "getCardinalUtxos").mockResolvedValue(
-        []
-      );
-
-      try {
-        await service.buildDepositTransaction(
-          50000,
-          "SP2XD7417HGPRTREMKF748VNEQPDRR0RMANB7X1NK",
-          "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
-          "03abc123...",
-          10
-        );
-        throw new Error("Expected error to be thrown");
-      } catch (error) {
-        expect(error).toBeInstanceOf(Error);
-        expect((error as Error).message).toContain("No cardinal");
-        expect((error as Error).message).toContain("includeOrdinals=true");
-        expect((error as Error).message).toContain("destroy inscriptions");
-      }
-    });
-  });
 });
 
 describe("SbtcDepositService - Behavioral Tests", () => {

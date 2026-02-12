@@ -70,12 +70,10 @@ import {
   sbtcDepositHelper,
 } from "sbtc";
 import type { BitcoinNetwork } from "sbtc";
-import * as btc from "@scure/btc-signer";
 import type { Network } from "../config/networks.js";
 import { getContracts } from "../config/contracts.js";
 import { MempoolApi } from "./mempool-api.js";
 import type { UTXO } from "./mempool-api.js";
-import { deriveTaprootAddress } from "../utils/bitcoin.js";
 import { OrdinalIndexer } from "./ordinal-indexer.js";
 
 /**

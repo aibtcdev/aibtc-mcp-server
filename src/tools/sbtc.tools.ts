@@ -6,7 +6,7 @@ import { getSbtcDepositService } from "../services/sbtc-deposit.service.js";
 import { getExplorerTxUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse, resolveFee } from "../utils/index.js";
 import { getWalletManager } from "../services/wallet-manager.js";
-import { getMempoolTxUrl } from "../services/mempool-api.js";
+import { MempoolApi, getMempoolTxUrl } from "../services/mempool-api.js";
 
 export function registerSbtcTools(server: McpServer): void {
   // Get sBTC balance
@@ -250,7 +250,6 @@ Set includeOrdinals=true to allow spending ordinal UTXOs (advanced users only).`
         if (typeof feeRate === "number") {
           resolvedFeeRate = feeRate;
         } else {
-          const { MempoolApi } = await import("../services/mempool-api.js");
           const api = new MempoolApi(NETWORK);
           const feeTiers = await api.getFeeTiers();
           switch (feeRate) {
