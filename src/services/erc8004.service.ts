@@ -19,8 +19,7 @@ import {
 import { HiroApiService, getHiroApi } from "./hiro-api.js";
 import { getErc8004Contracts, parseContractId, type Network } from "../config/index.js";
 import { callContract, type Account, type TransferResult } from "../transactions/builder.js";
-import { getSponsorApiKey } from "../config/sponsor.js";
-import { callContractSponsored } from "../transactions/sponsor-builder.js";
+import { sponsoredContractCall } from "../transactions/sponsor-builder.js";
 
 // ============================================================================
 // Types
@@ -121,46 +120,19 @@ export class Erc8004Service {
       functionArgs = [];
     }
 
-    if (sponsored) {
-      const apiKey = account.sponsorApiKey || getSponsorApiKey();
-      if (!apiKey) {
-        throw new Error(
-          "Sponsored transactions require SPONSOR_API_KEY environment variable or wallet-level sponsorApiKey"
-        );
-      }
-
-      const response = await callContractSponsored(
-        {
-          senderKey: account.privateKey,
-          contractAddress: address,
-          contractName: name,
-          functionName,
-          functionArgs,
-          network: this.network,
-        },
-        apiKey
-      );
-
-      if (!response.success) {
-        const errorMsg = response.error || "Sponsor relay request failed";
-        const details = response.details ? ` (${response.details})` : "";
-        const retryInfo = response.retryable ? ` [Retryable after ${response.retryAfter}s]` : "";
-        throw new Error(`${errorMsg}${details}${retryInfo}`);
-      }
-
-      return {
-        txid: response.txid!,
-        rawTx: "",
-      };
-    }
-
-    return callContract(account, {
+    const contractCallOptions = {
       contractAddress: address,
       contractName: name,
       functionName,
       functionArgs,
       fee,
-    });
+    };
+
+    if (sponsored) {
+      return sponsoredContractCall(account, contractCallOptions, this.network);
+    }
+
+    return callContract(account, contractCallOptions);
   }
 
   /**
@@ -240,46 +212,19 @@ export class Erc8004Service {
   ): Promise<TransferResult> {
     const { address, name } = parseContractId(this.contracts.identityRegistry);
 
-    if (sponsored) {
-      const apiKey = account.sponsorApiKey || getSponsorApiKey();
-      if (!apiKey) {
-        throw new Error(
-          "Sponsored transactions require SPONSOR_API_KEY environment variable or wallet-level sponsorApiKey"
-        );
-      }
-
-      const response = await callContractSponsored(
-        {
-          senderKey: account.privateKey,
-          contractAddress: address,
-          contractName: name,
-          functionName: "set-agent-uri",
-          functionArgs: [uintCV(agentId), stringUtf8CV(newUri)],
-          network: this.network,
-        },
-        apiKey
-      );
-
-      if (!response.success) {
-        const errorMsg = response.error || "Sponsor relay request failed";
-        const details = response.details ? ` (${response.details})` : "";
-        const retryInfo = response.retryable ? ` [Retryable after ${response.retryAfter}s]` : "";
-        throw new Error(`${errorMsg}${details}${retryInfo}`);
-      }
-
-      return {
-        txid: response.txid!,
-        rawTx: "",
-      };
-    }
-
-    return callContract(account, {
+    const contractCallOptions = {
       contractAddress: address,
       contractName: name,
       functionName: "set-agent-uri",
       functionArgs: [uintCV(agentId), stringUtf8CV(newUri)],
       fee,
-    });
+    };
+
+    if (sponsored) {
+      return sponsoredContractCall(account, contractCallOptions, this.network);
+    }
+
+    return callContract(account, contractCallOptions);
   }
 
   // ==========================================================================
@@ -315,46 +260,19 @@ export class Erc8004Service {
       bufferCV(feedbackHash || Buffer.alloc(32)),
     ];
 
-    if (sponsored) {
-      const apiKey = account.sponsorApiKey || getSponsorApiKey();
-      if (!apiKey) {
-        throw new Error(
-          "Sponsored transactions require SPONSOR_API_KEY environment variable or wallet-level sponsorApiKey"
-        );
-      }
-
-      const response = await callContractSponsored(
-        {
-          senderKey: account.privateKey,
-          contractAddress: address,
-          contractName: name,
-          functionName: "give-feedback",
-          functionArgs,
-          network: this.network,
-        },
-        apiKey
-      );
-
-      if (!response.success) {
-        const errorMsg = response.error || "Sponsor relay request failed";
-        const details = response.details ? ` (${response.details})` : "";
-        const retryInfo = response.retryable ? ` [Retryable after ${response.retryAfter}s]` : "";
-        throw new Error(`${errorMsg}${details}${retryInfo}`);
-      }
-
-      return {
-        txid: response.txid!,
-        rawTx: "",
-      };
-    }
-
-    return callContract(account, {
+    const contractCallOptions = {
       contractAddress: address,
       contractName: name,
       functionName: "give-feedback",
       functionArgs,
       fee,
-    });
+    };
+
+    if (sponsored) {
+      return sponsoredContractCall(account, contractCallOptions, this.network);
+    }
+
+    return callContract(account, contractCallOptions);
   }
 
   /**
@@ -474,46 +392,19 @@ export class Erc8004Service {
       bufferCV(requestHash),
     ];
 
-    if (sponsored) {
-      const apiKey = account.sponsorApiKey || getSponsorApiKey();
-      if (!apiKey) {
-        throw new Error(
-          "Sponsored transactions require SPONSOR_API_KEY environment variable or wallet-level sponsorApiKey"
-        );
-      }
-
-      const response = await callContractSponsored(
-        {
-          senderKey: account.privateKey,
-          contractAddress: address,
-          contractName: name,
-          functionName: "validation-request",
-          functionArgs,
-          network: this.network,
-        },
-        apiKey
-      );
-
-      if (!response.success) {
-        const errorMsg = response.error || "Sponsor relay request failed";
-        const details = response.details ? ` (${response.details})` : "";
-        const retryInfo = response.retryable ? ` [Retryable after ${response.retryAfter}s]` : "";
-        throw new Error(`${errorMsg}${details}${retryInfo}`);
-      }
-
-      return {
-        txid: response.txid!,
-        rawTx: "",
-      };
-    }
-
-    return callContract(account, {
+    const contractCallOptions = {
       contractAddress: address,
       contractName: name,
       functionName: "validation-request",
       functionArgs,
       fee,
-    });
+    };
+
+    if (sponsored) {
+      return sponsoredContractCall(account, contractCallOptions, this.network);
+    }
+
+    return callContract(account, contractCallOptions);
   }
 
   /**

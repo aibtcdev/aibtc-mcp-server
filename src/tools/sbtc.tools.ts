@@ -7,6 +7,7 @@ import { getExplorerTxUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse, resolveFee } from "../utils/index.js";
 import { getWalletManager } from "../services/wallet-manager.js";
 import { MempoolApi, getMempoolTxUrl } from "../services/mempool-api.js";
+import { sponsoredSchema } from "./schemas.js";
 
 export function registerSbtcTools(server: McpServer): void {
   // Get sBTC balance
@@ -57,15 +58,7 @@ Example: To send 0.001 sBTC, use amount "100000" (satoshis).`,
           .string()
           .optional()
           .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount. If omitted, auto-estimated."),
-        sponsored: z
-          .boolean()
-          .optional()
-          .default(false)
-          .describe(
-            "Use sponsored transaction relay to pay fees with a relay service instead of your own wallet. " +
-            "Requires SPONSOR_API_KEY environment variable or wallet-level sponsorApiKey. " +
-            "Free tier: 10 req/min, 100 req/day, 100 STX/day spending cap."
-          ),
+        sponsored: sponsoredSchema,
       },
     },
     async ({ recipient, amount, memo, fee, sponsored }) => {

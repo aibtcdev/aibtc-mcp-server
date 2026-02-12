@@ -24,6 +24,7 @@ import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { getWalletManager } from "../services/wallet-manager.js";
 import { Erc8004Service } from "../services/erc8004.service.js";
 import { resolveFee } from "../utils/fee.js";
+import { sponsoredSchema } from "./schemas.js";
 
 const MAX_METADATA_KEY_LENGTH = 128;
 const MAX_METADATA_VALUE_BYTES = 512;
@@ -90,15 +91,7 @@ export function registerErc8004Tools(server: McpServer): void {
           .string()
           .optional()
           .describe('Fee preset ("low", "medium", "high") or micro-STX amount. Optional.'),
-        sponsored: z
-          .boolean()
-          .optional()
-          .default(false)
-          .describe(
-            "Use sponsored transaction relay to pay fees with a relay service instead of your own wallet. " +
-            "Requires SPONSOR_API_KEY environment variable or wallet-level sponsorApiKey. " +
-            "Free tier: 10 req/min, 100 req/day, 100 STX/day spending cap."
-          ),
+        sponsored: sponsoredSchema,
       },
     },
     async ({ uri, metadata, fee, sponsored }) => {
@@ -215,15 +208,7 @@ export function registerErc8004Tools(server: McpServer): void {
           .string()
           .optional()
           .describe('Fee preset ("low", "medium", "high") or micro-STX amount. Optional.'),
-        sponsored: z
-          .boolean()
-          .optional()
-          .default(false)
-          .describe(
-            "Use sponsored transaction relay to pay fees with a relay service instead of your own wallet. " +
-            "Requires SPONSOR_API_KEY environment variable or wallet-level sponsorApiKey. " +
-            "Free tier: 10 req/min, 100 req/day, 100 STX/day spending cap."
-          ),
+        sponsored: sponsoredSchema,
       },
     },
     async ({ agentId, value, decimals, tag1, tag2, endpoint, feedbackUri, feedbackHash, fee, sponsored }) => {
@@ -331,15 +316,7 @@ export function registerErc8004Tools(server: McpServer): void {
           .string()
           .optional()
           .describe('Fee preset ("low", "medium", "high") or micro-STX amount. Optional.'),
-        sponsored: z
-          .boolean()
-          .optional()
-          .default(false)
-          .describe(
-            "Use sponsored transaction relay to pay fees with a relay service instead of your own wallet. " +
-            "Requires SPONSOR_API_KEY environment variable or wallet-level sponsorApiKey. " +
-            "Free tier: 10 req/min, 100 req/day, 100 STX/day spending cap."
-          ),
+        sponsored: sponsoredSchema,
       },
     },
     async ({ validator, agentId, requestUri, requestHash, fee, sponsored }) => {
