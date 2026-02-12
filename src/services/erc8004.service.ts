@@ -140,12 +140,14 @@ export class Erc8004Service {
     );
 
     if (!ownerResult.okay || !ownerResult.result) {
-      return null;
+      throw new Error(
+        `Failed to read identity for agent ${agentId}: ${(ownerResult as any).cause || "read-only call failed"}`
+      );
     }
 
     const ownerData = cvToJSON(hexToCV(ownerResult.result));
     if (!ownerData.success || ownerData.value.value === null) {
-      return null;
+      return null; // Contract returned (none) — agent not found
     }
 
     const owner = ownerData.value.value.value;
@@ -422,12 +424,16 @@ export class Erc8004Service {
     );
 
     if (!result.okay || !result.result) {
-      return { count: 0, avgResponse: 0 };
+      throw new Error(
+        `Failed to read validation summary for agent ${agentId}: ${(result as any).cause || "read-only call failed"}`
+      );
     }
 
     const data = cvToJSON(hexToCV(result.result));
     if (!data.success) {
-      return { count: 0, avgResponse: 0 };
+      throw new Error(
+        `Failed to parse validation summary for agent ${agentId}`
+      );
     }
 
     const summary = data.value.value;
