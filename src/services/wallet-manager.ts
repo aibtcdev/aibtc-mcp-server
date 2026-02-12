@@ -15,11 +15,15 @@ import {
   removeWalletFromIndex,
   deleteWalletStorage,
   updateWalletMetadata,
+  backupKeystore,
+  restoreKeystoreBackup,
+  deleteKeystoreBackup,
   type WalletMetadata,
   type KeystoreFile,
   type WalletAddresses,
 } from "../utils/index.js";
 import {
+  WalletError,
   WalletNotFoundError,
   InvalidPasswordError,
   InvalidMnemonicError,
@@ -463,6 +467,117 @@ class WalletManager {
     } catch {
       throw new InvalidPasswordError();
     }
+  }
+
+  /**
+   * Rotate wallet password (atomic: backup → re-encrypt → verify → cleanup)
+   */
+  async rotatePassword(
+    walletId: string,
+    oldPassword: string,
+    newPassword: string
+  ): Promise<void> {
+    await this.ensureInitialized();
+
+    // Validate new password
+    if (newPassword.length < 8) {
+      throw new WalletError("New password must be at least 8 characters");
+    }
+    if (oldPassword === newPassword) {
+      throw new WalletError("New password must be different from old password");
+    }
+
+    // Verify wallet exists in index
+    const index = await readWalletIndex();
+    const walletMeta = index.wallets.find((w) => w.id === walletId);
+    if (!walletMeta) {
+      throw new WalletNotFoundError(walletId);
+    }
+
+    // Read keystore
+    let keystore: KeystoreFile;
+    try {
+      keystore = await readKeystore(walletId);
+    } catch {
+      throw new WalletNotFoundError(walletId);
+    }
+
+    // Decrypt mnemonic with old password
+    let mnemonic: string;
+    try {
+      mnemonic = await decrypt(keystore.encrypted, oldPassword);
+    } catch {
+      throw new InvalidPasswordError();
+    }
+
+    // Verify derived address matches wallet metadata (integrity check)
+    const wallet = await generateWallet({
+      secretKey: mnemonic,
+      password: "",
+    });
+    const derivedAddress = getStxAddress(wallet.accounts[0], walletMeta.network);
+    if (derivedAddress !== walletMeta.address) {
+      throw new WalletError(
+        "Keystore integrity check failed: derived address does not match wallet metadata"
+      );
+    }
+
+    // Backup keystore before modifying
+    await backupKeystore(walletId);
+
+    try {
+      // Re-encrypt mnemonic with new password
+      const newEncrypted = await encrypt(mnemonic, newPassword);
+      const newKeystore: KeystoreFile = {
+        ...keystore,
+        encrypted: newEncrypted,
+      };
+      await writeKeystore(walletId, newKeystore);
+
+      // Verify round-trip: read back, decrypt with new password, check address
+      const verifyKeystore = await readKeystore(walletId);
+      const verifyMnemonic = await decrypt(verifyKeystore.encrypted, newPassword);
+      const verifyWallet = await generateWallet({
+        secretKey: verifyMnemonic,
+        password: "",
+      });
+      const verifyAddress = getStxAddress(
+        verifyWallet.accounts[0],
+        walletMeta.network
+      );
+      if (verifyAddress !== walletMeta.address) {
+        throw new Error("Round-trip verification failed: address mismatch");
+      }
+
+      // Verify old password is rejected
+      let oldPasswordStillWorks = false;
+      try {
+        await decrypt(verifyKeystore.encrypted, oldPassword);
+        oldPasswordStillWorks = true;
+      } catch {
+        // Expected: old password should fail
+      }
+      if (oldPasswordStillWorks) {
+        throw new Error(
+          "Verification failed: old password still decrypts the keystore"
+        );
+      }
+    } catch (error) {
+      // Restore from backup on any failure
+      await restoreKeystoreBackup(walletId);
+      throw error;
+    }
+
+    // All verifications passed — clean up backup
+    await deleteKeystoreBackup(walletId);
+
+    // Lock wallet if currently unlocked (force re-auth with new password)
+    if (this.session?.walletId === walletId) {
+      this.lock();
+    }
+
+    // Clear mnemonic from memory
+    mnemonic = "";
   }
 
   /**

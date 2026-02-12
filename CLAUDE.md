@@ -251,6 +251,7 @@ Tools for creating and managing Bitcoin inscriptions (ordinals):
 - `wallet_switch` - Switch active wallet
 - `wallet_delete` - Permanently delete a wallet
 - `wallet_export` - Export mnemonic (with security warning)
+- `wallet_rotate_password` - Change wallet keystore password (atomic backup → re-encrypt → verify)
 - `wallet_status` - Get current wallet/session status
 
 ### Stacks L2 Transactions
@@ -762,6 +763,7 @@ Bitcoin inscriptions (ordinals) are valuable digital artifacts stored in transac
 | "Send 50000 sats to bc1q..." | `transfer_btc` with recipient, amount=50000 |
 | "Transfer 0.001 BTC with fast fees" | `transfer_btc` with amount=100000, feeRate="fast" |
 | "Show my wallet" | `get_wallet_info` (returns btcAddress and address) |
+| "Change my wallet password" | `wallet_rotate_password` with old and new passwords |
 | **Stacks L2** | |
 | "What's my STX balance?" | `get_stx_balance` (explicit L2 request) |
 | "What are current STX fees?" | `get_stx_fees` to get low/medium/high estimates |

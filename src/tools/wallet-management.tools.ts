@@ -380,6 +380,63 @@ WARNING: Only use this in a secure environment! Anyone with the mnemonic can acc
   );
 
   /**
+   * Rotate wallet password
+   */
+  server.registerTool(
+    "wallet_rotate_password",
+    {
+      description: `Change the password for a wallet's encrypted keystore.
+Performs an atomic operation: backs up the keystore, re-encrypts with the new password, verifies the round-trip, then cleans up. If anything fails, the original keystore is restored.
+If the wallet is currently unlocked, it will be locked after rotation (requires re-unlock with new password).`,
+      inputSchema: {
+        walletId: z
+          .string()
+          .optional()
+          .describe("Wallet ID to rotate password for (uses active wallet if not specified)"),
+        oldPassword: z.string().describe("Current wallet password - WARNING: sensitive value"),
+        newPassword: z
+          .string()
+          .min(8)
+          .describe("New password (minimum 8 characters) - WARNING: sensitive value"),
+      },
+    },
+    async ({ walletId, oldPassword, newPassword }) => {
+      try {
+        const walletManager = getWalletManager();
+
+        // Resolve wallet ID
+        let targetWalletId: string | undefined = walletId;
+        if (!targetWalletId) {
+          const activeId = await walletManager.getActiveWalletId();
+          if (!activeId) {
+            return createErrorResponse(
+              new Error(
+                "No wallet specified and no active wallet set. Use wallet_list to see available wallets."
+              )
+            );
+          }
+          targetWalletId = activeId;
+        }
+
+        await walletManager.rotatePassword(
+          targetWalletId,
+          oldPassword,
+          newPassword
+        );
+
+        return createJsonResponse({
+          success: true,
+          message:
+            "Password rotated successfully. The wallet has been locked — use wallet_unlock with the new password.",
+          walletId: targetWalletId,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  /**
    * Set auto-lock timeout
    */
   server.registerTool(
