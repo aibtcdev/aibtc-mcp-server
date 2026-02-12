@@ -34,7 +34,11 @@ export interface SponsorRelayResponse {
 function formatRelayError(response: SponsorRelayResponse): string {
   const errorMsg = response.error || "Sponsor relay request failed";
   const details = response.details ? ` (${response.details})` : "";
-  const retryInfo = response.retryable ? ` [Retryable after ${response.retryAfter}s]` : "";
+  const retryInfo = response.retryable
+    ? typeof response.retryAfter === "number"
+      ? ` [Retryable after ${response.retryAfter}s]`
+      : " [Retryable; try again later]"
+    : "";
   return `${errorMsg}${details}${retryInfo}`;
 }
 
@@ -86,7 +90,7 @@ export async function sponsoredContractCall(
     throw new Error(formatRelayError(response));
   }
 
-  return { txid: response.txid!, rawTx: "" };
+  return { txid: response.txid!, rawTx: serializedTx };
 }
 
 /**
@@ -131,7 +135,18 @@ async function submitToSponsorRelay(
     body: JSON.stringify({ transaction }),
   });
 
-  const data = await response.json();
+  const responseText = await response.text();
+
+  let data: SponsorRelayResponse;
+  try {
+    data = JSON.parse(responseText);
+  } catch {
+    data = {
+      success: false,
+      error: `Sponsor relay returned non-JSON response (status ${response.status})`,
+      details: responseText || undefined,
+    };
+  }
 
   if (!response.ok || !data.success) {
     return {

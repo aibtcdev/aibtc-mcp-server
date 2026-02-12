@@ -240,6 +240,7 @@ class WalletManager {
       btcPublicKey,
       taprootPrivateKey,
       taprootPublicKey,
+      sponsorApiKey: walletMeta.sponsorApiKey,
       network: walletMeta.network,
     };
 
