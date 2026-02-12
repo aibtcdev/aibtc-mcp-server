@@ -1,4 +1,4 @@
-import { ClarityValue, uintCV, principalCV } from "@stacks/transactions";
+import { ClarityValue, uintCV, principalCV, someCV, noneCV, bufferCV } from "@stacks/transactions";
 import { HiroApiService, getHiroApi } from "./hiro-api.js";
 import { getContracts, parseContractId, type Network } from "../config/index.js";
 import { callContract, type Account, type TransferResult } from "../transactions/builder.js";
@@ -78,13 +78,8 @@ export class SbtcService {
       uintCV(amount),
       principalCV(account.address),
       principalCV(recipient),
+      memo ? someCV(bufferCV(Buffer.from(memo).subarray(0, 34))) : noneCV(),
     ];
-
-    // Add memo if provided
-    if (memo) {
-      // sBTC transfer typically has an optional memo parameter
-      // Implementation depends on the specific sBTC contract version
-    }
 
     const contractCallOptions = {
       contractAddress,

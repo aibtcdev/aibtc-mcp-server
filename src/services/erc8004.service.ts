@@ -8,6 +8,7 @@
 import {
   ClarityValue,
   uintCV,
+  intCV,
   stringUtf8CV,
   bufferCV,
   principalCV,
@@ -34,9 +35,9 @@ export interface IdentityInfo {
 
 export interface ReputationSummary {
   agentId: number;
-  averageRatingWad: string;
   totalFeedback: number;
-  sumWadValue: string;
+  summaryValue: string;
+  summaryValueDecimals: number;
 }
 
 export interface FeedbackEntry {
@@ -251,7 +252,7 @@ export class Erc8004Service {
 
     const functionArgs = [
       uintCV(agentId),
-      uintCV(value),
+      intCV(value),
       uintCV(valueDecimals),
       stringUtf8CV(tag1 || ""),
       stringUtf8CV(tag2 || ""),
@@ -281,7 +282,7 @@ export class Erc8004Service {
   async getReputation(agentId: number, callerAddress: string): Promise<ReputationSummary> {
     const result = await this.hiro.callReadOnlyFunction(
       this.contracts.reputationRegistry,
-      "get-agent-reputation",
+      "get-summary",
       [uintCV(agentId)],
       callerAddress
     );
@@ -302,9 +303,9 @@ export class Erc8004Service {
     const rep = data.value.value;
     return {
       agentId,
-      averageRatingWad: rep["avg-rating"].value,
       totalFeedback: parseInt(rep.count.value, 10),
-      sumWadValue: rep["sum-wad-value"].value,
+      summaryValue: rep["summary-value"].value,
+      summaryValueDecimals: parseInt(rep["summary-value-decimals"].value, 10),
     };
   }
 

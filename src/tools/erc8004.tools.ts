@@ -274,8 +274,9 @@ export function registerErc8004Tools(server: McpServer): void {
           return createJsonResponse({
             success: true,
             agentId,
-            averageRatingWad: "0",
             totalFeedback: 0,
+            summaryValue: "0",
+            summaryValueDecimals: 0,
             message: "No feedback yet for this agent",
             network: NETWORK,
           });
@@ -284,9 +285,9 @@ export function registerErc8004Tools(server: McpServer): void {
         return createJsonResponse({
           success: true,
           agentId: reputation.agentId,
-          averageRatingWad: reputation.averageRatingWad,
           totalFeedback: reputation.totalFeedback,
-          sumWadValue: reputation.sumWadValue,
+          summaryValue: reputation.summaryValue,
+          summaryValueDecimals: reputation.summaryValueDecimals,
           network: NETWORK,
         });
       } catch (error) {
