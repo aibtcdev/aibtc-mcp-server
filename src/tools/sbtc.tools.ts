@@ -57,14 +57,23 @@ Example: To send 0.001 sBTC, use amount "100000" (satoshis).`,
           .string()
           .optional()
           .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount. If omitted, auto-estimated."),
+        sponsored: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe(
+            "Use sponsored transaction relay to pay fees with a relay service instead of your own wallet. " +
+            "Requires SPONSOR_API_KEY environment variable or wallet-level sponsorApiKey. " +
+            "Free tier: 10 req/min, 100 req/day, 100 STX/day spending cap."
+          ),
       },
     },
-    async ({ recipient, amount, memo, fee }) => {
+    async ({ recipient, amount, memo, fee, sponsored }) => {
       try {
         const sbtcService = getSbtcService(NETWORK);
         const account = await getAccount();
         const resolvedFee = await resolveFee(fee, NETWORK, "contract_call");
-        const result = await sbtcService.transfer(account, recipient, BigInt(amount), memo, resolvedFee);
+        const result = await sbtcService.transfer(account, recipient, BigInt(amount), memo, resolvedFee, sponsored);
 
         const btcAmount = (BigInt(amount) / BigInt(100_000_000)).toString();
 
