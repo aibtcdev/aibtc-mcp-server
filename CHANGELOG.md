@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.17.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.16.0...v1.17.0) (2026-02-12)
+
+
+### Features
+
+* add native BTC → sBTC bridge deposit with ordinal safety ([#90](https://github.com/aibtcdev/aibtc-mcp-server/issues/90)) ([77abf0c](https://github.com/aibtcdev/aibtc-mcp-server/commit/77abf0c0c8dcacc6bc79bf98eca0fc436c290c2b))
+* add wallet_rotate_password tool ([#87](https://github.com/aibtcdev/aibtc-mcp-server/issues/87)) ([eeadc7f](https://github.com/aibtcdev/aibtc-mcp-server/commit/eeadc7fbc26604dbfa03f621384bbb9e67ba7e65))
+
+
+### Bug Fixes
+
+* address PR review feedback ([#66](https://github.com/aibtcdev/aibtc-mcp-server/issues/66)) ([a54aa78](https://github.com/aibtcdev/aibtc-mcp-server/commit/a54aa7893e1036c713b47b0d2d2b7ef50256f8e8))
+
 ## [1.16.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.15.0...v1.16.0) (2026-02-12)
 
 
