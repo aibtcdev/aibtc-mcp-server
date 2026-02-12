@@ -17,7 +17,7 @@
  * const signersPublicKey = await service.getSignersPublicKey();
  * const depositAddressInfo = await service.buildDepositAddress(
  *   'SP2XD7417HGPRTREMKF748VNEQPDRR0RMANB7X1NK', // Stacks address
- *   '03abc123...', // Reclaim public key
+ *   'abc123...', // Reclaim public key (32-byte x-only)
  *   80000, // Max signer fee
  *   950 // Reclaim lock time (blocks)
  * );
@@ -27,7 +27,7 @@
  *   100000, // Amount in sats
  *   'SP2XD7417HGPRTREMKF748VNEQPDRR0RMANB7X1NK',
  *   'bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh',
- *   '03abc123...', // Reclaim public key
+ *   'abc123...', // Reclaim public key (32-byte x-only)
  *   10 // Fee rate sat/vB
  * );
  *
@@ -196,7 +196,7 @@ export class SbtcDepositService {
    * 2. Reclaim script - User can reclaim BTC after lockTime if deposit fails
    *
    * @param stacksAddress - Stacks L2 address to receive sBTC (SP... or ST...)
-   * @param reclaimPublicKey - Public key for reclaim path (hex string, 33 bytes compressed)
+   * @param reclaimPublicKey - Public key for reclaim path (hex, 32-byte x-only Taproot internal public key)
    * @param maxSignerFee - Max fee sBTC system can charge in satoshis (default: 80000)
    * @param reclaimLockTime - Block height when reclaim becomes available (default: 950 blocks)
    * @returns Deposit address and scripts
@@ -242,7 +242,7 @@ export class SbtcDepositService {
    * @param amountSats - Amount to deposit in satoshis
    * @param stacksAddress - Stacks L2 address to receive sBTC
    * @param bitcoinAddress - Bitcoin L1 address to send from (for UTXOs and change)
-   * @param reclaimPublicKey - Public key for reclaim path (hex, 33 bytes)
+   * @param reclaimPublicKey - Public key for reclaim path (hex, 32-byte x-only Taproot internal public key)
    * @param feeRate - Fee rate in sat/vB
    * @param maxSignerFee - Max fee sBTC system can charge (default: 80000 sats)
    * @param reclaimLockTime - Block height when reclaim becomes available (default: 950)
@@ -470,7 +470,7 @@ export class SbtcDepositService {
    * @param amountSats - Amount to deposit in satoshis
    * @param stacksAddress - Stacks L2 address to receive sBTC
    * @param bitcoinAddress - Bitcoin L1 address to send from
-   * @param reclaimPublicKey - Public key for reclaim path (hex, 33 bytes)
+   * @param reclaimPublicKey - Public key for reclaim path (hex, 32-byte x-only Taproot internal public key)
    * @param feeRate - Fee rate in sat/vB
    * @param signTransaction - Callback function to sign the transaction hex
    * @param maxSignerFee - Max fee sBTC system can charge (default: 80000 sats)

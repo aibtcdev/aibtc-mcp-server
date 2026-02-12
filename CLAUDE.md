@@ -111,7 +111,7 @@ aibtc-mcp-server MCP Server (src/index.ts)
 - `src/services/signing-key.service.ts` - Local signing key management for Pillar direct mode
 - `src/config/pillar.ts` - Pillar configuration (API URL, API key)
 - `src/utils/fee.ts` - Fee utility for resolving preset strings (low/medium/high) to micro-STX
-- `src/services/sbtc.service.ts` - sBTC deposit transaction building and Emily API integration
+- `src/services/sbtc-deposit.service.ts` - sBTC deposit transaction building and Emily API integration
 - `src/tools/sbtc.tools.ts` - sBTC deposit and status tools
 
 ### BNS V1 vs V2
@@ -164,7 +164,7 @@ The sBTC bridge enables Bitcoin L1 to be deposited and minted as sBTC on Stacks 
 5. **Status Tracking**: Poll Emily API with `sbtc_deposit_status` to monitor peg-in progress
 
 **Key Files**:
-- `src/services/sbtc.service.ts` - sBTC deposit transaction building and Emily API integration
+- `src/services/sbtc-deposit.service.ts` - sBTC deposit transaction building and Emily API integration
 - `src/tools/sbtc.tools.ts` - sBTC deposit and status tools
 
 ### x402 Payment Flow

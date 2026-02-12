@@ -12,8 +12,8 @@
  * these tests focus on the service's UTXO selection logic and error cases
  * rather than full end-to-end transaction construction.
  *
- * The critical ordinal safety behavior is tested in detail, as this was
- * the primary goal of PR #66.
+ * The critical ordinal safety behavior is tested in detail, as ordinal
+ * safety was added on top of the base sBTC deposit implementation from PR #66.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
