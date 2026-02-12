@@ -90,9 +90,18 @@ export function registerErc8004Tools(server: McpServer): void {
           .string()
           .optional()
           .describe('Fee preset ("low", "medium", "high") or micro-STX amount. Optional.'),
+        sponsored: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe(
+            "Use sponsored transaction relay to pay fees with a relay service instead of your own wallet. " +
+            "Requires SPONSOR_API_KEY environment variable or wallet-level sponsorApiKey. " +
+            "Free tier: 10 req/min, 100 req/day, 100 STX/day spending cap."
+          ),
       },
     },
-    async ({ uri, metadata, fee }) => {
+    async ({ uri, metadata, fee, sponsored }) => {
       try {
         const walletManager = getWalletManager();
         const account = walletManager.getActiveAccount();
@@ -114,7 +123,7 @@ export function registerErc8004Tools(server: McpServer): void {
         }
 
         const feeAmount = fee ? await resolveFee(fee, NETWORK, "contract_call") : undefined;
-        const result = await service.registerIdentity(account, uri, parsedMetadata, feeAmount);
+        const result = await service.registerIdentity(account, uri, parsedMetadata, feeAmount, sponsored);
 
         return createJsonResponse({
           success: true,
@@ -206,9 +215,18 @@ export function registerErc8004Tools(server: McpServer): void {
           .string()
           .optional()
           .describe('Fee preset ("low", "medium", "high") or micro-STX amount. Optional.'),
+        sponsored: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe(
+            "Use sponsored transaction relay to pay fees with a relay service instead of your own wallet. " +
+            "Requires SPONSOR_API_KEY environment variable or wallet-level sponsorApiKey. " +
+            "Free tier: 10 req/min, 100 req/day, 100 STX/day spending cap."
+          ),
       },
     },
-    async ({ agentId, value, decimals, tag1, tag2, endpoint, feedbackUri, feedbackHash, fee }) => {
+    async ({ agentId, value, decimals, tag1, tag2, endpoint, feedbackUri, feedbackHash, fee, sponsored }) => {
       try {
         const walletManager = getWalletManager();
         const account = walletManager.getActiveAccount();
@@ -231,7 +249,8 @@ export function registerErc8004Tools(server: McpServer): void {
           endpoint,
           feedbackUri,
           hashBuffer,
-          feeAmount
+          feeAmount,
+          sponsored
         );
 
         return createJsonResponse({
@@ -312,9 +331,18 @@ export function registerErc8004Tools(server: McpServer): void {
           .string()
           .optional()
           .describe('Fee preset ("low", "medium", "high") or micro-STX amount. Optional.'),
+        sponsored: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe(
+            "Use sponsored transaction relay to pay fees with a relay service instead of your own wallet. " +
+            "Requires SPONSOR_API_KEY environment variable or wallet-level sponsorApiKey. " +
+            "Free tier: 10 req/min, 100 req/day, 100 STX/day spending cap."
+          ),
       },
     },
-    async ({ validator, agentId, requestUri, requestHash, fee }) => {
+    async ({ validator, agentId, requestUri, requestHash, fee, sponsored }) => {
       try {
         const walletManager = getWalletManager();
         const account = walletManager.getActiveAccount();
@@ -332,7 +360,8 @@ export function registerErc8004Tools(server: McpServer): void {
           agentId,
           requestUri,
           hashBuffer,
-          feeAmount
+          feeAmount,
+          sponsored
         );
 
         return createJsonResponse({
