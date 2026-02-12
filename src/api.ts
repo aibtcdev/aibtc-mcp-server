@@ -1,6 +1,6 @@
 import "dotenv/config";
 import axios, { type AxiosInstance } from "axios";
-import { withPaymentInterceptor } from "x402-stacks";
+import { wrapAxiosWithPayment } from "x402-stacks";
 import { mnemonicToAccount, type Network } from "./wallet.js";
 
 /**
@@ -76,7 +76,7 @@ export async function createApiClient(baseUrl?: string): Promise<AxiosInstance> 
     }
   );
 
-  const client = withPaymentInterceptor(axiosInstance, account);
+  const client = wrapAxiosWithPayment(axiosInstance, account);
   clientCache.set(url, client);
   return client;
 }
