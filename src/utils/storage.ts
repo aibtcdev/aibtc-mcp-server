@@ -269,31 +269,41 @@ export async function removeWalletFromIndex(walletId: string): Promise<void> {
 }
 
 /**
- * Backup keystore file for a wallet (copies keystore.json → keystore.json.backup)
+ * Backup keystore file for a wallet (atomic: temp write + rename)
  */
 export async function backupKeystore(walletId: string): Promise<void> {
   const keystorePath = getKeystorePath(walletId);
   const backupPath = `${keystorePath}.backup`;
-  await fs.copyFile(keystorePath, backupPath);
-  await fs.chmod(backupPath, 0o600);
+  const tempPath = `${backupPath}.tmp`;
+  await fs.copyFile(keystorePath, tempPath);
+  await fs.chmod(tempPath, 0o600);
+  await fs.rename(tempPath, backupPath);
 }
 
 /**
- * Restore keystore from backup (copies keystore.json.backup → keystore.json, deletes backup)
+ * Restore keystore from backup (atomic: temp write + rename, then delete backup)
  */
 export async function restoreKeystoreBackup(walletId: string): Promise<void> {
   const keystorePath = getKeystorePath(walletId);
   const backupPath = `${keystorePath}.backup`;
-  await fs.copyFile(backupPath, keystorePath);
-  await fs.chmod(keystorePath, 0o600);
+  const tempPath = `${keystorePath}.tmp`;
+  await fs.copyFile(backupPath, tempPath);
+  await fs.chmod(tempPath, 0o600);
+  await fs.rename(tempPath, keystorePath);
   await fs.unlink(backupPath);
 }
 
 /**
- * Delete keystore backup file
+ * Delete keystore backup file (idempotent — ignores missing file)
  */
 export async function deleteKeystoreBackup(walletId: string): Promise<void> {
   const keystorePath = getKeystorePath(walletId);
   const backupPath = `${keystorePath}.backup`;
-  await fs.unlink(backupPath);
+  try {
+    await fs.unlink(backupPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw err;
+    }
+  }
 }

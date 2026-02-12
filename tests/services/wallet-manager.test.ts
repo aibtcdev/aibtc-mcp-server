@@ -84,6 +84,21 @@ vi.mock("../../src/utils/storage.js", () => ({
   ),
   getStorageDir: vi.fn(() => "/tmp/.aibtc-test"),
   storageExists: vi.fn(async () => true),
+  getKeystorePath: vi.fn((walletId: string) => `/tmp/.aibtc-test/wallets/${walletId}/keystore.json`),
+  backupKeystore: vi.fn(async (walletId: string) => {
+    const keystore = inMemoryKeystores.get(walletId);
+    if (!keystore) throw new Error(`Keystore not found for wallet: ${walletId}`);
+    inMemoryKeystores.set(`${walletId}__backup`, { ...keystore });
+  }),
+  restoreKeystoreBackup: vi.fn(async (walletId: string) => {
+    const backup = inMemoryKeystores.get(`${walletId}__backup`);
+    if (!backup) throw new Error(`Backup not found for wallet: ${walletId}`);
+    inMemoryKeystores.set(walletId, { ...backup });
+    inMemoryKeystores.delete(`${walletId}__backup`);
+  }),
+  deleteKeystoreBackup: vi.fn(async (walletId: string) => {
+    inMemoryKeystores.delete(`${walletId}__backup`);
+  }),
 }));
 
 // Import after mocking
@@ -358,6 +373,113 @@ describe("WalletManager", () => {
 
       const activeId = await walletManager.getActiveWalletId();
       expect(activeId).toBe(wallet2.walletId);
+    });
+  });
+
+  describe("rotatePassword", () => {
+    it("should rotate password successfully", async () => {
+      const created = await walletManager.createWallet(
+        "test-wallet",
+        "password123"
+      );
+
+      await walletManager.rotatePassword(
+        created.walletId,
+        "password123",
+        "newpassword456"
+      );
+
+      // New password should work
+      const account = await walletManager.unlock(
+        created.walletId,
+        "newpassword456"
+      );
+      expect(account.address).toBe(created.address);
+    });
+
+    it("should reject old password after rotation", async () => {
+      const created = await walletManager.createWallet(
+        "test-wallet",
+        "password123"
+      );
+
+      await walletManager.rotatePassword(
+        created.walletId,
+        "password123",
+        "newpassword456"
+      );
+
+      await expect(
+        walletManager.unlock(created.walletId, "password123")
+      ).rejects.toThrow();
+    });
+
+    it("should lock wallet after rotation", async () => {
+      const created = await walletManager.createWallet(
+        "test-wallet",
+        "password123"
+      );
+      await walletManager.unlock(created.walletId, "password123");
+      expect(walletManager.isUnlocked()).toBe(true);
+
+      await walletManager.rotatePassword(
+        created.walletId,
+        "password123",
+        "newpassword456"
+      );
+
+      expect(walletManager.isUnlocked()).toBe(false);
+    });
+
+    it("should throw for wrong old password", async () => {
+      const created = await walletManager.createWallet(
+        "test-wallet",
+        "password123"
+      );
+
+      await expect(
+        walletManager.rotatePassword(
+          created.walletId,
+          "wrongpassword",
+          "newpassword456"
+        )
+      ).rejects.toThrow();
+    });
+
+    it("should throw if new password is same as old", async () => {
+      const created = await walletManager.createWallet(
+        "test-wallet",
+        "password123"
+      );
+
+      await expect(
+        walletManager.rotatePassword(
+          created.walletId,
+          "password123",
+          "password123"
+        )
+      ).rejects.toThrow("New password must be different from old password");
+    });
+
+    it("should throw if new password is too short", async () => {
+      const created = await walletManager.createWallet(
+        "test-wallet",
+        "password123"
+      );
+
+      await expect(
+        walletManager.rotatePassword(created.walletId, "password123", "short")
+      ).rejects.toThrow("New password must be at least 8 characters");
+    });
+
+    it("should throw for non-existent wallet", async () => {
+      await expect(
+        walletManager.rotatePassword(
+          "non-existent-id",
+          "password123",
+          "newpassword456"
+        )
+      ).rejects.toThrow();
     });
   });
 

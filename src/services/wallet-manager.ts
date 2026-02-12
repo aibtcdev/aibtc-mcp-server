@@ -563,21 +563,30 @@ class WalletManager {
         );
       }
     } catch (error) {
-      // Restore from backup on any failure
-      await restoreKeystoreBackup(walletId);
+      // Restore from backup on any failure, preserving original error
+      try {
+        await restoreKeystoreBackup(walletId);
+      } catch (restoreError) {
+        const originalMsg = error instanceof Error ? error.message : String(error);
+        const rollbackMsg = restoreError instanceof Error ? restoreError.message : String(restoreError);
+        throw new WalletError(
+          `Password rotation failed and keystore backup restore also failed: ${originalMsg}; rollback error: ${rollbackMsg}`
+        );
+      }
       throw error;
     }
 
-    // All verifications passed — clean up backup
-    await deleteKeystoreBackup(walletId);
+    // All verifications passed — best-effort cleanup of backup
+    try {
+      await deleteKeystoreBackup(walletId);
+    } catch {
+      // Don't fail rotation if backup cleanup fails
+    }
 
     // Lock wallet if currently unlocked (force re-auth with new password)
     if (this.session?.walletId === walletId) {
       this.lock();
     }
-
-    // Clear mnemonic from memory
-    mnemonic = "";
   }
 
   /**
