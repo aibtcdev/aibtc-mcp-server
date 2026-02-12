@@ -2,6 +2,8 @@ import { ClarityValue, uintCV, principalCV } from "@stacks/transactions";
 import { HiroApiService, getHiroApi } from "./hiro-api.js";
 import { getContracts, parseContractId, type Network } from "../config/index.js";
 import { callContract, type Account, type TransferResult } from "../transactions/builder.js";
+import { getSponsorApiKey } from "../config/sponsor.js";
+import { callContractSponsored } from "../transactions/sponsor-builder.js";
 
 // ============================================================================
 // Types
@@ -67,7 +69,8 @@ export class SbtcService {
     recipient: string,
     amount: bigint,
     memo?: string,
-    fee?: bigint
+    fee?: bigint,
+    sponsored?: boolean
   ): Promise<TransferResult> {
     const sbtcContract = this.contracts.SBTC_TOKEN;
     const { address: contractAddress, name: contractName } = parseContractId(sbtcContract);
@@ -82,6 +85,39 @@ export class SbtcService {
     if (memo) {
       // sBTC transfer typically has an optional memo parameter
       // Implementation depends on the specific sBTC contract version
+    }
+
+    if (sponsored) {
+      const apiKey = account.sponsorApiKey || getSponsorApiKey();
+      if (!apiKey) {
+        throw new Error(
+          "Sponsored transactions require SPONSOR_API_KEY environment variable or wallet-level sponsorApiKey"
+        );
+      }
+
+      const response = await callContractSponsored(
+        {
+          senderKey: account.privateKey,
+          contractAddress,
+          contractName,
+          functionName: "transfer",
+          functionArgs,
+          network: this.network,
+        },
+        apiKey
+      );
+
+      if (!response.success) {
+        const errorMsg = response.error || "Sponsor relay request failed";
+        const details = response.details ? ` (${response.details})` : "";
+        const retryInfo = response.retryable ? ` [Retryable after ${response.retryAfter}s]` : "";
+        throw new Error(`${errorMsg}${details}${retryInfo}`);
+      }
+
+      return {
+        txid: response.txid!,
+        rawTx: "",
+      };
     }
 
     return callContract(account, {
