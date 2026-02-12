@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.19.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.19.0...v1.19.1) (2026-02-12)
+
+
+### Bug Fixes
+
+* remove double-encoding in sponsored transaction serialization ([#98](https://github.com/aibtcdev/aibtc-mcp-server/issues/98)) ([9f173b8](https://github.com/aibtcdev/aibtc-mcp-server/commit/9f173b869f44b36b667840c559b964536da3595f))
+* remove serialize() double-encoding from all transaction sites ([#101](https://github.com/aibtcdev/aibtc-mcp-server/issues/101)) ([508b43b](https://github.com/aibtcdev/aibtc-mcp-server/commit/508b43baf9b22838ddd3ed8d54f353651a80c0af))
+
 ## [1.19.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.18.0...v1.19.0) (2026-02-12)
 
 
