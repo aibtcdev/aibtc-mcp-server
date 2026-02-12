@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.16.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.15.0...v1.16.0) (2026-02-12)
+
+
+### Features
+
+* add ERC-8004 identity and reputation tools ([#83](https://github.com/aibtcdev/aibtc-mcp-server/issues/83)) ([1ed5605](https://github.com/aibtcdev/aibtc-mcp-server/commit/1ed560569581f9ea2c55c6c562eade5d9609e048))
+
 ## [1.15.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.14.2...v1.15.0) (2026-02-11)
 
 
