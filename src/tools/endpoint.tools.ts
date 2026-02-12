@@ -10,12 +10,14 @@ import {
 } from "../endpoints/registry.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 
+const ALL_SOURCES = "x402.biwas.xyz, x402.aibtc.com, stx402.com, aibtc.com";
+
 export function registerEndpointTools(server: McpServer): void {
   // List x402 endpoints
   server.registerTool(
     "list_x402_endpoints",
     {
-      description: `List known x402 API endpoints from x402.biwas.xyz, x402.aibtc.com, stx402.com, and aibtc.com.
+      description: `List known x402 API endpoints from ${ALL_SOURCES}.
 
 The agent can:
 1. Execute x402 endpoints from these sources (paid API calls with automatic payment handling)
@@ -85,7 +87,7 @@ Sources:
 
 Available categories: ${categories.join(", ")}
 
-Sources: x402.biwas.xyz, x402.aibtc.com, stx402.com, aibtc.com
+Sources: ${ALL_SOURCES}
 
 If you're looking to perform a direct blockchain action (transfer STX, call a contract), those are available via separate tools.`,
               },
@@ -96,7 +98,7 @@ If you're looking to perform a direct blockchain action (transfer STX, call a co
         const formatted = formatEndpointsTable(endpoints);
         const sourceInfo =
           source === "all"
-            ? "Sources: x402.biwas.xyz, x402.aibtc.com, stx402.com, aibtc.com"
+            ? `Sources: ${ALL_SOURCES}`
             : `Source: ${source}`;
         return {
           content: [
@@ -157,39 +159,30 @@ Use list_x402_endpoints to discover available endpoints.`,
     },
     async ({ method, url, path, apiUrl, params, data }) => {
       try {
-        let fullUrl: string;
         let baseUrl: string;
         let requestPath: string;
 
         if (url) {
-          // Full URL provided - parse it
-          const urlObj = new URL(url);
-          baseUrl = `${urlObj.protocol}//${urlObj.host}`;
-          requestPath = urlObj.pathname + urlObj.search;
-          fullUrl = url;
+          const parsed = new URL(url);
+          baseUrl = `${parsed.protocol}//${parsed.host}`;
+          requestPath = parsed.pathname + parsed.search;
         } else if (path) {
-          // Path provided - use with apiUrl or default
           baseUrl = apiUrl || API_URL;
           requestPath = path;
-          fullUrl = `${baseUrl}${path}`;
         } else {
           throw new Error("Either 'url' or 'path' parameter must be provided");
         }
 
         const api = await createApiClient(baseUrl);
-
-        const response = await api.request({
-          method,
-          url: requestPath,
-          params,
-          data,
-        });
+        const response = await api.request({ method, url: requestPath, params, data });
+        const endpoint = url || `${baseUrl}${requestPath}`;
 
         return createJsonResponse({
-          endpoint: `${method} ${fullUrl}`,
+          endpoint: `${method} ${endpoint}`,
           response: response.data,
         });
       } catch (error) {
+        const endpoint = url || path || "unknown";
         let message = "Unknown error";
         if (error instanceof Error) {
           message = error.message;
@@ -197,7 +190,7 @@ Use list_x402_endpoints to discover available endpoints.`,
         const axiosError = error as { response?: { status?: number; data?: unknown } };
         if (axiosError.response) {
           if (axiosError.response.status === 404) {
-            message = `Endpoint not found: ${url || path}. Use list_x402_endpoints to see available endpoints.`;
+            message = `Endpoint not found: ${endpoint}. Use list_x402_endpoints to see available endpoints.`;
           } else {
             message = `HTTP ${axiosError.response.status}: ${JSON.stringify(axiosError.response.data)}`;
           }

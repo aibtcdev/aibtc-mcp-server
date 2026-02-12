@@ -1,7 +1,9 @@
 /**
  * Known x402 endpoints registry
- * Endpoints from x402.biwas.xyz, x402.aibtc.com, and stx402.com
+ * Endpoints from x402.biwas.xyz, x402.aibtc.com, stx402.com, and aibtc.com
  */
+
+export type X402Source = "x402.biwas.xyz" | "x402.aibtc.com" | "stx402.com" | "aibtc.com";
 
 export interface X402Endpoint {
   path: string;
@@ -9,7 +11,7 @@ export interface X402Endpoint {
   description: string;
   cost: string;
   category: string;
-  source: "x402.biwas.xyz" | "x402.aibtc.com" | "stx402.com" | "aibtc.com";
+  source: X402Source;
   params?: Record<string, string>;
   body?: Record<string, string>;
 }
@@ -534,10 +536,6 @@ const AIBTC_INBOX_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { from: "Sender address or identifier", message: "Message content" },
   },
 ];
-
-// =============================================================================
-// stx402.com ENDPOINTS
-// =============================================================================
 
 const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
   // Data Operations
@@ -1189,9 +1187,7 @@ export function getEndpointsByCategory(category: string): X402Endpoint[] {
 /**
  * Get endpoints by source
  */
-export function getEndpointsBySource(
-  source: "x402.biwas.xyz" | "x402.aibtc.com" | "stx402.com" | "aibtc.com"
-): X402Endpoint[] {
+export function getEndpointsBySource(source: X402Source): X402Endpoint[] {
   return ALL_ENDPOINTS.filter((endpoint) => endpoint.source === source);
 }
 
