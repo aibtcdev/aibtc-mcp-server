@@ -46,7 +46,13 @@ jobs:
         run: npm run build
 
       - name: Publish to npm
-        run: npm publish --access public
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view "@aibtc/mcp-server@${VERSION}" version 2>/dev/null; then
+            echo "::notice::@aibtc/mcp-server@${VERSION} already published to npm, skipping"
+          else
+            npm publish --access public
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -60,7 +66,7 @@ jobs:
       - name: Publish to GitHub Packages
         run: |
           npm pkg set name="@aibtcdev/aibtc-mcp-server"
-          npm publish --access public
+          npm publish --access public || echo "::warning::GitHub Packages publish failed, may already exist"
           npm pkg set name="@aibtc/mcp-server"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -74,6 +80,7 @@ jobs:
 
       - name: Publish to ClawHub
         if: ${{ !contains(needs.release-please.outputs.tag_name, '-') }}
+        continue-on-error: true
         run: |
           VERSION="${{ needs.release-please.outputs.version }}"
 
