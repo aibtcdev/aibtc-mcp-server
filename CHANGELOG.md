@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.18.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.17.0...v1.18.0) (2026-02-12)
+
+
+### Features
+
+* upgrade x402-stacks to v2 + aibtc.com inbox support ([#93](https://github.com/aibtcdev/aibtc-mcp-server/issues/93)) ([8c15e36](https://github.com/aibtcdev/aibtc-mcp-server/commit/8c15e365c145e4f8c363f9cb43c148f7128e48cd))
+
+
+### Bug Fixes
+
+* make release publish resilient to already-published versions ([#91](https://github.com/aibtcdev/aibtc-mcp-server/issues/91)) ([0df6d06](https://github.com/aibtcdev/aibtc-mcp-server/commit/0df6d064b5deca1d48ac5ba3a5237dc5413be9e5))
+
 ## [1.17.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.16.0...v1.17.0) (2026-02-12)
 
 
