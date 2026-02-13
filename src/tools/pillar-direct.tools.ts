@@ -20,7 +20,7 @@ import { getHiroApi } from "../services/hiro-api.js";
 import { NETWORK, getExplorerTxUrl } from "../config/networks.js";
 import { MAINNET_CONTRACTS } from "../config/contracts.js";
 import { PILLAR_API_KEY } from "../config/pillar.js";
-import { createJsonResponse, createErrorResponse } from "../utils/index.js";
+import { createJsonResponse, createErrorResponse, formatStx } from "../utils/index.js";
 
 // ============================================================================
 // Helpers
@@ -1622,12 +1622,6 @@ export function registerPillarDirectTools(server: McpServer): void {
         const balanceMicro = BigInt(stxBalance.balance || "0");
         const lockedMicro = BigInt(stxBalance.locked || "0");
         const liquidMicro = balanceMicro - lockedMicro;
-
-        const formatStx = (micro: bigint) => {
-          const whole = micro / BigInt(1_000_000);
-          const frac = (micro % BigInt(1_000_000)).toString().padStart(6, "0");
-          return `${whole}.${frac} STX`;
-        };
 
         // Fetch PoX cycle info
         let poxInfo: {
