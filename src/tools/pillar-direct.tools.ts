@@ -18,14 +18,9 @@ import {
 import { getPillarApi } from "../services/pillar-api.service.js";
 import { getHiroApi } from "../services/hiro-api.js";
 import { NETWORK, getExplorerTxUrl } from "../config/networks.js";
+import { MAINNET_CONTRACTS } from "../config/contracts.js";
 import { PILLAR_API_KEY } from "../config/pillar.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
-
-// ============================================================================
-// Token contract IDs (mainnet)
-// ============================================================================
-
-const SBTC_CONTRACT = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
 
 // ============================================================================
 // Helpers
@@ -499,9 +494,6 @@ export function registerPillarDirectTools(server: McpServer): void {
         const { keyService, session } = await requireActiveKey();
         const api = getPillarApi();
 
-        const sbtcContract =
-          "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
-
         // Resolve recipient to a Stacks address before building the hash.
         // principalCV() only accepts SP/ST addresses — BNS/wallet names must be resolved first.
         let resolvedAddress: string;
@@ -538,7 +530,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           amount: uintCV(amount),
           recipient: principalCV(resolvedAddress),
           memo: noneCV(),
-          sip010: principalCV(sbtcContract),
+          sip010: principalCV(MAINNET_CONTRACTS.SBTC_TOKEN),
         });
 
         const sigAuth = keyService.sign(structuredData, authId);
@@ -549,7 +541,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           walletAddress: session.smartWallet,
           amount,
           recipient: resolvedAddress,
-          sip010: sbtcContract,
+          sip010: MAINNET_CONTRACTS.SBTC_TOKEN,
           tokenName: "sbtc-token",
           sigAuth: formatSigAuthForApi(sigAuth),
         });
