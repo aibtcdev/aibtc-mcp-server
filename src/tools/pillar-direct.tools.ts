@@ -1602,8 +1602,8 @@ export function registerPillarDirectTools(server: McpServer): void {
             minAmountUstx: pox.min_amount_ustx,
             isPoxActive: pox.current_cycle.is_pox_active,
           };
-        } catch {
-          // PoX info fetch failed, continue without it
+        } catch (err) {
+          console.error("PoX info fetch failed:", err instanceof Error ? err.message : err);
         }
 
         // Check enrollment status via backend
@@ -1630,8 +1630,8 @@ export function registerPillarDirectTools(server: McpServer): void {
               dualStackingTxId: walletInfo.data.dualStackingTxId || null,
             };
           }
-        } catch {
-          // Backend lookup failed, continue without enrollment info
+        } catch (err) {
+          console.error("Enrollment status fetch failed:", err instanceof Error ? err.message : err);
         }
 
         const isStacking = lockedMicro > BigInt(0);
