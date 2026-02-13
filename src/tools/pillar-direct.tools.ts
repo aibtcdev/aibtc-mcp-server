@@ -1334,4 +1334,86 @@ export function registerPillarDirectTools(server: McpServer): void {
       }
     }
   );
+
+  // --- pillar_direct_resolve_recipient ---
+  // Resolve a BNS name, Pillar wallet name, or address before sending
+  server.registerTool(
+    "pillar_direct_resolve_recipient",
+    {
+      description:
+        "Resolve a recipient before sending. Resolves BNS names (.btc) via backend, " +
+        "Pillar wallet names via backend, or validates a Stacks address. " +
+        "Use this BEFORE pillar_direct_send to confirm the resolved address with the user.",
+      inputSchema: {
+        to: z
+          .string()
+          .describe(
+            "Recipient: BNS name (muneeb.btc), Pillar wallet name, or Stacks address (SP...)"
+          ),
+        recipientType: z
+          .enum(["bns", "wallet", "address"])
+          .default("bns")
+          .describe("Type of recipient: 'bns' (default), 'wallet', or 'address'"),
+      },
+    },
+    async ({ to, recipientType }) => {
+      try {
+        const api = getPillarApi();
+
+        if (recipientType === "address" || to.startsWith("SP") || to.startsWith("ST")) {
+          return createJsonResponse({
+            success: true,
+            input: to,
+            resolvedAddress: to,
+            type: "address",
+          });
+        }
+
+        if (recipientType === "wallet") {
+          const walletLookup = await api.get<{
+            success: boolean;
+            data: { contractAddress: string; walletName: string } | null;
+          }>(`/api/smart-wallet/${to}`);
+          if (!walletLookup.data?.contractAddress) {
+            return createJsonResponse({
+              success: false,
+              input: to,
+              error: `Pillar wallet "${to}" not found.`,
+            });
+          }
+          return createJsonResponse({
+            success: true,
+            input: to,
+            resolvedAddress: walletLookup.data.contractAddress,
+            walletName: walletLookup.data.walletName,
+            type: "wallet",
+          });
+        }
+
+        // BNS
+        const bnsName = to.endsWith(".btc") ? to : `${to}.btc`;
+        const bnsLookup = await api.get<{
+          success: boolean;
+          data: { address: string; name: string } | null;
+        }>("/api/bns/resolve", { name: bnsName });
+        if (!bnsLookup.data?.address) {
+          return createJsonResponse({
+            success: false,
+            input: to,
+            bnsName,
+            error: `BNS name "${bnsName}" could not be resolved.`,
+          });
+        }
+        return createJsonResponse({
+          success: true,
+          input: to,
+          bnsName,
+          resolvedAddress: bnsLookup.data.address,
+          type: "bns",
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
 }
