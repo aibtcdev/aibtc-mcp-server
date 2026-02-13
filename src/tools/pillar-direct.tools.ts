@@ -1499,4 +1499,48 @@ export function registerPillarDirectTools(server: McpServer): void {
       }
     }
   );
+
+  // --- pillar_direct_revoke_fast_pool ---
+  server.registerTool(
+    "pillar_direct_revoke_fast_pool",
+    {
+      description:
+        "Revoke Fast Pool STX delegation from your Pillar smart wallet. " +
+        "Agent-signed, no browser needed. Backend sponsors gas. " +
+        "After revoking, STX stays locked until the current PoX cycle ends, then returns to liquid.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const { keyService, session } = await requireActiveKey();
+        const authId = generateAuthId();
+
+        const structuredData = tupleCV({
+          topic: stringAsciiCV("revoke-fast-pool"),
+          "auth-id": uintCV(authId),
+        });
+
+        const sigAuth = keyService.sign(structuredData, authId);
+        const api = getPillarApi();
+        const result = await api.post<{
+          success: boolean;
+          data: { txId: string };
+        }>("/api/pillar/revoke-fast-pool", {
+          walletAddress: session.smartWallet,
+          sigAuth: formatSigAuthForApi(sigAuth),
+        });
+
+        return createJsonResponse({
+          success: true,
+          operation: "revoke-fast-pool",
+          txId: result.data.txId,
+          explorerUrl: explorerTxUrl(result.data.txId),
+          walletAddress: session.smartWallet,
+          note: "Delegation revoked. STX will unlock after the current PoX cycle ends.",
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
 }
