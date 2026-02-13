@@ -2,6 +2,7 @@ import { ClarityValue, uintCV, tupleCV, bufferCV, noneCV, someCV } from "@stacks
 import { HiroApiService, getHiroApi, PoxInfo } from "./hiro-api.js";
 import { getContracts, parseContractId, type Network } from "../config/index.js";
 import { callContract, type Account, type TransferResult } from "../transactions/builder.js";
+import { createStxPostCondition } from "../transactions/post-conditions.js";
 
 // ============================================================================
 // Types
@@ -98,11 +99,19 @@ export class StackingService {
       uintCV(lockPeriod),
     ];
 
+    // Add post condition: sender must lock exactly `amount` of STX
+    const postCondition = createStxPostCondition(
+      account.address,
+      "eq",
+      amount
+    );
+
     return callContract(account, {
       contractAddress,
       contractName,
       functionName: "stack-stx",
       functionArgs,
+      postConditions: [postCondition],
     });
   }
 
@@ -124,11 +133,13 @@ export class StackingService {
       }),
     ];
 
+    // No assets moved from sender (extends existing lock period)
     return callContract(account, {
       contractAddress,
       contractName,
       functionName: "stack-extend",
       functionArgs,
+      postConditions: [],
     });
   }
 
@@ -143,11 +154,19 @@ export class StackingService {
 
     const functionArgs: ClarityValue[] = [uintCV(increaseAmount)];
 
+    // Add post condition: sender must lock exactly `increaseAmount` of additional STX
+    const postCondition = createStxPostCondition(
+      account.address,
+      "eq",
+      increaseAmount
+    );
+
     return callContract(account, {
       contractAddress,
       contractName,
       functionName: "stack-increase",
       functionArgs,
+      postConditions: [postCondition],
     });
   }
 
@@ -175,11 +194,13 @@ export class StackingService {
         : noneCV(),
     ];
 
+    // No assets moved from sender (delegation is permission, not transfer)
     return callContract(account, {
       contractAddress,
       contractName,
       functionName: "delegate-stx",
       functionArgs,
+      postConditions: [],
     });
   }
 
@@ -189,11 +210,13 @@ export class StackingService {
   async revokeDelegation(account: Account): Promise<TransferResult> {
     const { address: contractAddress, name: contractName } = parseContractId(this.contracts.POX_4);
 
+    // No assets moved from sender (revokes delegation permission)
     return callContract(account, {
       contractAddress,
       contractName,
       functionName: "revoke-delegate-stx",
       functionArgs: [],
+      postConditions: [],
     });
   }
 
