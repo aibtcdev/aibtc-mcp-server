@@ -1,4 +1,4 @@
-import { ClarityValue, bufferCV, uintCV, stringUtf8CV, hexToCV, cvToJSON } from "@stacks/transactions";
+import { ClarityValue, bufferCV, uintCV, stringUtf8CV, hexToCV, cvToJSON, tupleCV } from "@stacks/transactions";
 import { HiroApiService, getHiroApi, BnsName, getBnsV2Api, BnsV2ApiService } from "./hiro-api.js";
 import { getContracts, parseContractId, type Network } from "../config/index.js";
 import { callContract, type Account, type TransferResult } from "../transactions/builder.js";
@@ -470,20 +470,18 @@ export class BnsService {
     }
     const nftName = contractInterface.non_fungible_tokens[0].name;
 
-    // BNS names are NFTs identified by a hash160 of the concatenated namespace+name
-    const nameBuffer = Buffer.concat([
-      Buffer.from(namespace),
-      Buffer.from(baseName),
-    ]);
-    const tokenIdHash = await this.hash160(nameBuffer);
-    const tokenId = BigInt("0x" + tokenIdHash.toString("hex"));
+    // BNS NFT token ID is a tuple: {name: (buff 48), namespace: (buff 20)}
+    const nftTokenId = tupleCV({
+      name: bufferCV(Buffer.from(baseName)),
+      namespace: bufferCV(Buffer.from(namespace)),
+    });
 
     // Add post condition: sender must send the BNS name NFT
     const postCondition = createNftSendPostCondition(
       account.address,
       bnsContractId,
       nftName,
-      tokenId
+      nftTokenId
     );
 
     return callContract(account, {

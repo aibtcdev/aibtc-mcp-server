@@ -3,6 +3,7 @@ import {
   PostConditionMode,
   Pc,
   uintCV,
+  ClarityValue,
 } from "@stacks/transactions";
 
 export { PostConditionMode };
@@ -122,26 +123,30 @@ export function createContractFungiblePostCondition(
 
 /**
  * Create a non-fungible token post condition for sending an NFT
+ * tokenId can be a number/bigint (wrapped in uintCV) or a ClarityValue for complex types (e.g. tuples)
  */
 export function createNftSendPostCondition(
   address: string,
   nftContract: string,
   nftName: string,
-  tokenId: bigint | number
+  tokenId: bigint | number | ClarityValue
 ): PostCondition {
   const contract = asContractId(nftContract);
-  return Pc.principal(address).willSendAsset().nft(contract, nftName, uintCV(tokenId));
+  const assetId = typeof tokenId === "object" ? tokenId : uintCV(tokenId);
+  return Pc.principal(address).willSendAsset().nft(contract, nftName, assetId);
 }
 
 /**
  * Create a non-fungible token post condition for not sending an NFT
+ * tokenId can be a number/bigint (wrapped in uintCV) or a ClarityValue for complex types (e.g. tuples)
  */
 export function createNftNotSendPostCondition(
   address: string,
   nftContract: string,
   nftName: string,
-  tokenId: bigint | number
+  tokenId: bigint | number | ClarityValue
 ): PostCondition {
   const contract = asContractId(nftContract);
-  return Pc.principal(address).willNotSendAsset().nft(contract, nftName, uintCV(tokenId));
+  const assetId = typeof tokenId === "object" ? tokenId : uintCV(tokenId);
+  return Pc.principal(address).willNotSendAsset().nft(contract, nftName, assetId);
 }
