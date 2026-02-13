@@ -2,6 +2,7 @@ import { ClarityValue, bufferCV, uintCV, stringUtf8CV, hexToCV, cvToJSON } from 
 import { HiroApiService, getHiroApi, BnsName, getBnsV2Api, BnsV2ApiService } from "./hiro-api.js";
 import { getContracts, parseContractId, type Network } from "../config/index.js";
 import { callContract, type Account, type TransferResult } from "../transactions/builder.js";
+import { createStxPostCondition, createNftSendPostCondition } from "../transactions/post-conditions.js";
 
 // ============================================================================
 // Types
@@ -338,11 +339,19 @@ export class BnsService {
       uintCV(stxToBurn),
     ];
 
+    // Add post condition: sender must burn exactly stxToBurn amount
+    const postCondition = createStxPostCondition(
+      account.address,
+      "eq",
+      stxToBurn
+    );
+
     return callContract(account, {
       contractAddress,
       contractName,
       functionName: "name-preorder",
       functionArgs,
+      postConditions: [postCondition],
     });
   }
 
@@ -393,11 +402,13 @@ export class BnsService {
       ];
     }
 
+    // No post conditions needed for registration (doesn't move assets)
     return callContract(account, {
       contractAddress,
       contractName,
       functionName: "name-register",
       functionArgs,
+      postConditions: [],
     });
   }
 
@@ -420,11 +431,13 @@ export class BnsService {
       bufferCV(Buffer.from(zonefile)),
     ];
 
+    // No post conditions needed for zonefile updates (doesn't move assets)
     return callContract(account, {
       contractAddress,
       contractName,
       functionName: "name-update",
       functionArgs,
+      postConditions: [],
     });
   }
 
@@ -449,11 +462,42 @@ export class BnsService {
       zonefile ? bufferCV(Buffer.from(zonefile)) : bufferCV(Buffer.alloc(0)),
     ];
 
+    // Fetch the BNS contract interface to get the NFT name
+    const bnsContractId = this.contracts.BNS;
+    const contractInterface = await this.hiro.getContractInterface(bnsContractId);
+    if (!contractInterface.non_fungible_tokens || contractInterface.non_fungible_tokens.length === 0) {
+      throw new Error(`No NFT tokens found in BNS contract ${bnsContractId}`);
+    }
+    const nftName = contractInterface.non_fungible_tokens[0].name;
+
+    // BNS names are NFTs. The token ID is the hash of the name tuple {name, namespace}
+    // For post conditions, we need to construct the token ID by hashing
+    // For simplicity and safety, we'll use the namespace+name buffer as the identifier
+    const nameBuffer = Buffer.concat([
+      Buffer.from(namespace),
+      Buffer.from(baseName),
+    ]);
+
+    // Create hash160 of namespace+name to use as the NFT ID
+    const tokenIdHash = await this.hash160(nameBuffer);
+
+    // Convert the 20-byte hash to a bigint for the token ID
+    const tokenId = BigInt("0x" + tokenIdHash.toString("hex"));
+
+    // Add post condition: sender must send the BNS name NFT
+    const postCondition = createNftSendPostCondition(
+      account.address,
+      bnsContractId,
+      nftName,
+      tokenId
+    );
+
     return callContract(account, {
       contractAddress,
       contractName,
       functionName: "name-transfer",
       functionArgs,
+      postConditions: [postCondition],
     });
   }
 
@@ -469,17 +513,32 @@ export class BnsService {
     const fullName = name.endsWith(".btc") ? name : `${name}.btc`;
     const [baseName, namespace] = fullName.split(".");
 
+    // Get the renewal price
+    const price = await this.getPrice(fullName);
+    if (!price) {
+      throw new Error("Could not determine renewal price");
+    }
+    const stxToBurn = BigInt(price.amount);
+
     const functionArgs: ClarityValue[] = [
       bufferCV(Buffer.from(namespace)),
       bufferCV(Buffer.from(baseName)),
-      uintCV(0), // STX to burn (renewal fee)
+      uintCV(stxToBurn),
     ];
+
+    // Add post condition: sender must burn exactly stxToBurn amount for renewal
+    const postCondition = createStxPostCondition(
+      account.address,
+      "eq",
+      stxToBurn
+    );
 
     return callContract(account, {
       contractAddress,
       contractName,
       functionName: "name-renewal",
       functionArgs,
+      postConditions: [postCondition],
     });
   }
 }
