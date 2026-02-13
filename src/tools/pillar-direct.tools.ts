@@ -92,7 +92,7 @@ async function requireActiveKey() {
 
     if (!unlocked) {
       throw new Error(
-        "Signing key locked and auto-unlock failed. Use pillar_key_unlock with your password."
+        "Signing key locked and auto-unlock failed. Set PILLAR_API_KEY environment variable or use pillar_key_unlock with your password."
       );
     }
 
@@ -300,6 +300,13 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async ({ sbtcAmount, aeUsdcToBorrow, minSbtcFromSwap }) => {
       try {
+        if (NETWORK !== "mainnet") {
+          return createJsonResponse({
+            error: "Pillar Direct tools are only available on mainnet",
+            network: NETWORK,
+          });
+        }
+
         const { keyService, session } = await requireActiveKey();
         const authId = generateAuthId();
 
@@ -361,6 +368,13 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async ({ sbtcToSwap, sbtcToWithdraw, minAeUsdcFromSwap }) => {
       try {
+        if (NETWORK !== "mainnet") {
+          return createJsonResponse({
+            error: "Pillar Direct tools are only available on mainnet",
+            network: NETWORK,
+          });
+        }
+
         const { keyService, session } = await requireActiveKey();
         const authId = generateAuthId();
 
@@ -416,6 +430,13 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async ({ sbtcAmount }) => {
       try {
+        if (NETWORK !== "mainnet") {
+          return createJsonResponse({
+            error: "Pillar Direct tools are only available on mainnet",
+            network: NETWORK,
+          });
+        }
+
         const { keyService, session } = await requireActiveKey();
         const authId = generateAuthId();
 
@@ -476,6 +497,13 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async ({ to, amount, recipientType }) => {
       try {
+        if (NETWORK !== "mainnet") {
+          return createJsonResponse({
+            error: "Pillar Direct tools are only available on mainnet",
+            network: NETWORK,
+          });
+        }
+
         const { keyService, session } = await requireActiveKey();
         const api = getPillarApi();
 
@@ -574,6 +602,13 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async ({ enabled, minSbtc, trigger }) => {
       try {
+        if (NETWORK !== "mainnet") {
+          return createJsonResponse({
+            error: "Pillar Direct tools are only available on mainnet",
+            network: NETWORK,
+          });
+        }
+
         const { keyService, session } = await requireActiveKey();
         const authId = generateAuthId();
 
@@ -755,6 +790,13 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async ({ sbtcAmount }) => {
       try {
+        if (NETWORK !== "mainnet") {
+          return createJsonResponse({
+            error: "Pillar Direct tools are only available on mainnet",
+            network: NETWORK,
+          });
+        }
+
         const { keyService, session } = await requireActiveKey();
         const authId = generateAuthId();
 
@@ -806,6 +848,13 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async ({ newAdmin }) => {
       try {
+        if (NETWORK !== "mainnet") {
+          return createJsonResponse({
+            error: "Pillar Direct tools are only available on mainnet",
+            network: NETWORK,
+          });
+        }
+
         const { keyService, session } = await requireActiveKey();
         const authId = generateAuthId();
 
@@ -872,6 +921,13 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async ({ walletName, referredBy }) => {
       try {
+        if (NETWORK !== "mainnet") {
+          return createJsonResponse({
+            error: "Pillar Direct tools are only available on mainnet",
+            network: NETWORK,
+          });
+        }
+
         const api = getPillarApi();
         const password = getDerivedPassword();
 
@@ -1450,6 +1506,13 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async ({ stxAmount, pool }) => {
       try {
+        if (NETWORK !== "mainnet") {
+          return createJsonResponse({
+            error: "Pillar Direct tools are only available on mainnet",
+            network: NETWORK,
+          });
+        }
+
         const { keyService, session } = await requireActiveKey();
         const authId = generateAuthId();
 
@@ -1512,6 +1575,13 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async () => {
       try {
+        if (NETWORK !== "mainnet") {
+          return createJsonResponse({
+            error: "Pillar Direct tools are only available on mainnet",
+            network: NETWORK,
+          });
+        }
+
         const { keyService, session } = await requireActiveKey();
         const authId = generateAuthId();
 
