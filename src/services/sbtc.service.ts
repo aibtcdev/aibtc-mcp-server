@@ -3,6 +3,7 @@ import { HiroApiService, getHiroApi } from "./hiro-api.js";
 import { getContracts, parseContractId, type Network } from "../config/index.js";
 import { callContract, type Account, type TransferResult } from "../transactions/builder.js";
 import { sponsoredContractCall } from "../transactions/sponsor-builder.js";
+import { createFungiblePostCondition } from "../transactions/post-conditions.js";
 
 // ============================================================================
 // Types
@@ -81,11 +82,21 @@ export class SbtcService {
       memo ? someCV(bufferCV(Buffer.from(memo).subarray(0, 34))) : noneCV(),
     ];
 
+    // Add post condition: sender must send exactly `amount` of sBTC
+    const postCondition = createFungiblePostCondition(
+      account.address,
+      sbtcContract,
+      "sbtc-token",
+      "eq",
+      amount
+    );
+
     const contractCallOptions = {
       contractAddress,
       contractName,
       functionName: "transfer",
       functionArgs,
+      postConditions: [postCondition],
       ...(fee !== undefined && { fee }),
     };
 
