@@ -4,6 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getPillarApi } from "../services/pillar-api.service.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
+import { NETWORK, getExplorerTxUrl } from "../config/networks.js";
 import { exec } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
@@ -283,7 +284,7 @@ export function registerPillarTools(server: McpServer): void {
             success: true,
             message: `Transaction submitted successfully!`,
             txId: result.txId,
-            explorerUrl: `https://explorer.hiro.so/txid/${result.txId}?chain=mainnet`,
+            explorerUrl: getExplorerTxUrl(result.txId, NETWORK),
           });
         }
 
@@ -361,7 +362,7 @@ export function registerPillarTools(server: McpServer): void {
             success: true,
             message: `${methodLabels[method] || "Deposit"} submitted successfully!`,
             txId: result.txId,
-            explorerUrl: `https://explorer.hiro.so/txid/${result.txId}?chain=mainnet`,
+            explorerUrl: getExplorerTxUrl(result.txId, NETWORK),
           });
         }
 
@@ -417,7 +418,7 @@ export function registerPillarTools(server: McpServer): void {
             success: true,
             message: "Backup admin added successfully!",
             txId: result.txId,
-            explorerUrl: `https://explorer.hiro.so/txid/${result.txId}?chain=mainnet`,
+            explorerUrl: getExplorerTxUrl(result.txId, NETWORK),
           });
         }
 
@@ -474,7 +475,7 @@ export function registerPillarTools(server: McpServer): void {
             success: true,
             message: "Supply to Zest submitted successfully!",
             txId: result.txId,
-            explorerUrl: `https://explorer.hiro.so/txid/${result.txId}?chain=mainnet`,
+            explorerUrl: getExplorerTxUrl(result.txId, NETWORK),
           });
         }
 
@@ -585,7 +586,7 @@ export function registerPillarTools(server: McpServer): void {
             success: true,
             message: "Unwind position submitted successfully!",
             txId: result.txId,
-            explorerUrl: `https://explorer.hiro.so/txid/${result.txId}?chain=mainnet`,
+            explorerUrl: getExplorerTxUrl(result.txId, NETWORK),
           });
         }
 
@@ -645,7 +646,7 @@ export function registerPillarTools(server: McpServer): void {
             success: true,
             message: "Boost position submitted successfully!",
             txId: result.txId,
-            explorerUrl: `https://explorer.hiro.so/txid/${result.txId}?chain=mainnet`,
+            explorerUrl: getExplorerTxUrl(result.txId, NETWORK),
           });
         }
 
