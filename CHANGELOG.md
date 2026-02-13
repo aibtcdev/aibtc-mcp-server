@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.21.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.20.0...v1.21.0) (2026-02-13)
+
+
+### Features
+
+* **pillar:** add stacking tools, desktop install, and security improvements ([#108](https://github.com/aibtcdev/aibtc-mcp-server/issues/108)) ([01556c5](https://github.com/aibtcdev/aibtc-mcp-server/commit/01556c575d7f0cf60eeb29d1526d545873e14685))
+
 ## [1.20.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.19.2...v1.20.0) (2026-02-13)
 
 
