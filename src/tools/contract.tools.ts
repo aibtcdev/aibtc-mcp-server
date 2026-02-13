@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { PostConditionMode, PostCondition, uintCV } from "@stacks/transactions";
+import { PostConditionMode, PostCondition } from "@stacks/transactions";
 import { getAccount, NETWORK } from "../services/x402.service.js";
 import { callContract, deployContract } from "../transactions/builder.js";
 import { parseArgToClarityValue } from "../transactions/clarity-values.js";

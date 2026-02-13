@@ -195,7 +195,7 @@ export async function callContract(
     senderKey: account.privateKey,
     network: networkName,
     postConditionMode: options.postConditionMode || PostConditionMode.Deny,
-    ...(options.postConditions && { postConditions: options.postConditions }),
+    postConditions: options.postConditions || [],
   });
 
   const broadcastResponse = await broadcastTransaction({
@@ -293,7 +293,7 @@ export async function signContractCall(
     senderKey: account.privateKey,
     network: networkName,
     postConditionMode: options.postConditionMode || PostConditionMode.Deny,
-    ...(options.postConditions && { postConditions: options.postConditions }),
+    postConditions: options.postConditions || [],
   });
 
   return {

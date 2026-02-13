@@ -470,18 +470,12 @@ export class BnsService {
     }
     const nftName = contractInterface.non_fungible_tokens[0].name;
 
-    // BNS names are NFTs. The token ID is the hash of the name tuple {name, namespace}
-    // For post conditions, we need to construct the token ID by hashing
-    // For simplicity and safety, we'll use the namespace+name buffer as the identifier
+    // BNS names are NFTs identified by a hash160 of the concatenated namespace+name
     const nameBuffer = Buffer.concat([
       Buffer.from(namespace),
       Buffer.from(baseName),
     ]);
-
-    // Create hash160 of namespace+name to use as the NFT ID
     const tokenIdHash = await this.hash160(nameBuffer);
-
-    // Convert the 20-byte hash to a bigint for the token ID
     const tokenId = BigInt("0x" + tokenIdHash.toString("hex"));
 
     // Add post condition: sender must send the BNS name NFT
