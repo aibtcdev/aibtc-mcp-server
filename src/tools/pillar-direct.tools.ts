@@ -107,6 +107,42 @@ function formatSigAuthForApi(sigAuth: SigAuth) {
   };
 }
 
+/**
+ * Resolve a recipient identifier (BNS name, Pillar wallet name, or Stacks address)
+ * to a Stacks address. Throws on resolution failure.
+ */
+async function resolveRecipientAddress(
+  api: ReturnType<typeof getPillarApi>,
+  to: string,
+  recipientType: string
+): Promise<string> {
+  if (recipientType === "address" || to.startsWith("SP") || to.startsWith("ST")) {
+    return to;
+  }
+
+  if (recipientType === "wallet") {
+    const walletLookup = await api.get<{
+      success: boolean;
+      data: { contractAddress: string } | null;
+    }>(`/api/smart-wallet/${to}`);
+    if (!walletLookup.data?.contractAddress) {
+      throw new Error(`Pillar wallet "${to}" not found.`);
+    }
+    return walletLookup.data.contractAddress;
+  }
+
+  // BNS name resolution
+  const bnsName = to.endsWith(".btc") ? to : `${to}.btc`;
+  const bnsLookup = await api.get<{
+    success: boolean;
+    data: { address: string } | null;
+  }>("/api/bns/resolve", { name: bnsName });
+  if (!bnsLookup.data?.address) {
+    throw new Error(`BNS name "${bnsName}" could not be resolved.`);
+  }
+  return bnsLookup.data.address;
+}
+
 // ============================================================================
 // Tool Registration
 // ============================================================================
@@ -494,34 +530,7 @@ export function registerPillarDirectTools(server: McpServer): void {
         const { keyService, session } = await requireActiveKey();
         const api = getPillarApi();
 
-        // Resolve recipient to a Stacks address before building the hash.
-        // principalCV() only accepts SP/ST addresses — BNS/wallet names must be resolved first.
-        let resolvedAddress: string;
-
-        if (recipientType === "address" || to.startsWith("SP") || to.startsWith("ST")) {
-          resolvedAddress = to;
-        } else if (recipientType === "wallet") {
-          // Pillar wallet name → look up contract address via backend
-          const walletLookup = await api.get<{
-            success: boolean;
-            data: { contractAddress: string } | null;
-          }>(`/api/smart-wallet/${to}`);
-          if (!walletLookup.data?.contractAddress) {
-            throw new Error(`Pillar wallet "${to}" not found.`);
-          }
-          resolvedAddress = walletLookup.data.contractAddress;
-        } else {
-          // BNS name → resolve via backend (same as frontend bnsApi.resolve)
-          const bnsName = to.endsWith(".btc") ? to : `${to}.btc`;
-          const bnsLookup = await api.get<{
-            success: boolean;
-            data: { address: string } | null;
-          }>("/api/bns/resolve", { name: bnsName });
-          if (!bnsLookup.data?.address) {
-            throw new Error(`BNS name "${bnsName}" could not be resolved.`);
-          }
-          resolvedAddress = bnsLookup.data.address;
-        }
+        const resolvedAddress = await resolveRecipientAddress(api, to, recipientType);
 
         const authId = generateAuthId();
         const structuredData = tupleCV({
@@ -1399,59 +1408,33 @@ export function registerPillarDirectTools(server: McpServer): void {
     async ({ to, recipientType }) => {
       try {
         const api = getPillarApi();
+        const resolvedAddress = await resolveRecipientAddress(api, to, recipientType);
 
-        if (recipientType === "address" || to.startsWith("SP") || to.startsWith("ST")) {
-          return createJsonResponse({
-            success: true,
-            input: to,
-            resolvedAddress: to,
-            type: "address",
-          });
-        }
+        // Determine the effective type for the response
+        const effectiveType =
+          recipientType === "address" || to.startsWith("SP") || to.startsWith("ST")
+            ? "address"
+            : recipientType;
+        const bnsName = effectiveType === "bns"
+          ? (to.endsWith(".btc") ? to : `${to}.btc`)
+          : undefined;
 
-        if (recipientType === "wallet") {
-          const walletLookup = await api.get<{
-            success: boolean;
-            data: { contractAddress: string; walletName: string } | null;
-          }>(`/api/smart-wallet/${to}`);
-          if (!walletLookup.data?.contractAddress) {
-            return createJsonResponse({
-              success: false,
-              input: to,
-              error: `Pillar wallet "${to}" not found.`,
-            });
-          }
-          return createJsonResponse({
-            success: true,
-            input: to,
-            resolvedAddress: walletLookup.data.contractAddress,
-            walletName: walletLookup.data.walletName,
-            type: "wallet",
-          });
-        }
-
-        // BNS
-        const bnsName = to.endsWith(".btc") ? to : `${to}.btc`;
-        const bnsLookup = await api.get<{
-          success: boolean;
-          data: { address: string; name: string } | null;
-        }>("/api/bns/resolve", { name: bnsName });
-        if (!bnsLookup.data?.address) {
-          return createJsonResponse({
-            success: false,
-            input: to,
-            bnsName,
-            error: `BNS name "${bnsName}" could not be resolved.`,
-          });
-        }
         return createJsonResponse({
           success: true,
           input: to,
-          bnsName,
-          resolvedAddress: bnsLookup.data.address,
-          type: "bns",
+          resolvedAddress,
+          ...(bnsName ? { bnsName } : {}),
+          type: effectiveType,
         });
       } catch (error) {
+        // Return resolution failures as structured responses instead of error format
+        if (error instanceof Error) {
+          return createJsonResponse({
+            success: false,
+            input: to,
+            error: error.message,
+          });
+        }
         return createErrorResponse(error);
       }
     }
