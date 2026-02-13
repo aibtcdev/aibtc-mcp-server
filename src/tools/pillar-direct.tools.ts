@@ -121,6 +121,13 @@ function requireMainnet(): ReturnType<typeof createJsonResponse> | null {
 }
 
 /**
+ * Extract wallet name from contract address (e.g. "SPxxx.telegram-wallet" -> "telegram-wallet").
+ */
+function getWalletName(contractAddress: string): string {
+  return contractAddress.split(".")[1] || contractAddress;
+}
+
+/**
  * Resolve a recipient identifier (BNS name, Pillar wallet name, or Stacks address)
  * to a Stacks address. Throws on resolution failure.
  */
@@ -647,9 +654,7 @@ export function registerPillarDirectTools(server: McpServer): void {
         const { session } = await requireActiveKey();
         const api = getPillarApi();
 
-        // Extract wallet name from contract address (e.g. "SPxxx.telegram-wallet" → "telegram-wallet")
-        const contractParts = session.smartWallet.split(".");
-        const walletName = contractParts[1] || session.smartWallet;
+        const walletName = getWalletName(session.smartWallet);
 
         // First check wallet status in backend
         let walletStatus: string | null = null;
@@ -1603,8 +1608,7 @@ export function registerPillarDirectTools(server: McpServer): void {
 
         // Check enrollment status via backend
         const api = getPillarApi();
-        const contractParts = session.smartWallet.split(".");
-        const walletName = contractParts[1] || session.smartWallet;
+        const walletName = getWalletName(session.smartWallet);
 
         let enrollmentStatus: {
           enrolled: boolean;
