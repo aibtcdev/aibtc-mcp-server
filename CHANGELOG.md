@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.20.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.19.2...v1.20.0) (2026-02-13)
+
+
+### Features
+
+* add post conditions to all transaction sites for PostConditionMode.Deny ([#106](https://github.com/aibtcdev/aibtc-mcp-server/issues/106)) ([404ee0f](https://github.com/aibtcdev/aibtc-mcp-server/commit/404ee0f6d17ce4fb65ed1d7bb49f753623f5ea83))
+
 ## [1.19.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.19.1...v1.19.2) (2026-02-12)
 
 
