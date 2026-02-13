@@ -87,6 +87,26 @@ Optional integrations:
 - `PILLAR_API_URL`, `PILLAR_API_KEY` - Pillar smart wallet
 - `BITFLOW_API_KEY`, `BITFLOW_API_HOST` - Bitflow DEX
 
+## Installation
+
+**Claude Code (terminal):**
+```bash
+npx @aibtc/mcp-server@latest --install
+```
+
+**Claude Desktop (app):**
+```bash
+npx @aibtc/mcp-server@latest --install --desktop
+```
+
+The `--desktop` flag auto-detects your OS and writes to the correct Claude Desktop config path. The `@latest` tag ensures users always get the newest features.
+
+**For testnet:** Add `--testnet` to either command, e.g. `npx @aibtc/mcp-server@latest --install --desktop --testnet`
+
+**Note:** `CLIENT_MNEMONIC` is optional. Users can either:
+1. **Managed wallets (recommended)**: Use `wallet_create` or `wallet_import` to generate/import wallets with password protection
+2. **Environment mnemonic**: Set `CLIENT_MNEMONIC` in env (for power users)
+
 ## Agent Behavior Guidelines
 
 **Bitcoin-First Principle**: When users ask about "their wallet" or "their balance" without specifying a chain, default to Bitcoin (L1). Only use Stacks L2 operations when users explicitly mention STX, Stacks, or L2-specific features.
