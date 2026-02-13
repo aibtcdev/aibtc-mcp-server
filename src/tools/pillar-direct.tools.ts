@@ -30,6 +30,11 @@ import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 const SBTC_CONTRACT = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
 const AEUSDC_CONTRACT = "SP3Y2ZSH8P7D50B0VBTSX11S7XSG24M1VB9YFQA4K.token-aeusdc";
 
+function explorerTxUrl(txId: string): string {
+  const id = txId.startsWith("0x") ? txId : `0x${txId}`;
+  return `https://explorer.hiro.so/txid/${id}?chain=mainnet`;
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -276,7 +281,8 @@ export function registerPillarDirectTools(server: McpServer): void {
       description:
         "Create or increase a leveraged sBTC position (up to 1.5x) on your Pillar smart wallet. " +
         "Agent-signed, no browser needed. Your sBTC is supplied to Zest, borrowed against, " +
-        "and re-supplied for amplified exposure. Backend sponsors gas.",
+        "and re-supplied for amplified Bitcoin exposure. Backend sponsors gas. " +
+        "For simple yield without leverage, use pillar_direct_supply instead.",
       inputSchema: {
         sbtcAmount: z
           .number()
@@ -322,6 +328,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           success: true,
           operation: "pillar-boost",
           txId: result.data.txId,
+          explorerUrl: explorerTxUrl(result.data.txId),
           walletAddress: session.smartWallet,
         });
       } catch (error) {
@@ -382,6 +389,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           success: true,
           operation: "pillar-unwind",
           txId: result.data.txId,
+          explorerUrl: explorerTxUrl(result.data.txId),
           walletAddress: session.smartWallet,
         });
       } catch (error) {
@@ -390,14 +398,15 @@ export function registerPillarDirectTools(server: McpServer): void {
     }
   );
 
-  // --- pillar_direct_supply (twin of pillar_supply) ---
+  // --- pillar_direct_supply (twin of pillar_supply / Earn) ---
   // pillar_supply in handoff = add-collateral (0x leverage supply to Zest)
   server.registerTool(
     "pillar_direct_supply",
     {
       description:
-        "Supply sBTC from your Pillar smart wallet to Zest Protocol to earn yield (0x leverage). " +
-        "Agent-signed, no browser needed. Backend sponsors gas.",
+        "Earn yield on your Bitcoin. Supply sBTC from your Pillar smart wallet to Zest Protocol. " +
+        "No leverage, no liquidation risk. Agent-signed, no browser needed. Backend sponsors gas. " +
+        "For leveraged exposure (1.5x), use pillar_direct_boost instead.",
       inputSchema: {
         sbtcAmount: z
           .number()
@@ -431,6 +440,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           success: true,
           operation: "pillar-add-collateral",
           txId: result.data.txId,
+          explorerUrl: explorerTxUrl(result.data.txId),
           walletAddress: session.smartWallet,
         });
       } catch (error) {
@@ -520,7 +530,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           amount,
           recipient: resolvedAddress,
           sip010: sbtcContract,
-          tokenName: "sBTC",
+          tokenName: "sbtc-token",
           sigAuth: formatSigAuthForApi(sigAuth),
         });
 
@@ -528,6 +538,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           success: true,
           operation: "sip010-transfer",
           txId: result.data.txId,
+          explorerUrl: explorerTxUrl(result.data.txId),
           walletAddress: session.smartWallet,
           to,
           resolvedAddress,
@@ -591,6 +602,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           success: true,
           operation: "set-keeper-auto-compound",
           txId: result.data.txId,
+          explorerUrl: explorerTxUrl(result.data.txId),
           walletAddress: session.smartWallet,
         });
       } catch (error) {
@@ -767,6 +779,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           success: true,
           operation: "pillar-withdraw-collateral",
           txId: result.data.txId,
+          explorerUrl: explorerTxUrl(result.data.txId),
           walletAddress: session.smartWallet,
         });
       } catch (error) {
@@ -817,6 +830,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           success: true,
           operation: "add-admin",
           txId: result.data.txId,
+          explorerUrl: explorerTxUrl(result.data.txId),
           walletAddress: session.smartWallet,
           newAdmin,
         });
@@ -931,6 +945,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           contractName: result.data.contractName,
           contractAddress: result.data.contractAddress,
           deployTxId: result.data.deployTxId,
+          explorerUrl: explorerTxUrl(result.data.deployTxId),
           status: result.data.status,
           note: "Signing key generated, unlocked, and wallet deployed. " +
             "Backend is calling onboard() in background (~20-30s). " +
