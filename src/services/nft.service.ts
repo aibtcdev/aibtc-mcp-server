@@ -2,6 +2,7 @@ import { ClarityValue, uintCV, principalCV } from "@stacks/transactions";
 import { HiroApiService, getHiroApi, NftHolding, NftEvent } from "./hiro-api.js";
 import { parseContractId, type Network } from "../config/index.js";
 import { callContract, type Account, type TransferResult } from "../transactions/builder.js";
+import { createNftSendPostCondition } from "../transactions/post-conditions.js";
 
 // ============================================================================
 // Types
@@ -173,6 +174,14 @@ export class NftService {
   ): Promise<TransferResult> {
     const { address: contractAddress, name: contractName } = parseContractId(contractId);
 
+    // Fetch the contract interface to get the NFT token name
+    const contractInterface = await this.hiro.getContractInterface(contractId);
+    if (!contractInterface.non_fungible_tokens || contractInterface.non_fungible_tokens.length === 0) {
+      throw new Error(`No NFT tokens found in contract ${contractId}`);
+    }
+    // Use the first NFT token name (SIP-009 contracts typically have one)
+    const nftName = contractInterface.non_fungible_tokens[0].name;
+
     // SIP-009 transfer function signature:
     // (transfer (token-id uint) (sender principal) (recipient principal))
     const functionArgs: ClarityValue[] = [
@@ -181,11 +190,20 @@ export class NftService {
       principalCV(recipient),
     ];
 
+    // Add post condition: sender must send this specific NFT
+    const postCondition = createNftSendPostCondition(
+      account.address,
+      contractId,
+      nftName,
+      tokenId
+    );
+
     return callContract(account, {
       contractAddress,
       contractName,
       functionName: "transfer",
       functionArgs,
+      postConditions: [postCondition],
       ...(fee !== undefined && { fee }),
     });
   }
@@ -204,11 +222,13 @@ export class NftService {
     // This is a generic mint call - actual parameters depend on the specific contract
     const functionArgs: ClarityValue[] = [principalCV(recipient)];
 
+    // No post conditions needed for minting (contract creates new asset)
     return callContract(account, {
       contractAddress,
       contractName,
       functionName: mintFunctionName,
       functionArgs,
+      postConditions: [],
     });
   }
 }
