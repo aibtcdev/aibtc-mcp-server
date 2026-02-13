@@ -21,7 +21,7 @@ Bitcoin-native MCP server for AI agents: BTC/STX wallets, DeFi yield, sBTC peg, 
 
 ## Quick Start
 
-### One-Command Install
+### Claude Code (Terminal)
 
 ```bash
 npx @aibtc/mcp-server@latest --install
@@ -29,12 +29,73 @@ npx @aibtc/mcp-server@latest --install
 
 That's it! This automatically configures Claude Code. Restart your terminal and start chatting.
 
-**For testnet:**
+### Claude Desktop (App)
+
 ```bash
+npx @aibtc/mcp-server@latest --install --desktop
+```
+
+This detects your OS and writes to the correct Claude Desktop config file:
+
+| OS | Config Path |
+|----|-------------|
+| macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| Linux | `~/.config/Claude/claude_desktop_config.json` |
+| Windows | `%APPDATA%/Claude/claude_desktop_config.json` |
+
+Restart Claude Desktop after installing.
+
+### Testnet Mode
+
+Add `--testnet` to either command:
+
+```bash
+# Claude Code on testnet
 npx @aibtc/mcp-server@latest --install --testnet
+
+# Claude Desktop on testnet
+npx @aibtc/mcp-server@latest --install --desktop --testnet
 ```
 
 > **Why npx?** Using `npx @aibtc/mcp-server@latest` ensures you always get the newest version automatically. Global installs (`npm install -g`) won't auto-update.
+
+### Manual Configuration
+
+If you prefer to configure manually, add the following to your config file.
+
+**Claude Code** (`~/.claude.json`):
+
+```json
+{
+  "mcpServers": {
+    "aibtc": {
+      "command": "npx",
+      "args": ["@aibtc/mcp-server@latest"],
+      "env": {
+        "NETWORK": "mainnet"
+      }
+    }
+  }
+}
+```
+
+**Claude Desktop** (`claude_desktop_config.json` -- see path table above):
+
+```json
+{
+  "mcpServers": {
+    "aibtc": {
+      "command": "npx",
+      "args": ["-y", "@aibtc/mcp-server@latest"],
+      "env": {
+        "NETWORK": "mainnet"
+      }
+    }
+  }
+}
+```
+
+> **Note:** Claude Desktop requires the `-y` flag in args so npx doesn't prompt for confirmation.
 
 ## Giving Claude a Wallet
 
@@ -408,7 +469,7 @@ You ←→ Claude ←→ aibtc-mcp-server
 
 ## Advanced: Pre-configured Mnemonic
 
-For automated setups where Claude needs immediate wallet access, set the `CLIENT_MNEMONIC` environment variable in your `~/.claude.json`:
+For automated setups where Claude needs immediate wallet access, add the `CLIENT_MNEMONIC` environment variable to your MCP server config (in `~/.claude.json` for Claude Code, or `claude_desktop_config.json` for Claude Desktop):
 
 ```json
 {
