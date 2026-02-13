@@ -51,46 +51,18 @@ async function writeJsonConfig(filePath: string, config: Record<string, unknown>
   await fs.writeFile(filePath, JSON.stringify(config, null, 2));
 }
 
-async function installToClaudeCode(): Promise<void> {
-  const claudeConfigPath = path.join(os.homedir(), ".claude.json");
-  const network = process.argv.includes("--testnet") ? "testnet" : "mainnet";
-
-  console.log("🔧 Installing @aibtc/mcp-server to Claude Code...\n");
-
-  const config = await readJsonConfig(claudeConfigPath) as { mcpServers?: Record<string, unknown> };
-
-  if (!config.mcpServers) {
-    config.mcpServers = {};
-  }
-
-  config.mcpServers["aibtc"] = {
-    command: "npx",
-    args: ["@aibtc/mcp-server@latest"],
-    env: {
-      NETWORK: network,
-    },
-  };
-
-  await writeJsonConfig(claudeConfigPath, config);
-
-  console.log("✅ Successfully installed!\n");
-  console.log(`   Config: ${claudeConfigPath}`);
-  console.log(`   Network: ${network}`);
-  console.log("\n📋 Next steps:");
-  console.log("   1. Restart Claude Code (close and reopen terminal)");
-  console.log("   2. Ask Claude: \"What's your wallet address?\"");
-  console.log("   3. Claude will guide you through wallet setup\n");
-
-  if (network === "testnet") {
-    console.log("💡 Tip: Get testnet STX at https://explorer.hiro.so/sandbox/faucet?chain=testnet\n");
-  }
+interface InstallOptions {
+  configPath: string;
+  label: string;
+  extraArgs?: string[];
+  restartMessage: string;
 }
 
-async function installToClaudeDesktop(): Promise<void> {
-  const configPath = getClaudeDesktopConfigPath();
+async function installMcpServer(options: InstallOptions): Promise<void> {
+  const { configPath, label, extraArgs = [], restartMessage } = options;
   const network = process.argv.includes("--testnet") ? "testnet" : "mainnet";
 
-  console.log("🔧 Installing @aibtc/mcp-server to Claude Desktop...\n");
+  console.log(`🔧 Installing @aibtc/mcp-server to ${label}...\n`);
 
   const config = await readJsonConfig(configPath) as { mcpServers?: Record<string, unknown> };
 
@@ -100,7 +72,7 @@ async function installToClaudeDesktop(): Promise<void> {
 
   config.mcpServers["aibtc"] = {
     command: "npx",
-    args: ["-y", "@aibtc/mcp-server@latest"],
+    args: [...extraArgs, "@aibtc/mcp-server@latest"],
     env: {
       NETWORK: network,
     },
@@ -112,13 +84,30 @@ async function installToClaudeDesktop(): Promise<void> {
   console.log(`   Config: ${configPath}`);
   console.log(`   Network: ${network}`);
   console.log("\n📋 Next steps:");
-  console.log("   1. Restart Claude Desktop (quit and reopen the app)");
+  console.log(`   1. ${restartMessage}`);
   console.log("   2. Ask Claude: \"What's your wallet address?\"");
   console.log("   3. Claude will guide you through wallet setup\n");
 
   if (network === "testnet") {
     console.log("💡 Tip: Get testnet STX at https://explorer.hiro.so/sandbox/faucet?chain=testnet\n");
   }
+}
+
+async function installToClaudeCode(): Promise<void> {
+  return installMcpServer({
+    configPath: path.join(os.homedir(), ".claude.json"),
+    label: "Claude Code",
+    restartMessage: "Restart Claude Code (close and reopen terminal)",
+  });
+}
+
+async function installToClaudeDesktop(): Promise<void> {
+  return installMcpServer({
+    configPath: getClaudeDesktopConfigPath(),
+    label: "Claude Desktop",
+    extraArgs: ["-y"],
+    restartMessage: "Restart Claude Desktop (quit and reopen the app)",
+  });
 }
 
 // =============================================================================
