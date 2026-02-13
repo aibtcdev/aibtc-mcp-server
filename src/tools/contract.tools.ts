@@ -1,12 +1,96 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { PostConditionMode } from "@stacks/transactions";
+import { PostConditionMode, PostCondition, uintCV } from "@stacks/transactions";
 import { getAccount, NETWORK } from "../services/x402.service.js";
 import { callContract, deployContract } from "../transactions/builder.js";
 import { parseArgToClarityValue } from "../transactions/clarity-values.js";
 import { getHiroApi, getTransactionStatus } from "../services/hiro-api.js";
 import { getExplorerTxUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse, resolveFee } from "../utils/index.js";
+import {
+  createStxPostCondition,
+  createContractStxPostCondition,
+  createFungiblePostCondition,
+  createContractFungiblePostCondition,
+  createNftSendPostCondition,
+  createNftNotSendPostCondition,
+} from "../transactions/post-conditions.js";
+
+/**
+ * Parse a post condition descriptor from JSON to a PostCondition object
+ */
+function parsePostCondition(pc: unknown): PostCondition {
+  if (typeof pc !== "object" || pc === null) {
+    throw new Error("Post condition must be an object");
+  }
+
+  const condition = pc as Record<string, unknown>;
+  const { type, principal, conditionCode, amount, asset, assetName, tokenId, notSend } = condition;
+
+  if (typeof principal !== "string") {
+    throw new Error("Post condition 'principal' must be a string");
+  }
+
+  if (type === "stx") {
+    if (typeof amount !== "string" && typeof amount !== "number") {
+      throw new Error("STX post condition 'amount' must be a string or number");
+    }
+    if (typeof conditionCode !== "string") {
+      throw new Error("STX post condition 'conditionCode' must be a string (eq|gt|gte|lt|lte)");
+    }
+    const amountBigInt = BigInt(amount);
+    const code = conditionCode as "eq" | "gt" | "gte" | "lt" | "lte";
+
+    // Check if principal is a contract (contains a dot)
+    if (principal.includes(".")) {
+      return createContractStxPostCondition(principal, code, amountBigInt);
+    }
+    return createStxPostCondition(principal, code, amountBigInt);
+  }
+
+  if (type === "ft") {
+    if (typeof asset !== "string") {
+      throw new Error("FT post condition 'asset' must be a string (contract ID)");
+    }
+    if (typeof assetName !== "string") {
+      throw new Error("FT post condition 'assetName' must be a string (token name)");
+    }
+    if (typeof amount !== "string" && typeof amount !== "number") {
+      throw new Error("FT post condition 'amount' must be a string or number");
+    }
+    if (typeof conditionCode !== "string") {
+      throw new Error("FT post condition 'conditionCode' must be a string (eq|gt|gte|lt|lte)");
+    }
+    const amountBigInt = BigInt(amount);
+    const code = conditionCode as "eq" | "gt" | "gte" | "lt" | "lte";
+
+    // Check if principal is a contract (contains a dot)
+    if (principal.includes(".")) {
+      return createContractFungiblePostCondition(principal, asset, assetName, code, amountBigInt);
+    }
+    return createFungiblePostCondition(principal, asset, assetName, code, amountBigInt);
+  }
+
+  if (type === "nft") {
+    if (typeof asset !== "string") {
+      throw new Error("NFT post condition 'asset' must be a string (contract ID)");
+    }
+    if (typeof assetName !== "string") {
+      throw new Error("NFT post condition 'assetName' must be a string (NFT name)");
+    }
+    if (typeof tokenId !== "string" && typeof tokenId !== "number") {
+      throw new Error("NFT post condition 'tokenId' must be a string or number");
+    }
+    const tokenIdBigInt = BigInt(tokenId);
+
+    if (notSend === true) {
+      return createNftNotSendPostCondition(principal, asset, assetName, tokenIdBigInt);
+    }
+    return createNftSendPostCondition(principal, asset, assetName, tokenIdBigInt);
+  }
+
+  throw new Error(`Invalid post condition type: ${type}. Must be 'stx', 'ft', or 'nft'.`);
+}
 
 export function registerContractTools(server: McpServer): void {
   // Call contract
@@ -15,7 +99,12 @@ export function registerContractTools(server: McpServer): void {
     {
       description: `Call a function on a Stacks smart contract. Signs and broadcasts the transaction.
 
-For typed arguments, use objects like {type: 'uint', value: 100} or {type: 'principal', value: 'SP...'}`,
+For typed arguments, use objects like {type: 'uint', value: 100} or {type: 'principal', value: 'SP...'}
+
+Post conditions constrain what assets the transaction can move. Each condition is an object:
+- STX: {type: 'stx', principal: 'SP...', conditionCode: 'eq'|'gt'|'gte'|'lt'|'lte', amount: '1000000'}
+- FT: {type: 'ft', principal: 'SP...', asset: 'SP...contract', assetName: 'token-name', conditionCode: 'eq', amount: '1000'}
+- NFT: {type: 'nft', principal: 'SP...', asset: 'SP...contract', assetName: 'nft-name', tokenId: '1', notSend?: boolean}`,
       inputSchema: {
         contractAddress: z.string().describe("The contract deployer's address (e.g., SP2...)"),
         contractName: z.string().describe("The contract name (e.g., 'my-token')"),
@@ -28,17 +117,26 @@ For typed arguments, use objects like {type: 'uint', value: 100} or {type: 'prin
           .enum(["allow", "deny"])
           .default("deny")
           .describe("'deny' (default): Blocks unexpected transfers. 'allow': Permits any transfers."),
+        postConditions: z
+          .array(z.unknown())
+          .optional()
+          .describe("Optional post conditions to constrain asset movements. See description for format."),
         fee: z
           .string()
           .optional()
           .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount. If omitted, auto-estimated."),
       },
     },
-    async ({ contractAddress, contractName, functionName, functionArgs, postConditionMode, fee }) => {
+    async ({ contractAddress, contractName, functionName, functionArgs, postConditionMode, postConditions, fee }) => {
       try {
         const account = await getAccount();
         const clarityArgs = functionArgs.map(parseArgToClarityValue);
         const resolvedFee = await resolveFee(fee, NETWORK, "contract_call");
+
+        // Parse post conditions if provided
+        const parsedPostConditions = postConditions
+          ? postConditions.map(parsePostCondition)
+          : undefined;
 
         const result = await callContract(account, {
           contractAddress,
@@ -47,6 +145,7 @@ For typed arguments, use objects like {type: 'uint', value: 100} or {type: 'prin
           functionArgs: clarityArgs,
           postConditionMode:
             postConditionMode === "allow" ? PostConditionMode.Allow : PostConditionMode.Deny,
+          ...(parsedPostConditions && { postConditions: parsedPostConditions }),
           ...(resolvedFee !== undefined && { fee: resolvedFee }),
         });
 

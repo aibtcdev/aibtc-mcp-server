@@ -5,6 +5,7 @@ import {
   makeContractDeploy,
   broadcastTransaction,
   PostConditionMode,
+  PostCondition,
   ClarityValue,
   stringAsciiCV,
   stringUtf8CV,
@@ -54,6 +55,7 @@ export interface ContractCallOptions {
   functionName: string;
   functionArgs: ClarityValue[];
   postConditionMode?: PostConditionMode;
+  postConditions?: PostCondition[];
 }
 
 /** @deprecated Use ContractDeployOptions from src/transactions/builder.ts */
@@ -193,6 +195,7 @@ export async function callContract(
     senderKey: account.privateKey,
     network: networkName,
     postConditionMode: options.postConditionMode || PostConditionMode.Deny,
+    ...(options.postConditions && { postConditions: options.postConditions }),
   });
 
   const broadcastResponse = await broadcastTransaction({
@@ -290,6 +293,7 @@ export async function signContractCall(
     senderKey: account.privateKey,
     network: networkName,
     postConditionMode: options.postConditionMode || PostConditionMode.Deny,
+    ...(options.postConditions && { postConditions: options.postConditions }),
   });
 
   return {
