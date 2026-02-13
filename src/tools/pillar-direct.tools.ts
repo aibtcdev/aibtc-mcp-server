@@ -6,9 +6,7 @@ import {
   stringAsciiCV,
   uintCV,
   principalCV,
-  bufferCV,
   noneCV,
-  someCV,
   trueCV,
   falseCV,
 } from "@stacks/transactions";
@@ -28,7 +26,6 @@ import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 // ============================================================================
 
 const SBTC_CONTRACT = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
-const AEUSDC_CONTRACT = "SP3Y2ZSH8P7D50B0VBTSX11S7XSG24M1VB9YFQA4K.token-aeusdc";
 
 // ============================================================================
 // Helpers
