@@ -1416,4 +1416,87 @@ export function registerPillarDirectTools(server: McpServer): void {
       }
     }
   );
+
+  // ==========================================================================
+  // Stacking Tools
+  //
+  // Stack STX via Fast Pool or Stacking DAO through the smart wallet.
+  // Backend: POST /api/pillar/stack-stx
+  // Contract: stack-stx-fast-pool / stake-stx-stacking-dao
+  // ==========================================================================
+
+  // --- pillar_direct_stack_stx ---
+  server.registerTool(
+    "pillar_direct_stack_stx",
+    {
+      description:
+        "Stack STX from your Pillar smart wallet via Fast Pool or Stacking DAO. " +
+        "Agent-signed, no browser needed. Backend sponsors gas. " +
+        "Fast Pool delegates STX to the pox4-fast-pool-v3 contract. " +
+        "Stacking DAO deposits STX into Stacking DAO core for stSTX yield. " +
+        "Your wallet must be enrolled in dual stacking first (automatic for v2 wallets with sBTC).",
+      inputSchema: {
+        stxAmount: z
+          .number()
+          .positive()
+          .describe("Amount of STX to stack in micro-STX (1 STX = 1,000,000 micro-STX)"),
+        pool: z
+          .enum(["fast-pool", "stacking-dao"])
+          .describe(
+            "Stacking pool to use: 'fast-pool' (delegates to pox4-fast-pool-v3) " +
+            "or 'stacking-dao' (deposits into Stacking DAO for stSTX)"
+          ),
+      },
+    },
+    async ({ stxAmount, pool }) => {
+      try {
+        const { keyService, session } = await requireActiveKey();
+        const authId = generateAuthId();
+
+        // Build SIP-018 structured data matching the contract's hash builder.
+        // Fast Pool uses topic "stack-stx-fast-pool" with {auth-id, amount-ustx}
+        // Stacking DAO uses topic "stake-stx-stacking-dao" with {auth-id, stx-amount}
+        const structuredData =
+          pool === "fast-pool"
+            ? tupleCV({
+                topic: stringAsciiCV("stack-stx-fast-pool"),
+                "auth-id": uintCV(authId),
+                "amount-ustx": uintCV(stxAmount),
+              })
+            : tupleCV({
+                topic: stringAsciiCV("stake-stx-stacking-dao"),
+                "auth-id": uintCV(authId),
+                "stx-amount": uintCV(stxAmount),
+              });
+
+        const sigAuth = keyService.sign(structuredData, authId);
+        const api = getPillarApi();
+        const result = await api.post<{
+          success: boolean;
+          data: { txId: string; walletAddress: string; stxAmount: number; pool: string };
+        }>("/api/pillar/stack-stx", {
+          walletAddress: session.smartWallet,
+          stxAmount,
+          pool,
+          sigAuth: formatSigAuthForApi(sigAuth),
+        });
+
+        const stxFormatted = (stxAmount / 1_000_000).toFixed(6);
+        const poolLabel = pool === "fast-pool" ? "Fast Pool" : "Stacking DAO";
+
+        return createJsonResponse({
+          success: true,
+          operation: pool === "fast-pool" ? "stack-stx-fast-pool" : "stake-stx-stacking-dao",
+          txId: result.data.txId,
+          explorerUrl: explorerTxUrl(result.data.txId),
+          walletAddress: session.smartWallet,
+          stxAmount,
+          stxFormatted: `${stxFormatted} STX`,
+          pool: poolLabel,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
 }
