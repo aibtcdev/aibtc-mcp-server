@@ -2,6 +2,7 @@ import { ClarityValue, uintCV, principalCV, noneCV, someCV, bufferCV } from "@st
 import { HiroApiService, getHiroApi, FungibleTokenHolding } from "./hiro-api.js";
 import { parseContractId, getWellKnownTokens, type Network } from "../config/index.js";
 import { callContract, type Account, type TransferResult } from "../transactions/builder.js";
+import { createFungiblePostCondition } from "../transactions/post-conditions.js";
 
 // ============================================================================
 // Types
@@ -124,6 +125,14 @@ export class TokensService {
     const contractId = this.resolveToken(tokenContractOrSymbol);
     const { address: contractAddress, name: contractName } = parseContractId(contractId);
 
+    // Fetch the contract interface to get the fungible token name
+    const contractInterface = await this.hiro.getContractInterface(contractId);
+    if (!contractInterface.fungible_tokens || contractInterface.fungible_tokens.length === 0) {
+      throw new Error(`No fungible tokens found in contract ${contractId}`);
+    }
+    // Use the first fungible token name (SIP-010 contracts typically have one)
+    const tokenName = contractInterface.fungible_tokens[0].name;
+
     // SIP-010 transfer function signature:
     // (transfer (amount uint) (sender principal) (recipient principal) (memo (optional (buff 34))))
     const functionArgs: ClarityValue[] = [
@@ -133,11 +142,21 @@ export class TokensService {
       memo ? someCV(bufferCV(Buffer.from(memo).subarray(0, 34))) : noneCV(),
     ];
 
+    // Add post condition: sender must send exactly `amount` of the token
+    const postCondition = createFungiblePostCondition(
+      account.address,
+      contractId,
+      tokenName,
+      "eq",
+      amount
+    );
+
     return callContract(account, {
       contractAddress,
       contractName,
       functionName: "transfer",
       functionArgs,
+      postConditions: [postCondition],
       ...(fee !== undefined && { fee }),
     });
   }
