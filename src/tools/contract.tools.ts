@@ -31,12 +31,14 @@ function parsePostCondition(pc: unknown): PostCondition {
     throw new Error("Post condition 'principal' must be a string");
   }
 
+  const validConditionCodes = ["eq", "gt", "gte", "lt", "lte"];
+
   if (type === "stx") {
     if (typeof amount !== "string" && typeof amount !== "number") {
       throw new Error("STX post condition 'amount' must be a string or number");
     }
-    if (typeof conditionCode !== "string") {
-      throw new Error("STX post condition 'conditionCode' must be a string (eq|gt|gte|lt|lte)");
+    if (typeof conditionCode !== "string" || !validConditionCodes.includes(conditionCode)) {
+      throw new Error(`STX post condition 'conditionCode' must be one of: ${validConditionCodes.join(", ")}`);
     }
     const amountBigInt = BigInt(amount);
     const code = conditionCode as "eq" | "gt" | "gte" | "lt" | "lte";
@@ -58,8 +60,8 @@ function parsePostCondition(pc: unknown): PostCondition {
     if (typeof amount !== "string" && typeof amount !== "number") {
       throw new Error("FT post condition 'amount' must be a string or number");
     }
-    if (typeof conditionCode !== "string") {
-      throw new Error("FT post condition 'conditionCode' must be a string (eq|gt|gte|lt|lte)");
+    if (typeof conditionCode !== "string" || !validConditionCodes.includes(conditionCode)) {
+      throw new Error(`FT post condition 'conditionCode' must be one of: ${validConditionCodes.join(", ")}`);
     }
     const amountBigInt = BigInt(amount);
     const code = conditionCode as "eq" | "gt" | "gte" | "lt" | "lte";
@@ -81,7 +83,12 @@ function parsePostCondition(pc: unknown): PostCondition {
     if (typeof tokenId !== "string" && typeof tokenId !== "number") {
       throw new Error("NFT post condition 'tokenId' must be a string or number");
     }
-    const tokenIdBigInt = BigInt(tokenId);
+    let tokenIdBigInt: bigint;
+    try {
+      tokenIdBigInt = BigInt(tokenId);
+    } catch {
+      throw new Error(`NFT post condition 'tokenId' must be a valid integer, got: ${tokenId}`);
+    }
 
     if (notSend === true) {
       return createNftNotSendPostCondition(principal, asset, assetName, tokenIdBigInt);
