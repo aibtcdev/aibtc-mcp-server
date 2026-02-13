@@ -1543,4 +1543,115 @@ export function registerPillarDirectTools(server: McpServer): void {
       }
     }
   );
+
+  // --- pillar_direct_stacking_status ---
+  // Read-only — fetches STX balance (locked vs liquid), PoX cycle info,
+  // and enrollment status from on-chain data.
+  server.registerTool(
+    "pillar_direct_stacking_status",
+    {
+      description:
+        "Check stacking status for your Pillar smart wallet. " +
+        "No signing needed — reads on-chain data. " +
+        "Shows STX balance (locked vs liquid), current PoX cycle info, " +
+        "and dual stacking enrollment status.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const { session } = await requireActiveKey();
+        const hiro = getHiroApi(NETWORK);
+
+        // Fetch STX balance (includes locked amount from stacking)
+        const stxBalance = await hiro.getStxBalance(session.smartWallet);
+
+        const balanceMicro = BigInt(stxBalance.balance || "0");
+        const lockedMicro = BigInt(stxBalance.locked || "0");
+        const liquidMicro = balanceMicro - lockedMicro;
+
+        const formatStx = (micro: bigint) => {
+          const whole = micro / BigInt(1_000_000);
+          const frac = (micro % BigInt(1_000_000)).toString().padStart(6, "0");
+          return `${whole}.${frac} STX`;
+        };
+
+        // Fetch PoX cycle info
+        let poxInfo: {
+          currentCycleId: number;
+          nextCycleId: number;
+          blocksUntilNextCycle: number;
+          minAmountUstx: number;
+          isPoxActive: boolean;
+        } | null = null;
+
+        try {
+          const pox = await hiro.getPoxInfo();
+          poxInfo = {
+            currentCycleId: pox.current_cycle.id,
+            nextCycleId: pox.next_cycle.id,
+            blocksUntilNextCycle: pox.next_cycle.blocks_until_reward_phase,
+            minAmountUstx: pox.min_amount_ustx,
+            isPoxActive: pox.current_cycle.is_pox_active,
+          };
+        } catch {
+          // PoX info fetch failed, continue without it
+        }
+
+        // Check enrollment status via backend
+        const api = getPillarApi();
+        const contractParts = session.smartWallet.split(".");
+        const walletName = contractParts[1] || session.smartWallet;
+
+        let enrollmentStatus: {
+          enrolled: boolean;
+          dualStackingTxId: string | null;
+        } = { enrolled: false, dualStackingTxId: null };
+
+        try {
+          const walletInfo = await api.get<{
+            success: boolean;
+            data: {
+              status: string;
+              dualStackingTxId?: string | null;
+            } | null;
+          }>(`/api/smart-wallet/${walletName}`);
+
+          if (walletInfo.data) {
+            enrollmentStatus = {
+              enrolled: !!walletInfo.data.dualStackingTxId,
+              dualStackingTxId: walletInfo.data.dualStackingTxId || null,
+            };
+          }
+        } catch {
+          // Backend lookup failed, continue without enrollment info
+        }
+
+        const isStacking = lockedMicro > BigInt(0);
+
+        return createJsonResponse({
+          success: true,
+          walletAddress: session.smartWallet,
+          stxBalance: {
+            total: formatStx(balanceMicro),
+            totalMicroStx: stxBalance.balance,
+            locked: formatStx(lockedMicro),
+            lockedMicroStx: stxBalance.locked,
+            liquid: formatStx(liquidMicro),
+            lockHeight: stxBalance.lock_height || 0,
+            burnchainUnlockHeight: stxBalance.burnchain_unlock_height || 0,
+          },
+          isStacking,
+          enrollment: enrollmentStatus,
+          poxCycle: poxInfo,
+          message: isStacking
+            ? `Stacking ${formatStx(lockedMicro)} (${formatStx(liquidMicro)} liquid). ` +
+              `${enrollmentStatus.enrolled ? "Dual stacking enrolled." : "Not enrolled in dual stacking."}`
+            : `Not currently stacking. ${formatStx(balanceMicro)} STX available. ` +
+              `${enrollmentStatus.enrolled ? "Dual stacking enrolled." : "Not enrolled in dual stacking."}`,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
 }
