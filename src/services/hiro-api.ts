@@ -6,6 +6,19 @@ import { parseContractId } from "../config/contracts.js";
 // Types
 // ============================================================================
 
+/**
+ * Custom error for Hiro API rate limit responses (429)
+ */
+export class HiroApiRateLimitError extends Error {
+  constructor(
+    message: string,
+    public readonly retryAfterSeconds: number
+  ) {
+    super(message);
+    this.name = "HiroApiRateLimitError";
+  }
+}
+
 export interface AccountInfo {
   balance: string;
   locked: string;
@@ -318,6 +331,15 @@ export class HiroApiService {
     });
 
     if (!response.ok) {
+      if (response.status === 429) {
+        const retryAfter = response.headers.get("Retry-After");
+        const retryAfterSeconds = retryAfter ? parseInt(retryAfter, 10) : 60;
+        throw new HiroApiRateLimitError(
+          `Hiro API rate limit exceeded. Retry after ${retryAfterSeconds}s`,
+          retryAfterSeconds
+        );
+      }
+
       const errorText = await response.text();
       throw new Error(`Hiro API error (${response.status}): ${errorText}`);
     }
