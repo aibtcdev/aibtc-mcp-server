@@ -13,6 +13,7 @@
 import type { Network } from "../config/networks.js";
 import type { UTXO } from "./mempool-api.js";
 import { MempoolApi } from "./mempool-api.js";
+import { HiroApiRateLimitError } from "./hiro-api.js";
 
 /**
  * Inscription data from Hiro Ordinals API
@@ -128,45 +129,39 @@ export class OrdinalIndexer {
     let offset = 0;
     const limit = 60; // Hiro API default/max per page
 
-    try {
-      // Fetch all pages
-      while (true) {
-        const url = `${HIRO_ORDINALS_API_URL}/inscriptions?address=${address}&limit=${limit}&offset=${offset}`;
-        const response = await fetch(url);
+    // Fetch all pages
+    while (true) {
+      const url = `${HIRO_ORDINALS_API_URL}/inscriptions?address=${address}&limit=${limit}&offset=${offset}`;
+      const response = await fetch(url);
 
-        if (!response.ok) {
-          if (response.status === 429) {
-            const retryAfter = response.headers.get("Retry-After");
-            const retryAfterSeconds = retryAfter ? parseInt(retryAfter, 10) : 60;
-            throw new Error(
-              `Hiro Ordinals API rate limit exceeded. Retry after ${retryAfterSeconds}s`
-            );
-          }
-
-          const errorText = await response.text().catch(() => "Unknown error");
-          throw new Error(
-            `Failed to fetch inscriptions from Hiro API: ${response.status} ${response.statusText} - ${errorText}`
+      if (!response.ok) {
+        if (response.status === 429) {
+          const retryAfter = response.headers.get("Retry-After");
+          const retryAfterSeconds = retryAfter ? parseInt(retryAfter, 10) : 60;
+          throw new HiroApiRateLimitError(
+            `Hiro Ordinals API rate limit exceeded. Retry after ${retryAfterSeconds}s`,
+            retryAfterSeconds
           );
         }
 
-        const data = (await response.json()) as HiroInscriptionsResponse;
-        allInscriptions.push(...data.results);
-
-        // Check if we've fetched all inscriptions
-        if (offset + data.results.length >= data.total) {
-          break;
-        }
-
-        offset += limit;
+        const errorText = await response.text().catch(() => "Unknown error");
+        throw new Error(
+          `Failed to fetch inscriptions from Hiro API: ${response.status} ${response.statusText} - ${errorText}`
+        );
       }
 
-      return allInscriptions;
-    } catch (error) {
-      if (error instanceof Error) {
-        throw error;
+      const data = (await response.json()) as HiroInscriptionsResponse;
+      allInscriptions.push(...data.results);
+
+      // Check if we've fetched all inscriptions
+      if (offset + data.results.length >= data.total) {
+        break;
       }
-      throw new Error(`Failed to fetch inscriptions: ${String(error)}`);
+
+      offset += limit;
     }
+
+    return allInscriptions;
   }
 
   /**
