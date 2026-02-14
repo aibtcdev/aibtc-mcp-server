@@ -143,7 +143,7 @@ export class Erc8004Service {
     // Get owner
     const ownerResult = await this.hiro.callReadOnlyFunction(
       this.contracts.identityRegistry,
-      "owner-of",
+      "get-owner",
       [uintCV(agentId)],
       callerAddress
     );
