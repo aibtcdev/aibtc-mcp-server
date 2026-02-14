@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.21.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.21.0...v1.21.1) (2026-02-14)
+
+
+### Bug Fixes
+
+* **api:** document HIRO_API_KEY and complete rate limit handling ([#116](https://github.com/aibtcdev/aibtc-mcp-server/issues/116)) ([b6dc824](https://github.com/aibtcdev/aibtc-mcp-server/commit/b6dc824179eae5a9bfc4750a266a4582b2a524da)), closes [#114](https://github.com/aibtcdev/aibtc-mcp-server/issues/114)
+
 ## [1.21.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.20.0...v1.21.0) (2026-02-13)
 
 
