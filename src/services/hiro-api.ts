@@ -334,7 +334,8 @@ export class HiroApiService {
     if (!response.ok) {
       if (response.status === 429) {
         const retryAfter = response.headers.get("Retry-After");
-        const retryAfterSeconds = retryAfter ? parseInt(retryAfter, 10) : 60;
+        const retryAfterSeconds =
+          retryAfter && !isNaN(parseInt(retryAfter, 10)) ? parseInt(retryAfter, 10) : 60;
         throw new HiroApiRateLimitError(
           `Hiro API rate limit exceeded. Retry after ${retryAfterSeconds}s`,
           retryAfterSeconds
