@@ -135,6 +135,14 @@ export class OrdinalIndexer {
         const response = await fetch(url);
 
         if (!response.ok) {
+          if (response.status === 429) {
+            const retryAfter = response.headers.get("Retry-After");
+            const retryAfterSeconds = retryAfter ? parseInt(retryAfter, 10) : 60;
+            throw new Error(
+              `Hiro Ordinals API rate limit exceeded. Retry after ${retryAfterSeconds}s`
+            );
+          }
+
           const errorText = await response.text().catch(() => "Unknown error");
           throw new Error(
             `Failed to fetch inscriptions from Hiro API: ${response.status} ${response.statusText} - ${errorText}`
