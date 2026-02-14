@@ -441,8 +441,9 @@ Or use any SIP-010 token by contract ID: `SP2X...::token-name`
 | `NETWORK` | `mainnet` or `testnet` | `mainnet` |
 | `API_URL` | Default x402 API base URL | `https://x402.biwas.xyz` |
 | `CLIENT_MNEMONIC` | (Optional) Pre-configured mnemonic | - |
+| `HIRO_API_KEY` | (Optional) Hiro API key for higher rate limits | - |
 
-**Note:** `CLIENT_MNEMONIC` is optional. The recommended approach is to let Claude create its own wallet.
+**Note:** `CLIENT_MNEMONIC` is optional. The recommended approach is to let Claude create its own wallet. `HIRO_API_KEY` is optional but recommended for production use — without it, you may hit Hiro's public rate limits (429 responses). Get a key at [platform.hiro.so](https://platform.hiro.so).
 
 ## Architecture
 
