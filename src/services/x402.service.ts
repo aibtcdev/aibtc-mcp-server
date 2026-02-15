@@ -144,4 +144,120 @@ export function clearClientCache(): void {
   clientCache.clear();
 }
 
+/**
+ * Probe result types
+ */
+export type ProbeResultFree = {
+  type: 'free';
+  data: unknown;
+};
+
+export type ProbeResultPaymentRequired = {
+  type: 'payment_required';
+  amount: string;
+  asset: string;
+  recipient: string;
+  network: string;
+  endpoint: string;
+};
+
+export type ProbeResult = ProbeResultFree | ProbeResultPaymentRequired;
+
+/**
+ * Probe an endpoint without payment interceptor
+ * Returns either free response data or payment requirements
+ */
+export async function probeEndpoint(options: {
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  url: string;
+  params?: Record<string, string>;
+  data?: Record<string, unknown>;
+}): Promise<ProbeResult> {
+  const { method, url, params, data } = options;
+
+  // Create plain axios instance without payment interceptor
+  const axiosInstance = axios.create({
+    timeout: 60000,
+    transformResponse: [
+      (responseData) => {
+        if (typeof responseData !== "string") {
+          return responseData;
+        }
+        const trimmed = responseData.trim();
+        if (!trimmed) {
+          return responseData;
+        }
+        try {
+          return JSON.parse(trimmed);
+        } catch {
+          return responseData;
+        }
+      },
+    ],
+  });
+
+  // Ensure 402 payloads are parsed before we check them
+  axiosInstance.interceptors.response.use(
+    (response) => response,
+    (error) => {
+      const responseData = error?.response?.data;
+      if (typeof responseData === "string") {
+        const trimmed = responseData.trim();
+        if (trimmed) {
+          try {
+            error.response.data = JSON.parse(trimmed);
+          } catch {
+            // Leave as-is if it's not JSON
+          }
+        }
+      }
+      return Promise.reject(error);
+    }
+  );
+
+  try {
+    const response = await axiosInstance.request({ method, url, params, data });
+
+    // 200 response - free endpoint
+    return {
+      type: 'free',
+      data: response.data,
+    };
+  } catch (error) {
+    const axiosError = error as { response?: { status?: number; data?: unknown } };
+
+    // 402 Payment Required - parse payment info
+    if (axiosError.response?.status === 402) {
+      const paymentData = axiosError.response.data as {
+        amount?: string;
+        asset?: string;
+        recipient?: string;
+        network?: string;
+      };
+
+      if (!paymentData.amount || !paymentData.asset || !paymentData.recipient || !paymentData.network) {
+        throw new Error(`Invalid 402 response from ${url}: missing payment fields`);
+      }
+
+      return {
+        type: 'payment_required',
+        amount: paymentData.amount,
+        asset: paymentData.asset,
+        recipient: paymentData.recipient,
+        network: paymentData.network,
+        endpoint: url,
+      };
+    }
+
+    // Other errors - propagate
+    if (axiosError.response) {
+      throw new Error(
+        `HTTP ${axiosError.response.status} from ${url}: ${JSON.stringify(axiosError.response.data)}`
+      );
+    }
+
+    throw error;
+  }
+}
+
 export { NETWORK, API_URL };
