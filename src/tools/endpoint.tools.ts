@@ -12,6 +12,85 @@ import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 
 const ALL_SOURCES = "x402.biwas.xyz, x402.aibtc.com, stx402.com, aibtc.com";
 
+interface ParsedEndpointUrl {
+  baseUrl: string;
+  requestPath: string;
+  fullUrl: string;
+  params?: Record<string, string>;
+}
+
+/**
+ * Parse and validate endpoint URL from either a full URL or path+apiUrl combination.
+ * Merges any query parameters from the URL into the provided params.
+ */
+function parseEndpointUrl(options: {
+  url?: string;
+  path?: string;
+  apiUrl?: string;
+  params?: Record<string, string>;
+}): ParsedEndpointUrl {
+  const { url, path, apiUrl } = options;
+  let params = options.params;
+
+  if (url) {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:") {
+      throw new Error("Only HTTPS URLs are allowed for x402 endpoints");
+    }
+    if (parsed.search) {
+      const urlParams = Object.fromEntries(parsed.searchParams);
+      params = { ...urlParams, ...params };
+    }
+    return {
+      baseUrl: `${parsed.protocol}//${parsed.host}`,
+      requestPath: parsed.pathname,
+      fullUrl: url,
+      params,
+    };
+  }
+
+  if (path) {
+    if (apiUrl && !apiUrl.startsWith("https://")) {
+      throw new Error("Only HTTPS URLs are allowed for x402 endpoints");
+    }
+    const baseUrl = apiUrl || API_URL;
+    return {
+      baseUrl,
+      requestPath: path,
+      fullUrl: `${baseUrl}${path}`,
+      params,
+    };
+  }
+
+  throw new Error("Either 'url' or 'path' parameter must be provided");
+}
+
+/**
+ * Format an endpoint error into an MCP error response.
+ * Provides a helpful hint for 404s and includes HTTP status for other errors.
+ */
+function formatEndpointError(
+  error: unknown,
+  endpointLabel: string
+): { content: Array<{ type: "text"; text: string }>; isError: true } {
+  let message = "Unknown error";
+  if (error instanceof Error) {
+    message = error.message;
+  }
+  const axiosError = error as { response?: { status?: number; data?: unknown } };
+  if (axiosError.response) {
+    if (axiosError.response.status === 404) {
+      message = `Endpoint not found: ${endpointLabel}. Use list_x402_endpoints to see available endpoints.`;
+    } else {
+      message = `HTTP ${axiosError.response.status}: ${JSON.stringify(axiosError.response.data)}`;
+    }
+  }
+  return {
+    content: [{ type: "text", text: `Error: ${message}` }],
+    isError: true,
+  };
+}
+
 export function registerEndpointTools(server: McpServer): void {
   // List x402 endpoints
   server.registerTool(
@@ -168,31 +247,11 @@ Use list_x402_endpoints to discover available endpoints.`,
       let fullUrl = "";
 
       try {
-        // Parse URL (same logic for both probe and execute paths)
-        if (url) {
-          const parsed = new URL(url);
-          if (parsed.protocol !== "https:") {
-            throw new Error("Only HTTPS URLs are allowed for x402 endpoints");
-          }
-          baseUrl = `${parsed.protocol}//${parsed.host}`;
-          requestPath = parsed.pathname;
-          fullUrl = url;
-          // Merge URL query params into params to avoid duplication
-          if (parsed.search) {
-            const urlParams = Object.fromEntries(parsed.searchParams);
-            params = { ...urlParams, ...params };
-          }
-        } else if (path) {
-          baseUrl = apiUrl || API_URL;
-          requestPath = path;
-          fullUrl = `${baseUrl}${path}`;
-        } else {
-          throw new Error("Either 'url' or 'path' parameter must be provided");
-        }
-
-        if (apiUrl && !apiUrl.startsWith("https://")) {
-          throw new Error("Only HTTPS URLs are allowed for x402 endpoints");
-        }
+        const parsed = parseEndpointUrl({ url, path, apiUrl, params });
+        baseUrl = parsed.baseUrl;
+        requestPath = parsed.requestPath;
+        fullUrl = parsed.fullUrl;
+        params = parsed.params;
 
         // If autoApprove is false (default), probe first
         if (!autoApprove) {
@@ -220,33 +279,17 @@ Use list_x402_endpoints to discover available endpoints.`,
           }
         }
 
-        // autoApprove is true - execute atomically (current behavior)
+        // autoApprove is true - execute with automatic payment
         const api = await createApiClient(baseUrl);
         const response = await api.request({ method, url: requestPath, params, data });
-        const endpoint = `${baseUrl}${requestPath}`;
 
         return createJsonResponse({
-          endpoint: `${method} ${endpoint}`,
+          endpoint: `${method} ${fullUrl}`,
           response: response.data,
         });
       } catch (error) {
-        const endpoint = baseUrl ? `${baseUrl}${requestPath}` : (url || path || "unknown");
-        let message = "Unknown error";
-        if (error instanceof Error) {
-          message = error.message;
-        }
-        const axiosError = error as { response?: { status?: number; data?: unknown } };
-        if (axiosError.response) {
-          if (axiosError.response.status === 404) {
-            message = `Endpoint not found: ${endpoint}. Use list_x402_endpoints to see available endpoints.`;
-          } else {
-            message = `HTTP ${axiosError.response.status}: ${JSON.stringify(axiosError.response.data)}`;
-          }
-        }
-        return {
-          content: [{ type: "text" as const, text: `Error: ${message}` }],
-          isError: true as const,
-        };
+        const label = fullUrl || url || path || "unknown";
+        return formatEndpointError(error, label);
       }
     }
   );
@@ -306,29 +349,9 @@ Supported sources:
       let fullUrl = "";
 
       try {
-        // Parse and construct the full URL (same logic as execute_x402_endpoint)
-        if (url) {
-          const parsed = new URL(url);
-          if (parsed.protocol !== "https:") {
-            throw new Error("Only HTTPS URLs are allowed for x402 endpoints");
-          }
-          fullUrl = url;
-          // Merge URL query params into params
-          if (parsed.search && !params) {
-            params = Object.fromEntries(parsed.searchParams);
-          } else if (parsed.search && params) {
-            const urlParams = Object.fromEntries(parsed.searchParams);
-            params = { ...urlParams, ...params };
-          }
-        } else if (path) {
-          const baseUrl = apiUrl || API_URL;
-          if (apiUrl && !apiUrl.startsWith("https://")) {
-            throw new Error("Only HTTPS URLs are allowed for x402 endpoints");
-          }
-          fullUrl = `${baseUrl}${path}`;
-        } else {
-          throw new Error("Either 'url' or 'path' parameter must be provided");
-        }
+        const parsed = parseEndpointUrl({ url, path, apiUrl, params });
+        fullUrl = parsed.fullUrl;
+        params = parsed.params;
 
         // Probe the endpoint
         const result = await probeEndpoint({ method, url: fullUrl, params, data });
@@ -356,22 +379,7 @@ Supported sources:
           });
         }
       } catch (error) {
-        let message = "Unknown error";
-        if (error instanceof Error) {
-          message = error.message;
-        }
-        const axiosError = error as { response?: { status?: number; data?: unknown } };
-        if (axiosError.response) {
-          if (axiosError.response.status === 404) {
-            message = `Endpoint not found: ${fullUrl}. Use list_x402_endpoints to see available endpoints.`;
-          } else {
-            message = `HTTP ${axiosError.response.status}: ${JSON.stringify(axiosError.response.data)}`;
-          }
-        }
-        return {
-          content: [{ type: "text" as const, text: `Error: ${message}` }],
-          isError: true as const,
-        };
+        return formatEndpointError(error, fullUrl || "unknown");
       }
     }
   );

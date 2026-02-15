@@ -10,6 +10,57 @@ import { getWalletManager } from "./wallet-manager.js";
 const clientCache: Map<string, AxiosInstance> = new Map();
 
 /**
+ * Safe JSON transform - parses string responses without throwing
+ */
+function safeJsonTransform(data: unknown): unknown {
+  if (typeof data !== "string") {
+    return data;
+  }
+  const trimmed = data.trim();
+  if (!trimmed) {
+    return data;
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return data;
+  }
+}
+
+/**
+ * Create a plain axios instance with JSON parsing for both success and error responses.
+ * Used as the base for both payment-wrapped clients and probe requests.
+ */
+function createBaseAxiosInstance(baseURL?: string): AxiosInstance {
+  const instance = axios.create({
+    baseURL,
+    timeout: 60000,
+    transformResponse: [safeJsonTransform],
+  });
+
+  // Ensure error response bodies (especially 402 payloads) are also parsed as JSON
+  instance.interceptors.response.use(
+    (response) => response,
+    (error) => {
+      const data = error?.response?.data;
+      if (typeof data === "string") {
+        const trimmed = data.trim();
+        if (trimmed) {
+          try {
+            error.response.data = JSON.parse(trimmed);
+          } catch {
+            // Leave as-is if it's not JSON
+          }
+        }
+      }
+      return Promise.reject(error);
+    }
+  );
+
+  return instance;
+}
+
+/**
  * Convert mnemonic to account
  */
 export async function mnemonicToAccount(
@@ -45,46 +96,7 @@ export async function createApiClient(baseUrl?: string): Promise<AxiosInstance> 
 
   // Get account (from managed wallet or env mnemonic)
   const account = await getAccount();
-  const axiosInstance = axios.create({
-    baseURL: url,
-    timeout: 60000,
-    transformResponse: [
-      (data) => {
-        if (typeof data !== "string") {
-          return data;
-        }
-        const trimmed = data.trim();
-        if (!trimmed) {
-          return data;
-        }
-        try {
-          return JSON.parse(trimmed);
-        } catch {
-          return data;
-        }
-      },
-    ],
-  });
-
-  // Ensure 402 payloads are parsed before x402-stacks validates them
-  axiosInstance.interceptors.response.use(
-    (response) => response,
-    (error) => {
-      const data = error?.response?.data;
-      if (typeof data === "string") {
-        const trimmed = data.trim();
-        if (trimmed) {
-          try {
-            error.response.data = JSON.parse(trimmed);
-          } catch {
-            // Leave as-is if it's not JSON
-          }
-        }
-      }
-      return Promise.reject(error);
-    }
-  );
-
+  const axiosInstance = createBaseAxiosInstance(url);
   const client = wrapAxiosWithPayment(axiosInstance, account);
   clientCache.set(url, client);
   return client;
@@ -174,46 +186,7 @@ export async function probeEndpoint(options: {
   data?: Record<string, unknown>;
 }): Promise<ProbeResult> {
   const { method, url, params, data } = options;
-
-  // Create plain axios instance without payment interceptor
-  const axiosInstance = axios.create({
-    timeout: 60000,
-    transformResponse: [
-      (responseData) => {
-        if (typeof responseData !== "string") {
-          return responseData;
-        }
-        const trimmed = responseData.trim();
-        if (!trimmed) {
-          return responseData;
-        }
-        try {
-          return JSON.parse(trimmed);
-        } catch {
-          return responseData;
-        }
-      },
-    ],
-  });
-
-  // Ensure 402 payloads are parsed before we check them
-  axiosInstance.interceptors.response.use(
-    (response) => response,
-    (error) => {
-      const responseData = error?.response?.data;
-      if (typeof responseData === "string") {
-        const trimmed = responseData.trim();
-        if (trimmed) {
-          try {
-            error.response.data = JSON.parse(trimmed);
-          } catch {
-            // Leave as-is if it's not JSON
-          }
-        }
-      }
-      return Promise.reject(error);
-    }
-  );
+  const axiosInstance = createBaseAxiosInstance();
 
   try {
     const response = await axiosInstance.request({ method, url, params, data });
