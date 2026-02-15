@@ -155,9 +155,14 @@ Use list_x402_endpoints to discover available endpoints.`,
           .record(z.string(), z.unknown())
           .optional()
           .describe("Request body for POST/PUT requests"),
+        autoApprove: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Skip cost probe and execute immediately. When false (default), probes first and returns cost info for paid endpoints. When true, executes atomically like before. Free endpoints always execute transparently."),
       },
     },
-    async ({ method, url, path, apiUrl, params, data }) => {
+    async ({ method, url, path, apiUrl, params, data, autoApprove }) => {
       let baseUrl = "";
       let requestPath = "";
 
