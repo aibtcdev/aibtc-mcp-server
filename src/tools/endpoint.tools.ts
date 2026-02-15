@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { createApiClient, API_URL } from "../services/x402.service.js";
+import { createApiClient, API_URL, probeEndpoint } from "../services/x402.service.js";
 import {
   ALL_ENDPOINTS,
   searchEndpoints,
@@ -203,6 +203,131 @@ Use list_x402_endpoints to discover available endpoints.`,
         if (axiosError.response) {
           if (axiosError.response.status === 404) {
             message = `Endpoint not found: ${endpoint}. Use list_x402_endpoints to see available endpoints.`;
+          } else {
+            message = `HTTP ${axiosError.response.status}: ${JSON.stringify(axiosError.response.data)}`;
+          }
+        }
+        return {
+          content: [{ type: "text" as const, text: `Error: ${message}` }],
+          isError: true as const,
+        };
+      }
+    }
+  );
+
+  // Probe x402 endpoint (discover cost without paying)
+  server.registerTool(
+    "probe_x402_endpoint",
+    {
+      description: `Probe an x402 API endpoint to discover its cost WITHOUT making payment.
+
+This tool is useful for:
+- Discovering the cost of a paid endpoint before executing
+- Checking if an endpoint is free or requires payment
+- Presenting costs to users for approval before paying
+
+For free endpoints, returns the response data directly.
+For paid endpoints, returns payment details (amount, asset, recipient) without executing payment.
+
+After probing a paid endpoint, use execute_x402_endpoint to actually execute and pay.
+
+Supported sources:
+- x402.biwas.xyz (default): Use path like "/api/pools/trending"
+- x402.aibtc.com: Use apiUrl="https://x402.aibtc.com" with path like "/inference/openrouter/chat"
+- stx402.com: Use apiUrl="https://stx402.com" with path like "/api/ai/dad-joke"
+- aibtc.com: Use apiUrl="https://aibtc.com" with path like "/api/inbox/{address}"
+- Any x402-compatible URL: Use url parameter with full endpoint URL`,
+      inputSchema: {
+        method: z
+          .enum(["GET", "POST", "PUT", "DELETE"])
+          .default("GET")
+          .describe("HTTP method"),
+        url: z
+          .string()
+          .url()
+          .optional()
+          .describe("Full endpoint URL (e.g., 'https://stx402.com/api/ai/dad-joke'). Takes precedence over path+apiUrl."),
+        path: z
+          .string()
+          .optional()
+          .describe("API endpoint path (e.g., '/api/pools/trending'). Required if url is not provided."),
+        apiUrl: z
+          .string()
+          .url()
+          .optional()
+          .describe("API base URL. Known sources: x402.biwas.xyz, x402.aibtc.com, stx402.com, aibtc.com. Defaults to configured API_URL."),
+        params: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe("Query parameters for GET requests"),
+        data: z
+          .record(z.string(), z.unknown())
+          .optional()
+          .describe("Request body for POST/PUT requests"),
+      },
+    },
+    async ({ method, url, path, apiUrl, params, data }) => {
+      let fullUrl = "";
+
+      try {
+        // Parse and construct the full URL (same logic as execute_x402_endpoint)
+        if (url) {
+          const parsed = new URL(url);
+          if (parsed.protocol !== "https:") {
+            throw new Error("Only HTTPS URLs are allowed for x402 endpoints");
+          }
+          fullUrl = url;
+          // Merge URL query params into params
+          if (parsed.search && !params) {
+            params = Object.fromEntries(parsed.searchParams);
+          } else if (parsed.search && params) {
+            const urlParams = Object.fromEntries(parsed.searchParams);
+            params = { ...urlParams, ...params };
+          }
+        } else if (path) {
+          const baseUrl = apiUrl || API_URL;
+          if (apiUrl && !apiUrl.startsWith("https://")) {
+            throw new Error("Only HTTPS URLs are allowed for x402 endpoints");
+          }
+          fullUrl = `${baseUrl}${path}`;
+        } else {
+          throw new Error("Either 'url' or 'path' parameter must be provided");
+        }
+
+        // Probe the endpoint
+        const result = await probeEndpoint({ method, url: fullUrl, params, data });
+
+        if (result.type === 'free') {
+          // Free endpoint - return the data
+          return createJsonResponse({
+            type: 'free',
+            endpoint: `${method} ${fullUrl}`,
+            message: 'This endpoint is free (no payment required)',
+            response: result.data,
+          });
+        } else {
+          // Paid endpoint - return payment details
+          return createJsonResponse({
+            type: 'payment_required',
+            endpoint: `${method} ${fullUrl}`,
+            message: 'No payment made. To execute this endpoint and pay, use execute_x402_endpoint with the same parameters.',
+            payment: {
+              amount: result.amount,
+              asset: result.asset,
+              recipient: result.recipient,
+              network: result.network,
+            },
+          });
+        }
+      } catch (error) {
+        let message = "Unknown error";
+        if (error instanceof Error) {
+          message = error.message;
+        }
+        const axiosError = error as { response?: { status?: number; data?: unknown } };
+        if (axiosError.response) {
+          if (axiosError.response.status === 404) {
+            message = `Endpoint not found: ${fullUrl}. Use list_x402_endpoints to see available endpoints.`;
           } else {
             message = `HTTP ${axiosError.response.status}: ${JSON.stringify(axiosError.response.data)}`;
           }
