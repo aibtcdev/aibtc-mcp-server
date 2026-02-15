@@ -165,8 +165,10 @@ Use list_x402_endpoints to discover available endpoints.`,
     async ({ method, url, path, apiUrl, params, data, autoApprove }) => {
       let baseUrl = "";
       let requestPath = "";
+      let fullUrl = "";
 
       try {
+        // Parse URL (same logic for both probe and execute paths)
         if (url) {
           const parsed = new URL(url);
           if (parsed.protocol !== "https:") {
@@ -174,6 +176,7 @@ Use list_x402_endpoints to discover available endpoints.`,
           }
           baseUrl = `${parsed.protocol}//${parsed.host}`;
           requestPath = parsed.pathname;
+          fullUrl = url;
           // Merge URL query params into params to avoid duplication
           if (parsed.search) {
             const urlParams = Object.fromEntries(parsed.searchParams);
@@ -182,6 +185,7 @@ Use list_x402_endpoints to discover available endpoints.`,
         } else if (path) {
           baseUrl = apiUrl || API_URL;
           requestPath = path;
+          fullUrl = `${baseUrl}${path}`;
         } else {
           throw new Error("Either 'url' or 'path' parameter must be provided");
         }
@@ -190,6 +194,33 @@ Use list_x402_endpoints to discover available endpoints.`,
           throw new Error("Only HTTPS URLs are allowed for x402 endpoints");
         }
 
+        // If autoApprove is false (default), probe first
+        if (!autoApprove) {
+          const probeResult = await probeEndpoint({ method, url: fullUrl, params, data });
+
+          if (probeResult.type === 'free') {
+            // Free endpoint - return data immediately (no second call needed)
+            return createJsonResponse({
+              endpoint: `${method} ${fullUrl}`,
+              response: probeResult.data,
+            });
+          } else {
+            // Paid endpoint - return payment info without paying
+            return createJsonResponse({
+              type: 'payment_required',
+              endpoint: `${method} ${fullUrl}`,
+              message: 'Payment required. To execute and pay, re-call with autoApprove: true',
+              payment: {
+                amount: probeResult.amount,
+                asset: probeResult.asset,
+                recipient: probeResult.recipient,
+                network: probeResult.network,
+              },
+            });
+          }
+        }
+
+        // autoApprove is true - execute atomically (current behavior)
         const api = await createApiClient(baseUrl);
         const response = await api.request({ method, url: requestPath, params, data });
         const endpoint = `${baseUrl}${requestPath}`;
