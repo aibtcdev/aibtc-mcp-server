@@ -278,20 +278,31 @@ Execute endpoint:
 "Store this data in x402 KV"
 ```
 
-Uses `list_x402_endpoints` to discover, `execute_x402_endpoint` to call.
+Uses `list_x402_endpoints` to discover, `probe_x402_endpoint` to check cost, `execute_x402_endpoint` to call.
 
 ### Payment
 
 - **Tokens**: STX, sBTC, USDCx
 - **Pricing**: Standard tier (~0.001 STX) or dynamic (LLM pass-through + 20%)
-- **Flow**: Request → 402 response → sign payment → retry with proof
+- **Safe by default**: `execute_x402_endpoint` now probes first (returns cost), requires `autoApprove: true` to pay. Free endpoints work transparently.
+
+### Two-Phase Workflow
+
+For paid endpoints, use a probe-before-pay pattern to prevent sBTC loss:
+
+1. **Probe**: Call `probe_x402_endpoint` with endpoint details → returns cost (amount, asset, recipient)
+2. **Present**: Show cost to user for approval
+3. **Execute**: Call `execute_x402_endpoint` with `autoApprove: true` to pay and get response
+
+Alternatively, call `execute_x402_endpoint` without `autoApprove` (default `false`) — it probes first and returns cost, then re-call with `autoApprove: true` to pay.
 
 ### x402 Tool Reference
 
 | Tool | Description |
 |------|-------------|
 | `list_x402_endpoints` | Discover APIs by source/category |
-| `execute_x402_endpoint` | Call endpoint with auto-payment |
+| `probe_x402_endpoint` | Check cost without paying (never executes payment) |
+| `execute_x402_endpoint` | Call endpoint (safe mode by default, use autoApprove: true to pay) |
 | `scaffold_x402_endpoint` | Generate x402 API project |
 | `scaffold_x402_ai_endpoint` | Generate x402 AI API project |
 
