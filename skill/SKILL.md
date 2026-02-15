@@ -145,7 +145,7 @@ Bitcoin L2 with smart contracts and DeFi:
 - STX token transfers
 - ALEX DEX token swaps
 - Zest Protocol lending/borrowing
-- x402 paid API endpoints (AI, storage, utilities)
+- x402 paid API endpoints (AI, storage, utilities) — safe-by-default with probe-before-pay workflow
 
 See: [references/stacks-defi.md](references/stacks-defi.md)
 
