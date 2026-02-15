@@ -115,6 +115,8 @@ The `--desktop` flag auto-detects your OS and writes to the correct Claude Deskt
 
 **Fee Presets**: All Stacks write operations accept an optional `fee` parameter: `"low"` | `"medium"` | `"high"` (fetches current estimates) or a numeric string in micro-STX. Bitcoin operations use `feeRate`: `"fast"` | `"medium"` | `"slow"` or custom sat/vB.
 
+**x402 Payment Safety**: `execute_x402_endpoint` defaults to safe mode (`autoApprove: false`) — probes first and returns cost info for paid endpoints, requiring re-call with `autoApprove: true` to pay. Free endpoints work transparently. Use `probe_x402_endpoint` for standalone cost discovery without paying.
+
 ## Tools
 
 Tool definitions and parameters are self-documented in the MCP tool descriptions. Tools are organized by category:
