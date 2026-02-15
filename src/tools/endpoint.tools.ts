@@ -44,7 +44,7 @@ function parseEndpointUrl(options: {
     return {
       baseUrl: `${parsed.protocol}//${parsed.host}`,
       requestPath: parsed.pathname,
-      fullUrl: url,
+      fullUrl: `${parsed.protocol}//${parsed.host}${parsed.pathname}`,
       params,
     };
   }
