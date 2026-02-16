@@ -360,7 +360,7 @@ export class HiroApiService {
    */
   private async fetch<T>(path: string, options?: RequestInit): Promise<T> {
     const backoffDelays = [1000, 2000, 4000];
-    const maxAttempts = backoffDelays.length;
+    const maxAttempts = backoffDelays.length + 1;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
@@ -371,7 +371,7 @@ export class HiroApiService {
         }
 
         const retryAfterMs = error.retryAfterSeconds * 1000;
-        const delay = Math.min(retryAfterMs, backoffDelays[attempt]);
+        const delay = Math.max(retryAfterMs, backoffDelays[attempt]);
         await new Promise(resolve => setTimeout(resolve, delay));
       }
     }

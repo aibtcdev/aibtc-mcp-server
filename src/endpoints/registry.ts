@@ -1232,11 +1232,26 @@ export function getCategories(): string[] {
 }
 
 function normalizeSource(url: string): X402Source | undefined {
-  const lower = url.toLowerCase();
-  if (lower.includes("x402.biwas.xyz")) return "x402.biwas.xyz";
-  if (lower.includes("x402.aibtc.com")) return "x402.aibtc.com";
-  if (lower.includes("stx402.com")) return "stx402.com";
-  if (lower.includes("aibtc.com")) return "aibtc.com";
+  let hostname: string | undefined;
+
+  try {
+    hostname = new URL(url).hostname.toLowerCase();
+  } catch {
+    try {
+      hostname = new URL(`https://${url}`).hostname.toLowerCase();
+    } catch {
+      return undefined;
+    }
+  }
+
+  const matchesDomain = (host: string, domain: string): boolean => {
+    return host === domain || host.endsWith(`.${domain}`);
+  };
+
+  if (matchesDomain(hostname, "x402.biwas.xyz")) return "x402.biwas.xyz";
+  if (matchesDomain(hostname, "x402.aibtc.com")) return "x402.aibtc.com";
+  if (matchesDomain(hostname, "stx402.com")) return "stx402.com";
+  if (matchesDomain(hostname, "aibtc.com")) return "aibtc.com";
   return undefined;
 }
 

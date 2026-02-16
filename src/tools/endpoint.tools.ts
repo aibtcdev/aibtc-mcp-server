@@ -301,7 +301,7 @@ Use list_x402_endpoints to discover available endpoints.`,
 
         // autoApprove=true: use payment client only for known paid endpoints
         const registryEntry = lookupEndpoint(method, requestPath, baseUrl);
-        const isKnownPaid = registryEntry && registryEntry.cost !== "FREE";
+        const isKnownPaid = !!registryEntry && registryEntry.cost !== "FREE";
         const api = isKnownPaid
           ? await createApiClient(baseUrl)
           : createPlainClient(baseUrl);
