@@ -5,6 +5,7 @@ import { generateWallet, getStxAddress } from "@stacks/wallet-sdk";
 import { NETWORK, API_URL, type Network } from "../config/networks.js";
 import type { Account } from "../transactions/builder.js";
 import { getWalletManager } from "./wallet-manager.js";
+import { formatStx, formatSbtc } from "../utils/formatting.js";
 
 // Cache clients by base URL
 const clientCache: Map<string, AxiosInstance> = new Map();
@@ -196,8 +197,10 @@ export type ProbeResult = ProbeResultFree | ProbeResultPaymentRequired;
  * @returns 'STX' for native STX, 'sBTC' for sBTC token
  */
 export function detectTokenType(asset: string): 'STX' | 'sBTC' {
-  const assetLower = asset.toLowerCase();
-  if (assetLower.includes('token-sbtc') || assetLower.includes('sbtc')) {
+  const assetLower = asset.trim().toLowerCase();
+  // Treat as sBTC only if the asset is exactly "sbtc" (token name)
+  // or a full contract identifier ending with "::token-sbtc"
+  if (assetLower === 'sbtc' || assetLower.endsWith('::token-sbtc')) {
     return 'sBTC';
   }
   return 'STX';
@@ -211,16 +214,10 @@ export function detectTokenType(asset: string): 'STX' | 'sBTC' {
  */
 export function formatPaymentAmount(amount: string, asset: string): string {
   const tokenType = detectTokenType(asset);
-  const rawAmount = BigInt(amount);
-
   if (tokenType === 'sBTC') {
-    // sBTC: 1 sBTC = 100,000,000 satoshis
-    const sbtcAmount = Number(rawAmount) / 100_000_000;
-    return `${sbtcAmount.toFixed(8)} sBTC`;
+    return formatSbtc(amount);
   } else {
-    // STX: 1 STX = 1,000,000 microSTX
-    const stxAmount = Number(rawAmount) / 1_000_000;
-    return `${stxAmount.toFixed(6)} STX`;
+    return formatStx(amount);
   }
 }
 
@@ -255,19 +252,26 @@ export async function probeEndpoint(options: {
       let paymentRequired: PaymentRequiredV2 | null = null;
 
       if (headerValue) {
-        paymentRequired = decodePaymentRequired(headerValue);
+        try {
+          paymentRequired = decodePaymentRequired(headerValue);
+        } catch {
+          paymentRequired = null;
+        }
       }
 
       // If v2 header is successfully parsed, use it
       if (paymentRequired && paymentRequired.accepts && paymentRequired.accepts.length > 0) {
         const acceptedPayment = paymentRequired.accepts[0];
 
-        // Convert CAIP-2 network identifier to simple format if needed
+        // Convert CAIP-2 or simple network identifier to normalized format
         let network: string = acceptedPayment.network;
-        if (network === 'stacks:1') {
+        if (network === 'stacks:1' || network === 'mainnet') {
           network = 'mainnet';
-        } else if (network === 'stacks:2147483648') {
+        } else if (network === 'stacks:2147483648' || network === 'testnet') {
           network = 'testnet';
+        } else {
+          // Fallback to configured default network if identifier is unrecognized
+          network = NETWORK;
         }
 
         return {
@@ -291,7 +295,13 @@ export async function probeEndpoint(options: {
       };
 
       if (!paymentData.amount || !paymentData.asset || !paymentData.recipient || !paymentData.network) {
-        throw new Error(`Invalid 402 response from ${url}: missing payment fields in both header and body`);
+        const headerDebug = headerValue !== undefined && headerValue !== null
+          ? `present (length=${String(headerValue).length})`
+          : 'missing';
+        throw new Error(
+          `Invalid 402 response from ${url}: missing payment fields in both v2 header and v1 body. ` +
+          `v2 header: ${headerDebug}; v1 body keys: ${Object.keys(paymentData as object).join(', ') || 'none'}`
+        );
       }
 
       return {

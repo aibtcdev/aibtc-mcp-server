@@ -1268,10 +1268,13 @@ function pathToRegex(pattern: string): RegExp {
     return cached;
   }
 
-  // Escape regex special chars except {}
-  let escaped = pattern.replace(/[.*+?^$|()[\]\\]/g, '\\$&');
-  // Replace {paramName} with capture group for any non-slash chars
-  escaped = escaped.replace(/\{[^}]+\}/g, '([^/]+)');
+  // Replace {paramName} placeholders with a neutral token first
+  const placeholderToken = '__X402_PATH_PARAM__';
+  let withTokens = pattern.replace(/\{[^}]+\}/g, placeholderToken);
+  // Escape regex special chars (including braces) in the remaining literal text
+  let escaped = withTokens.replace(/[.*+?^$|()[\]{}\\]/g, '\\$&');
+  // Restore placeholders as capture groups for any non-slash chars
+  escaped = escaped.replace(new RegExp(placeholderToken, 'g'), '([^/]+)');
   // Anchor with start/end
   const regex = new RegExp(`^${escaped}$`);
 
