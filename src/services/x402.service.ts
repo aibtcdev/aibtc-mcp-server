@@ -8,6 +8,7 @@ import { formatStx, formatSbtc } from "../utils/formatting.js";
 import { getSbtcService } from "./sbtc.service.js";
 import { getHiroApi } from "./hiro-api.js";
 import { createHash } from "crypto";
+import { InsufficientBalanceError } from "../utils/errors.js";
 
 // Cache clients by base URL
 const clientCache: Map<string, AxiosInstance> = new Map();
@@ -369,9 +370,13 @@ export async function checkSufficientBalance(
 
     if (balance < requiredAmount) {
       const shortfall = requiredAmount - balance;
-      throw new Error(
+      throw new InsufficientBalanceError(
         `Insufficient sBTC balance: need ${formatSbtc(amount)}, have ${formatSbtc(balanceInfo.balance)} (shortfall: ${formatSbtc(shortfall.toString())}). ` +
-        `Deposit more sBTC or use a different wallet.`
+        `Deposit more sBTC via the bridge at https://bridge.stx.eco or use a different wallet.`,
+        'sBTC',
+        balanceInfo.balance,
+        amount,
+        shortfall.toString()
       );
     }
 
@@ -394,10 +399,14 @@ export async function checkSufficientBalance(
 
     if (balance < totalRequired) {
       const shortfall = totalRequired - balance;
-      throw new Error(
+      throw new InsufficientBalanceError(
         `Insufficient STX balance: need ${formatStx(totalRequired.toString())} (${formatStx(amount)} payment + ${formatStx(estimatedFee.toString())} estimated fee), ` +
         `have ${formatStx(balanceInfo.balance)} (shortfall: ${formatStx(shortfall.toString())}). ` +
-        `Deposit more STX or use a different wallet.`
+        `Deposit more STX or use a different wallet.`,
+        'STX',
+        balanceInfo.balance,
+        totalRequired.toString(),
+        shortfall.toString()
       );
     }
 

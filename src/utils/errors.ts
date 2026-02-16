@@ -113,6 +113,22 @@ export class InvalidMnemonicError extends WalletError {
 }
 
 /**
+ * Error when account has insufficient balance for an operation
+ */
+export class InsufficientBalanceError extends AibtcError {
+  constructor(
+    message: string,
+    public readonly tokenType: 'STX' | 'sBTC',
+    public readonly balance: string,
+    public readonly required: string,
+    public readonly shortfall: string
+  ) {
+    super(message, "INSUFFICIENT_BALANCE", { tokenType, balance, required, shortfall });
+    this.name = "InsufficientBalanceError";
+  }
+}
+
+/**
  * Format error for tool response
  */
 export function formatError(error: unknown): { message: string; code?: string; details?: unknown } {
