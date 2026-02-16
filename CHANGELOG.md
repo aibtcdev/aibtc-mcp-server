@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.22.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.21.1...v1.22.0) (2026-02-16)
+
+
+### Features
+
+* add name-claim-fast for single-tx BNS V2 registration ([aae6d26](https://github.com/aibtcdev/aibtc-mcp-server/commit/aae6d26c661f84dc38cd03e7d8d1c101a3d6a01e))
+* **settings:** add runtime Hiro API key management via MCP tools ([da43caf](https://github.com/aibtcdev/aibtc-mcp-server/commit/da43caff2197a11296e7d5c990504566ea9161a3)), closes [#120](https://github.com/aibtcdev/aibtc-mcp-server/issues/120)
+* **x402:** add probe-before-pay flow to prevent sBTC loss ([6f10042](https://github.com/aibtcdev/aibtc-mcp-server/commit/6f10042c583f34008cfaabe042eedab17050126d)), closes [#119](https://github.com/aibtcdev/aibtc-mcp-server/issues/119)
+
+
+### Bug Fixes
+
+* **version:** add version detection to identify stale NPX cache ([#124](https://github.com/aibtcdev/aibtc-mcp-server/issues/124)) ([0820df0](https://github.com/aibtcdev/aibtc-mcp-server/commit/0820df06a2fa59deaaf6d46ecc1fd58c9c975068))
+
 ## [1.21.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.21.0...v1.21.1) (2026-02-14)
 
 
