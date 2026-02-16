@@ -312,7 +312,7 @@ Use list_x402_endpoints to discover available endpoints.`,
 
         if (!autoApprove) {
           const probeResult = await probeEndpoint({ method, url: fullUrl, params, data });
-          return formatProbeResponse(probeResult, method, fullUrl, { method, url, path, apiUrl, params, data }, '');
+          return formatProbeResponse(probeResult, method, fullUrl, { method, url, path, apiUrl, params, data });
         }
 
         // autoApprove=true: use payment client only for known paid endpoints
