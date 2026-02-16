@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { createApiClient, createPlainClient, API_URL, probeEndpoint } from "../services/x402.service.js";
+import { createApiClient, createPlainClient, API_URL, probeEndpoint, formatPaymentAmount } from "../services/x402.service.js";
 import {
   ALL_ENDPOINTS,
   searchEndpoints,
@@ -284,10 +284,11 @@ Use list_x402_endpoints to discover available endpoints.`,
               response: probeResult.data,
             });
           } else {
+            const formattedCost = formatPaymentAmount(probeResult.amount, probeResult.asset);
             return createJsonResponse({
               type: 'payment_required',
               endpoint: `${method} ${fullUrl}`,
-              message: `This endpoint costs ${probeResult.amount} ${probeResult.asset}. To execute and pay, re-call execute_x402_endpoint with autoApprove: true and the same parameters shown in callWith below.`,
+              message: `This endpoint costs ${formattedCost}. To execute and pay, re-call execute_x402_endpoint with autoApprove: true and the same parameters shown in callWith below.`,
               payment: {
                 amount: probeResult.amount,
                 asset: probeResult.asset,
@@ -390,10 +391,11 @@ Supported sources:
             response: result.data,
           });
         } else {
+          const formattedCost = formatPaymentAmount(result.amount, result.asset);
           return createJsonResponse({
             type: 'payment_required',
             endpoint: `${method} ${fullUrl}`,
-            message: `No payment made. This endpoint costs ${result.amount} ${result.asset}. To execute and pay, call execute_x402_endpoint with the parameters shown in callWith below.`,
+            message: `No payment made. This endpoint costs ${formattedCost}. To execute and pay, call execute_x402_endpoint with the parameters shown in callWith below.`,
             payment: {
               amount: result.amount,
               asset: result.asset,
