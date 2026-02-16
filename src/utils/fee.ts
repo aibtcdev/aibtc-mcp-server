@@ -10,6 +10,17 @@ import { getHiroApi, type MempoolFeePriorities } from "../services/hiro-api.js";
 import type { Network } from "../config/networks.js";
 
 /**
+ * Fee floor and ceiling clamps by transaction type (in micro-STX).
+ * Prevents absurd fees during mempool spikes while allowing reasonable variation.
+ */
+const FEE_CLAMPS = {
+  token_transfer: { floor: 180n, ceiling: 3000n },
+  contract_call: { floor: 3000n, ceiling: 100000n },
+  smart_contract: { floor: 10000n, ceiling: 100000n },
+  all: { floor: 180n, ceiling: 100000n }, // Widest range for aggregate fees
+} as const;
+
+/**
  * Valid fee preset strings.
  * These map to the mempool fee priorities:
  * - "low" -> low_priority
@@ -36,6 +47,21 @@ function presetToPriorityKey(preset: FeePreset): keyof MempoolFeePriorities {
     high: "high_priority",
   };
   return mapping[normalized];
+}
+
+/**
+ * Clamp a fee value between floor and ceiling.
+ * Prevents absurd fees during mempool spikes.
+ *
+ * @param value - The raw fee value from mempool
+ * @param floor - Minimum allowed fee
+ * @param ceiling - Maximum allowed fee
+ * @returns Clamped fee value
+ */
+function clampFee(value: bigint, floor: bigint, ceiling: bigint): bigint {
+  if (value < floor) return floor;
+  if (value > ceiling) return ceiling;
+  return value;
 }
 
 /**
@@ -77,8 +103,10 @@ export async function resolveFee(
     const priorityKey = presetToPriorityKey(fee);
     const feeValue = feeTier[priorityKey];
 
-    // Return as bigint (values are already in micro-STX)
-    return BigInt(Math.ceil(feeValue));
+    // Convert to bigint and apply clamps to prevent absurd fees
+    const rawFee = BigInt(Math.ceil(feeValue));
+    const clamps = FEE_CLAMPS[txType];
+    return clampFee(rawFee, clamps.floor, clamps.ceiling);
   }
 
   // Otherwise, treat as numeric string - validate format first
