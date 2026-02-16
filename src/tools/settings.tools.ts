@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { createRequire } from "module";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import {
   getHiroApiKey,
@@ -11,6 +12,9 @@ import {
   initializeStorage,
 } from "../utils/storage.js";
 import { getApiBaseUrl, NETWORK } from "../config/networks.js";
+
+const require = createRequire(import.meta.url);
+const packageJson = require("../../package.json");
 
 /**
  * Register settings tools for API key management
@@ -229,6 +233,61 @@ Example: http://localhost:3999`,
             : "No custom Stacks API URL was set.",
           activeUrl: defaultUrl,
           network: NETWORK,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ==========================================================================
+  // Server Version
+  // ==========================================================================
+
+  /**
+   * Get server version and check for updates
+   */
+  server.registerTool(
+    "get_server_version",
+    {
+      description: `Check the currently running MCP server version and compare with the latest published version on npm.
+Use this to detect if you're running a stale cached version (common with npx).
+If your version is outdated, clear the npx cache and reinstall: npx clear-npx-cache && npx @aibtc/mcp-server@latest --install`,
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const currentVersion = packageJson.version;
+
+        // Fetch latest version from npm registry
+        let latestVersion = "unknown";
+        let isLatest = true;
+        let updateAvailable = false;
+
+        try {
+          const response = await fetch("https://registry.npmjs.org/@aibtc/mcp-server/latest");
+          if (response.ok) {
+            const data = await response.json() as { version: string };
+            latestVersion = data.version;
+            isLatest = currentVersion === latestVersion;
+            updateAvailable = currentVersion !== latestVersion;
+          }
+        } catch (fetchError) {
+          // Network error or npm registry unavailable - non-fatal
+          console.error("Failed to fetch latest version from npm:", fetchError);
+        }
+
+        return createJsonResponse({
+          currentVersion,
+          latestVersion,
+          isLatest,
+          updateAvailable,
+          package: "@aibtc/mcp-server",
+          hint: updateAvailable
+            ? "⚠️  Update available! Clear npx cache and reinstall: npx clear-npx-cache && npx @aibtc/mcp-server@latest --install"
+            : isLatest
+              ? "✅ Running the latest version"
+              : "Unable to verify latest version (network error)",
         });
       } catch (error) {
         return createErrorResponse(error);
