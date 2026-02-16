@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.22.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.22.1...v1.22.2) (2026-02-16)
+
+
+### Bug Fixes
+
+* x402 v2 probe parsing, slow sBTC execution, and payment formatting ([#131](https://github.com/aibtcdev/aibtc-mcp-server/issues/131)) ([48ed098](https://github.com/aibtcdev/aibtc-mcp-server/commit/48ed098646828cb010a2b7eadb7f469d7fc28a5c))
+
 ## [1.22.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.22.0...v1.22.1) (2026-02-16)
 
 
