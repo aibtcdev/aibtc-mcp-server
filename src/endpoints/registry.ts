@@ -1255,10 +1255,36 @@ function normalizeSource(url: string): X402Source | undefined {
   return undefined;
 }
 
+// Memoization cache for path pattern regexes
+const pathRegexCache = new Map<string, RegExp>();
+
+/**
+ * Convert a path pattern with placeholders to a regex.
+ * Example: "/api/inbox/{address}" → /^\/api\/inbox\/([^/]+)$/
+ */
+function pathToRegex(pattern: string): RegExp {
+  const cached = pathRegexCache.get(pattern);
+  if (cached) {
+    return cached;
+  }
+
+  // Escape regex special chars except {}
+  let escaped = pattern.replace(/[.*+?^$|()[\]\\]/g, '\\$&');
+  // Replace {paramName} with capture group for any non-slash chars
+  escaped = escaped.replace(/\{[^}]+\}/g, '([^/]+)');
+  // Anchor with start/end
+  const regex = new RegExp(`^${escaped}$`);
+
+  pathRegexCache.set(pattern, regex);
+  return regex;
+}
+
 /**
  * Lookup an endpoint in the registry by method, path, and source URL.
  * Used to determine if an endpoint is known-FREE or known-PAID before
  * deciding whether to use a payment-capable client.
+ *
+ * Supports path patterns with placeholders like {address}, {messageId}, etc.
  */
 export function lookupEndpoint(
   method: string,
@@ -1274,10 +1300,34 @@ export function lookupEndpoint(
   const normalizedPath = pathWithoutQuery.startsWith("/") ? pathWithoutQuery : `/${pathWithoutQuery}`;
   const normalizedMethod = method.toUpperCase() as "GET" | "POST" | "PUT" | "DELETE";
 
-  return ALL_ENDPOINTS.find(
+  // Fast path: try exact match first
+  const exactMatch = ALL_ENDPOINTS.find(
     (ep) =>
       ep.method === normalizedMethod &&
       ep.path === normalizedPath &&
       ep.source === source
   );
+
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  // Slow path: try pattern matching for endpoints with placeholders
+  for (const ep of ALL_ENDPOINTS) {
+    if (ep.method !== normalizedMethod || ep.source !== source) {
+      continue;
+    }
+
+    // Skip if pattern has no placeholders (already tried exact match)
+    if (!ep.path.includes('{')) {
+      continue;
+    }
+
+    const regex = pathToRegex(ep.path);
+    if (regex.test(normalizedPath)) {
+      return ep;
+    }
+  }
+
+  return undefined;
 }
