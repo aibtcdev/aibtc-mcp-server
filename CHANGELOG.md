@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.22.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.22.0...v1.22.1) (2026-02-16)
+
+
+### Bug Fixes
+
+* prevent wasted payments, clamp fees, add retry logic ([#126](https://github.com/aibtcdev/aibtc-mcp-server/issues/126)) ([34b8297](https://github.com/aibtcdev/aibtc-mcp-server/commit/34b82971a5fc15f35eaced35c89b444be64da1a5))
+
 ## [1.22.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.21.1...v1.22.0) (2026-02-16)
 
 
