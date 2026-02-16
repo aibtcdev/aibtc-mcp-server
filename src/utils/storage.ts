@@ -71,6 +71,7 @@ export interface AppConfig {
   activeWalletId: string | null;
   autoLockTimeout: number; // Minutes, 0 = never
   hiroApiKey?: string;
+  stacksApiUrl?: string;
 }
 
 /**
@@ -346,4 +347,41 @@ export async function clearHiroApiKey(): Promise<void> {
   delete config.hiroApiKey;
   await writeAppConfig(config);
   _cachedHiroApiKey = null;
+}
+
+// ============================================================================
+// Custom Stacks API URL Management (in-memory cached)
+// ============================================================================
+
+let _cachedStacksApiUrl: string | null | undefined = undefined; // undefined = not yet loaded
+
+/**
+ * Get stored custom Stacks API URL (cached in memory after first read).
+ * Returns empty string if no custom URL is stored.
+ */
+export async function getStacksApiUrl(): Promise<string> {
+  if (_cachedStacksApiUrl !== undefined) return _cachedStacksApiUrl || "";
+  const config = await readAppConfig();
+  _cachedStacksApiUrl = config.stacksApiUrl || null;
+  return _cachedStacksApiUrl || "";
+}
+
+/**
+ * Save custom Stacks API URL to config and update in-memory cache.
+ */
+export async function setStacksApiUrl(url: string): Promise<void> {
+  const config = await readAppConfig();
+  config.stacksApiUrl = url;
+  await writeAppConfig(config);
+  _cachedStacksApiUrl = url;
+}
+
+/**
+ * Remove custom Stacks API URL from config and clear in-memory cache.
+ */
+export async function clearStacksApiUrl(): Promise<void> {
+  const config = await readAppConfig();
+  delete config.stacksApiUrl;
+  await writeAppConfig(config);
+  _cachedStacksApiUrl = null;
 }

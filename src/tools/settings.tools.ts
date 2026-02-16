@@ -5,8 +5,12 @@ import {
   getHiroApiKey,
   setHiroApiKey,
   clearHiroApiKey,
+  getStacksApiUrl,
+  setStacksApiUrl,
+  clearStacksApiUrl,
   initializeStorage,
 } from "../utils/storage.js";
+import { getApiBaseUrl, NETWORK } from "../config/networks.js";
 
 /**
  * Register settings tools for API key management
@@ -121,6 +125,110 @@ Get a free API key at https://platform.hiro.so/`,
           hint: envFallback
             ? "HIRO_API_KEY environment variable is still set and will be used."
             : "No API key configured. Requests will use public rate limits.",
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ==========================================================================
+  // Stacks API URL (custom node)
+  // ==========================================================================
+
+  /**
+   * Set custom Stacks API URL
+   */
+  server.registerTool(
+    "set_stacks_api_url",
+    {
+      description: `Point all Stacks API requests at a custom node instead of the default Hiro API.
+Use this if you run your own stacks-blockchain-api node (default port 3999) or use a third-party provider.
+The URL should serve the same /v2/ and /extended/v1/ endpoints as api.hiro.so.
+Example: http://localhost:3999`,
+      inputSchema: {
+        url: z
+          .string()
+          .url()
+          .describe("Base URL of your Stacks API node (e.g. http://localhost:3999)"),
+      },
+    },
+    async ({ url }) => {
+      try {
+        await initializeStorage();
+        // Strip trailing slash for consistency
+        const cleanUrl = url.replace(/\/+$/, "");
+        await setStacksApiUrl(cleanUrl);
+
+        return createJsonResponse({
+          success: true,
+          message: "Custom Stacks API URL saved. All subsequent Stacks API requests will use this node.",
+          url: cleanUrl,
+          storedIn: "~/.aibtc/config.json",
+          tip: "Use get_stacks_api_url to verify, or delete_stacks_api_url to revert to the default Hiro API.",
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  /**
+   * Get current Stacks API URL
+   */
+  server.registerTool(
+    "get_stacks_api_url",
+    {
+      description:
+        "Show the current Stacks API URL being used for blockchain queries. Indicates whether it's a custom node or the default Hiro API.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        await initializeStorage();
+        const customUrl = await getStacksApiUrl();
+        const defaultUrl = getApiBaseUrl(NETWORK);
+
+        return createJsonResponse({
+          activeUrl: customUrl || defaultUrl,
+          isCustom: !!customUrl,
+          source: customUrl ? "~/.aibtc/config.json" : "default (Hiro API)",
+          defaultUrl,
+          network: NETWORK,
+          hint: customUrl
+            ? "Using custom Stacks API node. Use delete_stacks_api_url to revert to the default Hiro API."
+            : "Using default Hiro API. Use set_stacks_api_url to point to your own node.",
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  /**
+   * Delete custom Stacks API URL
+   */
+  server.registerTool(
+    "delete_stacks_api_url",
+    {
+      description:
+        "Remove the custom Stacks API URL and revert to the default Hiro API (api.mainnet.hiro.so or api.testnet.hiro.so).",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        await initializeStorage();
+        const hadUrl = !!(await getStacksApiUrl());
+        await clearStacksApiUrl();
+        const defaultUrl = getApiBaseUrl(NETWORK);
+
+        return createJsonResponse({
+          success: true,
+          message: hadUrl
+            ? `Custom Stacks API URL removed. Reverted to default: ${defaultUrl}`
+            : "No custom Stacks API URL was set.",
+          activeUrl: defaultUrl,
+          network: NETWORK,
         });
       } catch (error) {
         return createErrorResponse(error);
