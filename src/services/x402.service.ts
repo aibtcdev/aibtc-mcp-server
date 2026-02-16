@@ -30,11 +30,12 @@ function safeJsonTransform(data: unknown): unknown {
 /**
  * Create a plain axios instance with JSON parsing for both success and error responses.
  * Used as the base for both payment-wrapped clients and probe requests.
+ * Timeout is 120 seconds to accommodate sBTC contract-call settlements which can take 60+ seconds.
  */
 function createBaseAxiosInstance(baseURL?: string): AxiosInstance {
   const instance = axios.create({
     baseURL,
-    timeout: 60000,
+    timeout: 120000,
     transformResponse: [safeJsonTransform],
   });
 

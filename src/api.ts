@@ -38,7 +38,7 @@ export async function createApiClient(baseUrl?: string): Promise<AxiosInstance> 
   const account = await mnemonicToAccount(mnemonic, NETWORK);
   const axiosInstance = axios.create({
     baseURL: url,
-    timeout: 60000,
+    timeout: 120000,
     transformResponse: [
       (data) => {
         if (typeof data !== "string") {
