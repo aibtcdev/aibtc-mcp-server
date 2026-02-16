@@ -265,16 +265,25 @@ Use list_x402_endpoints to discover available endpoints.`,
             });
           } else {
             // Paid endpoint - return payment info without paying
+            // Echo back original params so the LLM can copy them into the follow-up call
+            const callWith: Record<string, unknown> = { method, autoApprove: true };
+            if (url) callWith.url = url;
+            if (path) callWith.path = path;
+            if (apiUrl) callWith.apiUrl = apiUrl;
+            if (params && Object.keys(params).length > 0) callWith.params = params;
+            if (data && Object.keys(data).length > 0) callWith.data = data;
+
             return createJsonResponse({
               type: 'payment_required',
               endpoint: `${method} ${fullUrl}`,
-              message: 'Payment required. To execute and pay, re-call with autoApprove: true',
+              message: `This endpoint costs ${probeResult.amount} ${probeResult.asset}. To execute and pay, re-call execute_x402_endpoint with autoApprove: true and the same parameters shown in callWith below.`,
               payment: {
                 amount: probeResult.amount,
                 asset: probeResult.asset,
                 recipient: probeResult.recipient,
                 network: probeResult.network,
               },
+              callWith,
             });
           }
         }
@@ -366,16 +375,25 @@ Supported sources:
           });
         } else {
           // Paid endpoint - return payment details
+          // Echo back params so the LLM knows exactly what to pass to execute_x402_endpoint
+          const callWith: Record<string, unknown> = { method, autoApprove: true };
+          if (url) callWith.url = url;
+          if (path) callWith.path = path;
+          if (apiUrl) callWith.apiUrl = apiUrl;
+          if (params && Object.keys(params).length > 0) callWith.params = params;
+          if (data && Object.keys(data).length > 0) callWith.data = data;
+
           return createJsonResponse({
             type: 'payment_required',
             endpoint: `${method} ${fullUrl}`,
-            message: 'No payment made. To execute this endpoint and pay, use execute_x402_endpoint with the same parameters.',
+            message: `No payment made. This endpoint costs ${result.amount} ${result.asset}. To execute and pay, call execute_x402_endpoint with the parameters shown in callWith below.`,
             payment: {
               amount: result.amount,
               asset: result.asset,
               recipient: result.recipient,
               network: result.network,
             },
+            callWith,
           });
         }
       } catch (error) {
