@@ -7,7 +7,6 @@ import {
   formatEndpointsTable,
   getEndpointsBySource,
   getCategories,
-  lookupEndpoint,
 } from "../endpoints/registry.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 

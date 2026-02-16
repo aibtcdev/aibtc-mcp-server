@@ -16,19 +16,15 @@ const clientCache: Map<string, AxiosInstance> = new Map();
 // Transaction deduplication cache: {dedupKey -> {txid, timestamp}}
 const dedupCache: Map<string, { txid: string; timestamp: number }> = new Map();
 
-// Cleanup dedup cache every 5 minutes
+// Cleanup expired dedup entries every 5 minutes
 setInterval(() => {
   const now = Date.now();
-  const expiredKeys: string[] = [];
-  for (const [key, value] of dedupCache.entries()) {
-    if (now - value.timestamp > 60000) { // 60 seconds
-      expiredKeys.push(key);
+  for (const [key, value] of dedupCache) {
+    if (now - value.timestamp > 60000) {
+      dedupCache.delete(key);
     }
   }
-  for (const key of expiredKeys) {
-    dedupCache.delete(key);
-  }
-}, 300000); // 5 minutes
+}, 300000);
 
 /**
  * Safe JSON transform - parses string responses without throwing
@@ -351,71 +347,56 @@ export function recordTransaction(key: string, txid: string): void {
 }
 
 /**
- * Check if account has sufficient balance to pay for x402 endpoint
- * @throws Error with descriptive message if insufficient balance
+ * Check if account has sufficient balance to pay for x402 endpoint.
+ * @throws InsufficientBalanceError if balance is too low
  */
 export async function checkSufficientBalance(
   account: Account,
   amount: string,
   asset: string
-): Promise<{ sufficient: boolean; balance: string; required: string; shortfall?: string }> {
+): Promise<void> {
   const tokenType = detectTokenType(asset);
   const requiredAmount = BigInt(amount);
 
   if (tokenType === 'sBTC') {
-    // Check sBTC balance
     const sbtcService = getSbtcService(account.network);
     const balanceInfo = await sbtcService.getBalance(account.address);
     const balance = BigInt(balanceInfo.balance);
 
-    if (balance < requiredAmount) {
-      const shortfall = requiredAmount - balance;
-      throw new InsufficientBalanceError(
-        `Insufficient sBTC balance: need ${formatSbtc(amount)}, have ${formatSbtc(balanceInfo.balance)} (shortfall: ${formatSbtc(shortfall.toString())}). ` +
-        `Deposit more sBTC via the bridge at https://bridge.stx.eco or use a different wallet.`,
-        'sBTC',
-        balanceInfo.balance,
-        amount,
-        shortfall.toString()
-      );
-    }
+    if (balance >= requiredAmount) return;
 
-    return {
-      sufficient: true,
-      balance: balanceInfo.balance,
-      required: amount,
-    };
-  } else {
-    // Check STX balance + fees
-    const hiroApi = getHiroApi(account.network);
-    const balanceInfo = await hiroApi.getStxBalance(account.address);
-    const balance = BigInt(balanceInfo.balance);
-
-    // Get high priority fee estimate for contract calls
-    const mempoolFees = await hiroApi.getMempoolFees();
-    const estimatedFee = BigInt(mempoolFees.contract_call.high_priority);
-
-    const totalRequired = requiredAmount + estimatedFee;
-
-    if (balance < totalRequired) {
-      const shortfall = totalRequired - balance;
-      throw new InsufficientBalanceError(
-        `Insufficient STX balance: need ${formatStx(totalRequired.toString())} (${formatStx(amount)} payment + ${formatStx(estimatedFee.toString())} estimated fee), ` +
-        `have ${formatStx(balanceInfo.balance)} (shortfall: ${formatStx(shortfall.toString())}). ` +
-        `Deposit more STX or use a different wallet.`,
-        'STX',
-        balanceInfo.balance,
-        totalRequired.toString(),
-        shortfall.toString()
-      );
-    }
-
-    return {
-      sufficient: true,
-      balance: balanceInfo.balance,
-      required: totalRequired.toString(),
-    };
+    const shortfall = requiredAmount - balance;
+    throw new InsufficientBalanceError(
+      `Insufficient sBTC balance: need ${formatSbtc(amount)}, have ${formatSbtc(balanceInfo.balance)} (shortfall: ${formatSbtc(shortfall.toString())}). ` +
+      `Deposit more sBTC via the bridge at https://bridge.stx.eco or use a different wallet.`,
+      'sBTC',
+      balanceInfo.balance,
+      amount,
+      shortfall.toString()
+    );
   }
+
+  // STX: include estimated fee in the required amount
+  const hiroApi = getHiroApi(account.network);
+  const balanceInfo = await hiroApi.getStxBalance(account.address);
+  const balance = BigInt(balanceInfo.balance);
+
+  const mempoolFees = await hiroApi.getMempoolFees();
+  const estimatedFee = BigInt(mempoolFees.contract_call.high_priority);
+  const totalRequired = requiredAmount + estimatedFee;
+
+  if (balance >= totalRequired) return;
+
+  const shortfall = totalRequired - balance;
+  throw new InsufficientBalanceError(
+    `Insufficient STX balance: need ${formatStx(totalRequired.toString())} (${formatStx(amount)} payment + ${formatStx(estimatedFee.toString())} estimated fee), ` +
+    `have ${formatStx(balanceInfo.balance)} (shortfall: ${formatStx(shortfall.toString())}). ` +
+    `Deposit more STX or use a different wallet.`,
+    'STX',
+    balanceInfo.balance,
+    totalRequired.toString(),
+    shortfall.toString()
+  );
 }
 
 export { NETWORK, API_URL };
