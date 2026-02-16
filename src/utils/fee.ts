@@ -96,17 +96,39 @@ export async function resolveFee(
   // Check if it's a preset string
   if (isFeePreset(fee)) {
     const hiroApi = getHiroApi(network);
-    const mempoolFees = await hiroApi.getMempoolFees();
 
-    // Get the appropriate fee tier based on transaction type
-    const feeTier = mempoolFees[txType];
-    const priorityKey = presetToPriorityKey(fee);
-    const feeValue = feeTier[priorityKey];
+    try {
+      const mempoolFees = await hiroApi.getMempoolFees();
 
-    // Convert to bigint and apply clamps to prevent absurd fees
-    const rawFee = BigInt(Math.ceil(feeValue));
-    const clamps = FEE_CLAMPS[txType];
-    return clampFee(rawFee, clamps.floor, clamps.ceiling);
+      // Get the appropriate fee tier based on transaction type
+      const feeTier = mempoolFees[txType];
+      const priorityKey = presetToPriorityKey(fee);
+      const feeValue = feeTier[priorityKey];
+
+      // Convert to bigint and apply clamps to prevent absurd fees
+      const rawFee = BigInt(Math.ceil(feeValue));
+      const clamps = FEE_CLAMPS[txType];
+      return clampFee(rawFee, clamps.floor, clamps.ceiling);
+    } catch (error) {
+      // If mempool API fails (even after retries), use safe fallback defaults
+      console.error(
+        `Failed to fetch mempool fees (using fallback): ${error instanceof Error ? error.message : String(error)}`
+      );
+
+      // Use clamp floor values as base, scaled by preset tier
+      const clamps = FEE_CLAMPS[txType];
+      const baseFloor = clamps.floor;
+
+      // Scale floor by preset tier: low=1x, medium=2x, high=3x
+      const presetMultiplier = fee === "low" ? 1n : fee === "medium" ? 2n : 3n;
+      const fallbackFee = baseFloor * presetMultiplier;
+
+      console.info(
+        `Using fallback fee: ${fallbackFee} uSTX (${fee} preset, ${txType} type)`
+      );
+
+      return fallbackFee;
+    }
   }
 
   // Otherwise, treat as numeric string - validate format first
