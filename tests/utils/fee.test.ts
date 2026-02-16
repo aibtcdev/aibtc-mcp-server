@@ -124,9 +124,10 @@ describe("fee utility", () => {
       const contractCall = await resolveFee("high", "mainnet", "contract_call");
       const smartContract = await resolveFee("high", "mainnet", "smart_contract");
 
-      expect(tokenTransfer).toBe(8000n);
-      expect(contractCall).toBe(12000n);
-      expect(smartContract).toBe(20000n);
+      // Note: These values are now clamped to their ceilings
+      expect(tokenTransfer).toBe(3000n); // Clamped from 8000 to ceiling
+      expect(contractCall).toBe(12000n); // Within range (3000-100000)
+      expect(smartContract).toBe(20000n); // Within range (10000-100000)
     });
 
     it("should throw error for invalid numeric strings", async () => {
@@ -151,6 +152,145 @@ describe("fee utility", () => {
       await expect(resolveFee("100,000", "mainnet")).rejects.toThrow(
         'Invalid fee value "100,000"'
       );
+    });
+  });
+
+  describe("fee clamping", () => {
+    // Mock extreme values to test clamping
+    const mockExtremeFees = {
+      all: {
+        no_priority: 100,
+        low_priority: 50, // Below floor (180)
+        medium_priority: 5000,
+        high_priority: 200000, // Above ceiling (100000)
+      },
+      token_transfer: {
+        no_priority: 100,
+        low_priority: 50, // Below floor (180)
+        medium_priority: 1000,
+        high_priority: 10000, // Above ceiling (3000)
+      },
+      contract_call: {
+        no_priority: 1000,
+        low_priority: 1000, // Below floor (3000)
+        medium_priority: 50000,
+        high_priority: 200000, // Above ceiling (100000)
+      },
+      smart_contract: {
+        no_priority: 5000,
+        low_priority: 5000, // Below floor (10000)
+        medium_priority: 50000,
+        high_priority: 150000, // Above ceiling (100000)
+      },
+    };
+
+    beforeEach(async () => {
+      // Override the mock to return extreme values
+      const { getHiroApi } = await import("../../src/services/hiro-api.js");
+      vi.mocked(getHiroApi).mockReturnValue({
+        getMempoolFees: vi.fn().mockResolvedValue(mockExtremeFees),
+      } as any);
+    });
+
+    describe("floor clamping", () => {
+      it("should clamp token_transfer low fee to floor (180)", async () => {
+        const result = await resolveFee("low", "mainnet", "token_transfer");
+        expect(result).toBe(180n); // Clamped from 50
+      });
+
+      it("should clamp contract_call low fee to floor (3000)", async () => {
+        const result = await resolveFee("low", "mainnet", "contract_call");
+        expect(result).toBe(3000n); // Clamped from 1000
+      });
+
+      it("should clamp smart_contract low fee to floor (10000)", async () => {
+        const result = await resolveFee("low", "mainnet", "smart_contract");
+        expect(result).toBe(10000n); // Clamped from 5000
+      });
+
+      it("should clamp 'all' low fee to floor (180)", async () => {
+        const result = await resolveFee("low", "mainnet", "all");
+        expect(result).toBe(180n); // Clamped from 50
+      });
+    });
+
+    describe("ceiling clamping", () => {
+      it("should clamp token_transfer high fee to ceiling (3000)", async () => {
+        const result = await resolveFee("high", "mainnet", "token_transfer");
+        expect(result).toBe(3000n); // Clamped from 10000
+      });
+
+      it("should clamp contract_call high fee to ceiling (100000)", async () => {
+        const result = await resolveFee("high", "mainnet", "contract_call");
+        expect(result).toBe(100000n); // Clamped from 200000
+      });
+
+      it("should clamp smart_contract high fee to ceiling (100000)", async () => {
+        const result = await resolveFee("high", "mainnet", "smart_contract");
+        expect(result).toBe(100000n); // Clamped from 150000
+      });
+
+      it("should clamp 'all' high fee to ceiling (100000)", async () => {
+        const result = await resolveFee("high", "mainnet", "all");
+        expect(result).toBe(100000n); // Clamped from 200000
+      });
+    });
+
+    describe("within-range (no clamping)", () => {
+      it("should not clamp token_transfer medium fee when within range", async () => {
+        const result = await resolveFee("medium", "mainnet", "token_transfer");
+        expect(result).toBe(1000n); // Not clamped (180 <= 1000 <= 3000)
+      });
+
+      it("should not clamp contract_call medium fee when within range", async () => {
+        const result = await resolveFee("medium", "mainnet", "contract_call");
+        expect(result).toBe(50000n); // Not clamped (3000 <= 50000 <= 100000)
+      });
+
+      it("should not clamp smart_contract medium fee when within range", async () => {
+        const result = await resolveFee("medium", "mainnet", "smart_contract");
+        expect(result).toBe(50000n); // Not clamped (10000 <= 50000 <= 100000)
+      });
+
+      it("should not clamp 'all' medium fee when within range", async () => {
+        const result = await resolveFee("medium", "mainnet", "all");
+        expect(result).toBe(5000n); // Not clamped (180 <= 5000 <= 100000)
+      });
+    });
+
+    describe("numeric string fees (user-specified)", () => {
+      it("should NOT clamp numeric string fees below floor", async () => {
+        const result = await resolveFee("1", "mainnet", "token_transfer");
+        expect(result).toBe(1n); // User-specified, not clamped
+      });
+
+      it("should NOT clamp numeric string fees above ceiling", async () => {
+        const result = await resolveFee("9999999999", "mainnet", "token_transfer");
+        expect(result).toBe(9999999999n); // User-specified, not clamped
+      });
+
+      it("should pass through exact user values", async () => {
+        const result = await resolveFee("42069", "mainnet");
+        expect(result).toBe(42069n);
+      });
+    });
+
+    describe("txType range differences", () => {
+      it("should use widest range (180-100000) for txType='all'", async () => {
+        const lowResult = await resolveFee("low", "mainnet", "all");
+        const highResult = await resolveFee("high", "mainnet", "all");
+
+        expect(lowResult).toBe(180n); // Floor of 'all'
+        expect(highResult).toBe(100000n); // Ceiling of 'all'
+      });
+
+      it("should use narrower range (180-3000) for token_transfer", async () => {
+        const lowResult = await resolveFee("low", "mainnet", "token_transfer");
+        const highResult = await resolveFee("high", "mainnet", "token_transfer");
+
+        expect(lowResult).toBe(180n); // Floor of token_transfer
+        expect(highResult).toBe(3000n); // Ceiling of token_transfer (narrower than 'all')
+      });
     });
   });
 });
