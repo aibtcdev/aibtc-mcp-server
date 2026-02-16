@@ -1,4 +1,3 @@
-import "dotenv/config";
 import axios, { type AxiosInstance } from "axios";
 import { wrapAxiosWithPayment, decodePaymentRequired, X402_HEADERS, type PaymentRequiredV2 } from "x402-stacks";
 import { generateWallet, getStxAddress } from "@stacks/wallet-sdk";
@@ -44,16 +43,8 @@ function createBaseAxiosInstance(baseURL?: string): AxiosInstance {
   instance.interceptors.response.use(
     (response) => response,
     (error) => {
-      const data = error?.response?.data;
-      if (typeof data === "string") {
-        const trimmed = data.trim();
-        if (trimmed) {
-          try {
-            error.response.data = JSON.parse(trimmed);
-          } catch {
-            // Leave as-is if it's not JSON
-          }
-        }
+      if (error?.response?.data) {
+        error.response.data = safeJsonTransform(error.response.data);
       }
       return Promise.reject(error);
     }
@@ -116,23 +107,7 @@ export function createPlainClient(baseUrl?: string): AxiosInstance {
  * Get wallet address - checks managed wallet first, then env mnemonic
  */
 export async function getWalletAddress(): Promise<string> {
-  // Check managed wallet session first
-  const walletManager = getWalletManager();
-  const sessionAccount = walletManager.getActiveAccount();
-
-  if (sessionAccount) {
-    return sessionAccount.address;
-  }
-
-  // Fall back to environment mnemonic
-  const mnemonic = process.env.CLIENT_MNEMONIC || "";
-  if (!mnemonic) {
-    throw new Error(
-      "No wallet available. Either unlock a managed wallet (wallet_unlock) " +
-        "or set CLIENT_MNEMONIC environment variable."
-    );
-  }
-  const account = await mnemonicToAccount(mnemonic, NETWORK);
+  const account = await getAccount();
   return account.address;
 }
 
@@ -157,13 +132,6 @@ export async function getAccount(): Promise<Account> {
     );
   }
   return mnemonicToAccount(mnemonic, NETWORK);
-}
-
-/**
- * Clear the client cache (useful for testing)
- */
-export function clearClientCache(): void {
-  clientCache.clear();
 }
 
 /**
@@ -216,9 +184,8 @@ export function formatPaymentAmount(amount: string, asset: string): string {
   const tokenType = detectTokenType(asset);
   if (tokenType === 'sBTC') {
     return formatSbtc(amount);
-  } else {
-    return formatStx(amount);
   }
+  return formatStx(amount);
 }
 
 /**

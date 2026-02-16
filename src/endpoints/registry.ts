@@ -1148,13 +1148,13 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
 // EXPORTS
 // =============================================================================
 
-export const PAID_ENDPOINTS = [
+const PAID_ENDPOINTS = [
   ...BIWAS_PAID_ENDPOINTS,
   ...AIBTC_PAID_ENDPOINTS,
   ...AIBTC_INBOX_PAID_ENDPOINTS,
   ...STX402_PAID_ENDPOINTS,
 ];
-export const FREE_ENDPOINTS = [
+const FREE_ENDPOINTS = [
   ...BIWAS_FREE_ENDPOINTS,
   ...AIBTC_FREE_ENDPOINTS,
   ...AIBTC_INBOX_FREE_ENDPOINTS,
@@ -1172,15 +1172,6 @@ export function searchEndpoints(query: string): X402Endpoint[] {
       endpoint.path.toLowerCase().includes(lowerQuery) ||
       endpoint.description.toLowerCase().includes(lowerQuery) ||
       endpoint.category.toLowerCase().includes(lowerQuery)
-  );
-}
-
-/**
- * Get endpoints by category
- */
-export function getEndpointsByCategory(category: string): X402Endpoint[] {
-  return ALL_ENDPOINTS.filter(
-    (endpoint) => endpoint.category.toLowerCase() === category.toLowerCase()
   );
 }
 
@@ -1231,6 +1222,10 @@ export function getCategories(): string[] {
   return Array.from(categories).sort();
 }
 
+function matchesDomain(host: string, domain: string): boolean {
+  return host === domain || host.endsWith(`.${domain}`);
+}
+
 function normalizeSource(url: string): X402Source | undefined {
   let hostname: string | undefined;
 
@@ -1243,10 +1238,6 @@ function normalizeSource(url: string): X402Source | undefined {
       return undefined;
     }
   }
-
-  const matchesDomain = (host: string, domain: string): boolean => {
-    return host === domain || host.endsWith(`.${domain}`);
-  };
 
   if (matchesDomain(hostname, "x402.biwas.xyz")) return "x402.biwas.xyz";
   if (matchesDomain(hostname, "x402.aibtc.com")) return "x402.aibtc.com";
@@ -1268,14 +1259,9 @@ function pathToRegex(pattern: string): RegExp {
     return cached;
   }
 
-  // Replace {paramName} placeholders with a neutral token first
-  const placeholderToken = '__X402_PATH_PARAM__';
-  let withTokens = pattern.replace(/\{[^}]+\}/g, placeholderToken);
-  // Escape regex special chars (including braces) in the remaining literal text
-  let escaped = withTokens.replace(/[.*+?^$|()[\]{}\\]/g, '\\$&');
-  // Restore placeholders as capture groups for any non-slash chars
-  escaped = escaped.replace(new RegExp(placeholderToken, 'g'), '([^/]+)');
-  // Anchor with start/end
+  // Split on {paramName} placeholders, escape literal segments, rejoin with capture groups
+  const parts = pattern.split(/\{[^}]+\}/);
+  const escaped = parts.map(p => p.replace(/[.*+?^$|()[\]{}\\]/g, '\\$&')).join('([^/]+)');
   const regex = new RegExp(`^${escaped}$`);
 
   pathRegexCache.set(pattern, regex);

@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { createApiClient, createPlainClient, API_URL, probeEndpoint, formatPaymentAmount } from "../services/x402.service.js";
+import { createApiClient, createPlainClient, API_URL, probeEndpoint, formatPaymentAmount, type ProbeResult } from "../services/x402.service.js";
 import {
   ALL_ENDPOINTS,
   searchEndpoints,
@@ -96,9 +96,6 @@ function formatEndpointError(
   endpointLabel: string
 ): { content: Array<{ type: "text"; text: string }>; isError: true } {
   let message = "Unknown error";
-  if (error instanceof Error) {
-    message = error.message;
-  }
   const axiosError = error as { response?: { status?: number; data?: unknown } };
   if (axiosError.response) {
     if (axiosError.response.status === 404) {
@@ -106,11 +103,49 @@ function formatEndpointError(
     } else {
       message = `HTTP ${axiosError.response.status}: ${JSON.stringify(axiosError.response.data)}`;
     }
+  } else if (error instanceof Error) {
+    message = error.message;
   }
   return {
     content: [{ type: "text", text: `Error: ${message}` }],
     isError: true,
   };
+}
+
+/**
+ * Format a probe result into an MCP JSON response.
+ * Shared by execute_x402_endpoint (safe mode) and probe_x402_endpoint.
+ */
+function formatProbeResponse(
+  result: ProbeResult,
+  method: string,
+  fullUrl: string,
+  callWithOptions: Parameters<typeof buildCallWith>[0],
+  messagePrefix?: string
+): ReturnType<typeof createJsonResponse> {
+  if (result.type === 'free') {
+    return createJsonResponse({
+      type: 'free',
+      endpoint: `${method} ${fullUrl}`,
+      message: 'This endpoint is free (no payment required)',
+      response: result.data,
+    });
+  }
+
+  const formattedCost = formatPaymentAmount(result.amount, result.asset);
+  const prefix = messagePrefix ?? 'No payment made. ';
+  return createJsonResponse({
+    type: 'payment_required',
+    endpoint: `${method} ${fullUrl}`,
+    message: `${prefix}This endpoint costs ${formattedCost}. To execute and pay, call execute_x402_endpoint with autoApprove: true and the parameters shown in callWith below.`,
+    payment: {
+      amount: result.amount,
+      asset: result.asset,
+      recipient: result.recipient,
+      network: result.network,
+    },
+    callWith: buildCallWith(callWithOptions),
+  });
 }
 
 export function registerEndpointTools(server: McpServer): void {
@@ -277,27 +312,7 @@ Use list_x402_endpoints to discover available endpoints.`,
 
         if (!autoApprove) {
           const probeResult = await probeEndpoint({ method, url: fullUrl, params, data });
-
-          if (probeResult.type === 'free') {
-            return createJsonResponse({
-              endpoint: `${method} ${fullUrl}`,
-              response: probeResult.data,
-            });
-          } else {
-            const formattedCost = formatPaymentAmount(probeResult.amount, probeResult.asset);
-            return createJsonResponse({
-              type: 'payment_required',
-              endpoint: `${method} ${fullUrl}`,
-              message: `This endpoint costs ${formattedCost}. To execute and pay, re-call execute_x402_endpoint with autoApprove: true and the same parameters shown in callWith below.`,
-              payment: {
-                amount: probeResult.amount,
-                asset: probeResult.asset,
-                recipient: probeResult.recipient,
-                network: probeResult.network,
-              },
-              callWith: buildCallWith({ method, url, path, apiUrl, params, data }),
-            });
-          }
+          return formatProbeResponse(probeResult, method, fullUrl, { method, url, path, apiUrl, params, data }, '');
         }
 
         // autoApprove=true: use payment client only for known paid endpoints
@@ -379,32 +394,8 @@ Supported sources:
         fullUrl = parsed.fullUrl;
         params = parsed.params;
 
-        // Probe the endpoint
         const result = await probeEndpoint({ method, url: fullUrl, params, data });
-
-        if (result.type === 'free') {
-          // Free endpoint - return the data
-          return createJsonResponse({
-            type: 'free',
-            endpoint: `${method} ${fullUrl}`,
-            message: 'This endpoint is free (no payment required)',
-            response: result.data,
-          });
-        } else {
-          const formattedCost = formatPaymentAmount(result.amount, result.asset);
-          return createJsonResponse({
-            type: 'payment_required',
-            endpoint: `${method} ${fullUrl}`,
-            message: `No payment made. This endpoint costs ${formattedCost}. To execute and pay, call execute_x402_endpoint with the parameters shown in callWith below.`,
-            payment: {
-              amount: result.amount,
-              asset: result.asset,
-              recipient: result.recipient,
-              network: result.network,
-            },
-            callWith: buildCallWith({ method, url, path, apiUrl, params, data }),
-          });
-        }
+        return formatProbeResponse(result, method, fullUrl, { method, url, path, apiUrl, params, data });
       } catch (error) {
         return formatEndpointError(error, fullUrl || "unknown");
       }
