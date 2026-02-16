@@ -189,15 +189,77 @@ export function registerBnsTools(server: McpServer): void {
     }
   );
 
+  // Claim BNS name fast (single transaction, recommended for .btc)
+  server.registerTool(
+    "claim_bns_name_fast",
+    {
+      description:
+        "Register a .btc BNS domain name in a single transaction using name-claim-fast. " +
+        "This is the RECOMMENDED method for .btc names — no preorder/register wait needed. " +
+        "Burns the name price in STX and mints the BNS NFT atomically. " +
+        "Only works for .btc namespace (BNS V2).",
+      inputSchema: {
+        name: z
+          .string()
+          .describe("BNS name to claim (e.g., 'myname' or 'myname.btc')"),
+        sendTo: z
+          .string()
+          .optional()
+          .describe("Optional recipient address. Defaults to the wallet's own address."),
+      },
+    },
+    async ({ name, sendTo }) => {
+      try {
+        const bnsService = getBnsService(NETWORK);
+        const account = await getAccount();
+
+        // Check if name is available first
+        const available = await bnsService.checkAvailability(name);
+        if (!available) {
+          return createErrorResponse(
+            new Error(`Name "${name}" is not available for registration`)
+          );
+        }
+
+        // Get the price for reference
+        const price = await bnsService.getPrice(name);
+
+        // Perform the claim
+        const result = await bnsService.claimNameFast(account, name, sendTo);
+
+        const fullName = name.endsWith(".btc") ? name : `${name}.btc`;
+
+        return createJsonResponse({
+          success: true,
+          method: "name-claim-fast (single transaction)",
+          name: fullName,
+          sendTo: sendTo || account.address,
+          txid: result.txid,
+          network: NETWORK,
+          price: price
+            ? {
+                microStx: price.amount,
+                stx: price.amountStx + " STX",
+              }
+            : null,
+          message: `Name "${fullName}" claimed! Once confirmed (~10 min), it will be registered to ${sendTo || account.address}.`,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
   // Preorder BNS name (Step 1 of 2 for registration)
   server.registerTool(
     "preorder_bns_name",
     {
       description:
-        "Preorder a BNS domain name. This is step 1 of a 2-step registration process. " +
+        "Preorder a BNS domain name (step 1 of 2-step registration). " +
+        "NOTE: For .btc names, prefer claim_bns_name_fast instead — it registers in one transaction. " +
+        "Use this 2-step flow only for non-.btc namespaces or if claim-fast is unavailable. " +
         "After preorder is confirmed (~10 minutes), call register_bns_name with the same salt. " +
-        "IMPORTANT: Save the returned salt - you'll need it for the register step! " +
-        "Auto-detects contract version: V2 for .btc names, V1 for other namespaces.",
+        "IMPORTANT: Save the returned salt - you'll need it for the register step!",
       inputSchema: {
         name: z
           .string()

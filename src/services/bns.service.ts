@@ -1,4 +1,4 @@
-import { ClarityValue, bufferCV, uintCV, stringUtf8CV, hexToCV, cvToJSON, tupleCV } from "@stacks/transactions";
+import { ClarityValue, bufferCV, uintCV, stringUtf8CV, hexToCV, cvToJSON, tupleCV, standardPrincipalCV } from "@stacks/transactions";
 import { HiroApiService, getHiroApi, BnsName, getBnsV2Api, BnsV2ApiService } from "./hiro-api.js";
 import { getContracts, parseContractId, type Network } from "../config/index.js";
 import { callContract, type Account, type TransferResult } from "../transactions/builder.js";
@@ -304,9 +304,61 @@ export class BnsService {
   }
 
   /**
+   * Claim a BNS V2 name in a single transaction using name-claim-fast.
+   * This is the recommended method for .btc names — no preorder/register dance needed.
+   * Burns the name price in STX and mints the BNS NFT in one atomic step.
+   *
+   * Only works for .btc namespace (BNS V2).
+   */
+  async claimNameFast(
+    account: Account,
+    name: string,
+    sendTo?: string
+  ): Promise<TransferResult> {
+    const fullName = name.includes(".") ? name : `${name}.btc`;
+    const [baseName, namespace] = fullName.split(".");
+
+    if (namespace !== "btc") {
+      throw new Error("name-claim-fast is only available for .btc names (BNS V2)");
+    }
+
+    const { address: contractAddress, name: contractName } = this.getBnsContract(namespace);
+
+    // Get the price to burn (for post-condition)
+    const price = await this.getPrice(fullName);
+    const stxToBurn = BigInt(price.amount);
+
+    const recipient = sendTo || account.address;
+
+    const functionArgs: ClarityValue[] = [
+      bufferCV(Buffer.from(baseName)),
+      bufferCV(Buffer.from(namespace)),
+      standardPrincipalCV(recipient),
+    ];
+
+    // Post condition: sender burns STX for the name price
+    const postCondition = createStxPostCondition(
+      account.address,
+      "eq",
+      stxToBurn
+    );
+
+    return callContract(account, {
+      contractAddress,
+      contractName,
+      functionName: "name-claim-fast",
+      functionArgs,
+      postConditions: [postCondition],
+    });
+  }
+
+  /**
    * Preorder a BNS name (Step 1 of 2)
    * Creates a commitment with hashed name+salt to prevent front-running
    * Auto-detects V1/V2 based on namespace (.btc uses V2, others use V1)
+   *
+   * NOTE: For .btc names, consider using claimNameFast() instead —
+   * it registers in a single transaction without the preorder/register wait.
    */
   async preorderName(
     account: Account,
