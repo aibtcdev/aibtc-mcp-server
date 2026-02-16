@@ -5,9 +5,29 @@ import { NETWORK, API_URL, type Network } from "../config/networks.js";
 import type { Account } from "../transactions/builder.js";
 import { getWalletManager } from "./wallet-manager.js";
 import { formatStx, formatSbtc } from "../utils/formatting.js";
+import { getSbtcService } from "./sbtc.service.js";
+import { getHiroApi } from "./hiro-api.js";
+import { createHash } from "crypto";
 
 // Cache clients by base URL
 const clientCache: Map<string, AxiosInstance> = new Map();
+
+// Transaction deduplication cache: {dedupKey -> {txid, timestamp}}
+const dedupCache: Map<string, { txid: string; timestamp: number }> = new Map();
+
+// Cleanup dedup cache every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  const expiredKeys: string[] = [];
+  for (const [key, value] of dedupCache.entries()) {
+    if (now - value.timestamp > 60000) { // 60 seconds
+      expiredKeys.push(key);
+    }
+  }
+  for (const key of expiredKeys) {
+    dedupCache.delete(key);
+  }
+}, 300000); // 5 minutes
 
 /**
  * Safe JSON transform - parses string responses without throwing
@@ -289,6 +309,103 @@ export async function probeEndpoint(options: {
     }
 
     throw error;
+  }
+}
+
+/**
+ * Generate a stable deduplication key for a request
+ */
+export function generateDedupKey(
+  method: string,
+  url: string,
+  params?: Record<string, string>,
+  data?: Record<string, unknown>
+): string {
+  const payload = JSON.stringify({ method, url, params, data });
+  return createHash('sha256').update(payload).digest('hex');
+}
+
+/**
+ * Check if a request was recently processed (within 60s)
+ * @returns txid if duplicate found, null otherwise
+ */
+export function checkDedupCache(key: string): string | null {
+  const cached = dedupCache.get(key);
+  if (!cached) {
+    return null;
+  }
+  const now = Date.now();
+  if (now - cached.timestamp > 60000) {
+    dedupCache.delete(key);
+    return null;
+  }
+  return cached.txid;
+}
+
+/**
+ * Record a transaction in the dedup cache
+ */
+export function recordTransaction(key: string, txid: string): void {
+  dedupCache.set(key, { txid, timestamp: Date.now() });
+}
+
+/**
+ * Check if account has sufficient balance to pay for x402 endpoint
+ * @throws Error with descriptive message if insufficient balance
+ */
+export async function checkSufficientBalance(
+  account: Account,
+  amount: string,
+  asset: string
+): Promise<{ sufficient: boolean; balance: string; required: string; shortfall?: string }> {
+  const tokenType = detectTokenType(asset);
+  const requiredAmount = BigInt(amount);
+
+  if (tokenType === 'sBTC') {
+    // Check sBTC balance
+    const sbtcService = getSbtcService(account.network);
+    const balanceInfo = await sbtcService.getBalance(account.address);
+    const balance = BigInt(balanceInfo.balance);
+
+    if (balance < requiredAmount) {
+      const shortfall = requiredAmount - balance;
+      throw new Error(
+        `Insufficient sBTC balance: need ${formatSbtc(amount)}, have ${formatSbtc(balanceInfo.balance)} (shortfall: ${formatSbtc(shortfall.toString())}). ` +
+        `Deposit more sBTC or use a different wallet.`
+      );
+    }
+
+    return {
+      sufficient: true,
+      balance: balanceInfo.balance,
+      required: amount,
+    };
+  } else {
+    // Check STX balance + fees
+    const hiroApi = getHiroApi(account.network);
+    const balanceInfo = await hiroApi.getStxBalance(account.address);
+    const balance = BigInt(balanceInfo.balance);
+
+    // Get high priority fee estimate for contract calls
+    const mempoolFees = await hiroApi.getMempoolFees();
+    const estimatedFee = BigInt(mempoolFees.contract_call.high_priority);
+
+    const totalRequired = requiredAmount + estimatedFee;
+
+    if (balance < totalRequired) {
+      const shortfall = totalRequired - balance;
+      throw new Error(
+        `Insufficient STX balance: need ${formatStx(totalRequired.toString())} (${formatStx(amount)} payment + ${formatStx(estimatedFee.toString())} estimated fee), ` +
+        `have ${formatStx(balanceInfo.balance)} (shortfall: ${formatStx(shortfall.toString())}). ` +
+        `Deposit more STX or use a different wallet.`
+      );
+    }
+
+    return {
+      sufficient: true,
+      balance: balanceInfo.balance,
+      required: totalRequired.toString(),
+    };
   }
 }
 
