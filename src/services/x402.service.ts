@@ -24,7 +24,7 @@ setInterval(() => {
       dedupCache.delete(key);
     }
   }
-}, 300000);
+}, 300000).unref();
 
 /**
  * Safe JSON transform - parses string responses without throwing
@@ -363,17 +363,39 @@ export async function checkSufficientBalance(
     const balanceInfo = await sbtcService.getBalance(account.address);
     const balance = BigInt(balanceInfo.balance);
 
-    if (balance >= requiredAmount) return;
+    if (balance < requiredAmount) {
+      const shortfall = requiredAmount - balance;
+      throw new InsufficientBalanceError(
+        `Insufficient sBTC balance: need ${formatSbtc(amount)}, have ${formatSbtc(balanceInfo.balance)} (shortfall: ${formatSbtc(shortfall.toString())}). ` +
+        `Deposit more sBTC via the bridge at https://bridge.stx.eco or use a different wallet.`,
+        'sBTC',
+        balanceInfo.balance,
+        amount,
+        shortfall.toString()
+      );
+    }
 
-    const shortfall = requiredAmount - balance;
-    throw new InsufficientBalanceError(
-      `Insufficient sBTC balance: need ${formatSbtc(amount)}, have ${formatSbtc(balanceInfo.balance)} (shortfall: ${formatSbtc(shortfall.toString())}). ` +
-      `Deposit more sBTC via the bridge at https://bridge.stx.eco or use a different wallet.`,
-      'sBTC',
-      balanceInfo.balance,
-      amount,
-      shortfall.toString()
-    );
+    // sBTC transfers are contract calls that also require STX for gas fees
+    const hiroApiForSbtc = getHiroApi(account.network);
+    const stxInfoForSbtc = await hiroApiForSbtc.getStxBalance(account.address);
+    const stxBalanceForSbtc = BigInt(stxInfoForSbtc.balance);
+    const sbtcFees = await hiroApiForSbtc.getMempoolFees();
+    const estimatedSbtcFee = BigInt(sbtcFees.contract_call.high_priority);
+
+    if (stxBalanceForSbtc < estimatedSbtcFee) {
+      const stxShortfall = estimatedSbtcFee - stxBalanceForSbtc;
+      throw new InsufficientBalanceError(
+        `Insufficient STX balance to cover sBTC transfer fee: need ${formatStx(estimatedSbtcFee.toString())} estimated fee, ` +
+        `have ${formatStx(stxInfoForSbtc.balance)} (shortfall: ${formatStx(stxShortfall.toString())}). ` +
+        `Deposit more STX or use a different wallet.`,
+        'STX',
+        stxInfoForSbtc.balance,
+        estimatedSbtcFee.toString(),
+        stxShortfall.toString()
+      );
+    }
+
+    return;
   }
 
   // STX: include estimated fee in the required amount

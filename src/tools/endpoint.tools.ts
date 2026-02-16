@@ -343,9 +343,7 @@ Use list_x402_endpoints to discover available endpoints.`,
           const txid = (response.data as { txid?: string })?.txid ||
                        response.headers?.['x-transaction-id'] ||
                        'unknown';
-          if (txid !== 'unknown') {
-            recordTransaction(dedupKey, txid);
-          }
+          recordTransaction(dedupKey, txid);
 
           return createJsonResponse({
             endpoint: `${method} ${fullUrl}`,
