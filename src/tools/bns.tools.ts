@@ -194,10 +194,10 @@ export function registerBnsTools(server: McpServer): void {
     "claim_bns_name_fast",
     {
       description:
-        "Register a .btc BNS domain name in a single transaction using name-claim-fast. " +
-        "This is the RECOMMENDED method for .btc names — no preorder/register wait needed. " +
+        "Register a BNS domain name in a single transaction using name-claim-fast. " +
+        "This is the RECOMMENDED method — no preorder/register wait needed. " +
         "Burns the name price in STX and mints the BNS NFT atomically. " +
-        "Only works for .btc namespace (BNS V2).",
+        "Works for all open namespaces (BNS V2).",
       inputSchema: {
         name: z
           .string()

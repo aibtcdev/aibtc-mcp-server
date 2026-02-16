@@ -1,4 +1,5 @@
-import { ClarityValue, bufferCV, uintCV, stringUtf8CV, hexToCV, cvToJSON, tupleCV, standardPrincipalCV } from "@stacks/transactions";
+import { ClarityValue, bufferCV, uintCV, stringUtf8CV, hexToCV, cvToJSON, tupleCV, principalCV, Pc } from "@stacks/transactions";
+import { asciiToBytes } from "@stacks/common";
 import { HiroApiService, getHiroApi, BnsName, getBnsV2Api, BnsV2ApiService } from "./hiro-api.js";
 import { getContracts, parseContractId, type Network } from "../config/index.js";
 import { callContract, type Account, type TransferResult } from "../transactions/builder.js";
@@ -305,10 +306,10 @@ export class BnsService {
 
   /**
    * Claim a BNS V2 name in a single transaction using name-claim-fast.
-   * This is the recommended method for .btc names — no preorder/register dance needed.
+   * This is the recommended method for BNS names — no preorder/register dance needed.
    * Burns the name price in STX and mints the BNS NFT in one atomic step.
    *
-   * Only works for .btc namespace (BNS V2).
+   * Works for all open namespaces (BNS V2).
    */
   async claimNameFast(
     account: Account,
@@ -317,10 +318,6 @@ export class BnsService {
   ): Promise<TransferResult> {
     const fullName = name.includes(".") ? name : `${name}.btc`;
     const [baseName, namespace] = fullName.split(".");
-
-    if (namespace !== "btc") {
-      throw new Error("name-claim-fast is only available for .btc names (BNS V2)");
-    }
 
     const { address: contractAddress, name: contractName } = this.getBnsContract(namespace);
 
@@ -331,17 +328,13 @@ export class BnsService {
     const recipient = sendTo || account.address;
 
     const functionArgs: ClarityValue[] = [
-      bufferCV(Buffer.from(baseName)),
-      bufferCV(Buffer.from(namespace)),
-      standardPrincipalCV(recipient),
+      bufferCV(asciiToBytes(baseName)),
+      bufferCV(asciiToBytes(namespace)),
+      principalCV(recipient),
     ];
 
     // Post condition: sender burns STX for the name price
-    const postCondition = createStxPostCondition(
-      account.address,
-      "eq",
-      stxToBurn
-    );
+    const postCondition = Pc.principal(account.address).willSendEq(stxToBurn).ustx();
 
     return callContract(account, {
       contractAddress,
@@ -357,7 +350,7 @@ export class BnsService {
    * Creates a commitment with hashed name+salt to prevent front-running
    * Auto-detects V1/V2 based on namespace (.btc uses V2, others use V1)
    *
-   * NOTE: For .btc names, consider using claimNameFast() instead —
+   * NOTE: For name registration, consider using claimNameFast() instead —
    * it registers in a single transaction without the preorder/register wait.
    */
   async preorderName(
