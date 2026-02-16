@@ -1230,3 +1230,56 @@ export function getCategories(): string[] {
   const categories = new Set(ALL_ENDPOINTS.map((ep) => ep.category));
   return Array.from(categories).sort();
 }
+
+/**
+ * Normalize a URL to a known X402Source, or return undefined if not recognized
+ */
+function normalizeSource(url: string): X402Source | undefined {
+  const lower = url.toLowerCase();
+  if (lower.includes("x402.biwas.xyz")) return "x402.biwas.xyz";
+  if (lower.includes("x402.aibtc.com")) return "x402.aibtc.com";
+  if (lower.includes("stx402.com")) return "stx402.com";
+  if (lower.includes("aibtc.com") && !lower.includes("x402.aibtc.com")) return "aibtc.com";
+  return undefined;
+}
+
+/**
+ * Lookup an endpoint in the registry by method, path, and source URL.
+ * Returns the matching X402Endpoint if found, or undefined if not in registry.
+ *
+ * This is used to determine if an endpoint is known-FREE or known-PAID before
+ * deciding whether to use a payment-capable client.
+ *
+ * @param method - HTTP method (GET, POST, PUT, DELETE)
+ * @param path - Request path (e.g., "/api/pools/trending")
+ * @param sourceUrl - Base URL or full URL (e.g., "https://x402.biwas.xyz")
+ * @returns X402Endpoint if found in registry, undefined otherwise
+ */
+export function lookupEndpoint(
+  method: string,
+  path: string,
+  sourceUrl: string
+): X402Endpoint | undefined {
+  // Normalize the source URL to a known X402Source
+  const source = normalizeSource(sourceUrl);
+  if (!source) {
+    return undefined; // Unknown source - not in our registry
+  }
+
+  // Normalize path: strip query params, ensure leading slash
+  let normalizedPath = path.split("?")[0];
+  if (!normalizedPath.startsWith("/")) {
+    normalizedPath = `/${normalizedPath}`;
+  }
+
+  // Normalize method to uppercase
+  const normalizedMethod = method.toUpperCase() as "GET" | "POST" | "PUT" | "DELETE";
+
+  // Search for matching endpoint
+  return ALL_ENDPOINTS.find(
+    (ep) =>
+      ep.method === normalizedMethod &&
+      ep.path === normalizedPath &&
+      ep.source === source
+  );
+}
