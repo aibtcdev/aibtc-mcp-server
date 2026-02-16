@@ -67,6 +67,27 @@ function parseEndpointUrl(options: {
 }
 
 /**
+ * Build the callWith object that echoes back original request params,
+ * allowing the LLM to copy them into a follow-up execute_x402_endpoint call.
+ */
+function buildCallWith(options: {
+  method: string;
+  url?: string;
+  path?: string;
+  apiUrl?: string;
+  params?: Record<string, string>;
+  data?: Record<string, unknown>;
+}): Record<string, unknown> {
+  const callWith: Record<string, unknown> = { method: options.method, autoApprove: true };
+  if (options.url) callWith.url = options.url;
+  if (options.path) callWith.path = options.path;
+  if (options.apiUrl) callWith.apiUrl = options.apiUrl;
+  if (options.params && Object.keys(options.params).length > 0) callWith.params = options.params;
+  if (options.data && Object.keys(options.data).length > 0) callWith.data = options.data;
+  return callWith;
+}
+
+/**
  * Format an endpoint error into an MCP error response.
  * Provides a helpful hint for 404s and includes HTTP status for other errors.
  */
@@ -254,26 +275,15 @@ Use list_x402_endpoints to discover available endpoints.`,
         fullUrl = parsed.fullUrl;
         params = parsed.params;
 
-        // If autoApprove is false (default), probe first
         if (!autoApprove) {
           const probeResult = await probeEndpoint({ method, url: fullUrl, params, data });
 
           if (probeResult.type === 'free') {
-            // Free endpoint - return data immediately (no second call needed)
             return createJsonResponse({
               endpoint: `${method} ${fullUrl}`,
               response: probeResult.data,
             });
           } else {
-            // Paid endpoint - return payment info without paying
-            // Echo back original params so the LLM can copy them into the follow-up call
-            const callWith: Record<string, unknown> = { method, autoApprove: true };
-            if (url) callWith.url = url;
-            if (path) callWith.path = path;
-            if (apiUrl) callWith.apiUrl = apiUrl;
-            if (params && Object.keys(params).length > 0) callWith.params = params;
-            if (data && Object.keys(data).length > 0) callWith.data = data;
-
             return createJsonResponse({
               type: 'payment_required',
               endpoint: `${method} ${fullUrl}`,
@@ -284,24 +294,17 @@ Use list_x402_endpoints to discover available endpoints.`,
                 recipient: probeResult.recipient,
                 network: probeResult.network,
               },
-              callWith,
+              callWith: buildCallWith({ method, url, path, apiUrl, params, data }),
             });
           }
         }
 
-        // autoApprove is true - choose client type based on registry lookup
-        // Safety: Only use payment client for KNOWN paid endpoints
+        // autoApprove=true: use payment client only for known paid endpoints
         const registryEntry = lookupEndpoint(method, requestPath, baseUrl);
-
-        let api;
-        if (registryEntry && registryEntry.cost !== "FREE") {
-          // Known paid endpoint - use payment-capable client
-          api = await createApiClient(baseUrl);
-        } else {
-          // Known free endpoint OR not in registry - use plain client (safe default)
-          // This prevents accidental payments if a server misconfigures and returns 402
-          api = createPlainClient(baseUrl);
-        }
+        const isKnownPaid = registryEntry && registryEntry.cost !== "FREE";
+        const api = isKnownPaid
+          ? await createApiClient(baseUrl)
+          : createPlainClient(baseUrl);
 
         const response = await api.request({ method, url: requestPath, params, data });
 
@@ -387,15 +390,6 @@ Supported sources:
             response: result.data,
           });
         } else {
-          // Paid endpoint - return payment details
-          // Echo back params so the LLM knows exactly what to pass to execute_x402_endpoint
-          const callWith: Record<string, unknown> = { method, autoApprove: true };
-          if (url) callWith.url = url;
-          if (path) callWith.path = path;
-          if (apiUrl) callWith.apiUrl = apiUrl;
-          if (params && Object.keys(params).length > 0) callWith.params = params;
-          if (data && Object.keys(data).length > 0) callWith.data = data;
-
           return createJsonResponse({
             type: 'payment_required',
             endpoint: `${method} ${fullUrl}`,
@@ -406,7 +400,7 @@ Supported sources:
               recipient: result.recipient,
               network: result.network,
             },
-            callWith,
+            callWith: buildCallWith({ method, url, path, apiUrl, params, data }),
           });
         }
       } catch (error) {

@@ -51,12 +51,6 @@ function presetToPriorityKey(preset: FeePreset): keyof MempoolFeePriorities {
 
 /**
  * Clamp a fee value between floor and ceiling.
- * Prevents absurd fees during mempool spikes.
- *
- * @param value - The raw fee value from mempool
- * @param floor - Minimum allowed fee
- * @param ceiling - Maximum allowed fee
- * @returns Clamped fee value
  */
 function clampFee(value: bigint, floor: bigint, ceiling: bigint): bigint {
   if (value < floor) return floor;
@@ -88,40 +82,28 @@ export async function resolveFee(
   network: Network,
   txType: "all" | "token_transfer" | "contract_call" | "smart_contract" = "all"
 ): Promise<bigint | undefined> {
-  // If no fee specified, return undefined to use auto-estimation
   if (!fee) {
     return undefined;
   }
 
-  // Check if it's a preset string
   if (isFeePreset(fee)) {
     const hiroApi = getHiroApi(network);
 
     try {
       const mempoolFees = await hiroApi.getMempoolFees();
-
-      // Get the appropriate fee tier based on transaction type
       const feeTier = mempoolFees[txType];
       const priorityKey = presetToPriorityKey(fee);
-      const feeValue = feeTier[priorityKey];
-
-      // Convert to bigint and apply clamps to prevent absurd fees
-      const rawFee = BigInt(Math.ceil(feeValue));
+      const rawFee = BigInt(Math.ceil(feeTier[priorityKey]));
       const clamps = FEE_CLAMPS[txType];
       return clampFee(rawFee, clamps.floor, clamps.ceiling);
     } catch (error) {
-      // If mempool API fails (even after retries), use safe fallback defaults
       console.error(
         `Failed to fetch mempool fees (using fallback): ${error instanceof Error ? error.message : String(error)}`
       );
 
-      // Use clamp floor values as base, scaled by preset tier
       const clamps = FEE_CLAMPS[txType];
-      const baseFloor = clamps.floor;
-
-      // Scale floor by preset tier: low=1x, medium=2x, high=3x
-      const presetMultiplier = fee === "low" ? 1n : fee === "medium" ? 2n : 3n;
-      const fallbackFee = baseFloor * presetMultiplier;
+      const multipliers: Record<FeePreset, bigint> = { low: 1n, medium: 2n, high: 3n };
+      const fallbackFee = clamps.floor * multipliers[fee.toLowerCase() as FeePreset];
 
       console.info(
         `Using fallback fee: ${fallbackFee} uSTX (${fee} preset, ${txType} type)`
@@ -131,7 +113,6 @@ export async function resolveFee(
     }
   }
 
-  // Otherwise, treat as numeric string - validate format first
   const normalizedFee = fee.trim();
   if (!/^\d+$/.test(normalizedFee)) {
     throw new Error(

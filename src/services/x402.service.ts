@@ -103,15 +103,8 @@ export async function createApiClient(baseUrl?: string): Promise<AxiosInstance> 
 }
 
 /**
- * Create a plain axios client WITHOUT payment interceptor.
- * Use this for known-free endpoints or when payment capability is not desired.
- *
- * This client will NOT automatically handle 402 Payment Required responses.
- * If the server returns 402, the request will fail with an error instead of
- * attempting payment.
- *
- * @param baseUrl - Optional base URL for the client
- * @returns Plain axios instance with JSON parsing but no payment wrapper
+ * Create a plain axios client without payment interceptor.
+ * Used for known-free endpoints where 402 responses should fail, not auto-pay.
  */
 export function createPlainClient(baseUrl?: string): AxiosInstance {
   return createBaseAxiosInstance(baseUrl);

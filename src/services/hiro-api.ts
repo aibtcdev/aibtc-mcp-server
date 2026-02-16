@@ -338,9 +338,8 @@ export class HiroApiService {
 
     if (!response.ok) {
       if (response.status === 429) {
-        const retryAfter = response.headers.get("Retry-After");
-        const retryAfterSeconds =
-          retryAfter && !isNaN(parseInt(retryAfter, 10)) ? parseInt(retryAfter, 10) : 60;
+        const parsed = parseInt(response.headers.get("Retry-After") ?? "", 10);
+        const retryAfterSeconds = isNaN(parsed) ? 60 : parsed;
         throw new HiroApiRateLimitError(
           `Hiro API rate limit exceeded. Retry after ${retryAfterSeconds}s`,
           retryAfterSeconds
@@ -360,38 +359,24 @@ export class HiroApiService {
    * Respects Retry-After header if present.
    */
   private async fetch<T>(path: string, options?: RequestInit): Promise<T> {
-    const maxAttempts = 3;
-    const baseDelays = [1000, 2000, 4000]; // 1s, 2s, 4s in milliseconds
+    const backoffDelays = [1000, 2000, 4000];
+    const maxAttempts = backoffDelays.length;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         return await this.attemptFetch<T>(path, options);
       } catch (error) {
-        // Only retry on rate limit errors
-        if (error instanceof HiroApiRateLimitError) {
-          // If this was the last attempt, re-throw
-          if (attempt === maxAttempts - 1) {
-            throw error;
-          }
-
-          // Calculate delay: use smaller of Retry-After header or exponential backoff
-          const baseDelay = baseDelays[attempt];
-          const retryAfterMs = error.retryAfterSeconds * 1000;
-          const delay = Math.min(retryAfterMs, baseDelay);
-
-          // Wait before retrying
-          await new Promise(resolve => setTimeout(resolve, delay));
-          continue;
+        if (!(error instanceof HiroApiRateLimitError) || attempt === maxAttempts - 1) {
+          throw error;
         }
 
-        // For non-rate-limit errors, fail immediately
-        throw error;
+        const retryAfterMs = error.retryAfterSeconds * 1000;
+        const delay = Math.min(retryAfterMs, backoffDelays[attempt]);
+        await new Promise(resolve => setTimeout(resolve, delay));
       }
     }
 
-    // TypeScript requires a return statement here, but this is unreachable
-    // because the loop either returns or throws.
-    throw new Error("Unreachable code");
+    throw new Error("Unreachable: loop always returns or throws");
   }
 
   // ==========================================================================
