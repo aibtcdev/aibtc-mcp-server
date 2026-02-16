@@ -261,21 +261,32 @@ If your version is outdated, clear the npx cache and reinstall: npx clear-npx-ca
 
         // Fetch latest version from npm registry
         let latestVersion = "unknown";
-        let isLatest = true;
-        let updateAvailable = false;
 
         try {
           const response = await fetch("https://registry.npmjs.org/@aibtc/mcp-server/latest");
           if (response.ok) {
             const data = await response.json() as { version: string };
             latestVersion = data.version;
-            isLatest = currentVersion === latestVersion;
-            updateAvailable = currentVersion !== latestVersion;
           }
         } catch (fetchError) {
           // Network error or npm registry unavailable - non-fatal
           console.error("Failed to fetch latest version from npm:", fetchError);
         }
+
+        // Compare versions numerically (handles dev > published correctly)
+        const compare = (a: string, b: string): number => {
+          const pa = a.split(".").map(Number);
+          const pb = b.split(".").map(Number);
+          for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+            const na = pa[i] ?? 0, nb = pb[i] ?? 0;
+            if (na !== nb) return na - nb;
+          }
+          return 0;
+        };
+
+        const fetched = latestVersion !== "unknown";
+        const updateAvailable = fetched && compare(currentVersion, latestVersion) < 0;
+        const isLatest = fetched && compare(currentVersion, latestVersion) >= 0;
 
         return createJsonResponse({
           currentVersion,
@@ -285,7 +296,7 @@ If your version is outdated, clear the npx cache and reinstall: npx clear-npx-ca
           package: "@aibtc/mcp-server",
           hint: updateAvailable
             ? "⚠️  Update available! Clear npx cache and reinstall: npx clear-npx-cache && npx @aibtc/mcp-server@latest --install"
-            : isLatest
+            : fetched
               ? "✅ Running the latest version"
               : "Unable to verify latest version (network error)",
         });
