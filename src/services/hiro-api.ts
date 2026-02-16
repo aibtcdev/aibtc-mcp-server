@@ -1,6 +1,7 @@
 import { ClarityValue, serializeCV } from "@stacks/transactions";
 import { getApiBaseUrl, type Network } from "../config/networks.js";
 import { parseContractId } from "../config/contracts.js";
+import { getHiroApiKey } from "../utils/storage.js";
 
 // ============================================================================
 // Types
@@ -311,19 +312,18 @@ export interface TokenMetadata {
 
 export class HiroApiService {
   private baseUrl: string;
-  private apiKey: string;
   private mempoolFeesCache: { data: MempoolFeeResponse; expires: number } | null = null;
 
   constructor(private network: Network) {
     this.baseUrl = getApiBaseUrl(network);
-    this.apiKey = process.env.HIRO_API_KEY || "";
   }
 
   private async fetch<T>(path: string, options?: RequestInit): Promise<T> {
+    const apiKey = (await getHiroApiKey()) || process.env.HIRO_API_KEY || "";
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      ...(this.apiKey ? { "x-hiro-api-key": this.apiKey } : {}),
+      ...(apiKey ? { "x-hiro-api-key": apiKey } : {}),
       ...(options?.headers as Record<string, string>),
     };
     const response = await fetch(url, {

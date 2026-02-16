@@ -32,6 +32,7 @@ import { registerEndpointTools } from "./endpoint.tools.js";
 import { registerScaffoldTools } from "./scaffold.tools.js";
 import { registerOpenRouterTools } from "./openrouter.tools.js";
 import { registerYieldHunterTools } from "./yield-hunter.tools.js";
+import { registerSettingsTools } from "./settings.tools.js";
 
 /**
  * Register all tools with the MCP server.
@@ -90,4 +91,5 @@ export function registerAllTools(server: McpServer): void {
   registerScaffoldTools(server);
   registerOpenRouterTools(server);
   registerYieldHunterTools(server);
+  registerSettingsTools(server);
 }
