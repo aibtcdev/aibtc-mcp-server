@@ -1,12 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { createApiClient, API_URL, probeEndpoint } from "../services/x402.service.js";
+import { createApiClient, createPlainClient, API_URL, probeEndpoint } from "../services/x402.service.js";
 import {
   ALL_ENDPOINTS,
   searchEndpoints,
   formatEndpointsTable,
   getEndpointsBySource,
   getCategories,
+  lookupEndpoint,
 } from "../endpoints/registry.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 
@@ -288,8 +289,20 @@ Use list_x402_endpoints to discover available endpoints.`,
           }
         }
 
-        // autoApprove is true - execute with automatic payment
-        const api = await createApiClient(baseUrl);
+        // autoApprove is true - choose client type based on registry lookup
+        // Safety: Only use payment client for KNOWN paid endpoints
+        const registryEntry = lookupEndpoint(method, requestPath, baseUrl);
+
+        let api;
+        if (registryEntry && registryEntry.cost !== "FREE") {
+          // Known paid endpoint - use payment-capable client
+          api = await createApiClient(baseUrl);
+        } else {
+          // Known free endpoint OR not in registry - use plain client (safe default)
+          // This prevents accidental payments if a server misconfigures and returns 402
+          api = createPlainClient(baseUrl);
+        }
+
         const response = await api.request({ method, url: requestPath, params, data });
 
         return createJsonResponse({
