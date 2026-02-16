@@ -318,7 +318,11 @@ export class HiroApiService {
     this.defaultBaseUrl = getApiBaseUrl(network);
   }
 
-  private async fetch<T>(path: string, options?: RequestInit): Promise<T> {
+  /**
+   * Helper function to attempt a single fetch request.
+   * Extracted to enable retry logic in the main fetch() method.
+   */
+  private async attemptFetch<T>(path: string, options?: RequestInit): Promise<T> {
     const apiKey = (await getHiroApiKey()) || process.env.HIRO_API_KEY || "";
     const baseUrl = (await getStacksApiUrl()) || this.defaultBaseUrl;
     const url = `${baseUrl}${path}`;
@@ -348,6 +352,46 @@ export class HiroApiService {
     }
 
     return response.json();
+  }
+
+  /**
+   * Fetch data from the Hiro API with automatic retry on rate limits.
+   * Retries up to 3 times with exponential backoff (1s, 2s, 4s).
+   * Respects Retry-After header if present.
+   */
+  private async fetch<T>(path: string, options?: RequestInit): Promise<T> {
+    const maxAttempts = 3;
+    const baseDelays = [1000, 2000, 4000]; // 1s, 2s, 4s in milliseconds
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        return await this.attemptFetch<T>(path, options);
+      } catch (error) {
+        // Only retry on rate limit errors
+        if (error instanceof HiroApiRateLimitError) {
+          // If this was the last attempt, re-throw
+          if (attempt === maxAttempts - 1) {
+            throw error;
+          }
+
+          // Calculate delay: use smaller of Retry-After header or exponential backoff
+          const baseDelay = baseDelays[attempt];
+          const retryAfterMs = error.retryAfterSeconds * 1000;
+          const delay = Math.min(retryAfterMs, baseDelay);
+
+          // Wait before retrying
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+
+        // For non-rate-limit errors, fail immediately
+        throw error;
+      }
+    }
+
+    // TypeScript requires a return statement here, but this is unreachable
+    // because the loop either returns or throws.
+    throw new Error("Unreachable code");
   }
 
   // ==========================================================================
