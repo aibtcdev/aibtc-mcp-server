@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.22.3](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.22.2...v1.22.3) (2026-02-16)
+
+
+### Bug Fixes
+
+* x402 registry paths and balance pre-checks ([#136](https://github.com/aibtcdev/aibtc-mcp-server/issues/136)) ([cc5339a](https://github.com/aibtcdev/aibtc-mcp-server/commit/cc5339a29e7ade3794d6fd2b826d0caf444266da))
+
 ## [1.22.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.22.1...v1.22.2) (2026-02-16)
 
 
