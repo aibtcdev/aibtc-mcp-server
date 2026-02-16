@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { createApiClient, createPlainClient, API_URL, probeEndpoint, formatPaymentAmount, type ProbeResult } from "../services/x402.service.js";
+import { createApiClient, createPlainClient, API_URL, probeEndpoint, formatPaymentAmount, type ProbeResult, checkSufficientBalance, generateDedupKey, checkDedupCache, recordTransaction, getAccount } from "../services/x402.service.js";
 import {
   ALL_ENDPOINTS,
   searchEndpoints,
@@ -315,13 +315,48 @@ Use list_x402_endpoints to discover available endpoints.`,
           return formatProbeResponse(probeResult, method, fullUrl, { method, url, path, apiUrl, params, data });
         }
 
-        // autoApprove=true: use payment client only for known paid endpoints
-        const registryEntry = lookupEndpoint(method, requestPath, baseUrl);
-        const isKnownPaid = !!registryEntry && registryEntry.cost !== "FREE";
-        const api = isKnownPaid
-          ? await createApiClient(baseUrl)
-          : createPlainClient(baseUrl);
+        // autoApprove=true: probe first to check if payment is required and validate balance
+        const probeResult = await probeEndpoint({ method, url: fullUrl, params, data });
 
+        if (probeResult.type === 'payment_required') {
+          // Check for duplicate transaction
+          const dedupKey = generateDedupKey(method, fullUrl, params, data);
+          const existingTxid = checkDedupCache(dedupKey);
+          if (existingTxid) {
+            return createJsonResponse({
+              endpoint: `${method} ${fullUrl}`,
+              message: 'Request already processed within the last 60 seconds. This prevents accidental duplicate payments.',
+              txid: existingTxid,
+              note: 'Wait 60s or use different endpoint/params to force a new transaction.',
+            });
+          }
+
+          // Check sufficient balance before creating payment client
+          const account = await getAccount();
+          await checkSufficientBalance(account, probeResult.amount, probeResult.asset);
+
+          // Balance is sufficient - create payment client and execute
+          const api = await createApiClient(baseUrl);
+          const response = await api.request({ method, url: requestPath, params, data });
+
+          // Extract txid from response and record for dedup
+          // x402 payment responses typically include txid in response data or headers
+          const txid = (response.data as { txid?: string })?.txid ||
+                       response.headers?.['x-transaction-id'] ||
+                       'unknown';
+          if (txid !== 'unknown') {
+            recordTransaction(dedupKey, txid);
+          }
+
+          return createJsonResponse({
+            endpoint: `${method} ${fullUrl}`,
+            response: response.data,
+            ...(txid !== 'unknown' && { txid }),
+          });
+        }
+
+        // Free endpoint - execute directly without payment client
+        const api = createPlainClient(baseUrl);
         const response = await api.request({ method, url: requestPath, params, data });
 
         return createJsonResponse({
