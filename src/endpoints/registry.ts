@@ -465,7 +465,7 @@ const AIBTC_FREE_ENDPOINTS: X402Endpoint[] = [
 
 const STX402_FREE_ENDPOINTS: X402Endpoint[] = [
   {
-    path: "/api/health",
+    path: "/health",
     method: "GET",
     description: "Service health status",
     cost: "FREE",
@@ -473,7 +473,7 @@ const STX402_FREE_ENDPOINTS: X402Endpoint[] = [
     source: "stx402.com",
   },
   {
-    path: "/api/registry/list",
+    path: "/registry/list",
     method: "GET",
     description: "List all registered x402 endpoints",
     cost: "FREE",
@@ -481,7 +481,7 @@ const STX402_FREE_ENDPOINTS: X402Endpoint[] = [
     source: "stx402.com",
   },
   {
-    path: "/api/links/expand/{slug}",
+    path: "/links/expand/{slug}",
     method: "GET",
     description: "Expand short link with click tracking",
     cost: "FREE",
@@ -490,7 +490,7 @@ const STX402_FREE_ENDPOINTS: X402Endpoint[] = [
     params: { slug: "Short link slug" },
   },
   {
-    path: "/api/agent/registry",
+    path: "/agent/registry",
     method: "GET",
     description: "Agent registry contract info (ERC-8004)",
     cost: "FREE",
@@ -540,7 +540,7 @@ const AIBTC_INBOX_PAID_ENDPOINTS: X402Endpoint[] = [
 const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
   // Data Operations
   {
-    path: "/api/data/json-minify",
+    path: "/data/json-minify",
     method: "POST",
     description: "Remove JSON whitespace and minify",
     cost: "Paid",
@@ -549,7 +549,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { json: "JSON string to minify" },
   },
   {
-    path: "/api/data/json-validate",
+    path: "/data/json-validate",
     method: "POST",
     description: "Validate JSON syntax",
     cost: "Paid",
@@ -560,7 +560,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
 
   // Stacks Blockchain
   {
-    path: "/api/stacks/convert-address/{address}",
+    path: "/stacks/convert-address/{address}",
     method: "GET",
     description: "Convert Stacks address between networks",
     cost: "Paid",
@@ -569,7 +569,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     params: { address: "Stacks address" },
   },
   {
-    path: "/api/stacks/decode-clarity-hex",
+    path: "/stacks/decode-clarity-hex",
     method: "POST",
     description: "Decode Clarity hex values",
     cost: "Paid",
@@ -578,7 +578,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { hex: "Clarity hex value" },
   },
   {
-    path: "/api/stacks/to-consensus-buff",
+    path: "/stacks/to-consensus-buff",
     method: "POST",
     description: "Serialize Clarity value to consensus buffer",
     cost: "Paid",
@@ -587,7 +587,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { value: "Clarity value" },
   },
   {
-    path: "/api/stacks/from-consensus-buff",
+    path: "/stacks/from-consensus-buff",
     method: "POST",
     description: "Deserialize from consensus buffer",
     cost: "Paid",
@@ -596,7 +596,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { buffer: "Consensus buffer hex" },
   },
   {
-    path: "/api/stacks/decode-tx",
+    path: "/stacks/decode-tx",
     method: "POST",
     description: "Decode raw Stacks transaction",
     cost: "Paid",
@@ -605,7 +605,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { tx: "Raw transaction hex" },
   },
   {
-    path: "/api/stacks/profile/{address}",
+    path: "/stacks/profile/{address}",
     method: "GET",
     description: "Aggregated profile data (BNS, balances, NFT counts)",
     cost: "Paid",
@@ -614,7 +614,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     params: { address: "Stacks address" },
   },
   {
-    path: "/api/stacks/contract-info/{contract_id}",
+    path: "/stacks/contract-info/{contract_id}",
     method: "GET",
     description: "Contract source code and ABI",
     cost: "Paid",
@@ -625,7 +625,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
 
   // AI Services
   {
-    path: "/api/ai/dad-joke",
+    path: "/ai/dad-joke",
     method: "GET",
     description: "Generate a dad joke",
     cost: "Paid",
@@ -633,7 +633,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     source: "stx402.com",
   },
   {
-    path: "/api/ai/image-describe",
+    path: "/ai/image-describe",
     method: "POST",
     description: "Vision analysis - describe an image",
     cost: "Paid",
@@ -642,7 +642,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { image: "Image URL or base64" },
   },
   {
-    path: "/api/ai/tts",
+    path: "/ai/tts",
     method: "POST",
     description: "Text-to-speech (English/Spanish)",
     cost: "Paid",
@@ -651,7 +651,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { text: "Text to speak", language: "en | es" },
   },
   {
-    path: "/api/ai/summarize",
+    path: "/ai/summarize",
     method: "POST",
     description: "Summarize text content",
     cost: "Paid",
@@ -660,7 +660,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { text: "Text to summarize" },
   },
   {
-    path: "/api/ai/generate-image",
+    path: "/ai/generate-image",
     method: "POST",
     description: "Generate image from text (Flux model)",
     cost: "Paid",
@@ -669,7 +669,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { prompt: "Image description" },
   },
   {
-    path: "/api/ai/explain-contract/{contract_id}",
+    path: "/ai/explain-contract/{contract_id}",
     method: "GET",
     description: "AI explanation of smart contract",
     cost: "Paid",
@@ -678,7 +678,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     params: { contract_id: "Contract ID (address.name)" },
   },
   {
-    path: "/api/ai/translate",
+    path: "/ai/translate",
     method: "POST",
     description: "Multi-language translation",
     cost: "Paid",
@@ -687,7 +687,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { text: "Text to translate", target: "Target language" },
   },
   {
-    path: "/api/ai/sentiment",
+    path: "/ai/sentiment",
     method: "POST",
     description: "Sentiment analysis of text",
     cost: "Paid",
@@ -696,7 +696,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { text: "Text to analyze" },
   },
   {
-    path: "/api/ai/keywords",
+    path: "/ai/keywords",
     method: "POST",
     description: "Extract keywords from text",
     cost: "Paid",
@@ -705,7 +705,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { text: "Text to extract keywords from" },
   },
   {
-    path: "/api/ai/language-detect",
+    path: "/ai/language-detect",
     method: "POST",
     description: "Detect language of text",
     cost: "Paid",
@@ -714,7 +714,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { text: "Text to detect" },
   },
   {
-    path: "/api/ai/paraphrase",
+    path: "/ai/paraphrase",
     method: "POST",
     description: "Paraphrase text in different styles",
     cost: "Paid",
@@ -723,7 +723,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { text: "Text to paraphrase", style: "Style" },
   },
   {
-    path: "/api/ai/grammar-check",
+    path: "/ai/grammar-check",
     method: "POST",
     description: "Check and correct grammar",
     cost: "Paid",
@@ -732,7 +732,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { text: "Text to check" },
   },
   {
-    path: "/api/ai/question-answer",
+    path: "/ai/question-answer",
     method: "POST",
     description: "Answer questions based on context",
     cost: "Paid",
@@ -743,7 +743,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
 
   // Cryptography
   {
-    path: "/api/hash/sha256",
+    path: "/hash/sha256",
     method: "POST",
     description: "SHA-256 hash",
     cost: "Paid",
@@ -752,7 +752,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { data: "Data to hash" },
   },
   {
-    path: "/api/hash/sha512",
+    path: "/hash/sha512",
     method: "POST",
     description: "SHA-512 hash",
     cost: "Paid",
@@ -761,7 +761,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { data: "Data to hash" },
   },
   {
-    path: "/api/hash/keccak256",
+    path: "/hash/keccak256",
     method: "POST",
     description: "Keccak-256 hash",
     cost: "Paid",
@@ -770,7 +770,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { data: "Data to hash" },
   },
   {
-    path: "/api/hash/hash160",
+    path: "/hash/hash160",
     method: "POST",
     description: "RIPEMD160(SHA256) hash",
     cost: "Paid",
@@ -779,7 +779,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { data: "Data to hash" },
   },
   {
-    path: "/api/hash/ripemd160",
+    path: "/hash/ripemd160",
     method: "POST",
     description: "RIPEMD-160 hash",
     cost: "Paid",
@@ -788,7 +788,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { data: "Data to hash" },
   },
   {
-    path: "/api/hash/hmac",
+    path: "/hash/hmac",
     method: "POST",
     description: "HMAC signature generation",
     cost: "Paid",
@@ -799,7 +799,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
 
   // Utilities
   {
-    path: "/api/util/qr-generate",
+    path: "/util/qr-generate",
     method: "POST",
     description: "Generate QR code",
     cost: "Paid",
@@ -808,7 +808,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { data: "Data to encode", size: "Size in pixels" },
   },
   {
-    path: "/api/util/verify-signature",
+    path: "/util/verify-signature",
     method: "POST",
     description: "Verify SIP-018 signature",
     cost: "Paid",
@@ -819,7 +819,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
 
   // Registry
   {
-    path: "/api/registry/probe",
+    path: "/registry/probe",
     method: "POST",
     description: "Discover x402 payment info for an endpoint",
     cost: "Paid",
@@ -828,7 +828,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { url: "Endpoint URL to probe" },
   },
   {
-    path: "/api/registry/register",
+    path: "/registry/register",
     method: "POST",
     description: "Register a new x402 endpoint",
     cost: "Paid",
@@ -837,7 +837,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { url: "Endpoint URL", description: "Description" },
   },
   {
-    path: "/api/registry/details",
+    path: "/registry/details",
     method: "POST",
     description: "Get full details of registered endpoint",
     cost: "Paid",
@@ -848,7 +848,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
 
   // Key-Value Storage
   {
-    path: "/api/kv/set",
+    path: "/kv/set",
     method: "POST",
     description: "Store key-value with optional TTL",
     cost: "Paid",
@@ -857,7 +857,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { key: "Key name", value: "Value", ttl: "TTL in seconds (optional)" },
   },
   {
-    path: "/api/kv/get",
+    path: "/kv/get",
     method: "POST",
     description: "Retrieve value by key",
     cost: "Paid",
@@ -866,7 +866,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { key: "Key name" },
   },
   {
-    path: "/api/kv/delete",
+    path: "/kv/delete",
     method: "POST",
     description: "Delete key-value pair",
     cost: "Paid",
@@ -875,7 +875,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { key: "Key name" },
   },
   {
-    path: "/api/kv/list",
+    path: "/kv/list",
     method: "POST",
     description: "List keys with pagination",
     cost: "Paid",
@@ -886,7 +886,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
 
   // Paste Service
   {
-    path: "/api/paste/create",
+    path: "/paste/create",
     method: "POST",
     description: "Create a paste/snippet",
     cost: "Paid",
@@ -895,7 +895,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { content: "Content to paste", language: "Language (optional)" },
   },
   {
-    path: "/api/paste/{code}",
+    path: "/paste/{code}",
     method: "GET",
     description: "Retrieve paste by code",
     cost: "Paid",
@@ -906,7 +906,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
 
   // Counters
   {
-    path: "/api/counter/increment",
+    path: "/counter/increment",
     method: "POST",
     description: "Atomically increment counter",
     cost: "Paid",
@@ -915,7 +915,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { name: "Counter name", amount: "Increment amount (default 1)" },
   },
   {
-    path: "/api/counter/decrement",
+    path: "/counter/decrement",
     method: "POST",
     description: "Atomically decrement counter",
     cost: "Paid",
@@ -924,7 +924,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { name: "Counter name", amount: "Decrement amount (default 1)" },
   },
   {
-    path: "/api/counter/get",
+    path: "/counter/get",
     method: "GET",
     description: "Get counter value",
     cost: "Paid",
@@ -935,7 +935,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
 
   // SQL Database
   {
-    path: "/api/sql/query",
+    path: "/sql/query",
     method: "POST",
     description: "Execute read-only SELECT query",
     cost: "Paid",
@@ -944,7 +944,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { sql: "SELECT query" },
   },
   {
-    path: "/api/sql/execute",
+    path: "/sql/execute",
     method: "POST",
     description: "Execute write operations (CREATE, INSERT, UPDATE, DELETE)",
     cost: "Paid",
@@ -953,7 +953,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { sql: "SQL statement" },
   },
   {
-    path: "/api/sql/schema",
+    path: "/sql/schema",
     method: "GET",
     description: "Get database schema",
     cost: "Paid",
@@ -963,7 +963,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
 
   // Links
   {
-    path: "/api/links/create",
+    path: "/links/create",
     method: "POST",
     description: "Create a short link",
     cost: "Paid",
@@ -972,7 +972,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { url: "URL to shorten", slug: "Custom slug (optional)" },
   },
   {
-    path: "/api/links/stats",
+    path: "/links/stats",
     method: "POST",
     description: "Get link analytics",
     cost: "Paid",
@@ -981,7 +981,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { slug: "Link slug" },
   },
   {
-    path: "/api/links/list",
+    path: "/links/list",
     method: "GET",
     description: "List all your links",
     cost: "Paid",
@@ -991,7 +991,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
 
   // Synchronization (Locks)
   {
-    path: "/api/sync/lock",
+    path: "/sync/lock",
     method: "POST",
     description: "Acquire a named lock",
     cost: "Paid",
@@ -1000,7 +1000,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { name: "Lock name", ttl: "TTL in seconds" },
   },
   {
-    path: "/api/sync/unlock",
+    path: "/sync/unlock",
     method: "POST",
     description: "Release a lock",
     cost: "Paid",
@@ -1009,7 +1009,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { name: "Lock name", token: "Lock token" },
   },
   {
-    path: "/api/sync/check",
+    path: "/sync/check",
     method: "POST",
     description: "Check lock status",
     cost: "Paid",
@@ -1020,7 +1020,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
 
   // Job Queue
   {
-    path: "/api/queue/push",
+    path: "/queue/push",
     method: "POST",
     description: "Add job to queue",
     cost: "Paid",
@@ -1029,7 +1029,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { queue: "Queue name", payload: "Job payload" },
   },
   {
-    path: "/api/queue/pop",
+    path: "/queue/pop",
     method: "POST",
     description: "Claim next job from queue",
     cost: "Paid",
@@ -1038,7 +1038,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { queue: "Queue name" },
   },
   {
-    path: "/api/queue/complete",
+    path: "/queue/complete",
     method: "POST",
     description: "Mark job as complete",
     cost: "Paid",
@@ -1047,7 +1047,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { jobId: "Job ID" },
   },
   {
-    path: "/api/queue/status",
+    path: "/queue/status",
     method: "POST",
     description: "Get queue statistics",
     cost: "Paid",
@@ -1058,7 +1058,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
 
   // Memory & Embeddings
   {
-    path: "/api/memory/store",
+    path: "/memory/store",
     method: "POST",
     description: "Store memory with optional embedding",
     cost: "Paid",
@@ -1067,7 +1067,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { key: "Memory key", content: "Content", embed: "Generate embedding (bool)" },
   },
   {
-    path: "/api/memory/recall",
+    path: "/memory/recall",
     method: "POST",
     description: "Retrieve memory by key",
     cost: "Paid",
@@ -1076,7 +1076,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { key: "Memory key" },
   },
   {
-    path: "/api/memory/search",
+    path: "/memory/search",
     method: "POST",
     description: "Semantic search across memories",
     cost: "Paid",
@@ -1085,7 +1085,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { query: "Search query", limit: "Max results" },
   },
   {
-    path: "/api/memory/list",
+    path: "/memory/list",
     method: "POST",
     description: "List memories with filters",
     cost: "Paid",
@@ -1094,7 +1094,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { prefix: "Key prefix (optional)" },
   },
   {
-    path: "/api/memory/forget",
+    path: "/memory/forget",
     method: "POST",
     description: "Delete a memory",
     cost: "Paid",
@@ -1105,7 +1105,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
 
   // Agent Registry (ERC-8004)
   {
-    path: "/api/agent/info",
+    path: "/agent/info",
     method: "POST",
     description: "Get agent info by ID",
     cost: "Paid",
@@ -1114,7 +1114,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { agentId: "Agent ID" },
   },
   {
-    path: "/api/agent/lookup",
+    path: "/agent/lookup",
     method: "POST",
     description: "Lookup agent by owner address",
     cost: "Paid",
@@ -1125,7 +1125,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
 
   // Agent Reputation
   {
-    path: "/api/agent/reputation/summary",
+    path: "/agent/reputation/summary",
     method: "POST",
     description: "Get agent reputation summary",
     cost: "Paid",
@@ -1134,7 +1134,7 @@ const STX402_PAID_ENDPOINTS: X402Endpoint[] = [
     body: { agentId: "Agent ID" },
   },
   {
-    path: "/api/agent/reputation/list",
+    path: "/agent/reputation/list",
     method: "POST",
     description: "List all feedback for agent",
     cost: "Paid",
