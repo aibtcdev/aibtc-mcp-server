@@ -191,6 +191,40 @@ export type ProbeResultPaymentRequired = {
 export type ProbeResult = ProbeResultFree | ProbeResultPaymentRequired;
 
 /**
+ * Detect token type from asset identifier
+ * @param asset - Full contract identifier or token name
+ * @returns 'STX' for native STX, 'sBTC' for sBTC token
+ */
+export function detectTokenType(asset: string): 'STX' | 'sBTC' {
+  const assetLower = asset.toLowerCase();
+  if (assetLower.includes('token-sbtc') || assetLower.includes('sbtc')) {
+    return 'sBTC';
+  }
+  return 'STX';
+}
+
+/**
+ * Format payment amount into human-readable string with token symbol
+ * @param amount - Raw amount string (microSTX or satoshis)
+ * @param asset - Token asset identifier
+ * @returns Formatted string like "0.000001 sBTC" or "0.001 STX"
+ */
+export function formatPaymentAmount(amount: string, asset: string): string {
+  const tokenType = detectTokenType(asset);
+  const rawAmount = BigInt(amount);
+
+  if (tokenType === 'sBTC') {
+    // sBTC: 1 sBTC = 100,000,000 satoshis
+    const sbtcAmount = Number(rawAmount) / 100_000_000;
+    return `${sbtcAmount.toFixed(8)} sBTC`;
+  } else {
+    // STX: 1 STX = 1,000,000 microSTX
+    const stxAmount = Number(rawAmount) / 1_000_000;
+    return `${stxAmount.toFixed(6)} STX`;
+  }
+}
+
+/**
  * Probe an endpoint without payment interceptor
  * Returns either free response data or payment requirements
  */
