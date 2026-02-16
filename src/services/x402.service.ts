@@ -1,6 +1,6 @@
 import "dotenv/config";
 import axios, { type AxiosInstance } from "axios";
-import { wrapAxiosWithPayment } from "x402-stacks";
+import { wrapAxiosWithPayment, decodePaymentRequired, X402_HEADERS, type PaymentRequiredV2 } from "x402-stacks";
 import { generateWallet, getStxAddress } from "@stacks/wallet-sdk";
 import { NETWORK, API_URL, type Network } from "../config/networks.js";
 import type { Account } from "../transactions/builder.js";
@@ -179,6 +179,12 @@ export type ProbeResultPaymentRequired = {
   recipient: string;
   network: string;
   endpoint: string;
+  resource?: {
+    url: string;
+    description?: string;
+    mimeType?: string;
+  };
+  maxTimeoutSeconds?: number;
 };
 
 export type ProbeResult = ProbeResultFree | ProbeResultPaymentRequired;
@@ -205,10 +211,43 @@ export async function probeEndpoint(options: {
       data: response.data,
     };
   } catch (error) {
-    const axiosError = error as { response?: { status?: number; data?: unknown } };
+    const axiosError = error as { response?: { status?: number; data?: unknown; headers?: Record<string, string> } };
 
     // 402 Payment Required - parse payment info
     if (axiosError.response?.status === 402) {
+      // Try to parse v2 payment-required header first
+      const headerValue = axiosError.response.headers?.[X402_HEADERS.PAYMENT_REQUIRED];
+      let paymentRequired: PaymentRequiredV2 | null = null;
+
+      if (headerValue) {
+        paymentRequired = decodePaymentRequired(headerValue);
+      }
+
+      // If v2 header is successfully parsed, use it
+      if (paymentRequired && paymentRequired.accepts && paymentRequired.accepts.length > 0) {
+        const acceptedPayment = paymentRequired.accepts[0];
+
+        // Convert CAIP-2 network identifier to simple format if needed
+        let network: string = acceptedPayment.network;
+        if (network === 'stacks:1') {
+          network = 'mainnet';
+        } else if (network === 'stacks:2147483648') {
+          network = 'testnet';
+        }
+
+        return {
+          type: 'payment_required',
+          amount: acceptedPayment.amount,
+          asset: acceptedPayment.asset,
+          recipient: acceptedPayment.payTo,
+          network: network,
+          endpoint: url,
+          resource: paymentRequired.resource,
+          maxTimeoutSeconds: acceptedPayment.maxTimeoutSeconds,
+        };
+      }
+
+      // Fall back to v1 body parsing
       const paymentData = axiosError.response.data as {
         amount?: string;
         asset?: string;
@@ -217,7 +256,7 @@ export async function probeEndpoint(options: {
       };
 
       if (!paymentData.amount || !paymentData.asset || !paymentData.recipient || !paymentData.network) {
-        throw new Error(`Invalid 402 response from ${url}: missing payment fields`);
+        throw new Error(`Invalid 402 response from ${url}: missing payment fields in both header and body`);
       }
 
       return {
