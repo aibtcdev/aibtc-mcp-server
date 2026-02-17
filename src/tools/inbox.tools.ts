@@ -56,7 +56,8 @@ async function buildSponsoredSbtcTransfer(
     fee: 0n,
   });
 
-  return "0x" + Buffer.from(transaction.serialize()).toString("hex");
+  // serialize() returns Hex string (no 0x prefix) in @stacks/transactions v7+
+  return "0x" + transaction.serialize();
 }
 
 export function registerInboxTools(server: McpServer): void {
