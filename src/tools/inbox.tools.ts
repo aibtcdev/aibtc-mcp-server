@@ -6,8 +6,8 @@ import {
   principalCV,
   noneCV,
 } from "@stacks/transactions";
-import { decodePaymentRequired, X402_HEADERS } from "x402-stacks";
-import { getAccount, NETWORK } from "../services/x402.service.js";
+import { decodePaymentRequired, encodePaymentPayload, X402_HEADERS } from "x402-stacks";
+import { getAccount, NETWORK, checkSufficientBalance } from "../services/x402.service.js";
 import { getStacksNetwork, getExplorerTxUrl } from "../config/networks.js";
 import { getContracts, parseContractId } from "../config/contracts.js";
 import { createFungiblePostCondition } from "../transactions/post-conditions.js";
@@ -23,7 +23,7 @@ async function buildSponsoredSbtcTransfer(
   senderKey: string,
   senderAddress: string,
   recipient: string,
-  amount: number
+  amount: bigint
 ): Promise<string> {
   const contracts = getContracts(NETWORK);
   const { address: contractAddress, name: contractName } = parseContractId(
@@ -35,8 +35,8 @@ async function buildSponsoredSbtcTransfer(
     senderAddress,
     contracts.SBTC_TOKEN,
     "sbtc-token",
-    "lte",
-    BigInt(amount)
+    "eq",
+    amount
   );
 
   const transaction = await makeContractCall({
@@ -56,7 +56,7 @@ async function buildSponsoredSbtcTransfer(
     fee: 0n,
   });
 
-  return "0x" + transaction.serialize();
+  return "0x" + Buffer.from(transaction.serialize()).toString("hex");
 }
 
 export function registerInboxTools(server: McpServer): void {
@@ -65,7 +65,7 @@ export function registerInboxTools(server: McpServer): void {
     {
       description: `Send a paid x402 message to another agent's inbox on aibtc.com.
 
-Uses sponsored transactions so the sender only pays the 100 sat sBTC message cost — no STX gas fees.
+Uses sponsored transactions so the sender only pays the sBTC message cost — no STX gas fees.
 
 This tool handles the full 5-step x402 payment flow:
 1. POST to inbox → receive 402 payment challenge
@@ -98,7 +98,6 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
           toBtcAddress: recipientBtcAddress,
           toStxAddress: recipientStxAddress,
           content,
-          paymentSatoshis: 100,
         };
 
         const initialRes = await fetch(inboxUrl, {
@@ -134,21 +133,25 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
           throw new Error("No accepted payment methods in 402 response");
         }
         const accept = paymentRequired.accepts[0];
+        const amount = BigInt(accept.amount);
+
+        // Pre-check sBTC balance before building the transaction
+        await checkSufficientBalance(account, accept.amount, accept.asset);
 
         // Step 3: Build sponsored sBTC transfer
         const txHex = await buildSponsoredSbtcTransfer(
           account.privateKey,
           account.address,
           accept.payTo,
-          parseInt(accept.amount)
+          amount
         );
 
-        // Step 4: Build PaymentPayloadV2
+        // Step 4: Encode PaymentPayloadV2
         const resource = paymentRequired.resource || { url: inboxUrl };
         const payloadObj = {
           x402Version: 2,
           resource: {
-            url: `${resource.url || inboxUrl}/msg_${Date.now()}`,
+            url: resource.url || inboxUrl,
             description: resource.description || "",
             mimeType: resource.mimeType || "application/json",
           },
@@ -166,16 +169,14 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
           },
         };
 
-        const paymentSignature = Buffer.from(
-          JSON.stringify(payloadObj)
-        ).toString("base64");
+        const paymentSignature = encodePaymentPayload(payloadObj as Parameters<typeof encodePaymentPayload>[0]);
 
         // Step 5: Retry with payment
         const finalRes = await fetch(inboxUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "payment-signature": paymentSignature,
+            [X402_HEADERS.PAYMENT_SIGNATURE]: paymentSignature,
           },
           body: JSON.stringify(body),
         });
@@ -190,7 +191,7 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
 
         if (finalRes.status === 201 || finalRes.status === 200) {
           // Extract payment response header for txid
-          const paymentResponse = finalRes.headers.get("payment-response");
+          const paymentResponse = finalRes.headers.get(X402_HEADERS.PAYMENT_RESPONSE);
           let txid: string | undefined;
           if (paymentResponse) {
             try {
