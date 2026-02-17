@@ -262,7 +262,9 @@ Supported sources:
 - aibtc.com: Use apiUrl="https://aibtc.com" with path like "/api/inbox/{address}"
 - Any x402-compatible URL: Use url parameter with full endpoint URL
 
-Use list_x402_endpoints to discover available endpoints.`,
+Use list_x402_endpoints to discover available endpoints.
+
+For aibtc.com inbox messages, use send_inbox_message instead — it uses sponsored transactions to avoid sBTC settlement timeout issues.`,
       inputSchema: {
         method: z
           .enum(["GET", "POST", "PUT", "DELETE"])
