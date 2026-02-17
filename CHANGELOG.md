@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.22.4](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.22.3...v1.22.4) (2026-02-17)
+
+
+### Bug Fixes
+
+* prevent x402 payment retry loop and inscription pubkey error ([#142](https://github.com/aibtcdev/aibtc-mcp-server/issues/142)) ([6b950e0](https://github.com/aibtcdev/aibtc-mcp-server/commit/6b950e0d86a3a10903dcb30ab1a8ba4dde6eb312))
+
 ## [1.22.3](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.22.2...v1.22.3) (2026-02-16)
 
 
