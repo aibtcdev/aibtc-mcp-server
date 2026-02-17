@@ -312,15 +312,10 @@ describe("payment attempt guard", () => {
   });
 
   it("increments payment attempt counter on first 402", async () => {
-    // Arrange: import axios to create a mock scenario
-    const axios = await import("axios");
-    const mockAdapter = vi.fn();
-
     // Create a test client
     const client = await createApiClient("https://x402.test.com");
 
     // Mock axios adapter to return 402
-    const originalAdapter = client.defaults.adapter;
     client.defaults.adapter = async (config) => {
       // First call returns 402
       throw {
@@ -357,17 +352,45 @@ describe("payment attempt guard", () => {
   });
 
   it("blocks retry after payment attempt limit reached", async () => {
-    // This test verifies that after the guard increments the counter,
-    // a second 402 triggers the retry limit error.
-    // However, this requires orchestrating the x402-stacks interceptor flow,
-    // which is complex to mock completely.
-    //
-    // The guard protection is verified by:
-    // 1. Fresh client creation (no cache) - test 1
-    // 2. Code review showing guard intercepts 402 and increments counter
-    // 3. Integration testing with actual x402 endpoints
-    //
-    // For unit test purposes, we verify the core behavior: fresh clients per call.
-    expect(true).toBe(true);
+    // Arrange: create a client and force the adapter to always return 402
+    const client = await createApiClient("https://x402.test.com");
+
+    client.defaults.adapter = async (config) => {
+      throw {
+        response: {
+          status: 402,
+          data: {
+            x402Version: 2,
+            resource: { url: "https://x402.test.com/test" },
+            accepts: [
+              {
+                network: "stacks:1",
+                asset: "STX",
+                amount: "1000",
+                payTo: "SP000000000000000000002Q6VF78",
+              },
+            ],
+          },
+          headers: {},
+          config,
+        },
+        config,
+      };
+    };
+
+    // Act & Assert: first 402 should not be blocked by the guard
+    try {
+      await client.get("/test");
+      expect.fail("First request should have thrown 402 error");
+    } catch (error) {
+      const err = error as Error;
+      // First failure should NOT be the guard error
+      expect(err.message).not.toContain("Payment retry limit exceeded");
+    }
+
+    // Act & Assert: second 402 should be rejected by the guard
+    await expect(client.get("/test")).rejects.toThrow(
+      "Payment retry limit exceeded",
+    );
   });
 });

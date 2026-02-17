@@ -103,8 +103,8 @@ export async function createApiClient(baseUrl?: string): Promise<AxiosInstance> 
   const account = await getAccount();
   const axiosInstance = createBaseAxiosInstance(url);
 
-  // Add payment attempt guard BEFORE x402-stacks interceptor
-  // (interceptors run in reverse order: last added runs first)
+  // Axios response interceptors run in the order they are added (FIFO),
+  // so this guard will execute before the x402-stacks interceptor added by wrapAxiosWithPayment.
   axiosInstance.interceptors.response.use(
     (response) => response,
     (error) => {
