@@ -10,8 +10,8 @@ import { getHiroApi } from "./hiro-api.js";
 import { createHash } from "crypto";
 import { InsufficientBalanceError } from "../utils/errors.js";
 
-// Cache clients by base URL
-const clientCache: Map<string, AxiosInstance> = new Map();
+// Track payment attempts per client instance (auto-cleanup via WeakMap)
+const paymentAttempts: WeakMap<AxiosInstance, number> = new WeakMap();
 
 // Transaction deduplication cache: {dedupKey -> {txid, timestamp}}
 const dedupCache: Map<string, { txid: string; timestamp: number }> = new Map();
@@ -93,22 +93,46 @@ export async function mnemonicToAccount(
 }
 
 /**
- * Create an API client with x402 payment interceptor
+ * Create an API client with x402 payment interceptor.
+ * Creates a fresh client instance per call with max-1-payment-attempt guard.
  */
 export async function createApiClient(baseUrl?: string): Promise<AxiosInstance> {
   const url = baseUrl || API_URL;
 
-  // Check cache
-  const cached = clientCache.get(url);
-  if (cached) {
-    return cached;
-  }
-
   // Get account (from managed wallet or env mnemonic)
   const account = await getAccount();
   const axiosInstance = createBaseAxiosInstance(url);
+
+  // Add payment attempt guard BEFORE x402-stacks interceptor
+  // (interceptors run in reverse order: last added runs first)
+  axiosInstance.interceptors.response.use(
+    (response) => response,
+    (error) => {
+      // Only intercept 402 payment errors
+      if (error.response?.status !== 402) {
+        return Promise.reject(error);
+      }
+
+      // Check attempt counter
+      const attempts = paymentAttempts.get(axiosInstance) || 0;
+
+      if (attempts >= 1) {
+        // Reject retry - payment already attempted once
+        return Promise.reject(
+          new Error(
+            "Payment retry limit exceeded (max 1 attempt). This endpoint may have payment/settlement issues. Check balance and try again."
+          )
+        );
+      }
+
+      // Increment counter and pass through to x402-stacks interceptor
+      paymentAttempts.set(axiosInstance, attempts + 1);
+      return Promise.reject(error);
+    }
+  );
+
+  // Wrap with x402-stacks payment interceptor
   const client = wrapAxiosWithPayment(axiosInstance, account);
-  clientCache.set(url, client);
   return client;
 }
 
