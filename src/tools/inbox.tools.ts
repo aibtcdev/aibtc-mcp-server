@@ -7,11 +7,14 @@ import {
   noneCV,
 } from "@stacks/transactions";
 import { decodePaymentRequired, encodePaymentPayload, X402_HEADERS } from "x402-stacks";
-import { getAccount, NETWORK, checkSufficientBalance } from "../services/x402.service.js";
+import { getAccount, NETWORK } from "../services/x402.service.js";
+import { getSbtcService } from "../services/sbtc.service.js";
 import { getStacksNetwork, getExplorerTxUrl } from "../config/networks.js";
 import { getContracts, parseContractId } from "../config/contracts.js";
 import { createFungiblePostCondition } from "../transactions/post-conditions.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
+import { InsufficientBalanceError } from "../utils/errors.js";
+import { formatSbtc } from "../utils/formatting.js";
 
 const INBOX_BASE = "https://aibtc.com/api/inbox";
 
@@ -136,8 +139,22 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
         const accept = paymentRequired.accepts[0];
         const amount = BigInt(accept.amount);
 
-        // Pre-check sBTC balance before building the transaction
-        await checkSufficientBalance(account, accept.amount, accept.asset);
+        // Pre-check sBTC balance only — sponsored txs have fee: 0n so STX gas is not required
+        const sbtcService = getSbtcService(NETWORK);
+        const balanceInfo = await sbtcService.getBalance(account.address);
+        const sbtcBalance = BigInt(balanceInfo.balance);
+        const requiredAmount = BigInt(accept.amount);
+        if (sbtcBalance < requiredAmount) {
+          const shortfall = requiredAmount - sbtcBalance;
+          throw new InsufficientBalanceError(
+            `Insufficient sBTC balance: need ${formatSbtc(accept.amount)}, have ${formatSbtc(balanceInfo.balance)} (shortfall: ${formatSbtc(shortfall.toString())}). ` +
+              `Deposit more sBTC via the bridge at https://bridge.stx.eco or use a different wallet.`,
+            "sBTC",
+            balanceInfo.balance,
+            accept.amount,
+            shortfall.toString()
+          );
+        }
 
         // Step 3: Build sponsored sBTC transfer
         const txHex = await buildSponsoredSbtcTransfer(
