@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.23.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.22.4...v1.23.0) (2026-02-17)
+
+
+### Features
+
+* add send_inbox_message tool with sponsored x402 flow ([#149](https://github.com/aibtcdev/aibtc-mcp-server/issues/149)) ([aa83803](https://github.com/aibtcdev/aibtc-mcp-server/commit/aa83803fc64d51d0060aad2012ae46dd42a75aa6))
+
 ## [1.22.4](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.22.3...v1.22.4) (2026-02-17)
 
 
