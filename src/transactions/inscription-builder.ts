@@ -198,6 +198,9 @@ export function buildCommitTransaction(
   if (!inscription.body || inscription.body.length === 0) {
     throw new Error("Content body is required");
   }
+  if (senderPubKey.length !== 33) {
+    throw new Error("Sender public key must be 33 bytes (compressed)");
+  }
 
   // Sort UTXOs by value descending for better coin selection
   const sortedUtxos = [...utxos]
@@ -216,11 +219,15 @@ export function buildCommitTransaction(
     body: inscription.body,
   };
 
-  const revealScriptData = p2tr_ord_reveal(senderPubKey, [inscriptionData]);
+  // Convert compressed pubkey (33 bytes) to x-only pubkey (32 bytes) for Taproot
+  // Compressed format: 1 byte prefix (02/03) + 32 bytes x-coordinate
+  const xOnlyPubkey = senderPubKey.slice(1);
+
+  const revealScriptData = p2tr_ord_reveal(xOnlyPubkey, [inscriptionData]);
 
   // Create P2TR output from the reveal script
   // For script path spending, we use the internal pubkey and the script tree
-  const p2trReveal = btc.p2tr(senderPubKey, revealScriptData, btcNetwork);
+  const p2trReveal = btc.p2tr(xOnlyPubkey, revealScriptData, btcNetwork);
 
   if (!p2trReveal.address) {
     throw new Error("Failed to generate reveal address");
