@@ -30,7 +30,7 @@ Check the cost of a specific endpoint before committing to payment:
 "Probe the cost of the SHA-256 hashing endpoint"
 ```
 
-Uses `probe_x402_endpoint` — returns cost details (amount, asset, recipient) without executing any payment. This step is always safe and never charges the wallet.
+Uses `probe_x402_endpoint` — for paid endpoints, returns payment details (amount, asset, recipient) without executing any payment; for free endpoints, returns a `type: "free"` result containing the endpoint's response data (no cost fields). This step is always safe and never charges the wallet.
 
 ### Step 3: Present
 
@@ -71,19 +71,19 @@ Review the returned data. If the response is unexpected or empty, check `get_tra
 
 ```
 # BAD — skips cost check, may pay unexpectedly high amounts
-execute_x402_endpoint(endpoint="/inference/...", autoApprove: true)
+execute_x402_endpoint({ path: "/inference/...", autoApprove: true })
 
 # GOOD — probe first, then execute after approval
-probe_x402_endpoint(endpoint="/inference/...")
+probe_x402_endpoint({ path: "/inference/..." })
 # → "This call costs 0.05 STX (LLM pass-through)"
-execute_x402_endpoint(endpoint="/inference/...", autoApprove: true)
+execute_x402_endpoint({ path: "/inference/...", autoApprove: true })
 ```
 
 Why this matters:
 - LLM inference endpoints use dynamic pricing (cost + 20% markup)
 - A long prompt or expensive model can cost significantly more than standard tier
 - Probing first protects against accidental overspending
-- Free endpoints work transparently — probe returns 0 cost, execute proceeds without payment
+- Free endpoints work transparently — probing shows the endpoint is free (for example, `type: free`), and execute proceeds without payment
 
 ## Safe-by-Default Behavior
 
