@@ -9,6 +9,7 @@ import {
 import { decodePaymentRequired, encodePaymentPayload, X402_HEADERS } from "x402-stacks";
 import { getAccount, NETWORK } from "../services/x402.service.js";
 import { getSbtcService } from "../services/sbtc.service.js";
+import { getHiroApi } from "../services/hiro-api.js";
 import { getStacksNetwork, getExplorerTxUrl } from "../config/networks.js";
 import { getContracts, parseContractId } from "../config/contracts.js";
 import { createFungiblePostCondition } from "../transactions/post-conditions.js";
@@ -17,6 +18,85 @@ import { InsufficientBalanceError } from "../utils/errors.js";
 import { formatSbtc } from "../utils/formatting.js";
 
 const INBOX_BASE = "https://aibtc.com/api/inbox";
+const NONCE_CACHE_TTL_MS = 120_000;
+const NONCE_RETRY_MAX_ATTEMPTS = 2;
+const nonceReservationCache = new Map<string, { nextNonce: number; updatedAt: number }>();
+
+function readNonceCache(address: string): number | null {
+  const cached = nonceReservationCache.get(address);
+  if (!cached) {
+    return null;
+  }
+  if (Date.now() - cached.updatedAt > NONCE_CACHE_TTL_MS) {
+    nonceReservationCache.delete(address);
+    return null;
+  }
+  return cached.nextNonce;
+}
+
+export function reserveInboxNonce(
+  address: string,
+  accountNonce: number,
+  mempoolNonces: number[]
+): number {
+  const highestMempoolNonce =
+    mempoolNonces.length > 0 ? Math.max(...mempoolNonces) : accountNonce - 1;
+  const nextChainNonce = Math.max(accountNonce, highestMempoolNonce + 1);
+  const cachedNext = readNonceCache(address);
+  const selectedNonce = cachedNext === null
+    ? nextChainNonce
+    : Math.max(cachedNext, nextChainNonce);
+  nonceReservationCache.set(address, {
+    nextNonce: selectedNonce + 1,
+    updatedAt: Date.now(),
+  });
+  return selectedNonce;
+}
+
+export function isNonceConflictSettlementFailure(
+  statusCode: number,
+  parsedBody: Record<string, unknown>,
+  rawBody: string
+): boolean {
+  if (statusCode < 400) {
+    return false;
+  }
+
+  const fields = [
+    String(parsedBody.error || ""),
+    String(parsedBody.code || ""),
+    String(parsedBody.details || ""),
+    rawBody,
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    fields.includes("conflictingnonceinmempool") ||
+    fields.includes("nonce too low") ||
+    (fields.includes("unexpected_settle_error") && fields.includes("nonce"))
+  );
+}
+
+export async function getSuggestedInboxNonce(address: string): Promise<number> {
+  const hiro = getHiroApi(NETWORK);
+  const [accountNonce, mempoolTxs] = await Promise.all([
+    hiro.getAccountNonce(address),
+    hiro
+      .getMempoolTransactions({ sender_address: address, limit: 50 })
+      .catch(() => ({ limit: 0, offset: 0, total: 0, results: [] })),
+  ]);
+
+  const mempoolNonces = mempoolTxs.results
+    .map((tx) => tx.nonce)
+    .filter((nonce) => Number.isInteger(nonce) && nonce >= 0);
+
+  return reserveInboxNonce(address, accountNonce, mempoolNonces);
+}
+
+export function clearInboxNonceCacheForTests(): void {
+  nonceReservationCache.clear();
+}
 
 /**
  * Build a sponsored sBTC transfer transaction (signed, not broadcast).
@@ -26,7 +106,8 @@ async function buildSponsoredSbtcTransfer(
   senderKey: string,
   senderAddress: string,
   recipient: string,
-  amount: bigint
+  amount: bigint,
+  nonce?: number
 ): Promise<string> {
   const contracts = getContracts(NETWORK);
   const { address: contractAddress, name: contractName } = parseContractId(
@@ -57,6 +138,7 @@ async function buildSponsoredSbtcTransfer(
     postConditions: [postCondition],
     sponsored: true,
     fee: 0n,
+    ...(nonce !== undefined ? { nonce } : {}),
   });
 
   // serialize() returns Hex string (no 0x prefix) in @stacks/transactions v7+
@@ -155,91 +237,111 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
           );
         }
 
-        // Step 3: Build sponsored sBTC transfer
-        const txHex = await buildSponsoredSbtcTransfer(
-          account.privateKey,
-          account.address,
-          accept.payTo,
-          amount
-        );
-
-        // Step 4: Encode PaymentPayloadV2
         const resourceUrl = paymentRequired.resource?.url || inboxUrl;
-        const paymentSignature = encodePaymentPayload({
-          x402Version: 2,
-          resource: {
-            url: resourceUrl,
-            description: paymentRequired.resource?.description || "",
-            mimeType: paymentRequired.resource?.mimeType || "application/json",
-          },
-          accepted: {
-            scheme: accept.scheme || "exact",
-            network: accept.network,
-            asset: accept.asset,
-            amount: accept.amount,
-            payTo: accept.payTo,
-            maxTimeoutSeconds: accept.maxTimeoutSeconds || 300,
-            extra: accept.extra || {},
-          },
-          payload: {
-            transaction: txHex,
-          },
-        } as Parameters<typeof encodePaymentPayload>[0]);
+        let lastStatus = 0;
+        let lastResponseData = "";
 
-        // Step 5: Retry with payment
-        const finalRes = await fetch(inboxUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            [X402_HEADERS.PAYMENT_SIGNATURE]: paymentSignature,
-          },
-          body: JSON.stringify(body),
-        });
+        for (let attempt = 0; attempt <= NONCE_RETRY_MAX_ATTEMPTS; attempt++) {
+          // Step 3: Build sponsored sBTC transfer with reserved nonce
+          const nonce = await getSuggestedInboxNonce(account.address).catch(
+            () => undefined
+          );
+          const txHex = await buildSponsoredSbtcTransfer(
+            account.privateKey,
+            account.address,
+            accept.payTo,
+            amount,
+            nonce
+          );
 
-        const responseData = await finalRes.text();
-        let parsed: Record<string, unknown>;
-        try {
-          parsed = JSON.parse(responseData);
-        } catch {
-          parsed = { raw: responseData };
-        }
+          // Step 4: Encode PaymentPayloadV2
+          const paymentSignature = encodePaymentPayload({
+            x402Version: 2,
+            resource: {
+              url: resourceUrl,
+              description: paymentRequired.resource?.description || "",
+              mimeType: paymentRequired.resource?.mimeType || "application/json",
+            },
+            accepted: {
+              scheme: accept.scheme || "exact",
+              network: accept.network,
+              asset: accept.asset,
+              amount: accept.amount,
+              payTo: accept.payTo,
+              maxTimeoutSeconds: accept.maxTimeoutSeconds || 300,
+              extra: accept.extra || {},
+            },
+            payload: {
+              transaction: txHex,
+            },
+          } as Parameters<typeof encodePaymentPayload>[0]);
 
-        if (finalRes.status === 201 || finalRes.status === 200) {
-          // Extract payment response header for txid
-          const paymentResponse = finalRes.headers.get(X402_HEADERS.PAYMENT_RESPONSE);
-          let txid: string | undefined;
-          if (paymentResponse) {
-            try {
-              const decoded = JSON.parse(
-                Buffer.from(paymentResponse, "base64").toString()
-              );
-              txid = decoded.transaction;
-            } catch {
-              // ignore parse errors
-            }
+          // Step 5: Retry with payment
+          const finalRes = await fetch(inboxUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              [X402_HEADERS.PAYMENT_SIGNATURE]: paymentSignature,
+            },
+            body: JSON.stringify(body),
+          });
+
+          const responseData = await finalRes.text();
+          let parsed: Record<string, unknown>;
+          try {
+            parsed = JSON.parse(responseData);
+          } catch {
+            parsed = { raw: responseData };
           }
 
-          return createJsonResponse({
-            success: true,
-            message: "Message delivered",
-            recipient: {
-              btcAddress: recipientBtcAddress,
-              stxAddress: recipientStxAddress,
-            },
-            contentLength: content.length,
-            inbox: parsed,
-            ...(txid && {
-              payment: {
-                txid,
-                amount: accept.amount + " sats sBTC",
-                explorer: getExplorerTxUrl(txid, NETWORK),
+          if (finalRes.status === 201 || finalRes.status === 200) {
+            // Extract payment response header for txid
+            const paymentResponse = finalRes.headers.get(X402_HEADERS.PAYMENT_RESPONSE);
+            let txid: string | undefined;
+            if (paymentResponse) {
+              try {
+                const decoded = JSON.parse(
+                  Buffer.from(paymentResponse, "base64").toString()
+                );
+                txid = decoded.transaction;
+              } catch {
+                // ignore parse errors
+              }
+            }
+
+            return createJsonResponse({
+              success: true,
+              message: "Message delivered",
+              recipient: {
+                btcAddress: recipientBtcAddress,
+                stxAddress: recipientStxAddress,
               },
-            }),
-          });
+              contentLength: content.length,
+              inbox: parsed,
+              ...(txid && {
+                payment: {
+                  txid,
+                  amount: accept.amount + " sats sBTC",
+                  explorer: getExplorerTxUrl(txid, NETWORK),
+                },
+              }),
+            });
+          }
+
+          lastStatus = finalRes.status;
+          lastResponseData = responseData;
+
+          const canRetry =
+            attempt < NONCE_RETRY_MAX_ATTEMPTS &&
+            isNonceConflictSettlementFailure(finalRes.status, parsed, responseData);
+
+          if (!canRetry) {
+            break;
+          }
         }
 
         throw new Error(
-          `Message delivery failed (${finalRes.status}): ${responseData}`
+          `Message delivery failed (${lastStatus}): ${lastResponseData}`
         );
       } catch (error) {
         return createErrorResponse(error);
