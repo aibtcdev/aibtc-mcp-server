@@ -29,6 +29,7 @@ import { registerPillarDirectTools } from "./pillar-direct.tools.js";
 // Layer 4: APIs & Utilities
 import { registerQueryTools } from "./query.tools.js";
 import { registerEndpointTools } from "./endpoint.tools.js";
+import { registerInboxTools } from "./inbox.tools.js";
 import { registerScaffoldTools } from "./scaffold.tools.js";
 import { registerOpenRouterTools } from "./openrouter.tools.js";
 import { registerYieldHunterTools } from "./yield-hunter.tools.js";
@@ -88,6 +89,7 @@ export function registerAllTools(server: McpServer): void {
   // =========================================================================
   registerQueryTools(server);
   registerEndpointTools(server);
+  registerInboxTools(server);
   registerScaffoldTools(server);
   registerOpenRouterTools(server);
   registerYieldHunterTools(server);
