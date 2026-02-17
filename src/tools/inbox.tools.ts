@@ -143,9 +143,8 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
         const sbtcService = getSbtcService(NETWORK);
         const balanceInfo = await sbtcService.getBalance(account.address);
         const sbtcBalance = BigInt(balanceInfo.balance);
-        const requiredAmount = BigInt(accept.amount);
-        if (sbtcBalance < requiredAmount) {
-          const shortfall = requiredAmount - sbtcBalance;
+        if (sbtcBalance < amount) {
+          const shortfall = amount - sbtcBalance;
           throw new InsufficientBalanceError(
             `Insufficient sBTC balance: need ${formatSbtc(accept.amount)}, have ${formatSbtc(balanceInfo.balance)} (shortfall: ${formatSbtc(shortfall.toString())}). ` +
               `Deposit more sBTC via the bridge at https://bridge.stx.eco or use a different wallet.`,
