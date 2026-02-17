@@ -147,13 +147,13 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
         );
 
         // Step 4: Encode PaymentPayloadV2
-        const resource = paymentRequired.resource || { url: inboxUrl };
-        const payloadObj = {
+        const resourceUrl = paymentRequired.resource?.url || inboxUrl;
+        const paymentSignature = encodePaymentPayload({
           x402Version: 2,
           resource: {
-            url: resource.url || inboxUrl,
-            description: resource.description || "",
-            mimeType: resource.mimeType || "application/json",
+            url: resourceUrl,
+            description: paymentRequired.resource?.description || "",
+            mimeType: paymentRequired.resource?.mimeType || "application/json",
           },
           accepted: {
             scheme: accept.scheme || "exact",
@@ -167,9 +167,7 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
           payload: {
             transaction: txHex,
           },
-        };
-
-        const paymentSignature = encodePaymentPayload(payloadObj as Parameters<typeof encodePaymentPayload>[0]);
+        } as Parameters<typeof encodePaymentPayload>[0]);
 
         // Step 5: Retry with payment
         const finalRes = await fetch(inboxUrl, {
