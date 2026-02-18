@@ -346,3 +346,203 @@ describe("Hash Function Fixtures", () => {
     });
   });
 });
+
+/**
+ * Tests for Schnorr signing (BIP-340) for Taproot
+ *
+ * These tests verify Schnorr signature creation and verification
+ * for use in Taproot script-path spending and multisig coordination.
+ */
+describe("Schnorr Signing (BIP-340 for Taproot)", () => {
+  const { schnorr } = require("@noble/curves/secp256k1.js");
+  const { hex } = require("@scure/base");
+
+  describe("Schnorr signature format", () => {
+    it("should produce a 64-byte signature", () => {
+      // BIP-340 Schnorr signatures are exactly 64 bytes
+      const privateKey = hex.decode(
+        "0000000000000000000000000000000000000000000000000000000000000001"
+      );
+      const digest = hex.decode(
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      );
+
+      const signature = schnorr.sign(digest, privateKey);
+
+      expect(signature).toBeInstanceOf(Uint8Array);
+      expect(signature.length).toBe(64);
+    });
+
+    it("should produce deterministic signatures with same auxRand", () => {
+      const privateKey = hex.decode(
+        "0000000000000000000000000000000000000000000000000000000000000001"
+      );
+      const digest = hex.decode(
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      );
+      // Use explicit auxRand for deterministic signing
+      const auxRand = hex.decode(
+        "0000000000000000000000000000000000000000000000000000000000000000"
+      );
+
+      const sig1 = schnorr.sign(digest, privateKey, auxRand);
+      const sig2 = schnorr.sign(digest, privateKey, auxRand);
+
+      expect(hex.encode(sig1)).toBe(hex.encode(sig2));
+    });
+  });
+
+  describe("Sign and verify round-trip", () => {
+    it("should sign and verify a digest", () => {
+      const privateKey = hex.decode(
+        "0000000000000000000000000000000000000000000000000000000000000001"
+      );
+      const publicKey = schnorr.getPublicKey(privateKey);
+      const digest = hex.decode(
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      );
+
+      const signature = schnorr.sign(digest, privateKey);
+      const isValid = schnorr.verify(signature, digest, publicKey);
+
+      expect(isValid).toBe(true);
+    });
+
+    it("should fail verification with wrong digest", () => {
+      const privateKey = hex.decode(
+        "0000000000000000000000000000000000000000000000000000000000000001"
+      );
+      const publicKey = schnorr.getPublicKey(privateKey);
+      const digest = hex.decode(
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      );
+      const wrongDigest = hex.decode(
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      );
+
+      const signature = schnorr.sign(digest, privateKey);
+      const isValid = schnorr.verify(signature, wrongDigest, publicKey);
+
+      expect(isValid).toBe(false);
+    });
+
+    it("should fail verification with wrong public key", () => {
+      const privateKey1 = hex.decode(
+        "0000000000000000000000000000000000000000000000000000000000000001"
+      );
+      const privateKey2 = hex.decode(
+        "0000000000000000000000000000000000000000000000000000000000000002"
+      );
+      const publicKey2 = schnorr.getPublicKey(privateKey2);
+      const digest = hex.decode(
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      );
+
+      const signature = schnorr.sign(digest, privateKey1);
+      const isValid = schnorr.verify(signature, digest, publicKey2);
+
+      expect(isValid).toBe(false);
+    });
+  });
+
+  describe("BIP-340 test vectors", () => {
+    // Official BIP-340 test vector #0
+    // https://github.com/bitcoin/bips/blob/master/bip-0340/test-vectors.csv
+    it("should match BIP-340 test vector #0", () => {
+      const secretKey = hex.decode(
+        "0000000000000000000000000000000000000000000000000000000000000003"
+      );
+      const publicKey = schnorr.getPublicKey(secretKey);
+      const message = hex.decode(
+        "0000000000000000000000000000000000000000000000000000000000000000"
+      );
+      const auxRand = hex.decode(
+        "0000000000000000000000000000000000000000000000000000000000000000"
+      );
+
+      // Expected public key (x-only, 32 bytes)
+      const expectedPubKey =
+        "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9";
+      expect(hex.encode(publicKey)).toBe(expectedPubKey);
+
+      // Sign with auxRand for determinism matching test vector
+      const signature = schnorr.sign(message, secretKey, auxRand);
+
+      // Expected signature from BIP-340 test vectors
+      const expectedSig =
+        "e907831f80848d1069a5371b402410364bdf1c5f8307b0084c55f1ce2dca821525f66a4a85ea8b71e482a74f382d2ce5ebeee8fdb2172f477df4900d310536c0";
+      expect(hex.encode(signature)).toBe(expectedSig);
+
+      // Verification should pass
+      const isValid = schnorr.verify(signature, message, publicKey);
+      expect(isValid).toBe(true);
+    });
+
+    // BIP-340 test vector #1
+    it("should match BIP-340 test vector #1", () => {
+      const secretKey = hex.decode(
+        "b7e151628aed2a6abf7158809cf4f3c762e7160f38b4da56a784d9045190cfef"
+      );
+      const message = hex.decode(
+        "243f6a8885a308d313198a2e03707344a4093822299f31d0082efa98ec4e6c89"
+      );
+      const auxRand = hex.decode(
+        "0000000000000000000000000000000000000000000000000000000000000001"
+      );
+
+      const publicKey = schnorr.getPublicKey(secretKey);
+      const expectedPubKey =
+        "dff1d77f2a671c5f36183726db2341be58feae1da2deced843240f7b502ba659";
+      expect(hex.encode(publicKey)).toBe(expectedPubKey);
+
+      const signature = schnorr.sign(message, secretKey, auxRand);
+      const expectedSig =
+        "6896bd60eeae296db48a229ff71dfe071bde413e6d43f917dc8dcf8c78de33418906d11ac976abccb20b091292bff4ea897efcb639ea871cfa95f6de339e4b0a";
+      expect(hex.encode(signature)).toBe(expectedSig);
+
+      const isValid = schnorr.verify(signature, message, publicKey);
+      expect(isValid).toBe(true);
+    });
+  });
+
+  describe("x-only public key format", () => {
+    it("should produce 32-byte x-only public keys", () => {
+      const privateKey = hex.decode(
+        "0000000000000000000000000000000000000000000000000000000000000001"
+      );
+      const publicKey = schnorr.getPublicKey(privateKey);
+
+      expect(publicKey.length).toBe(32);
+    });
+  });
+
+  describe("Multisig coordination scenario", () => {
+    it("should allow multiple parties to sign the same digest", () => {
+      // Simulate 3 parties in a 2-of-3 multisig
+      const privateKeys = [
+        hex.decode("0000000000000000000000000000000000000000000000000000000000000001"),
+        hex.decode("0000000000000000000000000000000000000000000000000000000000000002"),
+        hex.decode("0000000000000000000000000000000000000000000000000000000000000003"),
+      ];
+      const publicKeys = privateKeys.map((pk) => schnorr.getPublicKey(pk));
+
+      // Same digest for all (e.g., BIP-341 sighash)
+      const sighash = hex.decode(
+        "c37af31116d1b27caf68aae9e3ac82f1477929014d5b917657d0eb49478cb670"
+      );
+
+      // Each party signs
+      const signatures = privateKeys.map((pk) => schnorr.sign(sighash, pk));
+
+      // All signatures should be valid
+      signatures.forEach((sig, i) => {
+        const isValid = schnorr.verify(sig, sighash, publicKeys[i]);
+        expect(isValid).toBe(true);
+      });
+
+      // Signatures should be different
+      expect(hex.encode(signatures[0])).not.toBe(hex.encode(signatures[1]));
+      expect(hex.encode(signatures[1])).not.toBe(hex.encode(signatures[2]));
+    });
+  });
+});
