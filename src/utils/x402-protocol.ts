@@ -1,7 +1,7 @@
 /**
  * x402 Protocol Helpers
  * Native implementations of x402 protocol types and helpers.
- * Replaces direct imports from the x402-stacks npm package.
+ * No external x402 SDK dependency — all logic is self-contained.
  */
 
 // ===== Types =====

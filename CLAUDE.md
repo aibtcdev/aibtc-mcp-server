@@ -67,7 +67,7 @@ aibtc-mcp-server MCP Server (src/index.ts)
     ↓
 ┌──────────────────────────────────────────────────────────────────────┐
 │  x402 Endpoints                                       Stacks TX      │
-│  (via api.ts)                                      (via wallet.ts)   │
+│  (via x402.service.ts)                             (via wallet.ts)   │
 │  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐                 │
 │  │x402.biwas.xyz│  │x402.aibtc.com│  │ stx402.com  │                 │
 │  └──────────────┘  └──────────────┘  └─────────────┘                 │
