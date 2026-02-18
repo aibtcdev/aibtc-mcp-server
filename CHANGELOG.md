@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.24.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.23.0...v1.24.0) (2026-02-18)
+
+
+### Features
+
+* replace x402-stacks SDK with native relay and protocol helpers ([#158](https://github.com/aibtcdev/aibtc-mcp-server/issues/158)) ([fdd306f](https://github.com/aibtcdev/aibtc-mcp-server/commit/fdd306f3675b7c05e1608df1955346e1d3650d9e))
+
 ## [1.23.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.22.4...v1.23.0) (2026-02-17)
 
 
