@@ -33,6 +33,48 @@ async function isExistingX402Project(dir: string): Promise<boolean> {
   }
 }
 
+/**
+ * Validate that a project directory does not already exist.
+ * Returns an error response if it does, or null if the path is clear.
+ */
+async function checkProjectConflict(
+  projectPath: string
+): Promise<ReturnType<typeof createJsonResponse> | null> {
+  const exists = await fs.access(projectPath).then(() => true).catch(() => false);
+  if (!exists) return null;
+
+  const isX402 = await isExistingX402Project(projectPath);
+  if (isX402) {
+    return createJsonResponse({
+      success: false,
+      error: "Project already exists",
+      message: `A project already exists at ${projectPath}. Adding endpoints to existing projects is not yet supported. Please choose a different project name or delete the existing project.`,
+      projectPath,
+    });
+  }
+  return createJsonResponse({
+    success: false,
+    error: "Directory already exists",
+    message: `A directory already exists at ${projectPath}. Please choose a different project name.`,
+    projectPath,
+  });
+}
+
+/**
+ * Resolve the recipient address: use the provided value, or fall back
+ * to the active wallet address, or return undefined.
+ */
+async function resolveRecipientAddress(
+  provided?: string
+): Promise<string | undefined> {
+  if (provided) return provided;
+  try {
+    return await getWalletAddress();
+  } catch {
+    return undefined;
+  }
+}
+
 export function registerScaffoldTools(server: McpServer): void {
   server.registerTool(
     "scaffold_x402_endpoint",
@@ -124,37 +166,10 @@ npm run dev
       try {
         const projectPath = path.join(outputDir, projectName);
 
-        // Check if project already exists
-        const projectExists = await fs.access(projectPath).then(() => true).catch(() => false);
-        if (projectExists) {
-          // Check if it's an x402 project we can add to
-          const isX402 = await isExistingX402Project(projectPath);
-          if (isX402) {
-            return createJsonResponse({
-              success: false,
-              error: "Project already exists",
-              message: `A project already exists at ${projectPath}. Adding endpoints to existing projects is not yet supported. Please choose a different project name or delete the existing project.`,
-              projectPath,
-            });
-          } else {
-            return createJsonResponse({
-              success: false,
-              error: "Directory already exists",
-              message: `A directory already exists at ${projectPath}. Please choose a different project name.`,
-              projectPath,
-            });
-          }
-        }
+        const conflict = await checkProjectConflict(projectPath);
+        if (conflict) return conflict;
 
-        // Try to auto-fill recipient address from configured wallet if not provided
-        let finalRecipientAddress = recipientAddress;
-        if (!finalRecipientAddress) {
-          try {
-            finalRecipientAddress = await getWalletAddress();
-          } catch {
-            // No wallet configured - that's OK, user will need to set it manually
-          }
-        }
+        const finalRecipientAddress = await resolveRecipientAddress(recipientAddress);
 
         const result = await scaffoldProject({
           outputDir,
@@ -298,37 +313,10 @@ npm run dev
       try {
         const projectPath = path.join(outputDir, projectName);
 
-        // Check if project already exists
-        const projectExists = await fs.access(projectPath).then(() => true).catch(() => false);
-        if (projectExists) {
-          // Check if it's an x402 project we can add to
-          const isX402 = await isExistingX402Project(projectPath);
-          if (isX402) {
-            return createJsonResponse({
-              success: false,
-              error: "Project already exists",
-              message: `A project already exists at ${projectPath}. Adding endpoints to existing projects is not yet supported. Please choose a different project name or delete the existing project.`,
-              projectPath,
-            });
-          } else {
-            return createJsonResponse({
-              success: false,
-              error: "Directory already exists",
-              message: `A directory already exists at ${projectPath}. Please choose a different project name.`,
-              projectPath,
-            });
-          }
-        }
+        const conflict = await checkProjectConflict(projectPath);
+        if (conflict) return conflict;
 
-        // Try to auto-fill recipient address from configured wallet if not provided
-        let finalRecipientAddress = recipientAddress;
-        if (!finalRecipientAddress) {
-          try {
-            finalRecipientAddress = await getWalletAddress();
-          } catch {
-            // No wallet configured - that's OK, user will need to set it manually
-          }
-        }
+        const finalRecipientAddress = await resolveRecipientAddress(recipientAddress);
 
         const result = await scaffoldAIProject({
           outputDir,
