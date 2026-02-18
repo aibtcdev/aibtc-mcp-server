@@ -285,7 +285,7 @@ export class BitflowService {
     args: string[] = []
   ): Promise<any> {
     const config = getBitflowConfig();
-    const host = config.readOnlyCallApiHost;
+    const host = config?.readOnlyCallApiHost || process.env.BITFLOW_READONLY_API_HOST || "https://node.bitflowapis.finance";
     const url = `${host}/v2/contracts/call-read/${contractAddress}/${contractName}/${functionName}`;
     const res = await fetch(url, {
       method: "POST",
