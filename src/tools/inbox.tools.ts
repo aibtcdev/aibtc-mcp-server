@@ -6,7 +6,7 @@ import {
   principalCV,
   noneCV,
 } from "@stacks/transactions";
-import { decodePaymentRequired, encodePaymentPayload, X402_HEADERS } from "../utils/x402-protocol.js";
+import { decodePaymentRequired, decodePaymentResponse, encodePaymentPayload, X402_HEADERS } from "../utils/x402-protocol.js";
 import { getAccount, NETWORK } from "../services/x402.service.js";
 import { getSbtcService } from "../services/sbtc.service.js";
 import { getStacksNetwork, getExplorerTxUrl } from "../config/networks.js";
@@ -164,27 +164,12 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
         );
 
         // Step 4: Encode PaymentPayloadV2
-        const resourceUrl = paymentRequired.resource?.url || inboxUrl;
         const paymentSignature = encodePaymentPayload({
           x402Version: 2,
-          resource: {
-            url: resourceUrl,
-            description: paymentRequired.resource?.description || "",
-            mimeType: paymentRequired.resource?.mimeType || "application/json",
-          },
-          accepted: {
-            scheme: accept.scheme || "exact",
-            network: accept.network,
-            asset: accept.asset,
-            amount: accept.amount,
-            payTo: accept.payTo,
-            maxTimeoutSeconds: accept.maxTimeoutSeconds || 300,
-            extra: accept.extra || {},
-          },
-          payload: {
-            transaction: txHex,
-          },
-        } as Parameters<typeof encodePaymentPayload>[0]);
+          resource: paymentRequired.resource,
+          accepted: accept,
+          payload: { transaction: txHex },
+        });
 
         // Step 5: Retry with payment
         const finalRes = await fetch(inboxUrl, {
@@ -206,18 +191,10 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
 
         if (finalRes.status === 201 || finalRes.status === 200) {
           // Extract payment response header for txid
-          const paymentResponse = finalRes.headers.get(X402_HEADERS.PAYMENT_RESPONSE);
-          let txid: string | undefined;
-          if (paymentResponse) {
-            try {
-              const decoded = JSON.parse(
-                Buffer.from(paymentResponse, "base64").toString()
-              );
-              txid = decoded.transaction;
-            } catch {
-              // ignore parse errors
-            }
-          }
+          const settlement = decodePaymentResponse(
+            finalRes.headers.get(X402_HEADERS.PAYMENT_RESPONSE)
+          );
+          const txid = settlement?.transaction;
 
           return createJsonResponse({
             success: true,
