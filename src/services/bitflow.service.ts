@@ -13,6 +13,8 @@ import {
   makeContractCall,
   broadcastTransaction,
   PostConditionMode,
+  hexToCV,
+  cvToJSON,
 } from "@stacks/transactions";
 import { STACKS_MAINNET, STACKS_TESTNET } from "@stacks/network";
 import {
@@ -40,13 +42,38 @@ export interface BitflowTicker {
   liquidity_in_usd: string;
 }
 
+export interface PriceImpactHop {
+  pool: string;
+  tokenIn: string;
+  tokenOut: string;
+  reserveIn: string;
+  reserveOut: string;
+  feeBps: number;
+  impact: number; // 0-1 decimal (fee-excluded)
+}
+
+export type ImpactSeverity = "low" | "medium" | "high" | "severe";
+
+export interface PriceImpactResult {
+  /** Combined pure price impact across all hops (0-1 decimal, fee-excluded) */
+  combinedImpact: number;
+  /** Human-readable percentage string e.g. "2.34%" */
+  combinedImpactPct: string;
+  /** Severity tier */
+  severity: ImpactSeverity;
+  /** Per-hop breakdown */
+  hops: PriceImpactHop[];
+  /** Total fee across all hops in basis points (approximate) */
+  totalFeeBps: number;
+}
+
 export interface BitflowSwapQuote {
   tokenIn: string;
   tokenOut: string;
   amountIn: string;
   expectedAmountOut: string;
   route: string[];
-  priceImpact?: string;
+  priceImpact?: PriceImpactResult;
 }
 
 export interface BitflowToken {
@@ -157,7 +184,7 @@ export class BitflowService {
   }
 
   // ==========================================================================
-  // SDK Functions (Requires API Key)
+  // SDK Functions (Public API, no key required)
   // ==========================================================================
 
   /**
@@ -205,7 +232,7 @@ export class BitflowService {
   }
 
   /**
-   * Get swap quote
+   * Get swap quote with price impact calculation.
    */
   async getSwapQuote(
     tokenXId: string,
@@ -221,13 +248,195 @@ export class BitflowService {
       throw new Error(`No route found for ${tokenXId} -> ${tokenYId}`);
     }
 
+    // Calculate price impact from on-chain pool reserves
+    const priceImpact = await this.calculatePriceImpact(quoteResult, amount);
+
     return {
       tokenIn: tokenXId,
       tokenOut: tokenYId,
       amountIn: amount.toString(),
       expectedAmountOut: quoteResult.bestRoute.quote?.toString() || "0",
       route: quoteResult.bestRoute.tokenPath,
+      priceImpact: priceImpact ?? undefined,
     };
+  }
+
+  // ==========================================================================
+  // Price Impact Calculation
+  // ==========================================================================
+
+  /**
+   * Classify price impact into severity tiers.
+   */
+  private classifyImpact(impact: number): ImpactSeverity {
+    if (impact < 0.01) return "low";       // < 1%
+    if (impact < 0.03) return "medium";    // 1-3%
+    if (impact < 0.10) return "high";      // 3-10%
+    return "severe";                        // > 10%
+  }
+
+  /**
+   * Call a read-only contract function on the Stacks node used by Bitflow.
+   */
+  private async callReadOnly(
+    contractAddress: string,
+    contractName: string,
+    functionName: string,
+    args: string[] = []
+  ): Promise<any> {
+    const config = getBitflowConfig();
+    const host = config.readOnlyCallApiHost;
+    const url = `${host}/v2/contracts/call-read/${contractAddress}/${contractName}/${functionName}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sender: "SP000000000000000000002Q6VF78",
+        arguments: args,
+      }),
+    });
+    const json = await res.json();
+    if (!json.okay) {
+      throw new Error(`Contract call failed: ${JSON.stringify(json)}`);
+    }
+    return cvToJSON(hexToCV(json.result));
+  }
+
+  /**
+   * Extract a uint value from a Clarity tuple response.
+   */
+  private getUintFromPool(pool: any, key: string): bigint | null {
+    const val = pool?.value?.value?.[key]?.value;
+    return val !== undefined ? BigInt(val) : null;
+  }
+
+  /**
+   * Calculate price impact for a swap route.
+   *
+   * Uses the XYK constant-product formula: impact = dx / (x + dx)
+   * This gives the pure slippage component, excluding fees.
+   * For multi-hop: combined = 1 - (1-i1) * (1-i2) * ...
+   *
+   * The SDK's QuoteResult.bestRoute.swapData.parameters contains:
+   *   "xyk-pools": { a: "addr.pool-1", b: "addr.pool-2", ... }
+   *   "xyk-tokens": { a: "tokenIn", b: "intermediate", c: "intermediate", d: "tokenOut" }
+   * Pool keys are sequential letters (a, b, c...), one per hop.
+   *
+   * @param quoteResult The SDK quote result containing route and swap data
+   * @param amountIn The input amount in human-readable units (e.g. 1.0 for 1 sBTC)
+   * @returns PriceImpactResult or null if pools can't be read
+   */
+  async calculatePriceImpact(
+    quoteResult: QuoteResult,
+    amountIn: number
+  ): Promise<PriceImpactResult | null> {
+    try {
+      const bestRoute = quoteResult.bestRoute;
+      if (!bestRoute) return null;
+
+      // swapData is a single object (not an array)
+      const swapData = bestRoute.swapData;
+      if (!swapData?.parameters) return null;
+
+      // Extract pool contracts from xyk-pools: { a: "pool1", b: "pool2" }
+      const xykPools: Record<string, string> | undefined = swapData.parameters["xyk-pools"];
+      if (!xykPools) return null;
+
+      // Sort pool keys alphabetically to get hop order
+      const poolKeys = Object.keys(xykPools).sort();
+      if (poolKeys.length === 0) return null;
+
+      const tokenPath: string[] = bestRoute.tokenPath || [];
+      const hops: PriceImpactHop[] = [];
+      let currentAmountRaw: bigint | null = null;
+
+      // Fetch all pool states in parallel
+      const poolFetches = poolKeys.map(async (key) => {
+        const poolContractId = xykPools[key];
+        const dotIdx = poolContractId.indexOf(".");
+        if (dotIdx === -1) return null;
+        const poolAddr = poolContractId.substring(0, dotIdx);
+        const poolName = poolContractId.substring(dotIdx + 1);
+        try {
+          const pool = await this.callReadOnly(poolAddr, poolName, "get-pool");
+          return { key, poolContractId, pool };
+        } catch {
+          return null; // stableswap or unsupported pool
+        }
+      });
+
+      const poolResults = await Promise.all(poolFetches);
+
+      for (let i = 0; i < poolResults.length; i++) {
+        const result = poolResults[i];
+        if (!result) continue;
+
+        const { poolContractId, pool } = result;
+
+        const xBalance = this.getUintFromPool(pool, "x-balance");
+        const yBalance = this.getUintFromPool(pool, "y-balance");
+        if (!xBalance || !yBalance) continue;
+
+        // Read fee fields (protocol + provider for input direction)
+        const xProtocolFee = this.getUintFromPool(pool, "x-protocol-fee") || 0n;
+        const xProviderFee = this.getUintFromPool(pool, "x-provider-fee") || 0n;
+        const feeBps = Number(xProtocolFee + xProviderFee);
+
+        // Determine input amount for this hop
+        let dxRaw: bigint;
+        if (i === 0) {
+          // First hop: use the original input amount scaled to token decimals
+          const tokenXDecimals = bestRoute.tokenXDecimals ?? 8;
+          dxRaw = BigInt(Math.round(amountIn * 10 ** tokenXDecimals));
+        } else if (currentAmountRaw !== null) {
+          dxRaw = currentAmountRaw;
+        } else {
+          continue;
+        }
+
+        // Pure price impact (fee-excluded): dx / (x + dx)
+        const dxF = Number(dxRaw);
+        const xF = Number(xBalance);
+        const impact = dxF / (xF + dxF);
+
+        // Calculate output with fee for the next hop's input
+        const feeNumer = 10000n - BigInt(feeBps);
+        const dxWithFee = dxRaw * feeNumer;
+        const numerator = dxWithFee * yBalance;
+        const denominator = xBalance * 10000n + dxWithFee;
+        currentAmountRaw = numerator / denominator;
+
+        hops.push({
+          pool: poolContractId,
+          tokenIn: tokenPath[i] || `hop${i}-in`,
+          tokenOut: tokenPath[i + 1] || `hop${i}-out`,
+          reserveIn: xBalance.toString(),
+          reserveOut: yBalance.toString(),
+          feeBps,
+          impact,
+        });
+      }
+
+      if (hops.length === 0) return null;
+
+      // Combined impact: 1 - (1-i1) * (1-i2) * ...
+      const combinedImpact = 1 - hops.reduce((acc, h) => acc * (1 - h.impact), 1);
+      const combinedImpactPct = (combinedImpact * 100).toFixed(2) + "%";
+
+      // Approximate total fees (not perfectly additive but close enough for display)
+      const totalFeeBps = hops.reduce((sum, h) => sum + h.feeBps, 0);
+
+      return {
+        combinedImpact,
+        combinedImpactPct,
+        severity: this.classifyImpact(combinedImpact),
+        hops,
+        totalFeeBps,
+      };
+    } catch (error) {
+      console.error("Failed to calculate price impact:", error);
+      return null;
+    }
   }
 
   /**

@@ -5,6 +5,8 @@ import { getBitflowService } from "../services/bitflow.service.js";
 import { getExplorerTxUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse, resolveFee } from "../utils/index.js";
 
+const HIGH_IMPACT_THRESHOLD = 0.05; // 5%
+
 export function registerBitflowTools(server: McpServer): void {
   // ==========================================================================
   // Public API Tools (No API Key Required)
@@ -176,9 +178,17 @@ Note: Bitflow is only available on mainnet.`,
         const bitflowService = getBitflowService(NETWORK);
         const quote = await bitflowService.getSwapQuote(tokenX, tokenY, Number(amountIn));
 
+        const priceImpact = quote.priceImpact;
+        const highImpactWarning =
+          priceImpact && priceImpact.combinedImpact > HIGH_IMPACT_THRESHOLD
+            ? `High price impact detected (${priceImpact.combinedImpactPct}). Consider reducing trade size.`
+            : undefined;
+
         return createJsonResponse({
           network: NETWORK,
           quote,
+          priceImpact,
+          highImpactWarning,
         });
       } catch (error) {
         return createErrorResponse(error);
@@ -255,9 +265,14 @@ Note: Bitflow is only available on mainnet.`,
           .string()
           .optional()
           .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount. If omitted, auto-estimated."),
+        confirmHighImpact: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Set true to execute swaps with price impact above 5%"),
       },
     },
-    async ({ tokenX, tokenY, amountIn, slippageTolerance, fee }) => {
+    async ({ tokenX, tokenY, amountIn, slippageTolerance, fee, confirmHighImpact }) => {
       try {
         if (NETWORK !== "mainnet") {
           return createJsonResponse({
@@ -267,6 +282,20 @@ Note: Bitflow is only available on mainnet.`,
         }
 
         const bitflowService = getBitflowService(NETWORK);
+
+        // Safety check: require explicit confirmation for high-impact swaps
+        const quote = await bitflowService.getSwapQuote(tokenX, tokenY, Number(amountIn));
+        const impact = quote.priceImpact;
+        if (impact && impact.combinedImpact > HIGH_IMPACT_THRESHOLD && !confirmHighImpact) {
+          return createJsonResponse({
+            error: "High price impact swap requires explicit confirmation",
+            message: `This swap has ${impact.combinedImpactPct} price impact (${impact.severity}). Set confirmHighImpact=true to proceed.`,
+            quote,
+            threshold: `${(HIGH_IMPACT_THRESHOLD * 100).toFixed(0)}%`,
+            requiredParam: "confirmHighImpact",
+          });
+        }
+
         const account = await getAccount();
         const resolvedFee = await resolveFee(fee, NETWORK, "contract_call");
         const result = await bitflowService.swap(
@@ -286,6 +315,7 @@ Note: Bitflow is only available on mainnet.`,
             tokenOut: tokenY,
             amountIn,
             slippageTolerance: slippageTolerance || 0.01,
+            priceImpact: impact,
           },
           network: NETWORK,
           explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
