@@ -7,3 +7,4 @@ export * from "./redact.js";
 export * from "./bitcoin.js";
 export * from "./tokens.js";
 export * from "./fee.js";
+export * from "./x402-protocol.js";
