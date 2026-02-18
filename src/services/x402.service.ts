@@ -11,7 +11,6 @@ import {
   decodePaymentRequired,
   encodePaymentPayload,
   X402_HEADERS,
-  type PaymentRequiredV2,
 } from "../utils/x402-protocol.js";
 import { generateWallet, getStxAddress } from "@stacks/wallet-sdk";
 import { NETWORK, API_URL, getStacksNetwork, type Network } from "../config/networks.js";

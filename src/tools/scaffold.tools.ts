@@ -7,7 +7,6 @@ import {
   scaffoldAIProject,
   type EndpointConfig,
   type AIEndpointConfig,
-  type PricingTier,
 } from "../services/scaffold.service.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { getWalletAddress } from "../services/x402.service.js";
