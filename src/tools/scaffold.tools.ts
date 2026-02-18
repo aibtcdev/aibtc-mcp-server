@@ -111,16 +111,16 @@ npm run dev
           .optional()
           .default("mainnet")
           .describe("Network for payments (default: mainnet)"),
-        facilitatorUrl: z
+        relayUrl: z
           .string()
           .url()
           .optional()
           .describe(
-            "Custom facilitator URL (default: https://facilitator.x402stacks.xyz)"
+            "Custom relay URL (default: https://x402-relay.aibtc.com)"
           ),
       },
     },
-    async ({ outputDir, projectName, endpoints, recipientAddress, network, facilitatorUrl }) => {
+    async ({ outputDir, projectName, endpoints, recipientAddress, network, relayUrl }) => {
       try {
         const projectPath = path.join(outputDir, projectName);
 
@@ -162,7 +162,7 @@ npm run dev
           endpoints: endpoints as EndpointConfig[],
           recipientAddress: finalRecipientAddress,
           network: network || "mainnet",
-          facilitatorUrl: facilitatorUrl || "https://facilitator.x402stacks.xyz",
+          relayUrl: relayUrl || "https://x402-relay.aibtc.com",
         });
 
         const responseEndpoints = endpoints.map((ep) => {
@@ -274,11 +274,11 @@ npm run dev
           .optional()
           .default("mainnet")
           .describe("Network for payments (default: mainnet)"),
-        facilitatorUrl: z
+        relayUrl: z
           .string()
           .url()
           .optional()
-          .describe("Custom facilitator URL (default: https://facilitator.x402stacks.xyz)"),
+          .describe("Custom relay URL (default: https://x402-relay.aibtc.com)"),
         defaultModel: z
           .string()
           .optional()
@@ -292,7 +292,7 @@ npm run dev
       endpoints,
       recipientAddress,
       network,
-      facilitatorUrl,
+      relayUrl,
       defaultModel,
     }) => {
       try {
@@ -336,7 +336,7 @@ npm run dev
           endpoints: endpoints as AIEndpointConfig[],
           recipientAddress: finalRecipientAddress,
           network: network || "mainnet",
-          facilitatorUrl: facilitatorUrl || "https://facilitator.x402stacks.xyz",
+          relayUrl: relayUrl || "https://x402-relay.aibtc.com",
           defaultModel: defaultModel || "anthropic/claude-3-haiku",
         });
 
