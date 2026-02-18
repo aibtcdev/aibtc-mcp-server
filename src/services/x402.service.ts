@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance } from "axios";
-import { wrapAxiosWithPayment, decodePaymentRequired, X402_HEADERS, type PaymentRequiredV2 } from "x402-stacks";
+import { wrapAxiosWithPayment } from "x402-stacks";
+import { decodePaymentRequired, X402_HEADERS, type PaymentRequiredV2 } from "../utils/x402-protocol.js";
 import { generateWallet, getStxAddress } from "@stacks/wallet-sdk";
 import { NETWORK, API_URL, type Network } from "../config/networks.js";
 import type { Account } from "../transactions/builder.js";

@@ -6,7 +6,7 @@ import {
   principalCV,
   noneCV,
 } from "@stacks/transactions";
-import { decodePaymentRequired, encodePaymentPayload, X402_HEADERS } from "x402-stacks";
+import { decodePaymentRequired, encodePaymentPayload, X402_HEADERS } from "../utils/x402-protocol.js";
 import { getAccount, NETWORK } from "../services/x402.service.js";
 import { getSbtcService } from "../services/sbtc.service.js";
 import { getStacksNetwork, getExplorerTxUrl } from "../config/networks.js";
