@@ -801,13 +801,13 @@ Generated with [@aibtc/mcp-server](https://www.npmjs.com/package/@aibtc/mcp-serv
 }
 
 // =============================================================================
-// MAIN SCAFFOLD FUNCTION
+// SHARED SCAFFOLD HELPERS
 // =============================================================================
 
-export async function scaffoldProject(config: ScaffoldConfig): Promise<ScaffoldResult> {
-  const { outputDir, projectName, endpoints, recipientAddress, network, relayUrl } = config;
-
-  // Validate output directory exists
+/**
+ * Validate that the output directory exists and is a directory.
+ */
+async function validateOutputDir(outputDir: string): Promise<void> {
   try {
     const stat = await fs.stat(outputDir);
     if (!stat.isDirectory()) {
@@ -819,18 +819,49 @@ export async function scaffoldProject(config: ScaffoldConfig): Promise<ScaffoldR
     }
     throw error;
   }
+}
 
-  const projectPath = path.join(outputDir, projectName);
+/**
+ * Create project directory structure and write all files.
+ * Returns the list of file names created.
+ */
+async function writeProjectFiles(
+  projectPath: string,
+  files: Array<{ name: string; content: string }>
+): Promise<string[]> {
   const srcPath = path.join(projectPath, "src");
-
-  // Create project directory structure
   await fs.mkdir(projectPath, { recursive: true });
   await fs.mkdir(srcPath, { recursive: true });
 
   const filesCreated: string[] = [];
+  for (const file of files) {
+    const filePath = path.join(projectPath, file.name);
+    await fs.writeFile(filePath, file.content, "utf-8");
+    filesCreated.push(file.name);
+  }
+  return filesCreated;
+}
 
-  // Generate and write files
-  const files: Array<{ name: string; content: string }> = [
+/**
+ * Build the wrangler secret instruction for RECIPIENT_ADDRESS.
+ */
+function getAddressInstruction(recipientAddress?: string): string {
+  return recipientAddress
+    ? `wrangler secret put RECIPIENT_ADDRESS (enter: ${recipientAddress})`
+    : "wrangler secret put RECIPIENT_ADDRESS (enter your Stacks address)";
+}
+
+// =============================================================================
+// MAIN SCAFFOLD FUNCTION
+// =============================================================================
+
+export async function scaffoldProject(config: ScaffoldConfig): Promise<ScaffoldResult> {
+  const { outputDir, projectName, endpoints, recipientAddress, network, relayUrl } = config;
+
+  await validateOutputDir(outputDir);
+
+  const projectPath = path.join(outputDir, projectName);
+  const filesCreated = await writeProjectFiles(projectPath, [
     { name: "src/index.ts", content: getIndexTemplate(endpoints) },
     { name: "src/x402-middleware.ts", content: getMiddlewareTemplate() },
     { name: "wrangler.jsonc", content: getWranglerTemplate(projectName, network, relayUrl) },
@@ -840,17 +871,7 @@ export async function scaffoldProject(config: ScaffoldConfig): Promise<ScaffoldR
     { name: ".dev.vars", content: getDevVarsTemplate(recipientAddress) },
     { name: ".gitignore", content: getGitignoreTemplate() },
     { name: "README.md", content: getReadmeTemplate(projectName, endpoints, recipientAddress) },
-  ];
-
-  for (const file of files) {
-    const filePath = path.join(projectPath, file.name);
-    await fs.writeFile(filePath, file.content, "utf-8");
-    filesCreated.push(file.name);
-  }
-
-  const addressInstruction = recipientAddress
-    ? `wrangler secret put RECIPIENT_ADDRESS (enter: ${recipientAddress})`
-    : "wrangler secret put RECIPIENT_ADDRESS (enter your Stacks address)";
+  ]);
 
   return {
     projectPath,
@@ -863,7 +884,7 @@ export async function scaffoldProject(config: ScaffoldConfig): Promise<ScaffoldR
         : "# Edit .dev.vars and set your RECIPIENT_ADDRESS",
       "npm run dev",
       "# For production deployment:",
-      addressInstruction,
+      getAddressInstruction(recipientAddress),
       "npm run deploy:production",
     ],
   };
@@ -1349,40 +1370,13 @@ Generated with [@aibtc/mcp-server](https://www.npmjs.com/package/@aibtc/mcp-serv
 // =============================================================================
 
 export async function scaffoldAIProject(config: AIScaffoldConfig): Promise<ScaffoldResult> {
-  const {
-    outputDir,
-    projectName,
-    endpoints,
-    recipientAddress,
-    network,
-    relayUrl,
-    defaultModel,
-  } = config;
+  const { outputDir, projectName, endpoints, recipientAddress, network, relayUrl, defaultModel } =
+    config;
 
-  // Validate output directory exists
-  try {
-    const stat = await fs.stat(outputDir);
-    if (!stat.isDirectory()) {
-      throw new Error(`Output path is not a directory: ${outputDir}`);
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new Error(`Output directory does not exist: ${outputDir}`);
-    }
-    throw error;
-  }
+  await validateOutputDir(outputDir);
 
   const projectPath = path.join(outputDir, projectName);
-  const srcPath = path.join(projectPath, "src");
-
-  // Create project directory structure
-  await fs.mkdir(projectPath, { recursive: true });
-  await fs.mkdir(srcPath, { recursive: true });
-
-  const filesCreated: string[] = [];
-
-  // Generate and write files
-  const files: Array<{ name: string; content: string }> = [
+  const filesCreated = await writeProjectFiles(projectPath, [
     { name: "src/index.ts", content: getAIIndexTemplate(endpoints, defaultModel) },
     { name: "src/x402-middleware.ts", content: getMiddlewareTemplate() },
     { name: "src/openrouter.ts", content: getOpenRouterTemplate() },
@@ -1396,17 +1390,7 @@ export async function scaffoldAIProject(config: AIScaffoldConfig): Promise<Scaff
       name: "README.md",
       content: getAIReadmeTemplate(projectName, endpoints, recipientAddress, defaultModel),
     },
-  ];
-
-  for (const file of files) {
-    const filePath = path.join(projectPath, file.name);
-    await fs.writeFile(filePath, file.content, "utf-8");
-    filesCreated.push(file.name);
-  }
-
-  const addressInstruction = recipientAddress
-    ? `wrangler secret put RECIPIENT_ADDRESS (enter: ${recipientAddress})`
-    : "wrangler secret put RECIPIENT_ADDRESS (enter your Stacks address)";
+  ]);
 
   return {
     projectPath,
@@ -1417,7 +1401,7 @@ export async function scaffoldAIProject(config: AIScaffoldConfig): Promise<Scaff
       "# Edit .dev.vars with your RECIPIENT_ADDRESS and OPENROUTER_API_KEY",
       "npm run dev",
       "# For production deployment:",
-      addressInstruction,
+      getAddressInstruction(recipientAddress),
       "wrangler secret put OPENROUTER_API_KEY (get from https://openrouter.ai/keys)",
       "npm run deploy:production",
     ],
