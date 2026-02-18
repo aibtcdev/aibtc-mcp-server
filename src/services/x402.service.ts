@@ -14,6 +14,7 @@ import {
 } from "../utils/x402-protocol.js";
 import { generateWallet, getStxAddress } from "@stacks/wallet-sdk";
 import { NETWORK, API_URL, getStacksNetwork, type Network } from "../config/networks.js";
+import { getNetworkFromStacksChainId } from "../config/caip.js";
 import type { Account } from "../transactions/builder.js";
 import { getWalletManager } from "./wallet-manager.js";
 import { formatStx, formatSbtc } from "../utils/formatting.js";
@@ -175,6 +176,17 @@ export async function createApiClient(baseUrl?: string): Promise<AxiosInstance> 
           const networks = paymentRequired.accepts.map((a) => a.network).join(", ");
           return Promise.reject(
             new Error(`No compatible Stacks payment option found. Available networks: ${networks}`)
+          );
+        }
+
+        // Verify the payment network matches our configured network
+        const paymentNetwork = getNetworkFromStacksChainId(selectedOption.network);
+        if (paymentNetwork && paymentNetwork !== account.network) {
+          return Promise.reject(
+            new Error(
+              `Network mismatch: endpoint requires ${paymentNetwork} but wallet is configured for ${account.network}. ` +
+              `Switch to a ${paymentNetwork} wallet or use a ${account.network} endpoint.`
+            )
           );
         }
 
@@ -375,11 +387,7 @@ export async function probeEndpoint(options: {
         const acceptedPayment = paymentRequired.accepts[0];
 
         // Convert CAIP-2 network identifier to human-readable format
-        const CAIP2_NETWORK_MAP: Record<string, string> = {
-          'stacks:1': 'mainnet',
-          'stacks:2147483648': 'testnet',
-        };
-        const network = CAIP2_NETWORK_MAP[acceptedPayment.network] ?? NETWORK;
+        const network = getNetworkFromStacksChainId(acceptedPayment.network) ?? NETWORK;
 
         return {
           type: 'payment_required',

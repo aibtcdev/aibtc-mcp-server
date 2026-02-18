@@ -431,7 +431,7 @@ export function x402Middleware(config: X402Config) {
   return async (c: Context<{ Bindings: Env; Variables: { x402?: X402Context } }>, next: Next) => {
     const env = c.env;
     const network = (env.NETWORK || 'testnet') as 'mainnet' | 'testnet';
-    const relayUrl = env.RELAY_URL || 'https://x402-relay.aibtc.com';
+    const relayUrl = env.RELAY_URL || (network === 'mainnet' ? 'https://x402-relay.aibtc.com' : 'https://x402-relay.aibtc.dev');
     const recipientAddress = env.RECIPIENT_ADDRESS;
 
     // Get token type from header or use config default
