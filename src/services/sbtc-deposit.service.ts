@@ -71,7 +71,7 @@ import {
 } from "sbtc";
 import type { BitcoinNetwork } from "sbtc";
 import type { Network } from "../config/networks.js";
-import { getContracts } from "../config/contracts.js";
+import { getContracts, parseContractId } from "../config/contracts.js";
 import { MempoolApi } from "./mempool-api.js";
 import type { UTXO } from "./mempool-api.js";
 import { OrdinalIndexer } from "./ordinal-indexer.js";
@@ -185,7 +185,10 @@ export class SbtcDepositService {
    */
   async getSignersPublicKey(): Promise<string> {
     const contracts = getContracts(this.network);
-    return await this.apiClient.fetchSignersPublicKey(contracts.SBTC_REGISTRY);
+    // sbtc library expects just the deployer address, not the full contract ID
+    // (it hardcodes contractName: 'sbtc-registry' internally)
+    const { address: registryDeployer } = parseContractId(contracts.SBTC_REGISTRY);
+    return await this.apiClient.fetchSignersPublicKey(registryDeployer);
   }
 
   /**
