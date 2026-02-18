@@ -12,7 +12,6 @@ import {
   encodePaymentPayload,
   X402_HEADERS,
   type PaymentRequiredV2,
-  type PaymentPayloadV2,
 } from "../utils/x402-protocol.js";
 import { generateWallet, getStxAddress } from "@stacks/wallet-sdk";
 import { NETWORK, API_URL, getStacksNetwork, type Network } from "../config/networks.js";
@@ -184,15 +183,15 @@ export async function createApiClient(baseUrl?: string): Promise<AxiosInstance> 
         const tokenType = detectTokenType(selectedOption.asset);
         const amount = BigInt(selectedOption.amount);
         const networkName = getStacksNetwork(account.network);
-        let txHex: string;
 
+        let transaction;
         if (tokenType === "sBTC") {
           const contracts = getContracts(account.network);
           const { address: contractAddress, name: contractName } = parseContractId(
             contracts.SBTC_TOKEN
           );
 
-          const transaction = await makeContractCall({
+          transaction = await makeContractCall({
             contractAddress,
             contractName,
             functionName: "transfer",
@@ -208,11 +207,8 @@ export async function createApiClient(baseUrl?: string): Promise<AxiosInstance> 
             sponsored: true,
             fee: 0n,
           });
-
-          txHex = "0x" + transaction.serialize();
         } else {
-          // STX transfer
-          const transaction = await makeSTXTokenTransfer({
+          transaction = await makeSTXTokenTransfer({
             recipient: selectedOption.payTo,
             amount,
             senderKey: account.privateKey,
@@ -221,18 +217,17 @@ export async function createApiClient(baseUrl?: string): Promise<AxiosInstance> 
             sponsored: true,
             fee: 0n,
           });
-
-          txHex = "0x" + transaction.serialize();
         }
 
+        const txHex = "0x" + transaction.serialize();
+
         // Encode PaymentPayloadV2 into payment-signature header
-        const paymentPayload: PaymentPayloadV2 = {
+        const encodedPayload = encodePaymentPayload({
           x402Version: 2,
           resource: paymentRequired.resource,
           accepted: selectedOption,
           payload: { transaction: txHex },
-        };
-        const encodedPayload = encodePaymentPayload(paymentPayload);
+        });
 
         // Retry the original request with the payment header
         const originalRequest = error.config;
@@ -374,37 +369,25 @@ export async function probeEndpoint(options: {
     if (axiosError.response?.status === 402) {
       // Try to parse v2 payment-required header first
       const headerValue = axiosError.response.headers?.[X402_HEADERS.PAYMENT_REQUIRED];
-      let paymentRequired: PaymentRequiredV2 | null = null;
-
-      if (headerValue) {
-        try {
-          paymentRequired = decodePaymentRequired(headerValue);
-        } catch {
-          paymentRequired = null;
-        }
-      }
+      const paymentRequired = decodePaymentRequired(headerValue);
 
       // If v2 header is successfully parsed, use it
-      if (paymentRequired && paymentRequired.accepts && paymentRequired.accepts.length > 0) {
+      if (paymentRequired?.accepts?.length) {
         const acceptedPayment = paymentRequired.accepts[0];
 
-        // Convert CAIP-2 or simple network identifier to normalized format
-        let network: string = acceptedPayment.network;
-        if (network === 'stacks:1' || network === 'mainnet') {
-          network = 'mainnet';
-        } else if (network === 'stacks:2147483648' || network === 'testnet') {
-          network = 'testnet';
-        } else {
-          // Fallback to configured default network if identifier is unrecognized
-          network = NETWORK;
-        }
+        // Convert CAIP-2 network identifier to human-readable format
+        const CAIP2_NETWORK_MAP: Record<string, string> = {
+          'stacks:1': 'mainnet',
+          'stacks:2147483648': 'testnet',
+        };
+        const network = CAIP2_NETWORK_MAP[acceptedPayment.network] ?? NETWORK;
 
         return {
           type: 'payment_required',
           amount: acceptedPayment.amount,
           asset: acceptedPayment.asset,
           recipient: acceptedPayment.payTo,
-          network: network,
+          network,
           endpoint: url,
           resource: paymentRequired.resource,
           maxTimeoutSeconds: acceptedPayment.maxTimeoutSeconds,
