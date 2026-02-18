@@ -48,9 +48,9 @@ This creates a NEW PROJECT FOLDER with everything needed to deploy a pay-per-use
 
 A folder named \`{projectName}\` containing:
 - src/index.ts - Hono app with your x402-protected endpoints
-- src/x402-middleware.ts - Payment verification (uses x402-stacks library)
+- src/x402-middleware.ts - Payment verification (uses native relay fetch)
 - wrangler.jsonc - Cloudflare Worker config with staging/production envs
-- package.json - Dependencies including hono and x402-stacks
+- package.json - Dependencies including hono (no x402-stacks dependency)
 - .dev.vars - Local dev variables (pre-filled if you have a wallet)
 - README.md - Documentation
 
@@ -206,7 +206,7 @@ This creates a NEW PROJECT FOLDER with everything needed to deploy a pay-per-use
 
 A folder named \`{projectName}\` containing:
 - src/index.ts - Hono app with your x402-protected AI endpoints
-- src/x402-middleware.ts - Payment verification (uses x402-stacks library)
+- src/x402-middleware.ts - Payment verification (uses native relay fetch)
 - src/openrouter.ts - OpenRouter API client
 - wrangler.jsonc - Cloudflare Worker config
 - .dev.vars - Local dev variables (needs OPENROUTER_API_KEY)
