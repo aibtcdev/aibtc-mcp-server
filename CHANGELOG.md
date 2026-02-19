@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.24.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.24.0...v1.24.1) (2026-02-19)
+
+
+### Bug Fixes
+
+* nonce conflicts and inbox reliability (supersedes [#155](https://github.com/aibtcdev/aibtc-mcp-server/issues/155), [#150](https://github.com/aibtcdev/aibtc-mcp-server/issues/150)) ([#168](https://github.com/aibtcdev/aibtc-mcp-server/issues/168)) ([079727d](https://github.com/aibtcdev/aibtc-mcp-server/commit/079727d09630d3aca80531efee0b2a81b7cd8d72))
+
 ## [1.24.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.23.0...v1.24.0) (2026-02-18)
 
 
