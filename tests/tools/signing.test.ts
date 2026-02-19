@@ -11,8 +11,10 @@ import {
   publicKeyFromSignatureRsv,
   getAddressFromPublicKey,
 } from "@stacks/transactions";
-import { hashMessage, verifyMessageSignatureRsv } from "@stacks/encryption";
-import { bytesToHex } from "@stacks/common";
+import { hashMessage, verifyMessageSignatureRsv, hashSha256Sync } from "@stacks/encryption";
+import { bytesToHex, hexToBytes } from "@stacks/common";
+import { schnorr } from "@noble/curves/secp256k1.js";
+import { hex } from "@scure/base";
 import { generateWallet, getStxAddress } from "@stacks/wallet-sdk";
 import { STACKS_TESTNET } from "@stacks/network";
 
@@ -265,9 +267,7 @@ Issued At: 2025-01-06T12:00:00.000Z`;
  * changing hash implementations (e.g., @noble/hashes → @stacks/encryption).
  */
 describe("Hash Function Fixtures", () => {
-  // Import hashSha256Sync which replaced @noble/hashes/sha256
-  const { hashSha256Sync } = require("@stacks/encryption");
-  const { bytesToHex, hexToBytes } = require("@stacks/common");
+  // hashSha256Sync, bytesToHex, and hexToBytes are imported at the top of the file
 
   describe("SHA-256 (hashSha256Sync)", () => {
     it("should produce correct hash for empty input", () => {
@@ -354,8 +354,7 @@ describe("Hash Function Fixtures", () => {
  * for use in Taproot script-path spending and multisig coordination.
  */
 describe("Schnorr Signing (BIP-340 for Taproot)", () => {
-  const { schnorr } = require("@noble/curves/secp256k1.js");
-  const { hex } = require("@scure/base");
+  // schnorr and hex are imported at the top of the file
 
   describe("Schnorr signature format", () => {
     it("should produce a 64-byte signature", () => {
