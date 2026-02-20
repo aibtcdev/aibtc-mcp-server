@@ -212,11 +212,54 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
           .string()
           .max(500)
           .describe("Message content (max 500 characters)"),
+        paymentTxid: z
+          .string()
+          .optional()
+          .describe(
+            "Optional: a confirmed on-chain sBTC transfer txid to use as payment proof. " +
+            "When provided, skips the x402 payment flow and resubmits the message directly. " +
+            "Use for manual recovery after a settlement timeout left the payment confirmed but the message undelivered."
+          ),
       },
     },
-    async ({ recipientBtcAddress, recipientStxAddress, content }) => {
+    async ({ recipientBtcAddress, recipientStxAddress, content, paymentTxid }) => {
       try {
         const account = await getAccount();
+
+        // Manual recovery path: if a confirmed txid is provided, skip the x402 flow
+        // and POST directly with paymentTxid as payment proof.
+        if (paymentTxid) {
+          const inboxUrl = `${INBOX_BASE}/${recipientBtcAddress}`;
+          const recoveryBody = {
+            toBtcAddress: recipientBtcAddress,
+            toStxAddress: recipientStxAddress,
+            content,
+            paymentTxid,
+          };
+          const res = await fetch(inboxUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(recoveryBody),
+          });
+          const responseText = await res.text();
+          if (res.status === 201 || res.status === 200) {
+            return createJsonResponse({
+              success: true,
+              message: "Message delivered (manual txid recovery)",
+              recipient: {
+                btcAddress: recipientBtcAddress,
+                stxAddress: recipientStxAddress,
+              },
+              contentLength: content.length,
+              payment: {
+                txid: paymentTxid,
+                recovered: true,
+                explorer: getExplorerTxUrl(paymentTxid, NETWORK),
+              },
+            });
+          }
+          throw new Error(`paymentTxid recovery failed (${res.status}): ${responseText}`);
+        }
 
         // Step 1: POST without payment → get 402 challenge
         const inboxUrl = `${INBOX_BASE}/${recipientBtcAddress}`;
@@ -411,7 +454,8 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
         }
 
         // Retries exhausted -- check if any relay txid confirmed on-chain.
-        // If so, the message was delivered and we can recover.
+        // If confirmed, resubmit to the inbox API with paymentTxid as proof.
+        // The server verifies the txid is a valid sBTC transfer and records the message.
         if (seenRelayTxids.size > 0) {
           console.error(
             `[send_inbox_message] Checking on-chain status of ${seenRelayTxids.size} seen txid(s) before giving up.`
@@ -421,23 +465,45 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
               const confirmation = await pollTransactionConfirmation(seenTxid, NETWORK, 5_000);
               if (confirmation.status === "success" || confirmation.status === "confirmed") {
                 console.error(
-                  `[send_inbox_message] Recovery: txid ${seenTxid} confirmed on-chain. Treating as success.`
+                  `[send_inbox_message] Auto-recovery: txid ${seenTxid} confirmed on-chain. Resubmitting with paymentTxid.`
                 );
-                return createJsonResponse({
-                  success: true,
-                  message: "Message delivered (recovered from stale dedup)",
-                  recipient: {
-                    btcAddress: recipientBtcAddress,
-                    stxAddress: recipientStxAddress,
-                  },
-                  contentLength: content.length,
-                  payment: {
-                    txid: seenTxid,
-                    amount: accept.amount + " sats sBTC",
-                    explorer: getExplorerTxUrl(seenTxid, NETWORK),
-                    recovered: true,
-                  },
+                // Resubmit to the inbox API with the confirmed txid as payment proof
+                const recoveryBody = {
+                  toBtcAddress: recipientBtcAddress,
+                  toStxAddress: recipientStxAddress,
+                  content,
+                  paymentTxid: seenTxid,
+                };
+                const recoveryRes = await fetch(inboxUrl, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(recoveryBody),
                 });
+                const recoveryText = await recoveryRes.text();
+                if (recoveryRes.status === 201 || recoveryRes.status === 200 || recoveryRes.status === 409) {
+                  // 409 means the message was already recorded by the server (prior attempt reached it)
+                  return createJsonResponse({
+                    success: true,
+                    message: recoveryRes.status === 409
+                      ? "Message already delivered"
+                      : "Message delivered (auto-recovered with confirmed txid)",
+                    recipient: {
+                      btcAddress: recipientBtcAddress,
+                      stxAddress: recipientStxAddress,
+                    },
+                    contentLength: content.length,
+                    payment: {
+                      txid: seenTxid,
+                      amount: accept.amount + " sats sBTC",
+                      explorer: getExplorerTxUrl(seenTxid, NETWORK),
+                      recovered: true,
+                    },
+                  });
+                }
+                // Resubmission failed — log and try the next confirmed txid
+                console.error(
+                  `[send_inbox_message] Auto-recovery resubmission failed for txid ${seenTxid}: ${recoveryRes.status} ${recoveryText}`
+                );
               }
             } catch {
               // Non-fatal: move on to the next txid
