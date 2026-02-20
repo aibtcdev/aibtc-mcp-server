@@ -1012,13 +1012,10 @@ export function registerSigningTools(server: McpServer): void {
           );
         }
 
-        // Decode the digest
+        // Decode the digest (Zod schema enforces 64 hex chars = 32 bytes)
         const digestBytes = hex.decode(digest);
-        if (digestBytes.length !== 32) {
-          throw new Error("Digest must be exactly 32 bytes");
-        }
 
-        // Optional auxiliary randomness for BIP-340
+        // Optional auxiliary randomness for BIP-340 (Zod schema enforces 64 hex chars = 32 bytes when provided)
         const auxBytes = auxRand ? hex.decode(auxRand) : undefined;
 
         // Sign with Schnorr (BIP-340)
@@ -1077,19 +1074,11 @@ export function registerSigningTools(server: McpServer): void {
     },
     async ({ digest, signature, publicKey }) => {
       try {
+        // Decode inputs (Zod schema enforces correct hex lengths:
+        // digest=64 chars/32 bytes, signature=128 chars/64 bytes, publicKey=64 chars/32 bytes)
         const digestBytes = hex.decode(digest);
         const signatureBytes = hex.decode(signature);
         const publicKeyBytes = hex.decode(publicKey);
-
-        if (digestBytes.length !== 32) {
-          throw new Error("Digest must be exactly 32 bytes");
-        }
-        if (signatureBytes.length !== 64) {
-          throw new Error("Signature must be exactly 64 bytes");
-        }
-        if (publicKeyBytes.length !== 32) {
-          throw new Error("Public key must be exactly 32 bytes (x-only format)");
-        }
 
         // Verify the Schnorr signature
         const isValid = schnorr.verify(
