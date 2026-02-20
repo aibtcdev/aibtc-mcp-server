@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.25.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.24.1...v1.25.0) (2026-02-20)
+
+
+### Features
+
+* enable Bitflow DEX tools with public API access ([#162](https://github.com/aibtcdev/aibtc-mcp-server/issues/162)) ([aec59e5](https://github.com/aibtcdev/aibtc-mcp-server/commit/aec59e5688aca8ecb8bb5c6b849552f6b706516a))
+* improve Bitflow price impact UX and swap safety ([#164](https://github.com/aibtcdev/aibtc-mcp-server/issues/164)) ([0809c50](https://github.com/aibtcdev/aibtc-mcp-server/commit/0809c50e82586abee6644881b66d1a44c52e0d1c))
+* **signing:** add schnorr_sign_digest and schnorr_verify_digest for Taproot multisig ([#163](https://github.com/aibtcdev/aibtc-mcp-server/issues/163)) ([089fc41](https://github.com/aibtcdev/aibtc-mcp-server/commit/089fc4159c2d742270f6f364fc5102864898dda9))
+
 ## [1.24.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.24.0...v1.24.1) (2026-02-19)
 
 
