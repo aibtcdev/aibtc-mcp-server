@@ -40,7 +40,7 @@ import { registerSettingsTools } from "./settings.tools.js";
  * Tools are organized in layers reflecting the Bitcoin-first hierarchy:
  * - Layer 1: Bitcoin L1 - Core Bitcoin operations (balance, fees, UTXOs, transfer)
  * - Layer 2: Stacks L2 - Smart contracts, tokens, NFTs, BNS on Stacks
- * - Layer 2b: DeFi - ALEX DEX, Zest Protocol, Stacking
+ * - Layer 2b: DeFi - ALEX DEX, Bitflow DEX, Zest Protocol, Stacking
  * - Layer 3: Pillar - Smart wallet with passkey signing
  * - Layer 4: APIs - x402 endpoints, scaffolding, AI integrations
  */

@@ -98,12 +98,12 @@ export class BitflowService {
     try {
       this.sdk = new BitflowSDK({
         BITFLOW_API_HOST: config.apiHost,
-        BITFLOW_API_KEY: config.apiKey || "",
+        ...(config.apiKey && { BITFLOW_API_KEY: config.apiKey }),
         READONLY_CALL_API_HOST: config.readOnlyCallApiHost,
-        BITFLOW_PROVIDER_ADDRESS: "", // Not needed for read-only quote/swap operations
-        READONLY_CALL_API_KEY: "",   // Optional
+        BITFLOW_PROVIDER_ADDRESS: "",
+        READONLY_CALL_API_KEY: "",
         KEEPER_API_HOST: config.keeperApiHost || "",
-        KEEPER_API_KEY: config.keeperApiKey || "",
+        ...(config.keeperApiKey && { KEEPER_API_KEY: config.keeperApiKey }),
       });
     } catch (error) {
       console.error("Failed to initialize Bitflow SDK:", error);
@@ -111,12 +111,6 @@ export class BitflowService {
     }
   }
 
-  /**
-   * Check if SDK is available
-   */
-  public isSdkAvailable(): boolean {
-    return this.sdk !== null;
-  }
 
   /**
    * Ensure mainnet for Bitflow operations
@@ -133,7 +127,7 @@ export class BitflowService {
   private ensureSdk(): BitflowSDK {
     if (!this.sdk) {
       throw new Error(
-        "Bitflow SDK not configured. Set BITFLOW_API_KEY environment variable to enable full Bitflow features."
+        "Bitflow SDK failed to initialize. Check BITFLOW_API_HOST / BITFLOW_READONLY_API_HOST configuration."
       );
     }
     return this.sdk;
