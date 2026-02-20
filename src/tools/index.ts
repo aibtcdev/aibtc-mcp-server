@@ -94,4 +94,6 @@ export function registerAllTools(server: McpServer): void {
   registerOpenRouterTools(server);
   registerYieldHunterTools(server);
   registerSettingsTools(server);
+  registerRelayDiagnosticTools(server);
 }
+import { registerRelayDiagnosticTools } from "./relay-diagnostic.tools.js";

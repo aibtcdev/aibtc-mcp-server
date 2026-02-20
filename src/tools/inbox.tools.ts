@@ -16,6 +16,7 @@ import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { InsufficientBalanceError } from "../utils/errors.js";
 import { formatSbtc } from "../utils/formatting.js";
 import { getHiroApi } from "../services/hiro-api.js";
+import { checkRelayHealth, getRelayBackoffDelay } from "../utils/relay-health.js";
 import { extractTxidFromPaymentSignature, pollTransactionConfirmation } from "../utils/x402-recovery.js";
 
 const INBOX_BASE = "https://aibtc.com/api/inbox";
