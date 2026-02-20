@@ -270,6 +270,18 @@ export interface FeeEstimation {
 }
 
 /**
+ * Nonce information for a Stacks address.
+ * Used to detect nonce gaps in the sponsor relay.
+ */
+export interface NonceInfo {
+  last_mempool_tx_nonce: number | null;
+  last_executed_tx_nonce: number;
+  possible_next_nonce: number;
+  detected_missing_nonces: number[];
+  detected_mempool_nonces: number[];
+}
+
+/**
  * Fee priorities from the mempool.
  * Values are in micro-STX.
  */
@@ -411,6 +423,10 @@ export class HiroApiService {
   async getAccountNonce(address: string): Promise<number> {
     const info = await this.getAccountInfo(address);
     return info.nonce;
+  }
+
+  async getNonceInfo(address: string): Promise<NonceInfo> {
+    return this.fetch<NonceInfo>(`/extended/v1/address/${address}/nonces`);
   }
 
   // ==========================================================================
