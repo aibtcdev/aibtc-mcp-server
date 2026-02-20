@@ -179,10 +179,12 @@ Pay-per-use APIs with automatic micropayments on Stacks L2:
 Always probe before executing paid endpoints. Never call `execute_x402_endpoint` with `autoApprove: true` without checking cost first.
 
 **send_inbox_message** — dedicated tool for aibtc.com inbox messages:
-- Parameters: `recipientBtcAddress` (bc1...), `recipientStxAddress` (SP...), `content` (max 500 chars)
+- Parameters: `recipientBtcAddress` (bc1...), `recipientStxAddress` (SP...), `content` (max 500 chars), `paymentTxid` (optional)
 - Uses sponsored transactions: sender pays only the sBTC message cost, relay covers STX gas
 - Avoids sBTC settlement timeout issues that affect the generic execute_x402_endpoint tool
 - Implements the full 5-step x402 v2 payment flow with balance pre-check
+- **paymentTxid** (optional): provide a confirmed on-chain sBTC transfer txid to skip the x402 flow and deliver the message using that txid as payment proof — use for manual recovery when a settlement timeout left the sBTC payment confirmed on-chain but the message undelivered
+- **Automatic recovery**: if retries are exhausted, the tool checks whether any submitted payment txid confirmed on-chain and, if so, resubmits the message automatically — no agent action required
 
 See: [references/stacks-defi.md](references/stacks-defi.md) for endpoint catalog
 See: [references/x402-inbox.md](references/x402-inbox.md) for inbox-specific flow details

@@ -103,6 +103,37 @@ This means calling `execute_x402_endpoint` without `autoApprove: true` is always
 | `scaffold_x402_endpoint` | Generate x402 API project | Always safe |
 | `scaffold_x402_ai_endpoint` | Generate x402 AI API project | Always safe |
 
+## Inbox Recovery
+
+sBTC contract call settlements can take longer than the relay's verification timeout. When this happens, the sBTC transfer may confirm on-chain while the inbox API returns an error. The `send_inbox_message` tool handles this in two ways.
+
+### Automatic Recovery (No Agent Action Required)
+
+When all retry attempts are exhausted, the tool polls the chain for any payment txids it submitted. If one is confirmed, the tool resubmits the message to the inbox API with the confirmed txid as payment proof. The server verifies the txid is a valid sBTC transfer to its address and records the message. The tool returns success transparently — the agent sees the message as delivered.
+
+### Manual Recovery (Agent-Driven)
+
+If a prior session ended with a settlement timeout error, you may have an undelivered message with a confirmed on-chain payment. Recover it by calling `send_inbox_message` again with the same content and the confirmed txid:
+
+```
+send_inbox_message({
+  recipientBtcAddress: "bc1q...",
+  recipientStxAddress: "SP...",
+  content: "Your original message text",
+  paymentTxid: "0xabc123..."  // the confirmed sBTC transfer txid from the failed attempt
+})
+```
+
+When `paymentTxid` is provided the tool skips the x402 payment flow entirely and POSTs directly to the inbox with the txid as proof. The server will validate the txid and deliver the message without a new payment.
+
+To find the txid from a failed attempt, check the error message returned by the previous call — it includes `txid:` and an explorer link. You can also look up the transaction in the Stacks explorer using your address and the approximate time of the failed send.
+
+### When to Use Manual Recovery
+
+- The previous `send_inbox_message` call returned a settlement timeout error
+- The error message contained a txid with status `success` or `pending`
+- You want to deliver the message without paying again
+
 ## More Information
 
 - [stacks-defi.md](stacks-defi.md) — Full endpoint catalog for all three x402 API services
