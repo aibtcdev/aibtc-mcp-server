@@ -5,6 +5,8 @@ import {
   uintCV,
   principalCV,
   noneCV,
+  someCV,
+  bufferCV,
 } from "@stacks/transactions";
 import { decodePaymentRequired, decodePaymentResponse, encodePaymentPayload, X402_HEADERS } from "../utils/x402-protocol.js";
 import { getAccount, NETWORK } from "../services/x402.service.js";
@@ -86,14 +88,16 @@ function advanceNonceCache(address: string, usedNonce: number): void {
 /**
  * Build a sponsored sBTC transfer transaction (signed, not broadcast).
  * The inbox API handles settlement via the x402 relay.
- * Accepts an explicit nonce to avoid ConflictingNonceInMempool errors.
+ * Explicit nonce avoids ConflictingNonceInMempool; optional memo (max 34 bytes)
+ * varies the tx hex to bypass relay dedup cache on retries.
  */
 async function buildSponsoredSbtcTransfer(
   senderKey: string,
   senderAddress: string,
   recipient: string,
   amount: bigint,
-  nonce: bigint
+  nonce: bigint,
+  memo?: string
 ): Promise<string> {
   const contracts = getContracts(NETWORK);
   const { address: contractAddress, name: contractName } = parseContractId(
@@ -109,6 +113,11 @@ async function buildSponsoredSbtcTransfer(
     amount
   );
 
+  // Encode memo as (optional (buff 34)): some(buff) if provided, none() otherwise.
+  const memoArg = memo
+    ? someCV(bufferCV(Buffer.from(memo).slice(0, 34)))
+    : noneCV();
+
   const transaction = await makeContractCall({
     contractAddress,
     contractName,
@@ -117,7 +126,7 @@ async function buildSponsoredSbtcTransfer(
       uintCV(amount),
       principalCV(senderAddress),
       principalCV(recipient),
-      noneCV(),
+      memoArg,
     ],
     senderKey,
     network: networkName,
@@ -276,6 +285,9 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
         let lastError: string = "";
         let paymentSignature: string | null = null;
 
+        // Track relay txids across failed attempts to detect stale dedup.
+        const seenRelayTxids = new Set<string>();
+
         for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
           if (attempt > 0) {
             const delay = RETRY_DELAYS_MS[attempt - 1];
@@ -285,14 +297,17 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
             await sleep(delay);
           }
 
-          // Step 3: Fetch fresh nonce and build sponsored sBTC transfer
+          // Step 3: Fetch fresh nonce and build sponsored sBTC transfer.
+          // Memo suffix on retries varies the tx hex to bypass relay dedup cache.
           const nonce = await getNextNonce(account.address);
+          const memo = attempt > 0 ? `r${attempt}` : undefined;
           const txHex = await buildSponsoredSbtcTransfer(
             account.privateKey,
             account.address,
             accept.payTo,
             amount,
-            BigInt(nonce)
+            BigInt(nonce),
+            memo
           );
 
           // Step 4: Encode PaymentPayloadV2
@@ -350,6 +365,19 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
             });
           }
 
+          // Extract relay txid from payment-response header (forwarded even on failure).
+          // If we have seen it before, the relay is serving a stale cached result.
+          const failedTxid = decodePaymentResponse(
+            finalRes.headers.get(X402_HEADERS.PAYMENT_RESPONSE)
+          )?.transaction;
+          if (failedTxid && seenRelayTxids.has(failedTxid)) {
+            console.error(
+              `[send_inbox_message] Stale dedup: relay returned previously-seen txid ${failedTxid} on attempt ${attempt + 1}`
+            );
+          } else if (failedTxid) {
+            seenRelayTxids.add(failedTxid);
+          }
+
           // Check if the error is retryable
           const retryable = isRetryableError(finalRes.status, parsed);
 
@@ -382,9 +410,48 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
           throw new Error(errorBase);
         }
 
-        // Exhausted retries
+        // Retries exhausted -- check if any relay txid confirmed on-chain.
+        // If so, the message was delivered and we can recover.
+        if (seenRelayTxids.size > 0) {
+          console.error(
+            `[send_inbox_message] Checking on-chain status of ${seenRelayTxids.size} seen txid(s) before giving up.`
+          );
+          for (const seenTxid of seenRelayTxids) {
+            try {
+              const confirmation = await pollTransactionConfirmation(seenTxid, NETWORK, 5_000);
+              if (confirmation.status === "success" || confirmation.status === "confirmed") {
+                console.error(
+                  `[send_inbox_message] Recovery: txid ${seenTxid} confirmed on-chain. Treating as success.`
+                );
+                return createJsonResponse({
+                  success: true,
+                  message: "Message delivered (recovered from stale dedup)",
+                  recipient: {
+                    btcAddress: recipientBtcAddress,
+                    stxAddress: recipientStxAddress,
+                  },
+                  contentLength: content.length,
+                  payment: {
+                    txid: seenTxid,
+                    amount: accept.amount + " sats sBTC",
+                    explorer: getExplorerTxUrl(seenTxid, NETWORK),
+                    recovered: true,
+                  },
+                });
+              }
+            } catch {
+              // Non-fatal: move on to the next txid
+            }
+          }
+        }
+
+        // Include all seen txids in the error for diagnostics
+        const txidSummary = seenRelayTxids.size > 0
+          ? `\n\nSeen relay txids (all failed or pending):\n${[...seenRelayTxids].map((id) => `  ${id}`).join("\n")}`
+          : "";
+
         throw new Error(
-          `Message delivery failed after ${MAX_ATTEMPTS} attempts. Last error: ${lastError}`
+          `Message delivery failed after ${MAX_ATTEMPTS} attempts. Last error: ${lastError}${txidSummary}`
         );
       } catch (error) {
         return createErrorResponse(error);
