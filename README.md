@@ -10,7 +10,7 @@ Bitcoin-native MCP server for AI agents: BTC/STX wallets, DeFi yield, sBTC peg, 
 - **Bitcoin L1** - Check balances, send BTC, manage UTXOs via mempool.space
 - **Agent's Own Wallet** - Agents get their own wallet to perform blockchain transactions
 - **Secure Storage** - Wallets encrypted with AES-256-GCM and stored locally
-- **120+ Tools** - Bitcoin L1 + comprehensive Stacks L2 operations
+- **150+ Tools** - Bitcoin L1 + comprehensive Stacks L2 operations
 - **sBTC Support** - Native Bitcoin on Stacks operations
 - **Token Operations** - SIP-010 fungible token transfers and queries
 - **NFT Support** - SIP-009 NFT holdings, transfers, and metadata
@@ -194,7 +194,7 @@ Claude: Done! Transaction broadcast: abc123...
 
 Both addresses are derived from the same recovery phrase, making it easy to manage both Layer 1 (Bitcoin) and Layer 2 (Stacks) assets.
 
-## Available Tools (120+ total)
+## Available Tools (150+ total)
 
 ### Wallet Management
 | Tool | Description |
@@ -438,10 +438,12 @@ Or use any SIP-010 token by contract ID: `SP2X...::token-name`
 
 | Environment Variable | Description | Default |
 |---------------------|-------------|---------|
-| `NETWORK` | `mainnet` or `testnet` | `mainnet` |
+| `NETWORK` | `mainnet` or `testnet` | `mainnet` (installer) / `testnet` (if unset) |
 | `API_URL` | Default x402 API base URL | `https://x402.biwas.xyz` |
 | `CLIENT_MNEMONIC` | (Optional) Pre-configured mnemonic | - |
 | `HIRO_API_KEY` | (Optional) Hiro API key for higher rate limits | - |
+
+**Note on `NETWORK`:** The `--install` command writes `NETWORK=mainnet` by default (pass `--testnet` to use testnet). If you omit `NETWORK` from your config entirely, the runtime fallback is `testnet`. Most users should set this explicitly.
 
 **Note:** `CLIENT_MNEMONIC` is optional. The recommended approach is to let Claude create its own wallet. `HIRO_API_KEY` is optional but recommended for production use — without it, you may hit Hiro's public rate limits (429 responses). Get a key at [platform.hiro.so](https://platform.hiro.so).
 
