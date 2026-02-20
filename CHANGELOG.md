@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.26.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.25.0...v1.26.0) (2026-02-20)
+
+
+### Features
+
+* **inbox:** allow inbox message resubmission with confirmed txid as payment proof ([#183](https://github.com/aibtcdev/aibtc-mcp-server/issues/183)) ([95c913b](https://github.com/aibtcdev/aibtc-mcp-server/commit/95c913bc7d403b8c150cf370232dc5b34ecb829d))
+
+
+### Bug Fixes
+
+* add relay health monitoring and nonce gap detection ([88d1126](https://github.com/aibtcdev/aibtc-mcp-server/commit/88d1126a4046570efa5444d88c5433ef95248231)), closes [#172](https://github.com/aibtcdev/aibtc-mcp-server/issues/172) [#173](https://github.com/aibtcdev/aibtc-mcp-server/issues/173)
+* Add relay health monitoring and nonce gap detection ([#174](https://github.com/aibtcdev/aibtc-mcp-server/issues/174)) ([88d1126](https://github.com/aibtcdev/aibtc-mcp-server/commit/88d1126a4046570efa5444d88c5433ef95248231))
+* **inbox:** make send_inbox_message resilient to stale relay dedup ([#181](https://github.com/aibtcdev/aibtc-mcp-server/issues/181)) ([341613d](https://github.com/aibtcdev/aibtc-mcp-server/commit/341613d7b74cc614d628752844c54eed5e2689c9))
+
 ## [1.25.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/v1.24.1...v1.25.0) (2026-02-20)
 
 
