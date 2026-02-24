@@ -200,6 +200,35 @@ function writeUint64LE(n: bigint): Uint8Array {
   return buf;
 }
 
+/**
+ * Convert a DER-encoded ECDSA signature to compact (64-byte) format.
+ *
+ * Bitcoin witness stacks store ECDSA signatures in DER format with a hashtype byte appended.
+ * @noble/curves secp256k1.verify() requires compact (64-byte r||s) format in v2.
+ *
+ * DER format: 30 <total_len> 02 <r_len> [00?] <r_bytes> 02 <s_len> [00?] <s_bytes>
+ * The leading 0x00 is padding for high-bit integers (to keep the sign positive).
+ */
+function parseDERSignature(der: Uint8Array): Uint8Array {
+  if (der[0] !== 0x30) throw new Error("parseDERSignature: expected 0x30 header");
+  let pos = 2; // skip 0x30 and total length byte
+  if (der[pos] !== 0x02) throw new Error("parseDERSignature: expected 0x02 for r");
+  pos++;
+  const rLen = der[pos++];
+  // Strip optional leading 0x00 padding byte (added when high bit is set)
+  const rBytes = der.slice(rLen === 33 ? pos + 1 : pos, pos + rLen);
+  pos += rLen;
+  if (der[pos] !== 0x02) throw new Error("parseDERSignature: expected 0x02 for s");
+  pos++;
+  const sLen = der[pos++];
+  const sBytes = der.slice(sLen === 33 ? pos + 1 : pos, pos + sLen);
+
+  const compact = new Uint8Array(64);
+  compact.set(rBytes.slice(-32), 0);  // r (last 32 bytes, in case rLen < 32)
+  compact.set(sBytes.slice(-32), 32); // s (last 32 bytes)
+  return compact;
+}
+
 // ---------------------------------------------------------------------------
 // BIP-322 helper functions
 // ---------------------------------------------------------------------------
@@ -265,21 +294,27 @@ function bip322BuildToSpendTxId(message: string, scriptPubKey: Uint8Array): Uint
  * @param message - Plain text message to sign
  * @param privateKey - 32-byte private key (P2WPKH key for bc1q, Taproot key for bc1p)
  * @param scriptPubKey - scriptPubKey of the signing address
+ * @param tapInternalKey - For P2TR: the UNTWEAKED x-only pubkey (32 bytes). Required for Taproot
+ *   signing. Must be the internal key BEFORE TapTweak, NOT the tweaked key in the scriptPubKey.
  * @returns Base64-encoded BIP-322 "simple" signature (serialized witness)
  */
 function bip322Sign(
   message: string,
   privateKey: Uint8Array,
-  scriptPubKey: Uint8Array
+  scriptPubKey: Uint8Array,
+  tapInternalKey?: Uint8Array
 ): string {
   const toSpendTxid = bip322BuildToSpendTxId(message, scriptPubKey);
 
-  const toSignTx = new Transaction({ version: 0, lockTime: 0 });
+  // allowUnknownOutputs: true is required for the OP_RETURN output in BIP-322 virtual transactions.
+  const toSignTx = new Transaction({ version: 0, lockTime: 0, allowUnknownOutputs: true });
+
   toSignTx.addInput({
     txid: toSpendTxid,
     index: 0,
     sequence: 0,
     witnessUtxo: { amount: 0n, script: scriptPubKey },
+    ...(tapInternalKey && { tapInternalKey }),
   });
   toSignTx.addOutput({ script: Script.encode(["RETURN"]), amount: 0n });
 
@@ -328,8 +363,9 @@ function bip322VerifyP2WPKH(
   // Build to_spend txid using the claimed address's scriptPubKey
   const toSpendTxid = bip322BuildToSpendTxId(message, scriptPubKey);
 
-  // Build the (unsigned) to_sign transaction for sighash computation
-  const toSignTx = new Transaction({ version: 0, lockTime: 0 });
+  // Build the (unsigned) to_sign transaction for sighash computation.
+  // allowUnknownOutputs: true is required for the OP_RETURN output in BIP-322 virtual transactions.
+  const toSignTx = new Transaction({ version: 0, lockTime: 0, allowUnknownOutputs: true });
   toSignTx.addInput({
     txid: toSpendTxid,
     index: 0,
@@ -343,11 +379,13 @@ function bip322VerifyP2WPKH(
   const scriptCode = p2pkh(pubkeyBytes).script;
   const sighash = toSignTx.preimageWitnessV0(0, scriptCode, SigHash.ALL, 0n);
 
-  // Strip hashtype byte from DER signature
+  // Strip hashtype byte from DER signature.
+  // @noble/curves secp256k1.verify() in v2 requires compact (64-byte) format, not DER.
   const derSig = ecdsaSigWithHashtype.slice(0, -1);
+  const compactSig = parseDERSignature(derSig);
 
   // Verify ECDSA signature
-  const sigValid = secp256k1.verify(derSig, sighash, pubkeyBytes, { prehash: false });
+  const sigValid = secp256k1.verify(compactSig, sighash, pubkeyBytes, { prehash: false });
 
   if (!sigValid) return false;
 
@@ -385,15 +423,16 @@ function bip322VerifyP2TR(
     throw new Error(`P2TR BIP-322: expected 64-byte Schnorr sig, got ${schnorrSig.length}`);
   }
 
-  // Extract x-only pubkey from the P2TR address
+  // Extract the tweaked output key from the P2TR address.
+  // Address().decode() returns decoded.pubkey = the TWEAKED key embedded in the bech32 data.
+  // We must NOT call p2tr(decoded.pubkey, ...) — that would apply another TapTweak.
+  // Instead, build the scriptPubKey directly: OP_1 (0x51) OP_PUSH32 (0x20) <tweakedKey>
   const decoded = Address(btcNetwork).decode(address);
   if (decoded.type !== "tr") {
     throw new Error(`P2TR BIP-322: address does not decode to P2TR type`);
   }
-  const xOnlyPubkey = decoded.pubkey;
-
-  // Build scriptPubKey for this P2TR address
-  const scriptPubKey = p2tr(xOnlyPubkey, undefined, btcNetwork).script;
+  const tweakedKey = decoded.pubkey;
+  const scriptPubKey = new Uint8Array([0x51, 0x20, ...tweakedKey]);
 
   // Build to_spend txid
   const toSpendTxid = bip322BuildToSpendTxId(message, scriptPubKey);
@@ -412,8 +451,14 @@ function bip322VerifyP2TR(
   //   1 input: txid=toSpendTxid, vout=0, sequence=0, amount=0n, scriptPubKey=p2tr_script
   //   1 output: amount=0n, script=OP_RETURN (0x6a, 1 byte)
 
-  // hashPrevouts = SHA256(txid(32LE) || vout(4LE))
-  const prevouts = concatBytes(toSpendTxid, writeUint32LE(0));
+  // hashPrevouts = SHA256(txid_wire_bytes || vout(4LE))
+  //
+  // @scure/btc-signer stores txid as-is but applies P.bytes(32, true) (reversing) when
+  // encoding TxHashIdx for the BIP341 sighash computation. This means the wire-format txid
+  // used in hashPrevouts is the reverse of what bip322BuildToSpendTxId returns.
+  // We must re-reverse to produce the same bytes that btc-signer uses when signing.
+  const txidForHashPrevouts = toSpendTxid.slice().reverse();
+  const prevouts = concatBytes(txidForHashPrevouts, writeUint32LE(0));
   const hashPrevouts = hashSha256Sync(prevouts);
 
   // hashAmounts = SHA256(amount_8LE)  [amount = 0n for our virtual input]
@@ -458,7 +503,8 @@ function bip322VerifyP2TR(
   const tagHash = hashSha256Sync(tagBytes);
   const sighash = hashSha256Sync(concatBytes(tagHash, tagHash, sigMsg));
 
-  return schnorr.verify(schnorrSig, sighash, xOnlyPubkey);
+  // Schnorr verification uses the TWEAKED output key (the one in the scriptPubKey bytes)
+  return schnorr.verify(schnorrSig, sighash, tweakedKey);
 }
 
 /**
@@ -1138,7 +1184,9 @@ export function registerSigningTools(server: McpServer): void {
 
           const xOnlyPubkey = account.taprootPublicKey;
           const scriptPubKey = p2tr(xOnlyPubkey, undefined, btcNetwork).script;
-          const signatureBase64 = bip322Sign(message, account.taprootPrivateKey, scriptPubKey);
+          // Pass xOnlyPubkey as tapInternalKey: signIdx requires the UNTWEAKED internal key,
+          // not the tweaked key embedded in the P2TR scriptPubKey bytes.
+          const signatureBase64 = bip322Sign(message, account.taprootPrivateKey, scriptPubKey, xOnlyPubkey);
 
           return createJsonResponse({
             success: true,
