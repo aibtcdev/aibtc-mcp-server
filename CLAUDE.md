@@ -124,7 +124,7 @@ Tool definitions and parameters are self-documented in the MCP tool descriptions
 - **Bitcoin L1** - Balance, fees, UTXOs, transfers, inscriptions
 - **Wallet** - Create, import, unlock, lock, switch, export, status
 - **Stacks L2** - STX transfers, contract calls, deployment, transaction status
-- **Message Signing** - SIP-018 (on-chain), SIWS (web auth), BIP-137 (Bitcoin)
+- **Message Signing** - SIP-018 (on-chain), SIWS (web auth), BIP-137/BIP-322 (Bitcoin)
 - **Tokens & NFTs** - sBTC, SIP-010 tokens, SIP-009 NFTs, BNS domains
 - **DeFi** - ALEX DEX, Zest Protocol, Bitflow DEX (all mainnet only)
 - **Pillar** - Smart wallet (handoff mode via browser, direct mode for agents)
