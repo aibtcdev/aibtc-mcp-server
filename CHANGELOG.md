@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.28.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.27.0...mcp-server-v1.28.0) (2026-02-24)
+
+
+### Features
+
+* **signing:** add BIP-322 support for bc1q and bc1p addresses ([#194](https://github.com/aibtcdev/aibtc-mcp-server/issues/194)) ([9185364](https://github.com/aibtcdev/aibtc-mcp-server/commit/9185364a17e319ebd6b4f4d6a63e3b5b9979a74e))
+
 ## [1.27.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.26.0...mcp-server-v1.27.0) (2026-02-20)
 
 
