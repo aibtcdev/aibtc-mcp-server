@@ -52,6 +52,7 @@ import {
   Transaction,
   p2wpkh,
   p2pkh,
+  p2sh,
   p2tr,
   Script,
   SigHash,
@@ -526,16 +527,14 @@ function bip322Verify(
 
   if (
     address.startsWith("bc1q") ||
-    address.startsWith("tb1q") ||
-    address.startsWith("bcrt1q")
+    address.startsWith("tb1q")
   ) {
     return bip322VerifyP2WPKH(message, signatureBase64, address, btcNetwork);
   }
 
   if (
     address.startsWith("bc1p") ||
-    address.startsWith("tb1p") ||
-    address.startsWith("bcrt1p")
+    address.startsWith("tb1p")
   ) {
     return bip322VerifyP2TR(message, signatureBase64, address, btcNetwork);
   }
@@ -1220,7 +1219,18 @@ export function registerSigningTools(server: McpServer): void {
           });
 
           const recoveryId = sigWithRecovery[0];
-          const header = BIP137_HEADER_BASE.P2WPKH + recoveryId;
+
+          // Select BIP-137 header base by address type
+          let headerBase: number;
+          const addrPrefix = account.btcAddress!.charAt(0);
+          if (addrPrefix === "1" || addrPrefix === "m" || addrPrefix === "n") {
+            headerBase = BIP137_HEADER_BASE.P2PKH_COMPRESSED;
+          } else if (addrPrefix === "3" || addrPrefix === "2") {
+            headerBase = BIP137_HEADER_BASE.P2SH_P2WPKH;
+          } else {
+            headerBase = BIP137_HEADER_BASE.P2WPKH;
+          }
+          const header = headerBase + recoveryId;
 
           const rBytes = sigWithRecovery.slice(1, 33);
           const sBytes = sigWithRecovery.slice(33, 65);
@@ -1311,6 +1321,7 @@ export function registerSigningTools(server: McpServer): void {
           ),
         address: z
           .string()
+          .optional()
           .describe(
             "The Bitcoin address that allegedly signed the message. " +
             "Required for BIP-322 verification (bc1q for P2WPKH, bc1p for P2TR). " +
@@ -1382,9 +1393,18 @@ export function registerSigningTools(server: McpServer): void {
             { prehash: false }
           );
 
-          // Derive Bitcoin address from recovered public key
-          const p2wpkhResult = p2wpkh(recoveredPubKey, btcNetwork);
-          const recoveredAddress = p2wpkhResult.address!;
+          // Derive Bitcoin address from recovered public key based on header type
+          let recoveredAddress: string;
+          if (header >= 27 && header <= 34) {
+            // P2PKH (uncompressed 27-30, compressed 31-34)
+            recoveredAddress = p2pkh(recoveredPubKey, btcNetwork).address!;
+          } else if (header >= 35 && header <= 38) {
+            // P2SH-P2WPKH (SegWit wrapped)
+            recoveredAddress = p2sh(p2wpkh(recoveredPubKey, btcNetwork), btcNetwork).address!;
+          } else {
+            // P2WPKH (native SegWit, headers 39-42)
+            recoveredAddress = p2wpkh(recoveredPubKey, btcNetwork).address!;
+          }
 
           const signerMatches = signerAddress
             ? recoveredAddress === signerAddress
