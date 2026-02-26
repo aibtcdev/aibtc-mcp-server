@@ -19,8 +19,8 @@ async function resolveAmountIn(
   amountUnit: "human" | "base"
 ): Promise<number> {
   if (amountUnit === "base") {
-    if (!/^\d+$/.test(amountIn)) {
-      throw new Error("amountIn must be a non-negative integer when amountUnit='base'");
+    if (!/^[1-9]\d*$/.test(amountIn)) {
+      throw new Error("amountIn must be a positive integer when amountUnit='base'");
     }
     const tokens = await bitflowService.getAvailableTokens();
     const tokenIn = tokens.find((t) => t.id === tokenX);
