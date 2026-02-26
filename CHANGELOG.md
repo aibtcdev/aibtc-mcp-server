@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.28.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.28.1...mcp-server-v1.28.2) (2026-02-26)
+
+
+### Bug Fixes
+
+* **bitflow:** align agent quote/swap units with frontend ([#201](https://github.com/aibtcdev/aibtc-mcp-server/issues/201)) ([b519a16](https://github.com/aibtcdev/aibtc-mcp-server/commit/b519a16ccf1fe80198ca977895b4829085173991))
+
 ## [1.28.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.28.0...mcp-server-v1.28.1) (2026-02-26)
 
 
