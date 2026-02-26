@@ -212,6 +212,7 @@ export class BitflowService {
   ): Promise<BitflowSwapQuote> {
     this.ensureMainnet();
     const sdk = this.ensureSdk();
+    await this.getAvailableTokens();
     const quoteResult: QuoteResult = await sdk.getQuoteForRoute(tokenXId, tokenYId, amount);
     if (!quoteResult.bestRoute) {
       throw new Error(`No route found for ${tokenXId} -> ${tokenYId}`);
@@ -323,6 +324,7 @@ export class BitflowService {
     if (poolKeys.length === 0) return null;
 
     const tokenPath: string[] = bestRoute.tokenPath || [];
+    const tokenXDecimals: number = bestRoute.tokenXDecimals ?? 6;
     const hops: PriceImpactHop[] = [];
     let currentAmountRaw: bigint | null = null;
 
@@ -375,8 +377,8 @@ export class BitflowService {
 
       let dxRaw: bigint;
       if (i === 0) {
-        // amountIn is in human units from the tool layer
-        dxRaw = BigInt(Math.round(amountIn));
+        // amountIn is in human units; scale to base units to match pool reserves
+        dxRaw = BigInt(Math.round(amountIn * 10 ** tokenXDecimals));
       } else if (currentAmountRaw !== null) {
         dxRaw = currentAmountRaw;
       } else {
@@ -436,6 +438,7 @@ export class BitflowService {
     this.ensureMainnet();
     const sdk = this.ensureSdk();
 
+    await this.getAvailableTokens();
     const quoteResult = await sdk.getQuoteForRoute(tokenXId, tokenYId, amountIn);
     if (!quoteResult.bestRoute) {
       throw new Error(`No route found for ${tokenXId} -> ${tokenYId}`);
@@ -443,7 +446,7 @@ export class BitflowService {
 
     const swapExecutionData: SwapExecutionData = {
       route: quoteResult.bestRoute.route,
-      amount: amountIn,
+      amount: Math.round(amountIn * 10 ** (quoteResult.bestRoute.tokenXDecimals ?? 6)),
       tokenXDecimals: quoteResult.bestRoute.tokenXDecimals,
       tokenYDecimals: quoteResult.bestRoute.tokenYDecimals,
     };
