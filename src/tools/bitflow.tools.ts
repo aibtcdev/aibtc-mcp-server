@@ -7,6 +7,26 @@ import { createJsonResponse, createErrorResponse, resolveFee } from "../utils/in
 
 const HIGH_IMPACT_THRESHOLD = 0.05; // 5%
 
+function baseUnitsToHumanUnits(baseUnits: string, decimals: number): number {
+  if (!/^\d+$/.test(baseUnits)) {
+    throw new Error("amountIn must be a non-negative integer when amountUnit='base'");
+  }
+
+  if (decimals === 0) return Number(baseUnits);
+
+  const padded = baseUnits.padStart(decimals + 1, "0");
+  const whole = padded.slice(0, -decimals);
+  const fraction = padded.slice(-decimals).replace(/0+$/, "");
+  const human = fraction.length > 0 ? `${whole}.${fraction}` : whole;
+
+  const numeric = Number(human);
+  if (!Number.isFinite(numeric)) {
+    throw new Error("Converted amount is too large to handle safely");
+  }
+
+  return numeric;
+}
+
 export function registerBitflowTools(server: McpServer): void {
   // ==========================================================================
   // Public API Tools (No API Key Required)
@@ -163,10 +183,17 @@ Note: Bitflow is only available on mainnet.`,
       inputSchema: {
         tokenX: z.string().describe("Input token ID (e.g. 'token-stx', 'token-sbtc')"),
         tokenY: z.string().describe("Output token ID (e.g. 'token-sbtc', 'token-aeusdc')"),
-        amountIn: z.string().describe("Amount of input token (in smallest units)"),
+        amountIn: z
+          .string()
+          .describe("Amount of input token. Default interpretation is human units (e.g. '100' = 100 LEO)."),
+        amountUnit: z
+          .enum(["human", "base"])
+          .optional()
+          .default("human")
+          .describe("Amount units: 'human' (default, frontend-style) or 'base' (smallest units)."),
       },
     },
-    async ({ tokenX, tokenY, amountIn }) => {
+    async ({ tokenX, tokenY, amountIn, amountUnit }) => {
       try {
         if (NETWORK !== "mainnet") {
           return createJsonResponse({
@@ -176,7 +203,23 @@ Note: Bitflow is only available on mainnet.`,
         }
 
         const bitflowService = getBitflowService(NETWORK);
-        const quote = await bitflowService.getSwapQuote(tokenX, tokenY, Number(amountIn));
+
+        let normalizedAmountIn = Number(amountIn);
+
+        if (!Number.isFinite(normalizedAmountIn) || normalizedAmountIn <= 0) {
+          throw new Error("amountIn must be a positive number");
+        }
+
+        if (amountUnit === "base") {
+          const tokens = await bitflowService.getAvailableTokens();
+          const tokenIn = tokens.find((t) => t.id === tokenX);
+          if (!tokenIn) {
+            throw new Error(`Unknown tokenX '${tokenX}' for base-unit conversion`);
+          }
+          normalizedAmountIn = baseUnitsToHumanUnits(amountIn, tokenIn.decimals);
+        }
+
+        const quote = await bitflowService.getSwapQuote(tokenX, tokenY, normalizedAmountIn);
 
         const priceImpact = quote.priceImpact;
         const highImpactWarning =
@@ -186,6 +229,13 @@ Note: Bitflow is only available on mainnet.`,
 
         return createJsonResponse({
           network: NETWORK,
+          inputs: {
+            tokenX,
+            tokenY,
+            amountIn,
+            amountUnit: amountUnit || "human",
+            normalizedAmountIn,
+          },
           quote,
           priceImpact,
           highImpactWarning,
@@ -255,7 +305,14 @@ Note: Bitflow is only available on mainnet.`,
       inputSchema: {
         tokenX: z.string().describe("Input token ID (contract address)"),
         tokenY: z.string().describe("Output token ID (contract address)"),
-        amountIn: z.string().describe("Amount of input token (in smallest units)"),
+        amountIn: z
+          .string()
+          .describe("Amount of input token. Default interpretation is human units (e.g. '100' = 100 LEO)."),
+        amountUnit: z
+          .enum(["human", "base"])
+          .optional()
+          .default("human")
+          .describe("Amount units: 'human' (default, frontend-style) or 'base' (smallest units)."),
         slippageTolerance: z
           .number()
           .optional()
@@ -272,7 +329,7 @@ Note: Bitflow is only available on mainnet.`,
           .describe("Set true to execute swaps with price impact above 5%"),
       },
     },
-    async ({ tokenX, tokenY, amountIn, slippageTolerance, fee, confirmHighImpact }) => {
+    async ({ tokenX, tokenY, amountIn, amountUnit, slippageTolerance, fee, confirmHighImpact }) => {
       try {
         if (NETWORK !== "mainnet") {
           return createJsonResponse({
@@ -283,8 +340,23 @@ Note: Bitflow is only available on mainnet.`,
 
         const bitflowService = getBitflowService(NETWORK);
 
+        let normalizedAmountIn = Number(amountIn);
+
+        if (!Number.isFinite(normalizedAmountIn) || normalizedAmountIn <= 0) {
+          throw new Error("amountIn must be a positive number");
+        }
+
+        if (amountUnit === "base") {
+          const tokens = await bitflowService.getAvailableTokens();
+          const tokenIn = tokens.find((t) => t.id === tokenX);
+          if (!tokenIn) {
+            throw new Error(`Unknown tokenX '${tokenX}' for base-unit conversion`);
+          }
+          normalizedAmountIn = baseUnitsToHumanUnits(amountIn, tokenIn.decimals);
+        }
+
         // Safety check: require explicit confirmation for high-impact swaps
-        const quote = await bitflowService.getSwapQuote(tokenX, tokenY, Number(amountIn));
+        const quote = await bitflowService.getSwapQuote(tokenX, tokenY, normalizedAmountIn);
         const impact = quote.priceImpact;
         if (impact && impact.combinedImpact > HIGH_IMPACT_THRESHOLD && !confirmHighImpact) {
           return createJsonResponse({
@@ -302,7 +374,7 @@ Note: Bitflow is only available on mainnet.`,
           account,
           tokenX,
           tokenY,
-          Number(amountIn),
+          normalizedAmountIn,
           slippageTolerance || 0.01,
           resolvedFee
         );
@@ -314,6 +386,8 @@ Note: Bitflow is only available on mainnet.`,
             tokenIn: tokenX,
             tokenOut: tokenY,
             amountIn,
+            amountUnit: amountUnit || "human",
+            normalizedAmountIn,
             slippageTolerance: slippageTolerance || 0.01,
             priceImpact: impact,
           },
