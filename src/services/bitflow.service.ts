@@ -138,6 +138,12 @@ export class BitflowService {
     }
   }
 
+  private static readonly DEFAULT_TOKEN_DECIMALS = 6;
+
+  private static toBaseUnits(humanAmount: number, decimals: number): number {
+    return Math.round(humanAmount * 10 ** decimals);
+  }
+
   private ensureMainnet(): void {
     if (this.network !== "mainnet") {
       throw new Error("Bitflow is only available on mainnet");
@@ -324,7 +330,7 @@ export class BitflowService {
     if (poolKeys.length === 0) return null;
 
     const tokenPath: string[] = bestRoute.tokenPath || [];
-    const tokenXDecimals: number = bestRoute.tokenXDecimals ?? 6;
+    const tokenXDecimals = bestRoute.tokenXDecimals ?? BitflowService.DEFAULT_TOKEN_DECIMALS;
     const hops: PriceImpactHop[] = [];
     let currentAmountRaw: bigint | null = null;
 
@@ -377,8 +383,7 @@ export class BitflowService {
 
       let dxRaw: bigint;
       if (i === 0) {
-        // amountIn is in human units; scale to base units to match pool reserves
-        dxRaw = BigInt(Math.round(amountIn * 10 ** tokenXDecimals));
+        dxRaw = BigInt(BitflowService.toBaseUnits(amountIn, tokenXDecimals));
       } else if (currentAmountRaw !== null) {
         dxRaw = currentAmountRaw;
       } else {
@@ -446,7 +451,7 @@ export class BitflowService {
 
     const swapExecutionData: SwapExecutionData = {
       route: quoteResult.bestRoute.route,
-      amount: Math.round(amountIn * 10 ** (quoteResult.bestRoute.tokenXDecimals ?? 6)),
+      amount: BitflowService.toBaseUnits(amountIn, quoteResult.bestRoute.tokenXDecimals ?? BitflowService.DEFAULT_TOKEN_DECIMALS),
       tokenXDecimals: quoteResult.bestRoute.tokenXDecimals,
       tokenYDecimals: quoteResult.bestRoute.tokenYDecimals,
     };
