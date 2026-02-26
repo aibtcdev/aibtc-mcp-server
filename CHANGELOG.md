@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.28.3](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.28.2...mcp-server-v1.28.3) (2026-02-26)
+
+
+### Bug Fixes
+
+* **bitflow:** populate SDK token context and fix unit scaling ([#203](https://github.com/aibtcdev/aibtc-mcp-server/issues/203)) ([ba71074](https://github.com/aibtcdev/aibtc-mcp-server/commit/ba710747ef49583f46aa06edca8075daadaeb187))
+
 ## [1.28.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.28.1...mcp-server-v1.28.2) (2026-02-26)
 
 
