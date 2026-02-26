@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.28.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.28.0...mcp-server-v1.28.1) (2026-02-26)
+
+
+### Bug Fixes
+
+* default network to mainnet instead of testnet ([#198](https://github.com/aibtcdev/aibtc-mcp-server/issues/198)) ([855fa4a](https://github.com/aibtcdev/aibtc-mcp-server/commit/855fa4aa9977e3398680a05d14f5eeab93430332))
+* update test assertions to expect mainnet Bitcoin addresses ([#200](https://github.com/aibtcdev/aibtc-mcp-server/issues/200)) ([f36cea4](https://github.com/aibtcdev/aibtc-mcp-server/commit/f36cea466e35209207d65997cb9b2f5a9675dd6a))
+
 ## [1.28.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.27.0...mcp-server-v1.28.0) (2026-02-24)
 
 
