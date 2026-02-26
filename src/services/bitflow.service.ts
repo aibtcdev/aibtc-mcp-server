@@ -303,7 +303,7 @@ export class BitflowService {
    * swap direction and select the correct reserves and fee fields.
    *
    * @param quoteResult The SDK quote result containing route and swap data
-   * @param amountIn The input amount as passed to the SDK (smallest units)
+   * @param amountIn The input amount in human units (e.g. 100 = 100 tokens)
    * @returns PriceImpactResult or null if route has no XYK pools
    */
   async calculatePriceImpact(
@@ -375,7 +375,7 @@ export class BitflowService {
 
       let dxRaw: bigint;
       if (i === 0) {
-        // amountIn is already in smallest units from the tool layer
+        // amountIn is in human units from the tool layer
         dxRaw = BigInt(Math.round(amountIn));
       } else if (currentAmountRaw !== null) {
         dxRaw = currentAmountRaw;

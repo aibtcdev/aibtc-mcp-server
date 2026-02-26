@@ -1,29 +1,43 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getAccount, getWalletAddress, NETWORK } from "../services/x402.service.js";
-import { getBitflowService } from "../services/bitflow.service.js";
+import { getBitflowService, type BitflowService } from "../services/bitflow.service.js";
 import { getExplorerTxUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse, resolveFee } from "../utils/index.js";
 
 const HIGH_IMPACT_THRESHOLD = 0.05; // 5%
 
-function baseUnitsToHumanUnits(baseUnits: string, decimals: number): number {
-  if (!/^\d+$/.test(baseUnits)) {
-    throw new Error("amountIn must be a non-negative integer when amountUnit='base'");
+/**
+ * Resolve amountIn to the human-unit number the Bitflow SDK expects.
+ * When amountUnit is "human" (default), validates and passes through.
+ * When amountUnit is "base", converts from smallest units using token decimals.
+ */
+async function resolveAmountIn(
+  bitflowService: BitflowService,
+  tokenX: string,
+  amountIn: string,
+  amountUnit: "human" | "base"
+): Promise<number> {
+  if (amountUnit === "base") {
+    if (!/^\d+$/.test(amountIn)) {
+      throw new Error("amountIn must be a non-negative integer when amountUnit='base'");
+    }
+    const tokens = await bitflowService.getAvailableTokens();
+    const tokenIn = tokens.find((t) => t.id === tokenX);
+    if (!tokenIn) {
+      throw new Error(`Unknown tokenX '${tokenX}' for base-unit conversion`);
+    }
+    const numeric = Number(amountIn) / 10 ** tokenIn.decimals;
+    if (!Number.isFinite(numeric)) {
+      throw new Error("Converted amount is too large to handle safely");
+    }
+    return numeric;
   }
 
-  if (decimals === 0) return Number(baseUnits);
-
-  const padded = baseUnits.padStart(decimals + 1, "0");
-  const whole = padded.slice(0, -decimals);
-  const fraction = padded.slice(-decimals).replace(/0+$/, "");
-  const human = fraction.length > 0 ? `${whole}.${fraction}` : whole;
-
-  const numeric = Number(human);
-  if (!Number.isFinite(numeric)) {
-    throw new Error("Converted amount is too large to handle safely");
+  const numeric = Number(amountIn);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    throw new Error("amountIn must be a positive number");
   }
-
   return numeric;
 }
 
@@ -203,21 +217,7 @@ Note: Bitflow is only available on mainnet.`,
         }
 
         const bitflowService = getBitflowService(NETWORK);
-
-        let normalizedAmountIn = Number(amountIn);
-
-        if (!Number.isFinite(normalizedAmountIn) || normalizedAmountIn <= 0) {
-          throw new Error("amountIn must be a positive number");
-        }
-
-        if (amountUnit === "base") {
-          const tokens = await bitflowService.getAvailableTokens();
-          const tokenIn = tokens.find((t) => t.id === tokenX);
-          if (!tokenIn) {
-            throw new Error(`Unknown tokenX '${tokenX}' for base-unit conversion`);
-          }
-          normalizedAmountIn = baseUnitsToHumanUnits(amountIn, tokenIn.decimals);
-        }
+        const normalizedAmountIn = await resolveAmountIn(bitflowService, tokenX, amountIn, amountUnit);
 
         const quote = await bitflowService.getSwapQuote(tokenX, tokenY, normalizedAmountIn);
 
@@ -233,7 +233,7 @@ Note: Bitflow is only available on mainnet.`,
             tokenX,
             tokenY,
             amountIn,
-            amountUnit: amountUnit || "human",
+            amountUnit,
             normalizedAmountIn,
           },
           quote,
@@ -339,21 +339,7 @@ Note: Bitflow is only available on mainnet.`,
         }
 
         const bitflowService = getBitflowService(NETWORK);
-
-        let normalizedAmountIn = Number(amountIn);
-
-        if (!Number.isFinite(normalizedAmountIn) || normalizedAmountIn <= 0) {
-          throw new Error("amountIn must be a positive number");
-        }
-
-        if (amountUnit === "base") {
-          const tokens = await bitflowService.getAvailableTokens();
-          const tokenIn = tokens.find((t) => t.id === tokenX);
-          if (!tokenIn) {
-            throw new Error(`Unknown tokenX '${tokenX}' for base-unit conversion`);
-          }
-          normalizedAmountIn = baseUnitsToHumanUnits(amountIn, tokenIn.decimals);
-        }
+        const normalizedAmountIn = await resolveAmountIn(bitflowService, tokenX, amountIn, amountUnit);
 
         // Safety check: require explicit confirmation for high-impact swaps
         const quote = await bitflowService.getSwapQuote(tokenX, tokenY, normalizedAmountIn);
@@ -386,7 +372,7 @@ Note: Bitflow is only available on mainnet.`,
             tokenIn: tokenX,
             tokenOut: tokenY,
             amountIn,
-            amountUnit: amountUnit || "human",
+            amountUnit,
             normalizedAmountIn,
             slippageTolerance: slippageTolerance || 0.01,
             priceImpact: impact,
