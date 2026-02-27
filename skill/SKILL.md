@@ -109,7 +109,7 @@ Wallets are stored encrypted at `~/.aibtc/`.
 | `stacks_verify_message` | Verify Stacks message signature and recover signer | `message`, `signature`, `expectedSigner` (optional) |
 | `btc_sign_message` | Sign plain text with Bitcoin key (BIP-137/BIP-322) | `message`, `addressType` (optional) |
 | `btc_verify_message` | Verify Bitcoin message signature (auto-detects BIP-137/BIP-322) | `message`, `signature`, `address` (optional) |
-| `nostr_sign_event` | Sign a Nostr event (NIP-01) with BIP-340 Schnorr | `kind`, `content`, `tags` (optional), `created_at` (optional) |
+| `nostr_sign_event` | Sign a Nostr event (NIP-01) with BIP-340 Schnorr using NIP-06 derived key by default (m/44'/1237'/0'/0/0) | `kind`, `content`, `tags` (optional), `created_at` (optional), `keySource` (`"nostr"` default via NIP-06 path, `"taproot"` for P2TR key, `"segwit"` for P2WPKH key) |
 | `schnorr_sign_digest` | Sign a raw 32-byte digest with Schnorr/BIP-340 | `digest`, `confirmBlindSign`, `auxRand` (optional) |
 | `schnorr_verify_digest` | Verify a BIP-340 Schnorr signature over a digest | `digest`, `signature`, `publicKey` |
 
