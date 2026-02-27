@@ -30,7 +30,7 @@ import {
 } from "../utils/errors.js";
 import { NETWORK, type Network } from "../config/networks.js";
 import type { Account } from "../transactions/builder.js";
-import { deriveBitcoinAddress, deriveBitcoinKeyPair, deriveTaprootAddress, deriveTaprootKeyPair } from "../utils/bitcoin.js";
+import { deriveBitcoinAddress, deriveBitcoinKeyPair, deriveTaprootAddress, deriveTaprootKeyPair, deriveNostrKeyPair } from "../utils/bitcoin.js";
 
 /**
  * Session state for unlocked wallet
@@ -231,6 +231,12 @@ class WalletManager {
       internalPubKeyBytes: taprootPublicKey,
     } = deriveTaprootKeyPair(mnemonic, walletMeta.network);
 
+    // Derive Nostr key pair via NIP-06 path m/44'/1237'/0'/0/0
+    const {
+      privateKey: nostrPrivateKey,
+      publicKey: nostrPublicKey,
+    } = deriveNostrKeyPair(mnemonic, walletMeta.network);
+
     const account: Account = {
       address,
       btcAddress,
@@ -240,6 +246,8 @@ class WalletManager {
       btcPublicKey,
       taprootPrivateKey,
       taprootPublicKey,
+      nostrPrivateKey,
+      nostrPublicKey,
       sponsorApiKey: walletMeta.sponsorApiKey,
       network: walletMeta.network,
     };
@@ -286,6 +294,8 @@ class WalletManager {
       if (acct.btcPublicKey) acct.btcPublicKey.fill(0);
       if (acct.taprootPrivateKey) acct.taprootPrivateKey.fill(0);
       if (acct.taprootPublicKey) acct.taprootPublicKey.fill(0);
+      if (acct.nostrPrivateKey) acct.nostrPrivateKey.fill(0);
+      if (acct.nostrPublicKey) acct.nostrPublicKey.fill(0);
     }
     this.session = null;
   }

@@ -55,6 +55,31 @@ export interface TaprootKeyPair extends TaprootAddress {
 }
 
 /**
+ * Nostr key pair derivation result (includes private key for NIP-01 event signing)
+ *
+ * Derived via NIP-06 path m/44'/1237'/0'/0/0 (coin type 1237 per SLIP-44).
+ *
+ * SECURITY: This interface exposes the private key as Uint8Array.
+ * The private key should:
+ * - NEVER be serialized to hex string
+ * - NEVER be logged or stored persistently
+ * - Only be held in memory during signing operations
+ * - Be cleared after use (session lock)
+ */
+export interface NostrKeyPair {
+  /**
+   * Private key as raw bytes (32 bytes) for BIP-340 Schnorr signing.
+   * SECURITY: Never serialize. Use only for Nostr event signing.
+   */
+  privateKey: Uint8Array;
+  /**
+   * Public key as x-only bytes (32 bytes, no 02/03 prefix).
+   * This is the Nostr public key used in NIP-01 events.
+   */
+  publicKey: Uint8Array;
+}
+
+/**
  * Bitcoin key pair derivation result (includes private key for signing)
  *
  * SECURITY: This interface exposes the private key as Uint8Array.
@@ -397,5 +422,74 @@ export function deriveTaprootKeyPair(
     internalPubKey,
     privateKey,
     internalPubKeyBytes,
+  };
+}
+
+/**
+ * Derive Nostr key pair from BIP39 mnemonic using NIP-06 derivation path
+ *
+ * Follows NIP-06 derivation path:
+ * - m/44'/1237'/0'/0/0 (coin type 1237 per SLIP-44, same for mainnet and testnet)
+ *
+ * Returns x-only public key and raw private key for BIP-340 Schnorr signing:
+ * - publicKey: 32 bytes (x-coordinate only, no 02/03 prefix)
+ * - privateKey: 32 bytes (raw scalar)
+ *
+ * SECURITY WARNING: This function returns the private key as Uint8Array.
+ * - NEVER serialize the private key to hex string
+ * - NEVER log or store the private key persistently
+ * - Only hold in memory during signing operations
+ * - Clear from memory when wallet is locked
+ *
+ * @param mnemonic - BIP39 mnemonic phrase (12 or 24 words)
+ * @param network - Network parameter (unused for Nostr; path is network-independent)
+ * @returns Nostr x-only public key and private key (both Uint8Array)
+ *
+ * @example
+ * ```typescript
+ * const { publicKey, privateKey } = deriveNostrKeyPair(mnemonic, 'mainnet');
+ * // publicKey is Uint8Array(32) - x-only Nostr public key
+ * // privateKey is Uint8Array(32) - use for Schnorr signing, never serialize
+ * ```
+ */
+export function deriveNostrKeyPair(
+  mnemonic: string,
+  _network: Network
+): NostrKeyPair {
+  // Convert mnemonic to seed
+  const seed = mnemonicToSeedSync(mnemonic);
+
+  // Create master key from seed
+  const masterKey = HDKey.fromMasterSeed(seed);
+
+  // NIP-06 derivation path for Nostr
+  // m / purpose' / coin_type' / account' / change / address_index
+  // Purpose: 44 (BIP44)
+  // Coin type: 1237 (Nostr, per SLIP-44 — same for all networks)
+  // Account: 0 (first account)
+  // Change: 0 (external)
+  // Address index: 0 (first key)
+  const derivationPath = "m/44'/1237'/0'/0/0";
+
+  // Derive key at path
+  const derivedKey = masterKey.derive(derivationPath);
+
+  if (!derivedKey.publicKey) {
+    throw new Error("Failed to derive Nostr public key");
+  }
+
+  if (!derivedKey.privateKey) {
+    throw new Error("Failed to derive Nostr private key");
+  }
+
+  // Get x-only public key (32 bytes, strip 02/03 prefix from 33-byte compressed key)
+  const publicKey = new Uint8Array(derivedKey.publicKey.slice(1));
+
+  // Get private key as Uint8Array (never convert to hex)
+  const privateKey = new Uint8Array(derivedKey.privateKey);
+
+  return {
+    privateKey,
+    publicKey,
   };
 }
