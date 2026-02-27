@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.29.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.28.4...mcp-server-v1.29.0) (2026-02-27)
+
+
+### Features
+
+* **signing:** add nostr_sign_event tool for NIP-01 event signing ([#211](https://github.com/aibtcdev/aibtc-mcp-server/issues/211)) ([18108de](https://github.com/aibtcdev/aibtc-mcp-server/commit/18108def78e68ef73d4449916916260e5e8ac4bc))
+
 ## [1.28.4](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.28.3...mcp-server-v1.28.4) (2026-02-27)
 
 
