@@ -98,6 +98,21 @@ Wallets are stored encrypted at `~/.aibtc/`.
 | `wallet_switch` | Switch active wallet |
 | `wallet_status` | Get wallet/session status |
 
+### Message Signing
+
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `sip018_sign` | Sign structured Clarity data (SIP-018) | `message`, `domain` |
+| `sip018_verify` | Verify SIP-018 signature and recover signer | `messageHash`, `signature`, `expectedSigner` (optional) |
+| `sip018_hash` | Compute SIP-018 hash without signing | `message`, `domain` |
+| `stacks_sign_message` | Sign plain text with Stacks prefix (SIWS-compatible) | `message` |
+| `stacks_verify_message` | Verify Stacks message signature and recover signer | `message`, `signature`, `expectedSigner` (optional) |
+| `btc_sign_message` | Sign plain text with Bitcoin key (BIP-137/BIP-322) | `message`, `addressType` (optional) |
+| `btc_verify_message` | Verify Bitcoin message signature (auto-detects BIP-137/BIP-322) | `message`, `signature`, `address` (optional) |
+| `nostr_sign_event` | Sign a Nostr event (NIP-01) with BIP-340 Schnorr | `kind`, `content`, `tags` (optional), `created_at` (optional) |
+| `schnorr_sign_digest` | Sign a raw 32-byte digest with Schnorr/BIP-340 | `digest`, `confirmBlindSign`, `auxRand` (optional) |
+| `schnorr_verify_digest` | Verify a BIP-340 Schnorr signature over a digest | `digest`, `signature`, `publicKey` |
+
 ## Units and Addresses
 
 **Amounts**: Always in satoshis (1 BTC = 100,000,000 satoshis)
