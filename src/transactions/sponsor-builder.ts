@@ -94,6 +94,33 @@ export async function sponsoredContractCall(
 }
 
 /**
+ * High-level helper: build a sponsored STX transfer, submit to relay, and
+ * return a TransferResult. Resolves the API key and handles relay errors.
+ *
+ * This is the primary entry point for services that need sponsored STX transfers.
+ */
+export async function sponsoredStxTransfer(
+  account: Account,
+  recipient: string,
+  amount: bigint,
+  memo: string | undefined,
+  network: Network
+): Promise<TransferResult> {
+  const apiKey = resolveSponsorApiKey(account);
+
+  const response = await transferStxSponsored(
+    { senderKey: account.privateKey, recipient, amount, memo, network },
+    apiKey
+  );
+
+  if (!response.success) {
+    throw new Error(formatRelayError(response));
+  }
+
+  return { txid: response.txid!, rawTx: "" };
+}
+
+/**
  * Build and submit a sponsored STX transfer transaction
  */
 export async function transferStxSponsored(
