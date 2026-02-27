@@ -4,10 +4,49 @@ import { getAccount, getWalletAddress, NETWORK } from "../services/x402.service.
 import { getSbtcService } from "../services/sbtc.service.js";
 import { getSbtcDepositService } from "../services/sbtc-deposit.service.js";
 import { getExplorerTxUrl } from "../config/networks.js";
+import { getContracts, parseContractId } from "../config/index.js";
 import { createJsonResponse, createErrorResponse, resolveFee } from "../utils/index.js";
 import { getWalletManager } from "../services/wallet-manager.js";
 import { MempoolApi, getMempoolTxUrl } from "../services/mempool-api.js";
 import { sponsoredSchema } from "./schemas.js";
+import { callContract } from "../transactions/builder.js";
+import { sponsoredContractCall } from "../transactions/sponsor-builder.js";
+import { createFungiblePostCondition } from "../transactions/post-conditions.js";
+import { uintCV, tupleCV, bufferCV } from "@stacks/transactions";
+
+/** sbtc-withdrawal contract address version mapping */
+const BTC_ADDRESS_VERSIONS: Record<string, number> = {
+  pkh: 0x00,   // P2PKH (20-byte hash)
+  sh: 0x01,    // P2SH (20-byte hash)
+  wpkh: 0x04,  // P2WPKH (20-byte hash, bc1q...)
+  tr: 0x06,    // P2TR (32-byte hash, bc1p...)
+};
+
+/**
+ * Parse a Bitcoin address into the {version, hashbytes} tuple
+ * expected by the sbtc-withdrawal contract.
+ */
+function parseBtcAddressForWithdrawal(btcAddress: string): {
+  version: Buffer;
+  hashbytes: Buffer;
+} {
+  const { Address, NETWORK: BTC_MAINNET, TEST_NETWORK: BTC_TESTNET } = require("@scure/btc-signer");
+  const net = NETWORK === "mainnet" ? BTC_MAINNET : BTC_TESTNET;
+  const decoded = Address(net).decode(btcAddress);
+
+  const version = BTC_ADDRESS_VERSIONS[decoded.type];
+  if (version === undefined) {
+    throw new Error(
+      `Unsupported Bitcoin address type: ${decoded.type}. ` +
+      "Supported: P2PKH, P2SH, P2WPKH (bc1q), P2TR (bc1p)"
+    );
+  }
+
+  return {
+    version: Buffer.from([version]),
+    hashbytes: Buffer.from(decoded.hash),
+  };
+}
 
 export function registerSbtcTools(server: McpServer): void {
   // Get sBTC balance
@@ -363,6 +402,190 @@ Set includeOrdinals=true to allow spending ordinal UTXOs (advanced users only).`
             network: NETWORK,
           });
         }
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Initiate sBTC withdrawal (peg-out: sBTC → BTC L1)
+  server.registerTool(
+    "sbtc_withdraw",
+    {
+      description: `Initiate an sBTC withdrawal (peg-out) to receive BTC on Bitcoin L1.
+
+Burns sBTC on Stacks and requests the sBTC signers to send equivalent BTC
+to your specified Bitcoin address. Processing time depends on signer set
+availability (typically within a few hours).
+
+Requires an unlocked wallet with sufficient sBTC balance.`,
+      inputSchema: {
+        amount: z
+          .number()
+          .int()
+          .positive()
+          .describe("Amount to withdraw in satoshis (e.g. 5000 for 5000 sats)"),
+        recipient: z
+          .string()
+          .describe(
+            "Bitcoin address to receive the BTC. Supports P2PKH, P2SH, P2WPKH (bc1q...), P2TR (bc1p...). " +
+            "Defaults to your wallet's SegWit address if not provided."
+          )
+          .optional(),
+        maxFee: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .default(80000)
+          .describe("Max fee the sBTC signers can deduct in satoshis (default: 80000)"),
+        fee: z
+          .string()
+          .optional()
+          .describe("Stacks tx fee: 'low' | 'medium' | 'high' or micro-STX amount. Auto-estimated if omitted."),
+        sponsored: sponsoredSchema,
+      },
+    },
+    async ({ amount, recipient, maxFee, fee, sponsored }) => {
+      try {
+        const account = await getAccount();
+
+        // Use wallet's BTC address if no recipient specified
+        const btcRecipient = recipient || account.btcAddress;
+        if (!btcRecipient) {
+          throw new Error(
+            "No recipient address specified and wallet has no BTC address. " +
+            "Provide a Bitcoin address to receive the withdrawal."
+          );
+        }
+
+        // Parse Bitcoin address into version + hashbytes
+        const { version, hashbytes } = parseBtcAddressForWithdrawal(btcRecipient);
+
+        // Build contract call args
+        const contracts = getContracts(NETWORK);
+        const sbtcContract = contracts.SBTC_TOKEN;
+        const withdrawalContractId = sbtcContract.replace("sbtc-token", "sbtc-withdrawal");
+        const { address: contractAddress, name: contractName } = parseContractId(withdrawalContractId);
+
+        const functionArgs = [
+          uintCV(amount),
+          tupleCV({
+            version: bufferCV(version),
+            hashbytes: bufferCV(hashbytes),
+          }),
+          uintCV(maxFee),
+        ];
+
+        // Post condition: sender burns exactly `amount` of sBTC
+        const postCondition = createFungiblePostCondition(
+          account.address,
+          sbtcContract,
+          "sbtc-token",
+          "eq",
+          BigInt(amount)
+        );
+
+        const resolvedFee = await resolveFee(fee, NETWORK, "contract_call");
+
+        const contractCallOptions = {
+          contractAddress,
+          contractName,
+          functionName: "initiate-withdrawal-request",
+          functionArgs,
+          postConditions: [postCondition],
+          ...(resolvedFee !== undefined && { fee: resolvedFee }),
+        };
+
+        let result;
+        if (sponsored) {
+          result = await sponsoredContractCall(account, contractCallOptions, NETWORK);
+        } else {
+          result = await callContract(account, contractCallOptions);
+        }
+
+        const btcAmount = (amount / 100_000_000).toFixed(8);
+
+        return createJsonResponse({
+          success: true,
+          txid: result.txid,
+          explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
+          withdrawal: {
+            amount: btcAmount + " BTC",
+            amountSats: amount,
+            recipient: btcRecipient,
+            maxSignerFee: maxFee + " sats",
+            sender: account.address,
+          },
+          network: NETWORK,
+          note: "Withdrawal request submitted. The sBTC signers will process this and send BTC to the recipient address. Use sbtc_withdraw_status to check progress.",
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Check sBTC withdrawal status
+  server.registerTool(
+    "sbtc_withdraw_status",
+    {
+      description: `Check the status of an sBTC withdrawal request.
+
+Checks the Stacks transaction status of the withdrawal request. Once the
+Stacks transaction confirms, the sBTC signers will process it and send
+BTC to the recipient address.`,
+      inputSchema: {
+        txid: z
+          .string()
+          .describe("Stacks transaction ID from the initiate-withdrawal-request call"),
+      },
+    },
+    async ({ txid }) => {
+      try {
+        // Fetch transaction status from Hiro API
+        const baseUrl = NETWORK === "mainnet"
+          ? "https://api.hiro.so"
+          : "https://api.testnet.hiro.so";
+        const response = await fetch(`${baseUrl}/extended/v1/tx/${txid}`);
+        if (!response.ok) {
+          if (response.status === 404) {
+            return createJsonResponse({
+              txid,
+              status: "not_found",
+              network: NETWORK,
+              note: "Transaction not found. It may still be in the mempool or the txid may be incorrect.",
+              explorerUrl: getExplorerTxUrl(txid, NETWORK),
+            });
+          }
+          throw new Error(`Hiro API returned ${response.status}`);
+        }
+
+        const txData = await response.json() as {
+          tx_status: string;
+          block_height: number | null;
+          burn_block_height: number | null;
+        };
+
+        let note: string;
+        if (txData.tx_status === "success") {
+          note = "Withdrawal request confirmed on Stacks. The sBTC signers will process it and send BTC to the recipient. This may take a few hours.";
+        } else if (txData.tx_status === "pending") {
+          note = "Withdrawal request is pending in the mempool. Wait for confirmation.";
+        } else {
+          note = `Transaction status: ${txData.tx_status}. Check the explorer for details.`;
+        }
+
+        return createJsonResponse({
+          txid,
+          txStatus: txData.tx_status,
+          blockHeight: txData.block_height,
+          burnBlockHeight: txData.burn_block_height,
+          confirmed: txData.tx_status === "success",
+          explorerUrl: getExplorerTxUrl(txid, NETWORK),
+          network: NETWORK,
+          note,
+        });
+      } catch (error) {
         return createErrorResponse(error);
       }
     }
