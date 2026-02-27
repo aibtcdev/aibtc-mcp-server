@@ -2,8 +2,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getAccount, NETWORK } from "../services/x402.service.js";
 import { transferStx, broadcastSignedTransaction } from "../transactions/builder.js";
+import { sponsoredStxTransfer } from "../transactions/sponsor-builder.js";
 import { getExplorerTxUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse, resolveFee } from "../utils/index.js";
+import { sponsoredSchema } from "./schemas.js";
 
 export function registerTransferTools(server: McpServer): void {
   // Transfer STX
@@ -23,14 +25,22 @@ Example: To send 2 STX, use amount "2000000" (micro-STX).
         fee: z
           .string()
           .optional()
-          .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount. If omitted, auto-estimated."),
+          .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount. If omitted, auto-estimated. Ignored when sponsored=true."),
+        sponsored: sponsoredSchema,
       },
     },
-    async ({ recipient, amount, memo, fee }) => {
+    async ({ recipient, amount, memo, fee, sponsored }) => {
       try {
         const account = await getAccount();
-        const resolvedFee = await resolveFee(fee, NETWORK, "token_transfer");
-        const result = await transferStx(account, recipient, BigInt(amount), memo, resolvedFee);
+
+        let result;
+        if (sponsored) {
+          // Sponsored: relay pays gas fees, so fee parameter is ignored
+          result = await sponsoredStxTransfer(account, recipient, BigInt(amount), memo, NETWORK);
+        } else {
+          const resolvedFee = await resolveFee(fee, NETWORK, "token_transfer");
+          result = await transferStx(account, recipient, BigInt(amount), memo, resolvedFee);
+        }
 
         const stxAmount = (BigInt(amount) / BigInt(1000000)).toString();
 
@@ -44,6 +54,7 @@ Example: To send 2 STX, use amount "2000000" (micro-STX).
           memo: memo || null,
           network: NETWORK,
           explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
+          ...(sponsored && { sponsored: true }),
         });
       } catch (error) {
         return createErrorResponse(error);
