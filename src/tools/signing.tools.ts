@@ -16,9 +16,13 @@
  * - btc_sign_message: Sign messages with Bitcoin private key (BIP-137 for legacy, BIP-322 for bc1q/bc1p)
  * - btc_verify_message: Verify Bitcoin message signatures (auto-detects BIP-137 vs BIP-322)
  *
+ * Nostr Event Signing (NIP-01):
+ * - nostr_sign_event: Sign a Nostr event with BIP-340 Schnorr using the wallet's Taproot key
+ *
  * SIP-018 signatures can be verified both off-chain and on-chain by smart contracts.
  * Stacks message signatures are SIWS-compatible for web authentication flows.
  * Bitcoin signatures use BIP-137 format compatible with most Bitcoin wallets.
+ * Nostr events are signed with BIP-340 Schnorr and can be published to Nostr relays.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -47,7 +51,7 @@ import {
 import { hashMessage, verifyMessageSignatureRsv, hashSha256Sync } from "@stacks/encryption";
 import { bytesToHex } from "@stacks/common";
 import { secp256k1, schnorr } from "@noble/curves/secp256k1.js";
-import { hex } from "@scure/base";
+import { hex, bech32 } from "@scure/base";
 import {
   Transaction,
   p2wpkh,
@@ -1680,6 +1684,109 @@ export function registerSigningTools(server: McpServer): void {
             : "Signature is INVALID",
           note:
             "BIP-340 Schnorr verification. Use for validating signatures in Taproot multisig coordination.",
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Sign a Nostr event (NIP-01) with Schnorr/BIP-340
+  server.registerTool(
+    "nostr_sign_event",
+    {
+      description:
+        "Sign a Nostr event (NIP-01) using the wallet's BIP-340 Schnorr key. " +
+        "Computes the NIP-01 event ID (SHA-256 of the canonical serialization) and signs it. " +
+        "Returns the complete signed event ready to publish to Nostr relays. " +
+        "Requires an unlocked wallet.",
+      inputSchema: {
+        kind: z
+          .number()
+          .int()
+          .nonnegative()
+          .describe(
+            "Nostr event kind (e.g., 1 for short text note, 0 for metadata)"
+          ),
+        content: z.string().describe("Event content string"),
+        tags: z
+          .array(z.array(z.string()))
+          .optional()
+          .describe(
+            "Optional array of tags (each tag is an array of strings). Defaults to []."
+          ),
+        created_at: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            "Unix timestamp in seconds. Defaults to current time."
+          ),
+      },
+    },
+    async ({ kind, content, tags, created_at }) => {
+      try {
+        const account = requireUnlockedWallet();
+
+        if (!account.taprootPrivateKey || !account.taprootPublicKey) {
+          throw new Error(
+            "Taproot keys not available. Ensure the wallet has Taproot key derivation."
+          );
+        }
+
+        // x-only public key as hex (NIP-01 pubkey field)
+        const xOnlyPubkey = account.taprootPublicKey;
+        const pubkeyHex = hex.encode(xOnlyPubkey);
+
+        // Resolve defaults
+        const eventTags = tags ?? [];
+        const eventCreatedAt = created_at ?? Math.floor(Date.now() / 1000);
+
+        // NIP-01 canonical serialization for event ID computation
+        const serialized = JSON.stringify([
+          0,
+          pubkeyHex,
+          eventCreatedAt,
+          kind,
+          eventTags,
+          content,
+        ]);
+
+        // Event ID = SHA-256 of the UTF-8 serialized event
+        const serializedBytes = new TextEncoder().encode(serialized);
+        const eventIdBytes = hashSha256Sync(serializedBytes);
+        const eventId = hex.encode(eventIdBytes);
+
+        // Sign the event ID with BIP-340 Schnorr
+        const signatureBytes = schnorr.sign(eventIdBytes, account.taprootPrivateKey);
+        const sig = hex.encode(signatureBytes);
+
+        // NIP-19 npub encoding of the x-only public key
+        const npubWords = bech32.toWords(xOnlyPubkey);
+        const npub = bech32.encode("npub", npubWords, 1023);
+
+        // Complete signed Nostr event (NIP-01 format)
+        const signedEvent = {
+          id: eventId,
+          pubkey: pubkeyHex,
+          created_at: eventCreatedAt,
+          kind,
+          tags: eventTags,
+          content,
+          sig,
+        };
+
+        return createJsonResponse({
+          success: true,
+          event: signedEvent,
+          npub,
+          address: account.taprootAddress,
+          network: NETWORK,
+          signatureFormat: "BIP-340 Schnorr (64 bytes)",
+          serialization: serialized,
+          note:
+            "Publish the 'event' object to Nostr relays via WebSocket (Nostr protocol). " +
+            "The 'npub' is the NIP-19 encoded public key for sharing your Nostr identity.",
         });
       } catch (error) {
         return createErrorResponse(error);
