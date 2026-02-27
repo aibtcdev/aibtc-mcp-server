@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { PostConditionMode, PostCondition } from "@stacks/transactions";
 import { getAccount, NETWORK } from "../services/x402.service.js";
-import { callContract, deployContract } from "../transactions/builder.js";
+import { callContract, deployContract, type TransferResult } from "../transactions/builder.js";
 import { sponsoredContractCall, sponsoredContractDeploy } from "../transactions/sponsor-builder.js";
 import { parseArgToClarityValue } from "../transactions/clarity-values.js";
 import { getHiroApi, getTransactionStatus } from "../services/hiro-api.js";
@@ -157,7 +157,7 @@ Post conditions constrain what assets the transaction can move. Each condition i
           ...(parsedPostConditions && { postConditions: parsedPostConditions }),
         };
 
-        let result;
+        let result: TransferResult;
         if (sponsored) {
           // Sponsored: relay pays gas fees, so fee parameter is ignored
           result = await sponsoredContractCall(account, contractCallOptions, NETWORK);
@@ -204,7 +204,7 @@ Post conditions constrain what assets the transaction can move. Each condition i
       try {
         const account = await getAccount();
 
-        let result;
+        let result: TransferResult;
         if (sponsored) {
           // Sponsored: relay pays gas fees, so fee parameter is ignored
           result = await sponsoredContractDeploy(account, { contractName, codeBody }, NETWORK);

@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getAccount, NETWORK } from "../services/x402.service.js";
-import { transferStx, broadcastSignedTransaction } from "../transactions/builder.js";
+import { transferStx, broadcastSignedTransaction, type TransferResult } from "../transactions/builder.js";
 import { sponsoredStxTransfer } from "../transactions/sponsor-builder.js";
 import { getExplorerTxUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse, resolveFee } from "../utils/index.js";
@@ -33,7 +33,7 @@ Example: To send 2 STX, use amount "2000000" (micro-STX).
       try {
         const account = await getAccount();
 
-        let result;
+        let result: TransferResult;
         if (sponsored) {
           // Sponsored: relay pays gas fees, so fee parameter is ignored
           result = await sponsoredStxTransfer(account, recipient, BigInt(amount), memo, NETWORK);
