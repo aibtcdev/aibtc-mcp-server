@@ -14,7 +14,7 @@ import {
 import { hashMessage, verifyMessageSignatureRsv, hashSha256Sync } from "@stacks/encryption";
 import { bytesToHex, hexToBytes } from "@stacks/common";
 import { schnorr } from "@noble/curves/secp256k1.js";
-import { hex } from "@scure/base";
+import { hex, bech32 } from "@scure/base";
 import { generateWallet, getStxAddress } from "@stacks/wallet-sdk";
 import { STACKS_TESTNET } from "@stacks/network";
 
@@ -542,6 +542,266 @@ describe("Schnorr Signing (BIP-340 for Taproot)", () => {
       // Signatures should be different
       expect(hex.encode(signatures[0])).not.toBe(hex.encode(signatures[1]));
       expect(hex.encode(signatures[1])).not.toBe(hex.encode(signatures[2]));
+    });
+  });
+});
+
+/**
+ * Tests for Nostr event signing (NIP-01)
+ *
+ * These tests verify that NIP-01 event ID computation, Schnorr signature validity,
+ * and NIP-19 npub encoding work correctly using the same crypto primitives as
+ * the nostr_sign_event tool in src/tools/signing.tools.ts.
+ *
+ * The algorithm under test:
+ *   serialized = JSON.stringify([0, pubkeyHex, created_at, kind, tags, content])
+ *   eventId    = SHA-256(UTF-8(serialized))
+ *   sig        = schnorr.sign(eventIdBytes, taprootPrivateKey)
+ *   npub       = bech32.encode("npub", bech32.toWords(xOnlyPubkey), 1023)
+ */
+describe("nostr_sign_event (NIP-01)", () => {
+  // Helpers that replicate the exact algorithm from signing.tools.ts
+  function computeEventId(
+    pubkeyHex: string,
+    created_at: number,
+    kind: number,
+    tags: string[][],
+    content: string
+  ): { serialized: string; eventIdBytes: Uint8Array; eventId: string } {
+    const serialized = JSON.stringify([0, pubkeyHex, created_at, kind, tags, content]);
+    const serializedBytes = new TextEncoder().encode(serialized);
+    const eventIdBytes = hashSha256Sync(serializedBytes);
+    const eventId = hex.encode(eventIdBytes);
+    return { serialized, eventIdBytes, eventId };
+  }
+
+  // Fixed test key (same as used throughout the signing tests)
+  const PRIVATE_KEY = hex.decode(
+    "0000000000000000000000000000000000000000000000000000000000000001"
+  );
+  const PUBLIC_KEY = schnorr.getPublicKey(PRIVATE_KEY);
+  const PUBKEY_HEX = hex.encode(PUBLIC_KEY);
+
+  describe("NIP-01 event ID computation", () => {
+    it("should produce deterministic event ID for same inputs", () => {
+      const { eventId: id1 } = computeEventId(PUBKEY_HEX, 1700000000, 1, [], "hello nostr");
+      const { eventId: id2 } = computeEventId(PUBKEY_HEX, 1700000000, 1, [], "hello nostr");
+
+      expect(id1).toBe(id2);
+      expect(id1).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it("should produce different event IDs for different content", () => {
+      const { eventId: id1 } = computeEventId(PUBKEY_HEX, 1700000000, 1, [], "hello nostr");
+      const { eventId: id2 } = computeEventId(PUBKEY_HEX, 1700000000, 1, [], "different content");
+
+      expect(id1).not.toBe(id2);
+    });
+
+    it("should produce different event IDs for different kinds", () => {
+      const { eventId: id1 } = computeEventId(PUBKEY_HEX, 1700000000, 1, [], "same content");
+      const { eventId: id2 } = computeEventId(PUBKEY_HEX, 1700000000, 0, [], "same content");
+
+      expect(id1).not.toBe(id2);
+    });
+
+    it("should produce different event IDs for different created_at", () => {
+      const { eventId: id1 } = computeEventId(PUBKEY_HEX, 1700000000, 1, [], "same content");
+      const { eventId: id2 } = computeEventId(PUBKEY_HEX, 1700000001, 1, [], "same content");
+
+      expect(id1).not.toBe(id2);
+    });
+  });
+
+  describe("NIP-01 serialization format", () => {
+    it("should serialize in correct NIP-01 canonical order", () => {
+      const { serialized } = computeEventId(PUBKEY_HEX, 1700000000, 1, [], "test");
+      const parsed = JSON.parse(serialized);
+
+      // NIP-01 format: [0, pubkey, created_at, kind, tags, content]
+      expect(parsed[0]).toBe(0);
+      expect(parsed[1]).toBe(PUBKEY_HEX);
+      expect(parsed[2]).toBe(1700000000);
+      expect(parsed[3]).toBe(1);
+      expect(parsed[4]).toEqual([]);
+      expect(parsed[5]).toBe("test");
+    });
+
+    it("should serialize empty tags as []", () => {
+      const { serialized } = computeEventId(PUBKEY_HEX, 1700000000, 1, [], "content");
+      const parsed = JSON.parse(serialized);
+
+      expect(parsed[4]).toEqual([]);
+    });
+
+    it("should include non-empty tags in serialization", () => {
+      const tags = [["e", "abc123"], ["p", "def456"]];
+      const { serialized } = computeEventId(PUBKEY_HEX, 1700000000, 1, tags, "content");
+      const parsed = JSON.parse(serialized);
+
+      expect(parsed[4]).toEqual(tags);
+    });
+  });
+
+  describe("Sign and verify round-trip", () => {
+    it("should produce a valid Schnorr signature over the event ID", () => {
+      const { eventIdBytes } = computeEventId(PUBKEY_HEX, 1700000000, 1, [], "hello nostr");
+      const sig = schnorr.sign(eventIdBytes, PRIVATE_KEY);
+
+      const isValid = schnorr.verify(sig, eventIdBytes, PUBLIC_KEY);
+      expect(isValid).toBe(true);
+    });
+
+    it("should produce a 64-byte signature", () => {
+      const { eventIdBytes } = computeEventId(PUBKEY_HEX, 1700000000, 1, [], "hello nostr");
+      const sig = schnorr.sign(eventIdBytes, PRIVATE_KEY);
+
+      expect(sig.length).toBe(64);
+    });
+
+    it("should produce a 32-byte event ID", () => {
+      const { eventIdBytes } = computeEventId(PUBKEY_HEX, 1700000000, 1, [], "hello nostr");
+
+      expect(eventIdBytes.length).toBe(32);
+    });
+
+    it("should fail verification with wrong event ID", () => {
+      const { eventIdBytes } = computeEventId(PUBKEY_HEX, 1700000000, 1, [], "original");
+      const { eventIdBytes: wrongIdBytes } = computeEventId(PUBKEY_HEX, 1700000000, 1, [], "tampered");
+      const sig = schnorr.sign(eventIdBytes, PRIVATE_KEY);
+
+      const isValid = schnorr.verify(sig, wrongIdBytes, PUBLIC_KEY);
+      expect(isValid).toBe(false);
+    });
+
+    it("should fail verification with wrong public key", () => {
+      const { eventIdBytes } = computeEventId(PUBKEY_HEX, 1700000000, 1, [], "hello nostr");
+      const sig = schnorr.sign(eventIdBytes, PRIVATE_KEY);
+
+      const wrongPrivKey = hex.decode(
+        "0000000000000000000000000000000000000000000000000000000000000002"
+      );
+      const wrongPubKey = schnorr.getPublicKey(wrongPrivKey);
+
+      const isValid = schnorr.verify(sig, eventIdBytes, wrongPubKey);
+      expect(isValid).toBe(false);
+    });
+  });
+
+  describe("NIP-19 npub encoding", () => {
+    it("should encode pubkey as bech32 with npub HRP", () => {
+      const npubWords = bech32.toWords(PUBLIC_KEY);
+      const npub = bech32.encode("npub", npubWords, 1023);
+
+      expect(npub).toMatch(/^npub1/);
+
+      // Decode and verify round-trip
+      const decoded = bech32.decode(npub, 1023);
+      expect(decoded.prefix).toBe("npub");
+
+      const decodedBytes = bech32.fromWords(decoded.words);
+      expect(hex.encode(decodedBytes)).toBe(PUBKEY_HEX);
+    });
+
+    it("should produce consistent npub for same key", () => {
+      const words = bech32.toWords(PUBLIC_KEY);
+      const npub1 = bech32.encode("npub", words, 1023);
+      const npub2 = bech32.encode("npub", words, 1023);
+
+      expect(npub1).toBe(npub2);
+    });
+  });
+
+  describe("Edge cases", () => {
+    it("should handle unicode content (emoji)", () => {
+      const content = "Hello \u{1F600} from Nostr!";
+      const { eventIdBytes } = computeEventId(PUBKEY_HEX, 1700000000, 1, [], content);
+      const sig = schnorr.sign(eventIdBytes, PRIVATE_KEY);
+
+      const isValid = schnorr.verify(sig, eventIdBytes, PUBLIC_KEY);
+      expect(isValid).toBe(true);
+      expect(eventIdBytes.length).toBe(32);
+    });
+
+    it("should handle reaction event (kind 7)", () => {
+      const tags = [["e", "abc123def456"]];
+      const { eventIdBytes, eventId } = computeEventId(PUBKEY_HEX, 1700000000, 7, tags, "+");
+      const sig = schnorr.sign(eventIdBytes, PRIVATE_KEY);
+
+      expect(eventId).toMatch(/^[0-9a-f]{64}$/);
+      const isValid = schnorr.verify(sig, eventIdBytes, PUBLIC_KEY);
+      expect(isValid).toBe(true);
+    });
+
+    it("should handle empty tags producing correct serialization", () => {
+      const { serialized } = computeEventId(PUBKEY_HEX, 1700000000, 1, [], "content");
+
+      // The serialized string must contain the [] for empty tags
+      expect(serialized).toContain(",[]");
+    });
+
+    it("should handle multi-tag event with multiple tag types", () => {
+      const tags = [
+        ["e", "event1id", "wss://relay.example.com"],
+        ["p", "pubkey1hex"],
+        ["t", "bitcoin"],
+      ];
+      const { eventIdBytes, serialized } = computeEventId(PUBKEY_HEX, 1700000000, 1, tags, "tagged content");
+      const parsed = JSON.parse(serialized);
+
+      expect(parsed[4]).toEqual(tags);
+      expect(parsed[4].length).toBe(3);
+
+      const sig = schnorr.sign(eventIdBytes, PRIVATE_KEY);
+      const isValid = schnorr.verify(sig, eventIdBytes, PUBLIC_KEY);
+      expect(isValid).toBe(true);
+    });
+  });
+
+  describe("Deterministic regression fixture", () => {
+    // These expected values are pre-computed and lock in the exact NIP-01 algorithm.
+    // If the event ID computation changes, this test will catch it.
+    //
+    // Input:
+    //   privateKey  = 0x0000...0001
+    //   pubkeyHex   = 79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
+    //   created_at  = 1700000000
+    //   kind        = 1
+    //   tags        = []
+    //   content     = "hello nostr"
+    //
+    // serialized: [0,"79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",1700000000,1,[],"hello nostr"]
+    it("should produce known event ID for regression detection", () => {
+      const expectedEventId =
+        "936f550d3ec0adce0214b32e07a427b90ed36f8605a6ac44a72d1e4ae62ccefb";
+      const expectedPubkey =
+        "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798";
+      const expectedNpub =
+        "npub10xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqpkge6d";
+
+      const { eventId } = computeEventId(expectedPubkey, 1700000000, 1, [], "hello nostr");
+
+      expect(eventId).toBe(expectedEventId);
+      expect(PUBKEY_HEX).toBe(expectedPubkey);
+
+      const npubWords = bech32.toWords(PUBLIC_KEY);
+      const npub = bech32.encode("npub", npubWords, 1023);
+      expect(npub).toBe(expectedNpub);
+    });
+
+    it("should verify signature over regression fixture event ID", () => {
+      const expectedEventId =
+        "936f550d3ec0adce0214b32e07a427b90ed36f8605a6ac44a72d1e4ae62ccefb";
+
+      const { eventIdBytes, eventId } = computeEventId(PUBKEY_HEX, 1700000000, 1, [], "hello nostr");
+
+      expect(eventId).toBe(expectedEventId);
+
+      const sig = schnorr.sign(eventIdBytes, PRIVATE_KEY);
+      const isValid = schnorr.verify(sig, eventIdBytes, PUBLIC_KEY);
+
+      expect(isValid).toBe(true);
+      expect(sig.length).toBe(64);
     });
   });
 });
