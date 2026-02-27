@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.28.4](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.28.3...mcp-server-v1.28.4) (2026-02-27)
+
+
+### Bug Fixes
+
+* **inscriptions:** correct tapLeafScript spread and extract deriveRevealScript ([#207](https://github.com/aibtcdev/aibtc-mcp-server/issues/207)) ([89a0dab](https://github.com/aibtcdev/aibtc-mcp-server/commit/89a0dab1ec1e824fbda348fc3bcd2e61f1f0ba92))
+
 ## [1.28.3](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.28.2...mcp-server-v1.28.3) (2026-02-26)
 
 
