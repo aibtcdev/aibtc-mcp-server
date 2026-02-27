@@ -17,7 +17,7 @@
  * - btc_verify_message: Verify Bitcoin message signatures (auto-detects BIP-137 vs BIP-322)
  *
  * Nostr Event Signing (NIP-01):
- * - nostr_sign_event: Sign a Nostr event with BIP-340 Schnorr using the wallet's Taproot key
+ * - nostr_sign_event: Sign a Nostr event with BIP-340 Schnorr using the NIP-06 derived key (default) or a custom keySource
  *
  * SIP-018 signatures can be verified both off-chain and on-chain by smart contracts.
  * Stacks message signatures are SIWS-compatible for web authentication flows.
@@ -1696,7 +1696,9 @@ export function registerSigningTools(server: McpServer): void {
     "nostr_sign_event",
     {
       description:
-        "Sign a Nostr event (NIP-01) using the wallet's BIP-340 Schnorr key. " +
+        "Sign a Nostr event (NIP-01) using BIP-340 Schnorr. " +
+        "Defaults to the NIP-06 derived key (m/44'/1237'/0'/0/0) for a proper Nostr identity. " +
+        "Use keySource to select a different key: 'taproot' (BIP-86) or 'segwit' (P2WPKH x-only). " +
         "Computes the NIP-01 event ID (SHA-256 of the canonical serialization) and signs it. " +
         "Returns the complete signed event ready to publish to Nostr relays. " +
         "Requires an unlocked wallet.",
@@ -1722,20 +1724,55 @@ export function registerSigningTools(server: McpServer): void {
           .describe(
             "Unix timestamp in seconds. Defaults to current time."
           ),
+        keySource: z
+          .enum(["nostr", "taproot", "segwit"])
+          .optional()
+          .describe(
+            "Key to sign with. 'nostr' (default): NIP-06 derived key (m/44'/1237'/0'/0/0). " +
+            "'taproot': BIP-86 Taproot internal key. " +
+            "'segwit': SegWit/P2WPKH key (x-only, 32 bytes)."
+          ),
       },
     },
-    async ({ kind, content, tags, created_at }) => {
+    async ({ kind, content, tags, created_at, keySource }) => {
       try {
         const account = requireUnlockedWallet();
 
-        if (!account.taprootPrivateKey || !account.taprootPublicKey || !account.taprootAddress) {
-          throw new Error(
-            "Taproot keys not available. Ensure the wallet has Taproot key derivation."
-          );
+        // Resolve key source (default: NIP-06 nostr key)
+        const source = keySource ?? "nostr";
+
+        let signingPrivateKey: Uint8Array;
+        let xOnlyPubkey: Uint8Array;
+
+        if (source === "nostr") {
+          if (!account.nostrPrivateKey || !account.nostrPublicKey) {
+            throw new Error(
+              "Nostr NIP-06 keys not available. Ensure the wallet has been unlocked with a mnemonic."
+            );
+          }
+          signingPrivateKey = account.nostrPrivateKey;
+          xOnlyPubkey = account.nostrPublicKey;
+        } else if (source === "taproot") {
+          if (!account.taprootPrivateKey || !account.taprootPublicKey) {
+            throw new Error(
+              "Taproot keys not available. Ensure the wallet has Taproot key derivation."
+            );
+          }
+          signingPrivateKey = account.taprootPrivateKey;
+          xOnlyPubkey = account.taprootPublicKey;
+        } else {
+          // source === "segwit"
+          if (!account.btcPrivateKey || !account.btcPublicKey) {
+            throw new Error(
+              "SegWit keys not available. Ensure the wallet has Bitcoin key derivation."
+            );
+          }
+          signingPrivateKey = account.btcPrivateKey;
+          // btcPublicKey is 33-byte compressed (02/03 prefix); strip prefix for x-only
+          xOnlyPubkey = account.btcPublicKey.slice(1);
         }
 
         // x-only public key as hex (NIP-01 pubkey field)
-        const xOnlyPubkey = account.taprootPublicKey;
         const pubkeyHex = hex.encode(xOnlyPubkey);
 
         // Resolve defaults
@@ -1758,7 +1795,7 @@ export function registerSigningTools(server: McpServer): void {
         const eventId = hex.encode(eventIdBytes);
 
         // Sign the event ID with BIP-340 Schnorr
-        const signatureBytes = schnorr.sign(eventIdBytes, account.taprootPrivateKey);
+        const signatureBytes = schnorr.sign(eventIdBytes, signingPrivateKey);
         const sig = hex.encode(signatureBytes);
 
         // NIP-19 npub encoding of the x-only public key
@@ -1780,7 +1817,7 @@ export function registerSigningTools(server: McpServer): void {
           success: true,
           event: signedEvent,
           npub,
-          address: account.taprootAddress,
+          keySource: source,
           network: NETWORK,
           signatureFormat: "BIP-340 Schnorr (64 bytes)",
           serialization: serialized,

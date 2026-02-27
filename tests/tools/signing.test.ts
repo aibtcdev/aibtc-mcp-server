@@ -17,6 +17,8 @@ import { schnorr } from "@noble/curves/secp256k1.js";
 import { hex, bech32 } from "@scure/base";
 import { generateWallet, getStxAddress } from "@stacks/wallet-sdk";
 import { STACKS_TESTNET } from "@stacks/network";
+import { HDKey } from "@scure/bip32";
+import { mnemonicToSeedSync } from "@scure/bip39";
 
 // Test mnemonic (DO NOT use in production)
 const TEST_MNEMONIC =
@@ -781,5 +783,122 @@ describe("nostr_sign_event (NIP-01)", () => {
       expect(isValid).toBe(true);
       expect(sig.length).toBe(64);
     });
+  });
+});
+
+/**
+ * Tests for nostr_sign_event keySource parameter
+ *
+ * These tests verify that the three keySource options ("nostr", "taproot", "segwit")
+ * all derive distinct keys from the same mnemonic and each produces a valid
+ * BIP-340 Schnorr signature over a NIP-01 event ID.
+ *
+ * Key derivation paths:
+ *   nostr:   m/44'/1237'/0'/0/0  (NIP-06, coin type 1237)
+ *   taproot: m/86'/0'/0'/0/0     (BIP-86, mainnet)
+ *   segwit:  m/84'/0'/0'/0/0     (BIP-84, mainnet) — x-only = slice(1) of 33-byte compressed
+ */
+describe("nostr_sign_event keySource selection", () => {
+  // Derive all three key pairs from TEST_MNEMONIC (mainnet paths)
+  const seed = mnemonicToSeedSync(TEST_MNEMONIC);
+  const masterKey = HDKey.fromMasterSeed(seed);
+
+  // NIP-06 nostr key: m/44'/1237'/0'/0/0
+  const nostrDerived = masterKey.derive("m/44'/1237'/0'/0/0");
+  const nostrPrivKey = new Uint8Array(nostrDerived.privateKey!);
+  const nostrPubKey = new Uint8Array(nostrDerived.publicKey!.slice(1)); // x-only
+
+  // BIP-86 taproot key: m/86'/0'/0'/0/0
+  const taprootDerived = masterKey.derive("m/86'/0'/0'/0/0");
+  const taprootPrivKey = new Uint8Array(taprootDerived.privateKey!);
+  const taprootPubKey = new Uint8Array(taprootDerived.publicKey!.slice(1)); // x-only
+
+  // BIP-84 segwit key: m/84'/0'/0'/0/0
+  const segwitDerived = masterKey.derive("m/84'/0'/0'/0/0");
+  const segwitPrivKey = new Uint8Array(segwitDerived.privateKey!);
+  const segwitPubKey = new Uint8Array(segwitDerived.publicKey!.slice(1)); // x-only from 33-byte compressed
+
+  // Shared event parameters for signing tests
+  const CREATED_AT = 1700000000;
+  const KIND = 1;
+  const CONTENT = "hello nostr";
+
+  function computeEventId(pubkeyHex: string): { eventIdBytes: Uint8Array; eventId: string } {
+    const serialized = JSON.stringify([0, pubkeyHex, CREATED_AT, KIND, [], CONTENT]);
+    const serializedBytes = new TextEncoder().encode(serialized);
+    const eventIdBytes = hashSha256Sync(serializedBytes);
+    return { eventIdBytes, eventId: hex.encode(eventIdBytes) };
+  }
+
+  it("NIP-06 key (nostr) differs from Taproot key", () => {
+    expect(hex.encode(nostrPubKey)).not.toBe(hex.encode(taprootPubKey));
+  });
+
+  it("NIP-06 key (nostr) differs from SegWit key", () => {
+    expect(hex.encode(nostrPubKey)).not.toBe(hex.encode(segwitPubKey));
+  });
+
+  it("Taproot key differs from SegWit key", () => {
+    expect(hex.encode(taprootPubKey)).not.toBe(hex.encode(segwitPubKey));
+  });
+
+  it("all three keySource pubkeys are 32 bytes (x-only)", () => {
+    expect(nostrPubKey.length).toBe(32);
+    expect(taprootPubKey.length).toBe(32);
+    expect(segwitPubKey.length).toBe(32);
+  });
+
+  it("keySource='nostr' produces a valid Schnorr signature", () => {
+    const pubkeyHex = hex.encode(nostrPubKey);
+    const { eventIdBytes } = computeEventId(pubkeyHex);
+
+    const sig = schnorr.sign(eventIdBytes, nostrPrivKey);
+    const isValid = schnorr.verify(sig, eventIdBytes, nostrPubKey);
+
+    expect(isValid).toBe(true);
+    expect(sig.length).toBe(64);
+  });
+
+  it("keySource='taproot' produces a valid Schnorr signature", () => {
+    const pubkeyHex = hex.encode(taprootPubKey);
+    const { eventIdBytes } = computeEventId(pubkeyHex);
+
+    const sig = schnorr.sign(eventIdBytes, taprootPrivKey);
+    const isValid = schnorr.verify(sig, eventIdBytes, taprootPubKey);
+
+    expect(isValid).toBe(true);
+    expect(sig.length).toBe(64);
+  });
+
+  it("keySource='segwit' produces a valid Schnorr signature", () => {
+    const pubkeyHex = hex.encode(segwitPubKey);
+    const { eventIdBytes } = computeEventId(pubkeyHex);
+
+    const sig = schnorr.sign(eventIdBytes, segwitPrivKey);
+    const isValid = schnorr.verify(sig, eventIdBytes, segwitPubKey);
+
+    expect(isValid).toBe(true);
+    expect(sig.length).toBe(64);
+  });
+
+  it("keySource='taproot' signature does not verify under nostr pubkey", () => {
+    // Signatures from one key source should not verify under a different key
+    const taprootPubkeyHex = hex.encode(taprootPubKey);
+    const { eventIdBytes } = computeEventId(taprootPubkeyHex);
+
+    const sig = schnorr.sign(eventIdBytes, taprootPrivKey);
+    // Verify under nostr pubkey — should fail
+    const isValid = schnorr.verify(sig, eventIdBytes, nostrPubKey);
+    expect(isValid).toBe(false);
+  });
+
+  it("NIP-06 npub differs from Taproot npub", () => {
+    // Each key source produces a different NIP-19 npub
+    const nostrNpub = bech32.encode("npub", bech32.toWords(nostrPubKey), 1023);
+    const taprootNpub = bech32.encode("npub", bech32.toWords(taprootPubKey), 1023);
+
+    expect(nostrNpub).toMatch(/^npub1/);
+    expect(taprootNpub).toMatch(/^npub1/);
+    expect(nostrNpub).not.toBe(taprootNpub);
   });
 });
