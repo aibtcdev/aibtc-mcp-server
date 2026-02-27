@@ -6,6 +6,7 @@ import { registerOrdinalsTools } from "./ordinals.tools.js";
 import { registerWalletTools } from "./wallet.tools.js";
 import { registerWalletManagementTools } from "./wallet-management.tools.js";
 import { registerSigningTools } from "./signing.tools.js";
+import { registerPsbtTools } from "./psbt.tools.js";
 
 // Layer 2: Stacks L2 (On-Demand)
 import { registerTransferTools } from "./transfer.tools.js";
@@ -55,6 +56,7 @@ export function registerAllTools(server: McpServer): void {
   registerWalletTools(server);
   registerWalletManagementTools(server);
   registerSigningTools(server);
+  registerPsbtTools(server);
 
   // =========================================================================
   // Layer 2: Stacks L2 (On-Demand)
