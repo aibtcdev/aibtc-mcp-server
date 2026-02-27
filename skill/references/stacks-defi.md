@@ -12,6 +12,14 @@ Transfer STX tokens to any Stacks address:
 
 Uses `transfer_stx` - amounts in micro-STX (1 STX = 1,000,000 micro-STX).
 
+For gasless transfers (wallet has 0 STX), use `sponsored: true`:
+
+```
+"Send 2 STX to ST1... with sponsored=true"
+```
+
+Relay at x402-relay.aibtc.com covers the STX fee. Requires `SPONSOR_API_KEY` env var.
+
 Check STX balance:
 
 ```
@@ -316,15 +324,39 @@ Call any Stacks smart contract:
 
 Uses `call_contract` for write operations, `call_read_only_function` for read-only.
 
+For gasless contract calls or deployments (wallet has 0 STX), use `sponsored: true`:
+
+```
+"Call transfer on my contract with sponsored=true"
+"Deploy my contract with sponsored=true"
+```
+
+Relay at x402-relay.aibtc.com covers the STX fee. Requires `SPONSOR_API_KEY` env var.
+
 ### Contract Tool Reference
 
-| Tool | Description |
-|------|-------------|
-| `call_contract` | Call contract function (signs tx) |
-| `call_read_only_function` | Read-only call (no signing) |
-| `deploy_contract` | Deploy Clarity contract |
-| `get_contract_info` | Get contract ABI |
-| `get_transaction_status` | Check tx status |
+| Tool | Description | Parameters |
+|------|-------------|------------|
+| `call_contract` | Call contract function (signs tx) | `contractAddress`, `contractName`, `functionName`, `functionArgs`, `postConditionMode`, `postConditions` (optional), `fee` (optional), `sponsored` (optional, default false) |
+| `call_read_only_function` | Read-only call (no signing) | `contractId`, `functionName`, `functionArgs`, `senderAddress` (optional) |
+| `deploy_contract` | Deploy Clarity contract | `contractName`, `codeBody`, `fee` (optional), `sponsored` (optional, default false) |
+| `get_contract_info` | Get contract ABI | `contractId` |
+| `get_transaction_status` | Check tx status | `txid` |
+
+## Gasless Transactions (Sponsored)
+
+Agents with 0 STX can execute transactions via the sponsor relay at x402-relay.aibtc.com. The relay signs as fee sponsor and pays the STX gas fee on behalf of the sender.
+
+**Supported tools**: `transfer_stx`, `call_contract`, `deploy_contract`
+
+**Setup**: Set `SPONSOR_API_KEY` environment variable (or wallet-level `sponsorApiKey`) before using sponsored mode.
+
+**Usage pattern**:
+1. Add `sponsored: true` to any supported tool call
+2. The tool builds a sponsored transaction (fee=0) and submits it to the relay
+3. Relay broadcasts the fee-sponsored transaction and returns the txid
+
+**Note**: The `fee` parameter is ignored when `sponsored: true` — the relay determines and pays the fee.
 
 ## More Information
 
