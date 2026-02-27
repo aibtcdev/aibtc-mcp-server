@@ -8,14 +8,6 @@ import { getStacksNetwork, type Network } from "../config/networks.js";
 import { getSponsorRelayUrl, getSponsorApiKey } from "../config/sponsor.js";
 import type { Account, ContractCallOptions, ContractDeployOptions, TransferResult } from "./builder.js";
 
-export interface SponsoredTransferOptions {
-  senderKey: string;
-  recipient: string;
-  amount: bigint;
-  memo?: string;
-  network: Network;
-}
-
 export interface SponsorRelayResponse {
   success: boolean;
   requestId?: string;
@@ -109,39 +101,25 @@ export async function sponsoredStxTransfer(
 ): Promise<TransferResult> {
   const apiKey = resolveSponsorApiKey(account);
 
-  const response = await transferStxSponsored(
-    { senderKey: account.privateKey, recipient, amount, memo, network },
-    apiKey
-  );
-
-  if (!response.success) {
-    throw new Error(formatRelayError(response));
-  }
-
-  return { txid: response.txid!, rawTx: "" };
-}
-
-/**
- * Build and submit a sponsored STX transfer transaction
- */
-export async function transferStxSponsored(
-  options: SponsoredTransferOptions,
-  apiKey: string
-): Promise<SponsorRelayResponse> {
-  const networkName = getStacksNetwork(options.network);
-
+  const networkName = getStacksNetwork(network);
   const transaction = await makeSTXTokenTransfer({
-    recipient: options.recipient,
-    amount: options.amount,
-    senderKey: options.senderKey,
+    recipient,
+    amount,
+    senderKey: account.privateKey,
     network: networkName,
-    memo: options.memo || "",
+    memo: memo || "",
     sponsored: true,
     fee: 0n,
   });
 
   const serializedTx = transaction.serialize();
-  return submitToSponsorRelay(serializedTx, options.network, apiKey);
+  const response = await submitToSponsorRelay(serializedTx, network, apiKey);
+
+  if (!response.success) {
+    throw new Error(formatRelayError(response));
+  }
+
+  return { txid: response.txid!, rawTx: serializedTx };
 }
 
 /**
@@ -157,25 +135,7 @@ export async function sponsoredContractDeploy(
 ): Promise<TransferResult> {
   const apiKey = resolveSponsorApiKey(account);
 
-  const response = await deployContractSponsored(account, options, apiKey);
-
-  if (!response.success) {
-    throw new Error(formatRelayError(response));
-  }
-
-  return { txid: response.txid!, rawTx: "" };
-}
-
-/**
- * Build and submit a sponsored contract deploy transaction
- */
-export async function deployContractSponsored(
-  account: Account,
-  options: ContractDeployOptions,
-  apiKey: string
-): Promise<SponsorRelayResponse> {
-  const networkName = getStacksNetwork(account.network);
-
+  const networkName = getStacksNetwork(network);
   const transaction = await makeContractDeploy({
     contractName: options.contractName,
     codeBody: options.codeBody,
@@ -186,7 +146,13 @@ export async function deployContractSponsored(
   });
 
   const serializedTx = transaction.serialize();
-  return submitToSponsorRelay(serializedTx, account.network, apiKey);
+  const response = await submitToSponsorRelay(serializedTx, network, apiKey);
+
+  if (!response.success) {
+    throw new Error(formatRelayError(response));
+  }
+
+  return { txid: response.txid!, rawTx: serializedTx };
 }
 
 /**
