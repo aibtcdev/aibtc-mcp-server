@@ -1728,7 +1728,7 @@ export function registerSigningTools(server: McpServer): void {
       try {
         const account = requireUnlockedWallet();
 
-        if (!account.taprootPrivateKey || !account.taprootPublicKey) {
+        if (!account.taprootPrivateKey || !account.taprootPublicKey || !account.taprootAddress) {
           throw new Error(
             "Taproot keys not available. Ensure the wallet has Taproot key derivation."
           );

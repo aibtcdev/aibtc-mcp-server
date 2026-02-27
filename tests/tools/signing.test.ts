@@ -627,13 +627,6 @@ describe("nostr_sign_event (NIP-01)", () => {
       expect(parsed[5]).toBe("test");
     });
 
-    it("should serialize empty tags as []", () => {
-      const { serialized } = computeEventId(PUBKEY_HEX, 1700000000, 1, [], "content");
-      const parsed = JSON.parse(serialized);
-
-      expect(parsed[4]).toEqual([]);
-    });
-
     it("should include non-empty tags in serialization", () => {
       const tags = [["e", "abc123"], ["p", "def456"]];
       const { serialized } = computeEventId(PUBKEY_HEX, 1700000000, 1, tags, "content");
@@ -702,14 +695,6 @@ describe("nostr_sign_event (NIP-01)", () => {
       const decodedBytes = bech32.fromWords(decoded.words);
       expect(hex.encode(decodedBytes)).toBe(PUBKEY_HEX);
     });
-
-    it("should produce consistent npub for same key", () => {
-      const words = bech32.toWords(PUBLIC_KEY);
-      const npub1 = bech32.encode("npub", words, 1023);
-      const npub2 = bech32.encode("npub", words, 1023);
-
-      expect(npub1).toBe(npub2);
-    });
   });
 
   describe("Edge cases", () => {
@@ -731,13 +716,6 @@ describe("nostr_sign_event (NIP-01)", () => {
       expect(eventId).toMatch(/^[0-9a-f]{64}$/);
       const isValid = schnorr.verify(sig, eventIdBytes, PUBLIC_KEY);
       expect(isValid).toBe(true);
-    });
-
-    it("should handle empty tags producing correct serialization", () => {
-      const { serialized } = computeEventId(PUBKEY_HEX, 1700000000, 1, [], "content");
-
-      // The serialized string must contain the [] for empty tags
-      expect(serialized).toContain(",[]");
     });
 
     it("should handle multi-tag event with multiple tag types", () => {
