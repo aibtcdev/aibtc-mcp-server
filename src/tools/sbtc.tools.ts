@@ -14,55 +14,37 @@ import { sponsoredContractCall } from "../transactions/sponsor-builder.js";
 import { createFungiblePostCondition } from "../transactions/post-conditions.js";
 import { uintCV, tupleCV, bufferCV } from "@stacks/transactions";
 
+/** sbtc-withdrawal contract address version mapping */
+const BTC_ADDRESS_VERSIONS: Record<string, number> = {
+  pkh: 0x00,   // P2PKH (20-byte hash)
+  sh: 0x01,    // P2SH (20-byte hash)
+  wpkh: 0x04,  // P2WPKH (20-byte hash, bc1q...)
+  tr: 0x06,    // P2TR (32-byte hash, bc1p...)
+};
+
 /**
- * Parse a Bitcoin address string into the {version, hashbytes} tuple
- * expected by the sBTC withdrawal contract.
- *
- * Version mapping (from sbtc-withdrawal contract):
- *   0x00 = P2PKH (20-byte hash)
- *   0x01 = P2SH  (20-byte hash)
- *   0x04 = P2WPKH (20-byte hash, bc1q...)
- *   0x06 = P2TR   (32-byte hash, bc1p...)
+ * Parse a Bitcoin address into the {version, hashbytes} tuple
+ * expected by the sbtc-withdrawal contract.
  */
 function parseBtcAddressForWithdrawal(btcAddress: string): {
   version: Buffer;
   hashbytes: Buffer;
 } {
-  // Use @scure/btc-signer Address decoder (already a dependency)
   const { Address, NETWORK: BTC_MAINNET, TEST_NETWORK: BTC_TESTNET } = require("@scure/btc-signer");
   const net = NETWORK === "mainnet" ? BTC_MAINNET : BTC_TESTNET;
   const decoded = Address(net).decode(btcAddress);
 
-  let version: number;
-  let hashbytes: Buffer;
-
-  switch (decoded.type) {
-    case "pkh": // P2PKH
-      version = 0x00;
-      hashbytes = Buffer.from(decoded.hash);
-      break;
-    case "sh": // P2SH
-      version = 0x01;
-      hashbytes = Buffer.from(decoded.hash);
-      break;
-    case "wpkh": // P2WPKH (bc1q...)
-      version = 0x04;
-      hashbytes = Buffer.from(decoded.hash);
-      break;
-    case "tr": // P2TR (bc1p...)
-      version = 0x06;
-      hashbytes = Buffer.from(decoded.hash);
-      break;
-    default:
-      throw new Error(
-        `Unsupported Bitcoin address type: ${decoded.type}. ` +
-        "Supported: P2PKH, P2SH, P2WPKH (bc1q), P2TR (bc1p)"
-      );
+  const version = BTC_ADDRESS_VERSIONS[decoded.type];
+  if (version === undefined) {
+    throw new Error(
+      `Unsupported Bitcoin address type: ${decoded.type}. ` +
+      "Supported: P2PKH, P2SH, P2WPKH (bc1q), P2TR (bc1p)"
+    );
   }
 
   return {
     version: Buffer.from([version]),
-    hashbytes,
+    hashbytes: Buffer.from(decoded.hash),
   };
 }
 
@@ -578,7 +560,20 @@ BTC to the recipient address.`,
           throw new Error(`Hiro API returned ${response.status}`);
         }
 
-        const txData = await response.json() as any;
+        const txData = await response.json() as {
+          tx_status: string;
+          block_height: number | null;
+          burn_block_height: number | null;
+        };
+
+        let note: string;
+        if (txData.tx_status === "success") {
+          note = "Withdrawal request confirmed on Stacks. The sBTC signers will process it and send BTC to the recipient. This may take a few hours.";
+        } else if (txData.tx_status === "pending") {
+          note = "Withdrawal request is pending in the mempool. Wait for confirmation.";
+        } else {
+          note = `Transaction status: ${txData.tx_status}. Check the explorer for details.`;
+        }
 
         return createJsonResponse({
           txid,
@@ -588,11 +583,7 @@ BTC to the recipient address.`,
           confirmed: txData.tx_status === "success",
           explorerUrl: getExplorerTxUrl(txid, NETWORK),
           network: NETWORK,
-          note: txData.tx_status === "success"
-            ? "Withdrawal request confirmed on Stacks. The sBTC signers will process it and send BTC to the recipient. This may take a few hours."
-            : txData.tx_status === "pending"
-            ? "Withdrawal request is pending in the mempool. Wait for confirmation."
-            : `Transaction status: ${txData.tx_status}. Check the explorer for details.`,
+          note,
         });
       } catch (error) {
         return createErrorResponse(error);
