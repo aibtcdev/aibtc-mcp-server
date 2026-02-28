@@ -40,6 +40,8 @@ export interface WalletAddresses {
   btcAddress?: string;
   /** Bitcoin L1 Taproot address (P2TR - for receiving inscriptions) */
   taprootAddress?: string;
+  /** Nostr public key in NIP-19 bech32 npub format (NIP-06 derived, m/44'/1237'/0'/0/0) */
+  nostrPubkey?: string;
   /** Sponsor relay API key (optional, per-wallet) */
   sponsorApiKey?: string;
 }

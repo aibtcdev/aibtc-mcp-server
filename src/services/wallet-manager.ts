@@ -31,6 +31,7 @@ import {
 import { NETWORK, type Network } from "../config/networks.js";
 import type { Account } from "../transactions/builder.js";
 import { deriveBitcoinAddress, deriveBitcoinKeyPair, deriveTaprootAddress, deriveTaprootKeyPair, deriveNostrKeyPair } from "../utils/bitcoin.js";
+import { bech32 } from "@scure/base";
 
 /**
  * Session state for unlocked wallet
@@ -111,6 +112,10 @@ class WalletManager {
     const { address: bitcoinAddress } = deriveBitcoinAddress(mnemonic, walletNetwork);
     const { address: taprootAddress } = deriveTaprootAddress(mnemonic, walletNetwork);
 
+    // Derive Nostr NIP-06 public key and encode as NIP-19 npub
+    const { publicKey: nostrPublicKeyBytes } = deriveNostrKeyPair(mnemonic, walletNetwork);
+    const nostrPubkey = bech32.encode("npub", bech32.toWords(nostrPublicKeyBytes), 1023);
+
     const encrypted = await encrypt(mnemonic, password);
     const walletId = generateWalletId();
 
@@ -127,6 +132,7 @@ class WalletManager {
       address: stacksAddress,
       btcAddress: bitcoinAddress,
       taprootAddress,
+      nostrPubkey,
       network: walletNetwork,
       createdAt: new Date().toISOString(),
     };
@@ -141,6 +147,7 @@ class WalletManager {
       address: stacksAddress,
       btcAddress: bitcoinAddress,
       taprootAddress,
+      nostrPubkey,
     };
   }
 
@@ -341,11 +348,18 @@ class WalletManager {
       return null;
     }
 
+    // Encode Nostr NIP-06 public key as NIP-19 npub for session info
+    const nostrPublicKey = this.session.account.nostrPublicKey;
+    const nostrPubkey = nostrPublicKey
+      ? bech32.encode("npub", bech32.toWords(nostrPublicKey), 1023)
+      : undefined;
+
     return {
       walletId: this.session.walletId,
       address: this.session.account.address,
       btcAddress: this.session.account.btcAddress,
       taprootAddress: this.session.account.taprootAddress,
+      nostrPubkey,
       expiresAt: this.session.expiresAt,
     };
   }

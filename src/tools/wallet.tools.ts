@@ -25,6 +25,7 @@ export function registerWalletTools(server: McpServer): void {
           const address = await getWalletAddress();
           const btcAddress = sessionInfo?.btcAddress;
           const taprootAddress = sessionInfo?.taprootAddress;
+          const nostrPubkey = sessionInfo?.nostrPubkey;
 
           // Only include Bitcoin addresses if available (managed wallets only)
           const response: Record<string, unknown> = {
@@ -48,6 +49,13 @@ export function registerWalletTools(server: McpServer): void {
             "Tip": "Register a BNS name for on-chain identity",
           };
 
+          if (nostrPubkey) {
+            response["Nostr"] = {
+              "npub": nostrPubkey,
+              "Tip": "Use nostr_sign_event to sign and publish Nostr events",
+            };
+          }
+
           return createJsonResponse(response);
         } catch {
           // No wallet available - provide helpful guidance
@@ -66,6 +74,7 @@ export function registerWalletTools(server: McpServer): void {
                   "Taproot": w.taprootAddress,
                 },
                 "Stacks (L2)": w.address,
+                ...(w.nostrPubkey ? { "Nostr": { "npub": w.nostrPubkey } } : {}),
                 network: w.network,
               })),
               network: NETWORK,
