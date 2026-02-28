@@ -167,6 +167,22 @@ describe("WalletManager", () => {
       // Mainnet Bitcoin addresses start with bc1q (native SegWit)
       expect(wallets[0].btcAddress).toMatch(/^bc1q[a-z0-9]{38,}$/);
     });
+
+    it("should store NIP-06 nostrPubkey (npub) in wallet result and index", async () => {
+      const result = await walletManager.createWallet(
+        "test-wallet",
+        "password123"
+      );
+
+      // Result should include nostrPubkey as an npub bech32 string
+      expect(result.nostrPubkey).toBeDefined();
+      expect(result.nostrPubkey).toMatch(/^npub1[a-z0-9]+$/);
+
+      // Wallet metadata in index should also include it
+      const wallets = await walletManager.listWallets();
+      expect(wallets[0].nostrPubkey).toBeDefined();
+      expect(wallets[0].nostrPubkey).toBe(result.nostrPubkey);
+    });
   });
 
   describe("importWallet", () => {
@@ -280,6 +296,10 @@ describe("WalletManager", () => {
       // Verify Bitcoin address is exposed in session info
       expect(sessionInfo?.btcAddress).toBeDefined();
       expect(sessionInfo?.btcAddress).toMatch(/^bc1q[a-z0-9]{38,}$/);
+
+      // Verify Nostr NIP-06 npub is exposed in session info
+      expect(sessionInfo?.nostrPubkey).toBeDefined();
+      expect(sessionInfo?.nostrPubkey).toMatch(/^npub1[a-z0-9]+$/);
     });
 
     it("should return null session info when locked", () => {

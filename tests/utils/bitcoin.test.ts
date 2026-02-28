@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { deriveBitcoinAddress, deriveBitcoinKeyPair } from "../../src/utils/bitcoin.js";
+import { bech32 } from "@scure/base";
+import { deriveBitcoinAddress, deriveBitcoinKeyPair, deriveNostrKeyPair } from "../../src/utils/bitcoin.js";
 
 describe("bitcoin", () => {
   describe("deriveBitcoinAddress", () => {
@@ -229,6 +230,80 @@ describe("bitcoin", () => {
       const firstByte = result.privateKey[0];
       const allSame = result.privateKey.every((byte) => byte === firstByte);
       expect(allSame).toBe(false);
+    });
+  });
+
+  describe("deriveNostrKeyPair (NIP-06)", () => {
+    // Standard BIP39 test mnemonic
+    const TEST_MNEMONIC =
+      "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+    it("should return x-only public key (32 bytes)", () => {
+      const result = deriveNostrKeyPair(TEST_MNEMONIC, "mainnet");
+
+      expect(result.publicKey).toBeInstanceOf(Uint8Array);
+      expect(result.publicKey.length).toBe(32);
+    });
+
+    it("should return private key (32 bytes)", () => {
+      const result = deriveNostrKeyPair(TEST_MNEMONIC, "mainnet");
+
+      expect(result.privateKey).toBeInstanceOf(Uint8Array);
+      expect(result.privateKey.length).toBe(32);
+    });
+
+    it("should use NIP-06 path (differ from BIP84 SegWit key)", () => {
+      const nostr = deriveNostrKeyPair(TEST_MNEMONIC, "mainnet");
+      const segwit = deriveBitcoinKeyPair(TEST_MNEMONIC, "mainnet");
+
+      // SegWit pubkey is 33 bytes compressed; x-only is 32 bytes
+      // Nostr pubkey (x-only) should differ from SegWit x-only
+      const segwitXOnly = segwit.publicKeyBytes.slice(1);
+      const arraysEqual = nostr.publicKey.every((b, i) => b === segwitXOnly[i]);
+      expect(arraysEqual).toBe(false);
+    });
+
+    it("should produce a valid npub when bech32-encoded", () => {
+      const result = deriveNostrKeyPair(TEST_MNEMONIC, "mainnet");
+
+      const npub = bech32.encode("npub", bech32.toWords(result.publicKey), 1023);
+      expect(npub).toMatch(/^npub1[a-z0-9]+$/);
+      // npub1 encodes 32 bytes: total length is typically 63 chars
+      expect(npub.length).toBeGreaterThanOrEqual(60);
+    });
+
+    it("should be deterministic for same mnemonic", () => {
+      const r1 = deriveNostrKeyPair(TEST_MNEMONIC, "mainnet");
+      const r2 = deriveNostrKeyPair(TEST_MNEMONIC, "mainnet");
+
+      expect(r1.publicKey).toEqual(r2.publicKey);
+      expect(r1.privateKey).toEqual(r2.privateKey);
+    });
+
+    it("should be network-independent (mainnet == testnet)", () => {
+      const main = deriveNostrKeyPair(TEST_MNEMONIC, "mainnet");
+      const test = deriveNostrKeyPair(TEST_MNEMONIC, "testnet");
+
+      // NIP-06 coin type 1237 is the same on all networks
+      expect(main.publicKey).toEqual(test.publicKey);
+      expect(main.privateKey).toEqual(test.privateKey);
+    });
+
+    it("should produce different keys for different mnemonics", () => {
+      const mnemonic2 =
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
+      const r1 = deriveNostrKeyPair(TEST_MNEMONIC, "mainnet");
+      const r2 = deriveNostrKeyPair(mnemonic2, "mainnet");
+
+      const sameKey = r1.publicKey.every((b, i) => b === r2.publicKey[i]);
+      expect(sameKey).toBe(false);
+    });
+
+    it("private key should not be all zeros", () => {
+      const result = deriveNostrKeyPair(TEST_MNEMONIC, "mainnet");
+
+      const allZeros = result.privateKey.every((byte) => byte === 0);
+      expect(allZeros).toBe(false);
     });
   });
 });

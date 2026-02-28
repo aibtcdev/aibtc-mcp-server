@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { bech32 } from "@scure/base";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { getWalletManager } from "../services/wallet-manager.js";
 import { NETWORK, API_URL } from "../config/networks.js";
@@ -37,7 +38,7 @@ IMPORTANT: Save the mnemonic securely - it will only be shown once!`,
         return createJsonResponse({
           success: true,
           message:
-            "Wallet created successfully! Bitcoin L1 (SegWit + Taproot) and Stacks L2 addresses ready.",
+            "Wallet created successfully! Bitcoin L1 (SegWit + Taproot), Stacks L2, and Nostr (NIP-06) addresses ready.",
           walletId: result.walletId,
           "Bitcoin (L1)": {
             "Native SegWit": `${result.btcAddress} (send/receive BTC)`,
@@ -46,6 +47,10 @@ IMPORTANT: Save the mnemonic securely - it will only be shown once!`,
           "Stacks (L2)": {
             "Address": result.address,
             "Tip": "Register a BNS name for on-chain identity",
+          },
+          "Nostr": {
+            "npub": result.nostrPubkey,
+            "Tip": "Use nostr_sign_event to sign and publish Nostr events",
           },
           network: network || NETWORK,
           "---": "",
@@ -93,7 +98,7 @@ The wallet is encrypted locally and stored in ~/.aibtc/.`,
 
         return createJsonResponse({
           success: true,
-          message: "Wallet imported successfully! Bitcoin L1 (SegWit + Taproot) and Stacks L2 addresses ready.",
+          message: "Wallet imported successfully! Bitcoin L1 (SegWit + Taproot), Stacks L2, and Nostr (NIP-06) addresses ready.",
           walletId: result.walletId,
           "Bitcoin (L1)": {
             "Native SegWit": `${result.btcAddress} (send/receive BTC)`,
@@ -102,6 +107,10 @@ The wallet is encrypted locally and stored in ~/.aibtc/.`,
           "Stacks (L2)": {
             "Address": result.address,
             "Tip": "Register a BNS name for on-chain identity",
+          },
+          "Nostr": {
+            "npub": result.nostrPubkey,
+            "Tip": "Use nostr_sign_event to sign and publish Nostr events",
           },
           network: network || NETWORK,
         });
@@ -147,9 +156,14 @@ If no wallet ID is provided, unlocks the active wallet.`,
 
         const account = await walletManager.unlock(targetWalletId, password);
 
+        // Encode Nostr NIP-06 public key as NIP-19 npub
+        const nostrNpub = account.nostrPublicKey
+          ? bech32.encode("npub", bech32.toWords(account.nostrPublicKey), 1023)
+          : undefined;
+
         return createJsonResponse({
           success: true,
-          message: "Wallet unlocked successfully! Bitcoin L1 (SegWit + Taproot) and Stacks L2 transactions enabled.",
+          message: "Wallet unlocked successfully! Bitcoin L1 (SegWit + Taproot), Stacks L2, and Nostr (NIP-06) transactions enabled.",
           walletId: targetWalletId,
           "Bitcoin (L1)": {
             "Native SegWit": `${account.btcAddress} (send/receive BTC)`,
@@ -159,6 +173,12 @@ If no wallet ID is provided, unlocks the active wallet.`,
             "Address": account.address,
             "Tip": "Register a BNS name for on-chain identity",
           },
+          ...(nostrNpub ? {
+            "Nostr": {
+              "npub": nostrNpub,
+              "Tip": "Use nostr_sign_event to sign and publish Nostr events",
+            },
+          } : {}),
           network: account.network,
         });
       } catch (error) {
