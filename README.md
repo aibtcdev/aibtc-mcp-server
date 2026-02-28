@@ -343,6 +343,49 @@ DEX aggregator that routes trades across multiple liquidity sources.
 | `bitflow_get_quote` | Get swap quote |
 | `bitflow_swap` | Execute token swap |
 
+#### Units & Decimals
+
+The `amountIn` parameter on `bitflow_get_quote` and `bitflow_swap` defaults to **human units** (`amountUnit: "human"`). Always match what you pass to the unit you declare.
+
+| Token | Decimals | Human | Base (smallest unit) |
+|-------|----------|-------|----------------------|
+| STX   | 6        | `2`   | `2000000`            |
+| sBTC  | 8        | `0.00000794` | `794`       |
+
+**Examples — `bitflow_get_quote`**
+
+```
+# Human units (default) — pass the display amount directly
+{ tokenX: "token-stx", tokenY: "token-sbtc", amountIn: "2", amountUnit: "human" }
+
+# Base units — pass the raw integer
+{ tokenX: "token-stx", tokenY: "token-sbtc", amountIn: "2000000", amountUnit: "base" }
+```
+
+**Examples — `bitflow_swap`**
+
+```
+# Swap 0.00000794 sBTC → STX using human units
+{ tokenX: "token-sbtc", tokenY: "token-stx", amountIn: "0.00000794", amountUnit: "human" }
+
+# Same swap using base units
+{ tokenX: "token-sbtc", tokenY: "token-stx", amountIn: "794", amountUnit: "base" }
+```
+
+> **Warning — double-scaling trap:** `amountUnit` defaults to `"human"`. If you pass a base-unit integer (e.g. `2000000`) without setting `amountUnit: "base"`, the SDK treats it as 2 000 000 STX and the trade will fail or produce a wildly wrong quote.
+>
+> ```
+> # Wrong — 2000000 interpreted as 2,000,000 STX (human), not 2 STX
+> { amountIn: "2000000" }                          # amountUnit defaults to "human"
+>
+> # Correct — explicit base declaration
+> { amountIn: "2000000", amountUnit: "base" }      # → 2 STX
+> # — or —
+> { amountIn: "2", amountUnit: "human" }           # → 2 STX
+> ```
+
+The response always echoes back `amountMetadata` with `amountInHuman`, `amountInBase`, and an `interpretation` string so you can verify the amount was read correctly before the swap executes.
+
 ### Pillar Smart Wallet
 
 sBTC smart wallet with Zest Protocol integration and passkey authentication.
