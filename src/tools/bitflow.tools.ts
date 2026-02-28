@@ -1,7 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getAccount, getWalletAddress, NETWORK } from "../services/x402.service.js";
-import { getBitflowService, type BitflowService } from "../services/bitflow.service.js";
+import { getBitflowService, type BitflowService, type BitflowToken } from "../services/bitflow.service.js";
+import { getHiroApi } from "../services/hiro-api.js";
 import { getExplorerTxUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse, resolveFee } from "../utils/index.js";
 
@@ -39,6 +40,50 @@ async function resolveAmountIn(
     throw new Error("amountIn must be a positive number");
   }
   return numeric;
+}
+
+/**
+ * Preflight balance guardrail: detect likely unit mismatches before tx construction.
+ * If the resolved human-unit amount exceeds the wallet's token balance,
+ * fail fast with a clear error and corrected examples.
+ * Returns null if the check passes, or a response object if it fails.
+ */
+async function preflightBalanceCheck(
+  bitflowService: BitflowService,
+  tokenX: string,
+  amountIn: string,
+  amountUnit: "human" | "base",
+  normalizedAmountIn: number
+): Promise<ReturnType<typeof createJsonResponse> | null> {
+  try {
+    const walletAddress = await getWalletAddress();
+    const tokens = await bitflowService.getAvailableTokens();
+    const tokenIn = tokens.find((t: BitflowToken) => t.id === tokenX);
+    if (!tokenIn || !tokenIn.tokenContract) return null;
+
+    const hiro = getHiroApi(NETWORK);
+    const balanceRaw = await hiro.getTokenBalance(walletAddress, tokenIn.tokenContract);
+    const walletBalance = Number(balanceRaw) / 10 ** tokenIn.decimals;
+
+    if (walletBalance > 0 && normalizedAmountIn > walletBalance) {
+      const baseEquivalent = Math.round(normalizedAmountIn * 10 ** tokenIn.decimals);
+      const humanIfBase = normalizedAmountIn / 10 ** tokenIn.decimals;
+      return createJsonResponse({
+        error: "AMOUNT_UNIT_MISMATCH_SUSPECTED",
+        message: `Requested ${normalizedAmountIn} ${tokenIn.symbol} (amountUnit="${amountUnit}") exceeds wallet balance of ${walletBalance} ${tokenIn.symbol}. This likely indicates a unit mismatch.`,
+        requested: { amountIn, amountUnit, interpretedHumanUnits: normalizedAmountIn },
+        walletBalance: { human: walletBalance, base: Number(balanceRaw) },
+        correctedExamples: {
+          human: `amountIn="${normalizedAmountIn}", amountUnit="human" → ${normalizedAmountIn} ${tokenIn.symbol}`,
+          base: `amountIn="${baseEquivalent}", amountUnit="base" → ${normalizedAmountIn} ${tokenIn.symbol}`,
+          ifYouMeantBase: `amountIn="${amountIn}", amountUnit="base" → ${humanIfBase.toFixed(tokenIn.decimals)} ${tokenIn.symbol}`,
+        },
+      });
+    }
+  } catch {
+    // Non-critical — skip guardrail on errors (wallet locked, API down, etc.)
+  }
+  return null;
 }
 
 export function registerBitflowTools(server: McpServer): void {
@@ -219,6 +264,10 @@ Note: Bitflow is only available on mainnet.`,
         const bitflowService = getBitflowService(NETWORK);
         const normalizedAmountIn = await resolveAmountIn(bitflowService, tokenX, amountIn, amountUnit);
 
+        // Preflight: detect likely unit mismatch before making the quote
+        const preflightError = await preflightBalanceCheck(bitflowService, tokenX, amountIn, amountUnit, normalizedAmountIn);
+        if (preflightError) return preflightError;
+
         const quote = await bitflowService.getSwapQuote(tokenX, tokenY, normalizedAmountIn);
 
         const priceImpact = quote.priceImpact;
@@ -340,6 +389,10 @@ Note: Bitflow is only available on mainnet.`,
 
         const bitflowService = getBitflowService(NETWORK);
         const normalizedAmountIn = await resolveAmountIn(bitflowService, tokenX, amountIn, amountUnit);
+
+        // Preflight: detect likely unit mismatch before tx construction
+        const preflightError = await preflightBalanceCheck(bitflowService, tokenX, amountIn, amountUnit, normalizedAmountIn);
+        if (preflightError) return preflightError;
 
         // Safety check: require explicit confirmation for high-impact swaps
         const quote = await bitflowService.getSwapQuote(tokenX, tokenY, normalizedAmountIn);
