@@ -81,6 +81,7 @@ export interface BitflowToken {
   name: string;
   symbol: string;
   contractId: string;
+  tokenContract: string | null;
   decimals: number;
 }
 
@@ -190,6 +191,7 @@ export class BitflowService {
       name: t.name,
       symbol: t.symbol,
       contractId: t.tokenId,
+      tokenContract: t.tokenContract,
       decimals: t.tokenDecimals,
     }));
   }
