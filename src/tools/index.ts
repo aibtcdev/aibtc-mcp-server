@@ -20,6 +20,7 @@ import { registerErc8004Tools } from "./erc8004.tools.js";
 import { registerDefiTools } from "./defi.tools.js";
 import { registerStackingTools } from "./stacking.tools.js";
 import { registerBitflowTools } from "./bitflow.tools.js";
+import { registerPredictionMarketTools } from "./prediction-market.tools.js";
 
 // Layer 3: Pillar Smart Wallet
 import { registerPillarTools } from "./pillar.tools.js";
@@ -41,7 +42,7 @@ import { registerRelayDiagnosticTools } from "./relay-diagnostic.tools.js";
  * Tools are organized in layers reflecting the Bitcoin-first hierarchy:
  * - Layer 1: Bitcoin L1 - Core Bitcoin operations (balance, fees, UTXOs, transfer)
  * - Layer 2: Stacks L2 - Smart contracts, tokens, NFTs, BNS on Stacks
- * - Layer 2b: DeFi - ALEX DEX, Bitflow DEX, Zest Protocol, Stacking
+ * - Layer 2b: DeFi - ALEX DEX, Bitflow DEX, Zest Protocol, Stacking, Prediction Markets
  * - Layer 3: Pillar - Smart wallet with passkey signing
  * - Layer 4: APIs - x402 endpoints, scaffolding, AI integrations
  */
@@ -75,6 +76,7 @@ export function registerAllTools(server: McpServer): void {
   registerDefiTools(server);
   registerStackingTools(server);
   registerBitflowTools(server);
+  registerPredictionMarketTools(server);
 
   // =========================================================================
   // Layer 3: Pillar Smart Wallet
