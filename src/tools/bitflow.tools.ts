@@ -199,12 +199,10 @@ Note: Bitflow is only available on mainnet.`,
         tokenY: z.string().describe("Output token ID (e.g. 'token-sbtc', 'token-aeusdc')"),
         amountIn: z
           .string()
-          .describe("Amount of input token. Default interpretation is human units (e.g. '100' = 100 LEO)."),
+          .describe("Amount of input token. Interpretation depends on amountUnit: 'human' (e.g. '2' = 2 STX) or 'base' (e.g. '2000000' = 2 STX for 6-decimal token)."),
         amountUnit: z
           .enum(["human", "base"])
-          .optional()
-          .default("human")
-          .describe("Amount units: 'human' (default, frontend-style) or 'base' (smallest units)."),
+          .describe("REQUIRED. Amount units: 'human' (frontend-style, e.g. '2' = 2 STX) or 'base' (smallest units, e.g. '2000000' = 2 STX for 6-decimal token). Must be explicit to prevent misinterpretation."),
       },
     },
     async ({ tokenX, tokenY, amountIn, amountUnit }) => {
@@ -307,12 +305,10 @@ Note: Bitflow is only available on mainnet.`,
         tokenY: z.string().describe("Output token ID (contract address)"),
         amountIn: z
           .string()
-          .describe("Amount of input token. Default interpretation is human units (e.g. '100' = 100 LEO)."),
+          .describe("Amount of input token. Interpretation depends on amountUnit: 'human' (e.g. '2' = 2 STX) or 'base' (e.g. '2000000' = 2 STX for 6-decimal token)."),
         amountUnit: z
           .enum(["human", "base"])
-          .optional()
-          .default("human")
-          .describe("Amount units: 'human' (default, frontend-style) or 'base' (smallest units)."),
+          .describe("REQUIRED. Amount units: 'human' (frontend-style, e.g. '2' = 2 STX) or 'base' (smallest units, e.g. '2000000' = 2 STX for 6-decimal token). Must be explicit to prevent misinterpretation."),
         slippageTolerance: z
           .number()
           .optional()
