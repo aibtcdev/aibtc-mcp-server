@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.30.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.29.0...mcp-server-v1.30.0) (2026-02-28)
+
+
+### Features
+
+* **sponsor:** add sponsored parameter to call_contract, transfer_stx, deploy_contract ([#221](https://github.com/aibtcdev/aibtc-mcp-server/issues/221)) ([ce4f4bb](https://github.com/aibtcdev/aibtc-mcp-server/commit/ce4f4bbaf06496187c5d9327099086e513071db6))
+* **x402:** add payment-identifier extension for relay idempotency ([#226](https://github.com/aibtcdev/aibtc-mcp-server/issues/226)) ([7c96879](https://github.com/aibtcdev/aibtc-mcp-server/commit/7c968799e0e72c38eb6d65ed93120443c935a454))
+
 ## [1.29.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.28.4...mcp-server-v1.29.0) (2026-02-27)
 
 
