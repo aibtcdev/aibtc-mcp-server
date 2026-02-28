@@ -41,6 +41,32 @@ async function resolveAmountIn(
   return numeric;
 }
 
+/**
+ * Build amount interpretation metadata for quote/swap responses.
+ * Makes unit interpretation auditable and easier to debug.
+ */
+async function buildAmountMetadata(
+  bitflowService: BitflowService,
+  tokenX: string,
+  amountIn: string,
+  amountUnit: "human" | "base",
+  normalizedAmountIn: number
+) {
+  const tokens = await bitflowService.getAvailableTokens();
+  const tokenIn = tokens.find((t) => t.id === tokenX);
+  const decimals = tokenIn?.decimals ?? 6;
+  const amountInBase = Math.round(normalizedAmountIn * 10 ** decimals);
+
+  return {
+    amountInRawInput: amountIn,
+    amountUnit,
+    tokenDecimals: decimals,
+    amountInHuman: normalizedAmountIn,
+    amountInBase,
+    interpretation: `${amountIn} (${amountUnit}) → ${normalizedAmountIn} ${tokenIn?.symbol ?? tokenX} (${amountInBase} base units)`,
+  };
+}
+
 export function registerBitflowTools(server: McpServer): void {
   // ==========================================================================
   // Public API Tools (No API Key Required)
@@ -227,6 +253,8 @@ Note: Bitflow is only available on mainnet.`,
             ? `High price impact detected (${priceImpact.combinedImpactPct}). Consider reducing trade size.`
             : undefined;
 
+        const amountMetadata = await buildAmountMetadata(bitflowService, tokenX, amountIn, amountUnit, normalizedAmountIn);
+
         return createJsonResponse({
           network: NETWORK,
           inputs: {
@@ -236,6 +264,7 @@ Note: Bitflow is only available on mainnet.`,
             amountUnit,
             normalizedAmountIn,
           },
+          amountMetadata,
           quote,
           priceImpact,
           highImpactWarning,
@@ -365,6 +394,8 @@ Note: Bitflow is only available on mainnet.`,
           resolvedFee
         );
 
+        const amountMetadata = await buildAmountMetadata(bitflowService, tokenX, amountIn, amountUnit, normalizedAmountIn);
+
         return createJsonResponse({
           success: true,
           txid: result.txid,
@@ -377,6 +408,7 @@ Note: Bitflow is only available on mainnet.`,
             slippageTolerance: slippageTolerance || 0.01,
             priceImpact: impact,
           },
+          amountMetadata,
           network: NETWORK,
           explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
         });
