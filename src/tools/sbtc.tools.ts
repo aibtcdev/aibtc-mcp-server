@@ -1,13 +1,52 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import * as btc from "@scure/btc-signer";
 import { z } from "zod";
 import { getAccount, getWalletAddress, NETWORK } from "../services/x402.service.js";
 import { getSbtcService } from "../services/sbtc.service.js";
 import { getSbtcDepositService } from "../services/sbtc-deposit.service.js";
 import { getExplorerTxUrl } from "../config/networks.js";
+import { getContracts, parseContractId } from "../config/contracts.js";
 import { createJsonResponse, createErrorResponse, resolveFee } from "../utils/index.js";
 import { getWalletManager } from "../services/wallet-manager.js";
 import { MempoolApi, getMempoolTxUrl } from "../services/mempool-api.js";
+import { getBtcNetwork } from "../transactions/bitcoin-builder.js";
 import { sponsoredSchema } from "./schemas.js";
+
+function parseBtcRecipientTuple(btcRecipientAddress: string): {
+  version: number;
+  hashbytesHex: string;
+} {
+  const decoded = btc.Address(getBtcNetwork(NETWORK)).decode(btcRecipientAddress);
+
+  if (decoded.type === "tr" && decoded.pubkey) {
+    return { version: 0x06, hashbytesHex: Buffer.from(decoded.pubkey).toString("hex") };
+  }
+
+  if (
+    (decoded.type === "pkh" || decoded.type === "sh" || decoded.type === "wpkh" || decoded.type === "wsh") &&
+    decoded.hash
+  ) {
+    const versionMap: Record<string, number> = {
+      pkh: 0x00,
+      sh: 0x01,
+      wpkh: 0x04,
+      wsh: 0x05,
+    };
+    return {
+      version: versionMap[decoded.type],
+      hashbytesHex: Buffer.from(decoded.hash).toString("hex"),
+    };
+  }
+
+  throw new Error(
+    "Unsupported BTC recipient address type. Supported: P2PKH, P2SH, P2WPKH, P2WSH, P2TR."
+  );
+}
+
+function getReadonlySenderAddress(): string {
+  const contracts = getContracts(NETWORK);
+  return parseContractId(contracts.SBTC_REGISTRY).address;
+}
 
 export function registerSbtcTools(server: McpServer): void {
   // Get sBTC balance
@@ -79,6 +118,224 @@ Example: To send 0.001 sBTC, use amount "100000" (satoshis).`,
           amountSats: amount,
           network: NETWORK,
           explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Initiate sBTC withdrawal (peg-out to BTC L1)
+  server.registerTool(
+    "sbtc_initiate_withdrawal",
+    {
+      description: `Initiate an sBTC peg-out to a Bitcoin L1 address.
+
+Locks (amount + maxFee) of sBTC in the sBTC protocol and creates a withdrawal request.
+Signers later process the request and send BTC on L1.`,
+      inputSchema: {
+        amount: z
+          .number()
+          .int()
+          .positive()
+          .describe("Amount to withdraw in satoshis"),
+        btcRecipientAddress: z
+          .string()
+          .describe("Bitcoin recipient address (P2PKH/P2SH/P2WPKH/P2WSH/P2TR)"),
+        maxFee: z
+          .number()
+          .int()
+          .nonnegative()
+          .optional()
+          .default(2000)
+          .describe("Maximum signer fee in satoshis"),
+        fee: z
+          .string()
+          .optional()
+          .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount."),
+        sponsored: sponsoredSchema,
+      },
+    },
+    async ({ amount, btcRecipientAddress, maxFee, fee, sponsored }) => {
+      try {
+        if (amount <= maxFee) {
+          throw new Error(
+            `Withdrawal amount must exceed maxFee. amount=${amount}, maxFee=${maxFee}`
+          );
+        }
+
+        const sbtcService = getSbtcService(NETWORK);
+        const account = await getAccount();
+        const resolvedFee = await resolveFee(fee, NETWORK, "contract_call");
+        const recipientTuple = parseBtcRecipientTuple(btcRecipientAddress);
+
+        const result = await sbtcService.initiateWithdrawal(
+          account,
+          BigInt(amount),
+          BigInt(maxFee),
+          recipientTuple,
+          resolvedFee,
+          sponsored
+        );
+
+        let requestId: number | null = null;
+        try {
+          requestId = await sbtcService.getWithdrawalRequestIdFromTx(result.txid);
+        } catch {
+          requestId = null;
+        }
+
+        return createJsonResponse({
+          success: true,
+          txid: result.txid,
+          requestId,
+          network: NETWORK,
+          recipient: {
+            address: btcRecipientAddress,
+            version: recipientTuple.version,
+            hashbytesHex: recipientTuple.hashbytesHex,
+          },
+          withdrawal: {
+            amountSats: amount,
+            maxFeeSats: maxFee,
+            lockedSats: amount + maxFee,
+          },
+          explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
+          nextStep:
+            requestId !== null
+              ? `Track with sbtc_withdrawal_status using requestId=${requestId}`
+              : "Track with sbtc_withdrawal_status using this txid once it confirms.",
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Compatibility alias for older naming.
+  server.registerTool(
+    "sbtc_withdraw",
+    {
+      description:
+        "Alias for sbtc_initiate_withdrawal. Initiates an sBTC peg-out request to BTC L1.",
+      inputSchema: {
+        amount: z.number().int().positive().describe("Amount to withdraw in satoshis"),
+        btcRecipientAddress: z.string().describe("Bitcoin recipient address"),
+        maxFee: z
+          .number()
+          .int()
+          .nonnegative()
+          .optional()
+          .default(2000)
+          .describe("Maximum signer fee in satoshis"),
+        fee: z
+          .string()
+          .optional()
+          .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount."),
+        sponsored: sponsoredSchema,
+      },
+    },
+    async ({ amount, btcRecipientAddress, maxFee, fee, sponsored }) => {
+      try {
+        if (amount <= maxFee) {
+          throw new Error(
+            `Withdrawal amount must exceed maxFee. amount=${amount}, maxFee=${maxFee}`
+          );
+        }
+
+        const sbtcService = getSbtcService(NETWORK);
+        const account = await getAccount();
+        const resolvedFee = await resolveFee(fee, NETWORK, "contract_call");
+        const recipientTuple = parseBtcRecipientTuple(btcRecipientAddress);
+
+        const result = await sbtcService.initiateWithdrawal(
+          account,
+          BigInt(amount),
+          BigInt(maxFee),
+          recipientTuple,
+          resolvedFee,
+          sponsored
+        );
+
+        return createJsonResponse({
+          success: true,
+          txid: result.txid,
+          network: NETWORK,
+          explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // Check withdrawal request status
+  server.registerTool(
+    "sbtc_withdrawal_status",
+    {
+      description:
+        "Check status of an sBTC withdrawal request by requestId or initiating txid.",
+      inputSchema: {
+        requestId: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe("Withdrawal request ID"),
+        txid: z
+          .string()
+          .optional()
+          .describe("Initiate-withdrawal transaction ID (used to resolve requestId)"),
+      },
+    },
+    async ({ requestId, txid }) => {
+      try {
+        if (requestId === undefined && !txid) {
+          throw new Error("Provide either requestId or txid.");
+        }
+
+        const sbtcService = getSbtcService(NETWORK);
+        let resolvedRequestId: number | null | undefined = requestId;
+
+        if (resolvedRequestId === undefined && txid) {
+          resolvedRequestId = await sbtcService.getWithdrawalRequestIdFromTx(txid);
+          if (resolvedRequestId === null) {
+            return createJsonResponse({
+              txid,
+              requestId: null,
+              status: "pending_tx",
+              message:
+                "Could not resolve requestId from tx yet. The transaction may still be pending or unindexed.",
+              network: NETWORK,
+              explorerUrl: getExplorerTxUrl(txid, NETWORK),
+            });
+          }
+        }
+
+        const request = await sbtcService.getWithdrawalRequest(
+          resolvedRequestId!,
+          getReadonlySenderAddress()
+        );
+
+        if (!request) {
+          return createJsonResponse({
+            requestId: resolvedRequestId,
+            status: "not_found",
+            network: NETWORK,
+          });
+        }
+
+        return createJsonResponse({
+          requestId: request.id,
+          status: request.status,
+          network: NETWORK,
+          amountSats: request.amountSats,
+          maxFeeSats: request.maxFeeSats,
+          sender: request.sender,
+          blockHeight: request.blockHeight,
+          recipient: request.recipient,
+          txid,
+          ...(txid ? { explorerUrl: getExplorerTxUrl(txid, NETWORK) } : {}),
         });
       } catch (error) {
         return createErrorResponse(error);

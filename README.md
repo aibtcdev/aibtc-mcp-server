@@ -267,7 +267,12 @@ Both addresses are derived from the same recovery phrase, making it easy to mana
 |------|-------------|
 | `sbtc_get_balance` | Get sBTC balance |
 | `sbtc_transfer` | Send sBTC |
+| `sbtc_initiate_withdrawal` | Initiate sBTC peg-out to BTC L1 |
+| `sbtc_withdraw` | Alias for withdrawal initiation |
+| `sbtc_withdrawal_status` | Check withdrawal request status |
 | `sbtc_get_deposit_info` | Get BTC deposit instructions |
+| `sbtc_deposit` | Build, sign, and broadcast BTC→sBTC deposit |
+| `sbtc_deposit_status` | Check deposit status via Emily API |
 | `sbtc_get_peg_info` | Get peg ratio and TVL |
 
 ### Token Operations (SIP-010)
