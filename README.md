@@ -230,6 +230,14 @@ Both addresses are derived from the same recovery phrase, making it easy to mana
 | `get_inscription` | Fetch inscription content from reveal tx |
 | `get_inscriptions_by_address` | List inscriptions owned by address |
 
+### PSBT & Ordinals Trading
+| Tool | Description |
+|------|-------------|
+| `psbt_create_ordinal_buy` | Build a buyer-side PSBT for ordinal purchase |
+| `psbt_sign` | Sign selected PSBT inputs with active wallet keys |
+| `psbt_decode` | Decode PSBT inputs/outputs/signature status |
+| `psbt_broadcast` | Finalize and broadcast a fully-signed PSBT |
+
 ### Message Signing
 | Tool | Description |
 |------|-------------|
