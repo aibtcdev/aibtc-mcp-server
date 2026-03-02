@@ -239,16 +239,17 @@ function parseDERSignature(der: Uint8Array): Uint8Array {
 // ---------------------------------------------------------------------------
 
 /**
- * BIP-322 tagged hash: SHA256(SHA256(tag) || SHA256(tag) || varint(msg.len) || msg)
+ * BIP-322 tagged hash: SHA256(SHA256(tag) || SHA256(tag) || msg)
  * where tag = "BIP0322-signed-message"
+ *
+ * Per BIP-322 spec, message bytes are passed directly — no varint length prefix.
+ * Ref: https://github.com/aibtcdev/x402-sponsor-relay/issues/135
  */
 function bip322TaggedHash(message: string): Uint8Array {
   const tagBytes = new TextEncoder().encode("BIP0322-signed-message");
   const tagHash = hashSha256Sync(tagBytes);
   const msgBytes = new TextEncoder().encode(message);
-  const varint = encodeVarInt(msgBytes.length);
-  const msgPart = concatBytes(varint, msgBytes);
-  return hashSha256Sync(concatBytes(tagHash, tagHash, msgPart));
+  return hashSha256Sync(concatBytes(tagHash, tagHash, msgBytes));
 }
 
 /**
