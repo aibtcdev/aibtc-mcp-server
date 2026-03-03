@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.30.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.30.1...mcp-server-v1.30.2) (2026-03-03)
+
+
+### Bug Fixes
+
+* **x402:** skip STX gas check for sponsored sBTC payments ([#241](https://github.com/aibtcdev/aibtc-mcp-server/issues/241)) ([58a8985](https://github.com/aibtcdev/aibtc-mcp-server/commit/58a89857e42e974acaa1dfb7270ca5ec4ca04701)), closes [#238](https://github.com/aibtcdev/aibtc-mcp-server/issues/238)
+
 ## [1.30.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.30.0...mcp-server-v1.30.1) (2026-03-03)
 
 
