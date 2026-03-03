@@ -77,9 +77,17 @@ describe("detectTokenType", () => {
     expect(detectTokenType("SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token::token-sbtc")).toBe("sBTC");
   });
 
+  it("returns sBTC for contract identifier ending with .sbtc-token (no asset suffix)", () => {
+    expect(detectTokenType("SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token")).toBe("sBTC");
+  });
+
   it("returns STX for unknown asset identifiers", () => {
     expect(detectTokenType("some-random-token")).toBe("STX");
     expect(detectTokenType("")).toBe("STX");
+  });
+
+  it("does not false-match contract names containing sbtc-token as substring", () => {
+    expect(detectTokenType("SP123.not-sbtc-token-wrapper")).toBe("STX");
   });
 });
 
@@ -287,6 +295,82 @@ describe("checkSufficientBalance", () => {
 
       // Verify it called sBTC service, not just STX balance
       expect(mockGetBalance).toHaveBeenCalledWith(MOCK_ACCOUNT.address);
+    });
+  });
+
+  // ---------- Sponsored payment checks ----------
+
+  describe("sponsored sBTC payments", () => {
+    it("passes with sufficient sBTC even when STX balance is zero", async () => {
+      mockGetBalance.mockResolvedValue({ balance: "200" }); // enough sBTC
+
+      await expect(
+        checkSufficientBalance(MOCK_ACCOUNT, "100", "sbtc", true)
+      ).resolves.toBeUndefined();
+
+      // Should NOT call STX balance or mempool fees — relay pays gas
+      expect(mockGetStxBalance).not.toHaveBeenCalled();
+      expect(mockGetMempoolFees).not.toHaveBeenCalled();
+    });
+
+    it("throws when sBTC balance is insufficient even if sponsored", async () => {
+      mockGetBalance.mockResolvedValue({ balance: "50" }); // have 50, need 100
+
+      await expect(
+        checkSufficientBalance(MOCK_ACCOUNT, "100", "sbtc", true)
+      ).rejects.toThrow(InsufficientBalanceError);
+
+      try {
+        await checkSufficientBalance(MOCK_ACCOUNT, "100", "sbtc", true);
+        expect.fail("Should have thrown");
+      } catch (err) {
+        const error = err as InstanceType<typeof InsufficientBalanceError>;
+        expect(error.tokenType).toBe("sBTC");
+        expect(error.shortfall).toBe("50");
+      }
+    });
+  });
+
+  describe("sponsored STX payments", () => {
+    it("passes when STX covers payment amount only (no fee estimation)", async () => {
+      // Need 1_000_000 payment, no fee added for sponsored
+      mockGetStxBalance.mockResolvedValue({ balance: "1000000" });
+
+      await expect(
+        checkSufficientBalance(MOCK_ACCOUNT, "1000000", "STX", true)
+      ).resolves.toBeUndefined();
+
+      // Should NOT fetch mempool fees — relay pays gas
+      expect(mockGetMempoolFees).not.toHaveBeenCalled();
+    });
+
+    it("throws when STX balance is below payment amount (sponsored)", async () => {
+      // Need 1_000_000, have 500_000 — no fee buffer needed but still short
+      mockGetStxBalance.mockResolvedValue({ balance: "500000" });
+
+      await expect(
+        checkSufficientBalance(MOCK_ACCOUNT, "1000000", "STX", true)
+      ).rejects.toThrow(InsufficientBalanceError);
+
+      try {
+        await checkSufficientBalance(MOCK_ACCOUNT, "1000000", "STX", true);
+        expect.fail("Should have thrown");
+      } catch (err) {
+        const error = err as InstanceType<typeof InsufficientBalanceError>;
+        expect(error.tokenType).toBe("STX");
+        // shortfall = 1_000_000 - 500_000 = 500_000 (no fee added)
+        expect(error.shortfall).toBe("500000");
+        expect(error.required).toBe("1000000");
+      }
+    });
+
+    it("passes at exact balance boundary without fee (sponsored)", async () => {
+      // Exactly 1_000_000 — would fail non-sponsored (needs +15_000 fee)
+      mockGetStxBalance.mockResolvedValue({ balance: "1000000" });
+
+      await expect(
+        checkSufficientBalance(MOCK_ACCOUNT, "1000000", "STX", true)
+      ).resolves.toBeUndefined();
     });
   });
 });
