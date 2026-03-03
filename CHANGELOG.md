@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.30.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.30.0...mcp-server-v1.30.1) (2026-03-03)
+
+
+### Bug Fixes
+
+* **sbtc,psbt:** cleanup PSBT and sBTC withdrawal tools from PR [#235](https://github.com/aibtcdev/aibtc-mcp-server/issues/235) ([#239](https://github.com/aibtcdev/aibtc-mcp-server/issues/239)) ([20d17f6](https://github.com/aibtcdev/aibtc-mcp-server/commit/20d17f69e919973791e7e8f6059d2a156b628835))
+
 ## [1.30.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.29.0...mcp-server-v1.30.0) (2026-02-28)
 
 
