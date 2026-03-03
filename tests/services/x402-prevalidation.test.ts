@@ -303,6 +303,7 @@ describe("checkSufficientBalance", () => {
   describe("sponsored sBTC payments", () => {
     it("passes with sufficient sBTC even when STX balance is zero", async () => {
       mockGetBalance.mockResolvedValue({ balance: "200" }); // enough sBTC
+      mockGetStxBalance.mockResolvedValue({ balance: "0" }); // STX balance is explicitly zero
 
       await expect(
         checkSufficientBalance(MOCK_ACCOUNT, "100", "sbtc", true)

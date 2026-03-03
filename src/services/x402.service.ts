@@ -339,7 +339,7 @@ export function detectTokenType(asset: string): 'STX' | 'sBTC' {
   const assetLower = asset.trim().toLowerCase();
   // Treat as sBTC if the asset is exactly "sbtc" (token name),
   // a full contract identifier ending with "::token-sbtc",
-  // or a contract identifier whose contract name is "sbtc-token"
+  // or a contract identifier ending with ".sbtc-token"
   if (assetLower === 'sbtc' || assetLower.endsWith('::token-sbtc') || assetLower.endsWith('.sbtc-token')) {
     return 'sBTC';
   }
