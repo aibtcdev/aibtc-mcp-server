@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.33.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.32.1...mcp-server-v1.33.0) (2026-03-04)
+
+
+### Features
+
+* add sbtc_withdraw_status alias tool for sBTC peg-out status ([#259](https://github.com/aibtcdev/aibtc-mcp-server/issues/259)) ([7edc1d2](https://github.com/aibtcdev/aibtc-mcp-server/commit/7edc1d22512bf43d94e9d6c6f62e38db813ab71d)), closes [#189](https://github.com/aibtcdev/aibtc-mcp-server/issues/189)
+* enable RBF on inscription txs and fix reveal fee estimation ([#262](https://github.com/aibtcdev/aibtc-mcp-server/issues/262)) ([94c62e1](https://github.com/aibtcdev/aibtc-mcp-server/commit/94c62e198df437549d56eaf9e31a0627e3eafdbe))
+
+
+### Bug Fixes
+
+* add tapInternalKey to parent input for key-path signing ([#260](https://github.com/aibtcdev/aibtc-mcp-server/issues/260)) ([80f7422](https://github.com/aibtcdev/aibtc-mcp-server/commit/80f742201c1525b7f6a8b320766d82b957ceae9d))
+
 ## [1.32.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.32.0...mcp-server-v1.32.1) (2026-03-04)
 
 
