@@ -100,6 +100,78 @@ Uses `sbtc_get_balance`.
 | `sbtc_transfer` | Send sBTC to address |
 | `sbtc_get_peg_info` | Get peg ratio and supply |
 
+## Units & Decimals (Bitflow / DeFi)
+
+All Bitflow tools accept an `amountUnit` parameter that controls how `amountIn` is interpreted.
+
+### Quick Reference
+
+| Token | Decimals | 1 human unit | Base units |
+|-------|----------|-------------|------------|
+| STX   | 6        | `1`         | `1000000`  |
+| sBTC  | 8        | `1`         | `100000000`|
+
+**Default is `"human"` (frontend-style).** Pass `amountUnit: "base"` only when you already have a raw integer from on-chain data.
+
+### Human vs Base Examples
+
+| What you want to swap | amountUnit | amountIn     |
+|----------------------|------------|--------------|
+| 2 STX                | `"human"`  | `"2"`        |
+| 2 STX (base)         | `"base"`   | `"2000000"`  |
+| 0.00000794 sBTC      | `"human"`  | `"0.00000794"` |
+| 794 sats of sBTC     | `"base"`   | `"794"`      |
+
+### bitflow_get_quote Example
+
+Get a quote for swapping 2 STX to sBTC:
+
+```
+# Human units (default) — "2 STX"
+bitflow_get_quote(tokenX="token-stx", tokenY="token-sbtc", amountIn="2")
+
+# Equivalent in base units — "2000000 micro-STX"
+bitflow_get_quote(tokenX="token-stx", tokenY="token-sbtc", amountIn="2000000", amountUnit="base")
+```
+
+Both calls produce the same quote. The server converts base to human internally.
+
+### bitflow_swap Example
+
+Swap 2 STX for sBTC:
+
+```
+# Human units (default)
+bitflow_swap(tokenX="token-stx", tokenY="token-sbtc", amountIn="2")
+
+# Equivalent in base units
+bitflow_swap(tokenX="token-stx", tokenY="token-sbtc", amountIn="2000000", amountUnit="base")
+```
+
+### WARNING: Double-Scaling Error
+
+The most common mistake is passing a value that has already been scaled to base units while leaving `amountUnit` at the default `"human"`.
+
+**Wrong — double-scaled:**
+```
+# WRONG: "2000000" interpreted as 2,000,000 STX (human), which becomes
+# 2,000,000,000,000 micro-STX internally — 1 million times too large!
+bitflow_swap(tokenX="token-stx", tokenY="token-sbtc", amountIn="2000000")
+```
+
+**Correct — either of these:**
+```
+# Option A: pass the human amount directly
+bitflow_swap(tokenX="token-stx", tokenY="token-sbtc", amountIn="2")
+
+# Option B: pass base units with the flag
+bitflow_swap(tokenX="token-stx", tokenY="token-sbtc", amountIn="2000000", amountUnit="base")
+```
+
+**Rule of thumb:** If your number looks like a raw integer from a balance query or on-chain read, set `amountUnit: "base"`. If it looks like what a human would type (e.g. "2", "0.5"), use the default.
+
+---
+
 ## ALEX DEX (Mainnet Only)
 
 Decentralized exchange for token swaps on Stacks.
@@ -142,6 +214,43 @@ Uses `alex_swap` - handles routing, wrapping, and post-conditions automatically.
 | `alex_get_swap_quote` | Get expected output |
 | `alex_swap` | Execute token swap |
 | `alex_get_pool_info` | Get pool reserves |
+
+## Bitflow DEX (Mainnet Only)
+
+DEX aggregator that routes trades across multiple liquidity sources on Stacks.
+
+See [Units & Decimals](#units--decimals-bitflow--defi) above for amount handling.
+
+### Get Quote
+
+Check expected output before swapping:
+
+```
+"Get a Bitflow quote for 2 STX to sBTC"
+```
+
+Uses `bitflow_get_quote` with token IDs (`token-stx`, `token-sbtc`, etc).
+
+### Execute Swap
+
+Swap tokens:
+
+```
+"Swap 2 STX for sBTC on Bitflow"
+```
+
+Uses `bitflow_swap` — finds the best route automatically. Requires an unlocked wallet.
+
+### Bitflow Tool Reference
+
+| Tool | Description |
+|------|-------------|
+| `bitflow_get_ticker` | Get market data (no API key needed) |
+| `bitflow_get_tokens` | List available swap tokens |
+| `bitflow_get_swap_targets` | Get possible output tokens for a given input |
+| `bitflow_get_routes` | Get all routes between two tokens |
+| `bitflow_get_quote` | Get swap quote with price impact |
+| `bitflow_swap` | Execute token swap |
 
 ## Zest Protocol (Mainnet Only)
 

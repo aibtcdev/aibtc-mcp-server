@@ -350,6 +350,8 @@ Supports 10 assets: sBTC, aeUSDC, stSTX, wSTX, USDH, sUSDT, USDA, DIKO, ALEX, st
 
 DEX aggregator that routes trades across multiple liquidity sources.
 
+> **Units:** Bitflow tools default to **human units** (`amountUnit: "human"`). Pass `"2"` to swap 2 STX, not `"2000000"`. Set `amountUnit: "base"` only when working with raw on-chain integers. See [Units & Decimals guide](skill/references/stacks-defi.md#units--decimals-bitflow--defi) for details and common pitfalls.
+
 | Tool | Description |
 |------|-------------|
 | `bitflow_get_ticker` | Get market data (no API key needed) |
