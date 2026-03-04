@@ -142,6 +142,10 @@ export interface BuildRevealTransactionOptions {
    * Network (mainnet or testnet)
    */
   network: Network;
+  /**
+   * Inscription content size in bytes (used for accurate witness size estimation)
+   */
+  contentSize: number;
 }
 
 /**
@@ -400,6 +404,7 @@ export function buildRevealTransaction(
     recipientAddress,
     feeRate,
     network,
+    contentSize,
   } = options;
 
   // Validate inputs
@@ -415,13 +420,17 @@ export function buildRevealTransaction(
   if (feeRate <= 0) {
     throw new Error("Fee rate must be positive");
   }
+  if (contentSize <= 0) {
+    throw new Error("Content size must be positive");
+  }
 
   // Estimate reveal transaction size
   // 1 input (Taproot with inscription witness) + 1 output (recipient)
+  // The witness includes the inscription content plus script & control-block overhead.
+  // Use the same formula as buildCommitTransaction to ensure consistency.
   const revealInputSize = P2TR_INPUT_BASE_VBYTES;
-  const revealWitnessSize = Math.ceil(
-    (revealScript.script?.byteLength || 0) / 4
-  );
+  const revealWitnessSize =
+    Math.ceil((contentSize / 4) * 1.25) + WITNESS_OVERHEAD_VBYTES;
   const revealTxSize =
     TX_OVERHEAD_VBYTES + revealInputSize + revealWitnessSize + P2TR_OUTPUT_VBYTES;
   const revealFee = Math.ceil(revealTxSize * feeRate);

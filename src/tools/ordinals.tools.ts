@@ -404,6 +404,7 @@ export function registerOrdinalsTools(server: McpServer): void {
           recipientAddress: sessionInfo.taprootAddress,
           feeRate: actualFeeRate,
           network: NETWORK,
+          contentSize: body.length,
         });
 
         const revealSigned = signBtcTransaction(revealResult.tx, account.btcPrivateKey);
