@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.31.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.30.3...mcp-server-v1.31.0) (2026-03-04)
+
+
+### Features
+
+* return interpreted amount metadata in Bitflow quote/swap (closes [#218](https://github.com/aibtcdev/aibtc-mcp-server/issues/218)) ([#251](https://github.com/aibtcdev/aibtc-mcp-server/issues/251)) ([cde76b5](https://github.com/aibtcdev/aibtc-mcp-server/commit/cde76b5fdcf403b37f8c69471d4ee3492952baeb))
+
 ## [1.30.3](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.30.2...mcp-server-v1.30.3) (2026-03-04)
 
 
