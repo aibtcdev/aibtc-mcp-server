@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { deriveBitcoinAddress, deriveBitcoinKeyPair } from "../../src/utils/bitcoin.js";
+import { deriveBitcoinAddress, deriveBitcoinKeyPair, deriveNostrKeyPair } from "../../src/utils/bitcoin.js";
+import { hex } from "@scure/base";
+import { schnorr } from "@noble/curves/secp256k1.js";
+import { hashSha256Sync } from "@stacks/encryption";
 
 describe("bitcoin", () => {
   describe("deriveBitcoinAddress", () => {
@@ -229,6 +232,148 @@ describe("bitcoin", () => {
       const firstByte = result.privateKey[0];
       const allSame = result.privateKey.every((byte) => byte === firstByte);
       expect(allSame).toBe(false);
+    });
+  });
+
+  describe("deriveNostrKeyPair (NIP-06)", () => {
+    // NIP-06 test vector #1
+    // https://github.com/nostr-protocol/nips/blob/master/06.md
+    const NIP06_MNEMONIC_1 =
+      "leader monkey parrot ring guide accident before fence cannon height naive bean";
+    const NIP06_EXPECTED_PRIVKEY_1 =
+      "7f7ff03d123792d6ac594bfa67bf6d0c0ab55b6b1fdb6249303fe861f1ccba9a";
+    const NIP06_EXPECTED_PUBKEY_1 =
+      "17162c921dc4d2518f9a101db33695df1afb56ab82f5ff3e5da6eec3ca5cd917";
+
+    // NIP-06 test vector #2
+    const NIP06_MNEMONIC_2 =
+      "what bleak badge arrange retreat wolf trade produce cricket blur garlic valid proud rude strong choose busy staff weather area salt hollow arm fade";
+    const NIP06_EXPECTED_PRIVKEY_2 =
+      "c15d739894c81a2fcfd3a2df85a0d2c0dbc47a280d092799f144d73d7ae78add";
+    const NIP06_EXPECTED_PUBKEY_2 =
+      "d41b22899549e1f3d335a31002cfd382174006e166d3e658e3a5eecdb6463573";
+
+    // Standard test mnemonic used elsewhere in this file
+    const TEST_MNEMONIC =
+      "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+
+    it("should match NIP-06 test vector #1 (private key)", () => {
+      const result = deriveNostrKeyPair(NIP06_MNEMONIC_1, "mainnet");
+      expect(hex.encode(result.privateKey)).toBe(NIP06_EXPECTED_PRIVKEY_1);
+    });
+
+    it("should match NIP-06 test vector #1 (public key)", () => {
+      const result = deriveNostrKeyPair(NIP06_MNEMONIC_1, "mainnet");
+      expect(hex.encode(result.publicKey)).toBe(NIP06_EXPECTED_PUBKEY_1);
+    });
+
+    it("should match NIP-06 test vector #2 (private key)", () => {
+      const result = deriveNostrKeyPair(NIP06_MNEMONIC_2, "mainnet");
+      expect(hex.encode(result.privateKey)).toBe(NIP06_EXPECTED_PRIVKEY_2);
+    });
+
+    it("should match NIP-06 test vector #2 (public key)", () => {
+      const result = deriveNostrKeyPair(NIP06_MNEMONIC_2, "mainnet");
+      expect(hex.encode(result.publicKey)).toBe(NIP06_EXPECTED_PUBKEY_2);
+    });
+
+    it("should return x-only public key (32 bytes)", () => {
+      const result = deriveNostrKeyPair(TEST_MNEMONIC, "mainnet");
+
+      expect(result.publicKey).toBeInstanceOf(Uint8Array);
+      expect(result.publicKey.length).toBe(32);
+    });
+
+    it("should return private key as Uint8Array (32 bytes)", () => {
+      const result = deriveNostrKeyPair(TEST_MNEMONIC, "mainnet");
+
+      expect(result.privateKey).toBeInstanceOf(Uint8Array);
+      expect(result.privateKey.length).toBe(32);
+    });
+
+    it("should return only publicKey and privateKey properties", () => {
+      const result = deriveNostrKeyPair(TEST_MNEMONIC, "mainnet");
+      const keys = Object.keys(result).sort();
+
+      expect(keys).toEqual(["privateKey", "publicKey"]);
+    });
+
+    it("should derive same keys for mainnet and testnet (NIP-06 is network-independent)", () => {
+      const mainnet = deriveNostrKeyPair(TEST_MNEMONIC, "mainnet");
+      const testnet = deriveNostrKeyPair(TEST_MNEMONIC, "testnet");
+
+      // NIP-06 uses coin type 1237 for both networks
+      expect(hex.encode(mainnet.publicKey)).toBe(hex.encode(testnet.publicKey));
+      expect(hex.encode(mainnet.privateKey)).toBe(hex.encode(testnet.privateKey));
+    });
+
+    it("should derive deterministic keys for same mnemonic", () => {
+      const result1 = deriveNostrKeyPair(TEST_MNEMONIC, "mainnet");
+      const result2 = deriveNostrKeyPair(TEST_MNEMONIC, "mainnet");
+
+      expect(hex.encode(result1.publicKey)).toBe(hex.encode(result2.publicKey));
+      expect(hex.encode(result1.privateKey)).toBe(hex.encode(result2.privateKey));
+    });
+
+    it("should derive different keys from different mnemonics", () => {
+      const result1 = deriveNostrKeyPair(NIP06_MNEMONIC_1, "mainnet");
+      const result2 = deriveNostrKeyPair(NIP06_MNEMONIC_2, "mainnet");
+
+      expect(hex.encode(result1.publicKey)).not.toBe(hex.encode(result2.publicKey));
+      expect(hex.encode(result1.privateKey)).not.toBe(hex.encode(result2.privateKey));
+    });
+
+    it("should derive keys different from BIP-84 SegWit keys", () => {
+      const nostrResult = deriveNostrKeyPair(TEST_MNEMONIC, "mainnet");
+      const btcResult = deriveBitcoinKeyPair(TEST_MNEMONIC, "mainnet");
+
+      // Nostr uses m/44'/1237'/0'/0/0, SegWit uses m/84'/0'/0'/0/0
+      expect(hex.encode(nostrResult.privateKey)).not.toBe(hex.encode(btcResult.privateKey));
+    });
+
+    it("private key bytes should not be all zeros", () => {
+      const result = deriveNostrKeyPair(TEST_MNEMONIC, "mainnet");
+
+      const allZeros = result.privateKey.every((byte) => byte === 0);
+      expect(allZeros).toBe(false);
+    });
+
+    it("public key bytes should not be all zeros", () => {
+      const result = deriveNostrKeyPair(TEST_MNEMONIC, "mainnet");
+
+      const allZeros = result.publicKey.every((byte) => byte === 0);
+      expect(allZeros).toBe(false);
+    });
+
+    it("public key should match schnorr.getPublicKey(privateKey)", () => {
+      const result = deriveNostrKeyPair(TEST_MNEMONIC, "mainnet");
+
+      // The x-only public key from NIP-06 derivation should equal the
+      // Schnorr public key computed from the derived private key
+      const computedPubKey = schnorr.getPublicKey(result.privateKey);
+      expect(hex.encode(result.publicKey)).toBe(hex.encode(computedPubKey));
+    });
+
+    it("should produce a valid BIP-340 Schnorr signature", () => {
+      const result = deriveNostrKeyPair(NIP06_MNEMONIC_1, "mainnet");
+
+      // Sign an arbitrary message and verify
+      const message = new TextEncoder().encode("NIP-06 test");
+      const digest = hashSha256Sync(message);
+      const sig = schnorr.sign(digest, result.privateKey);
+
+      expect(sig.length).toBe(64);
+      const isValid = schnorr.verify(sig, digest, result.publicKey);
+      expect(isValid).toBe(true);
+    });
+
+    it("should handle 24-word mnemonic (NIP-06 test vector #2)", () => {
+      // NIP-06 test vector #2 is a 24-word mnemonic
+      const result = deriveNostrKeyPair(NIP06_MNEMONIC_2, "mainnet");
+
+      expect(result.publicKey.length).toBe(32);
+      expect(result.privateKey.length).toBe(32);
+      expect(hex.encode(result.publicKey)).toBe(NIP06_EXPECTED_PUBKEY_2);
     });
   });
 });
