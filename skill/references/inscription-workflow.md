@@ -1,6 +1,6 @@
 # Bitcoin Inscription Workflow
 
-Bitcoin inscriptions are permanent data stored on the Bitcoin blockchain. This reference covers the complete inscription process from creation to verification.
+Bitcoin inscriptions are permanent data stored on the Bitcoin blockchain. This reference covers the complete inscription process from creation to verification, including parent/child inscription support.
 
 ## Overview
 
@@ -91,14 +91,93 @@ Uses `get_inscription` with reveal txid. Returns:
 - Body (base64 and text if applicable)
 - Metadata (pointer, metaprotocol, encoding)
 
+## Parent/Child Inscriptions
+
+Parent/child inscriptions establish a provenance link between an existing (parent) inscription and a new (child) inscription. The child's envelope includes a parent tag (tag 3) containing the parent's inscription ID. This is used for collections, versioning, and on-chain attribution.
+
+### How It Works
+
+The reveal transaction is structured differently for parent/child:
+- **Input 0** - Parent UTXO (proves ownership, spending the parent inscription)
+- **Input 1** - Commit UTXO (the standard commit output)
+- **Output 0** - Parent inscription returned to the same script (parent is preserved, not burned)
+- **Output 1** - Child inscription at the recipient address
+
+Because the child inscription is at output index 1, its inscription ID is `{revealTxid}i1` instead of the standard `{revealTxid}i0`.
+
+### Parent Inscription ID Format
+
+The `parentInscriptionId` parameter uses the standard ordinals format:
+
+```
+{64-hex-txid}i{index}
+```
+
+Examples:
+- `abc123...def456i0` - inscription at output 0 of that reveal tx
+- `abc123...def456i1` - inscription at output 1 (a child inscription)
+
+**Requirements**:
+- Exactly 64 hex characters for the txid
+- Lowercase hex only
+- `i` separator followed by a non-negative integer index
+
+### Parent/Child Workflow
+
+#### Step 1: Estimate Fee (with parent)
+
+```
+"Estimate fee for text inscription with parent abc123...i0"
+```
+
+Uses `estimate_inscription_fee` with `parentInscriptionId`. The estimate accounts for the extra P2TR input (parent UTXO) and extra P2TR output (parent return) in the reveal transaction — approximately 68-85 additional vbytes. Response includes `isParentChild: true`.
+
+#### Step 2: Create Commit Transaction
+
+```
+"Inscribe 'GM from child' as text/plain with parent abc123...i0"
+```
+
+Uses `inscribe` with `parentInscriptionId`. The tool:
+1. Validates the parent inscription ID format
+2. Looks up the parent via the Hiro Ordinals API to confirm it exists and is on-chain
+3. Broadcasts the commit transaction with the parent tag embedded in the inscription envelope
+
+Response includes `isParentChild: true`, `parentInscriptionId`, and a `nextStep` message reminding you to pass `parentInscriptionId` to `inscribe_reveal`.
+
+**Important**: The parent must be confirmed on-chain before calling inscribe. Unconfirmed parents are rejected.
+
+#### Step 3: Wait for Commit Confirmation
+
+Same as the standard workflow — wait for the commit transaction to confirm before proceeding.
+
+#### Step 4: Broadcast Reveal Transaction
+
+```
+"Reveal inscription for commit abc123... with parent def456...i0"
+```
+
+Uses `inscribe_reveal` with the same `contentType`, `contentBase64`, AND `parentInscriptionId` from the commit step. The tool fetches the parent UTXO live from the blockchain and constructs the reveal transaction.
+
+Response includes:
+- `inscriptionId` - `{revealTxid}i1` (output index 1, not 0)
+- `isParentChild: true`
+- `parentInscriptionId` - The parent ID
+- `parentReturned: true` - Confirms parent was returned to its script
+- `parentTxid` - Parent UTXO txid
+
+#### Step 5: Verify Child Inscription
+
+Use `get_inscription` with the reveal txid. The response will list both inscriptions (index 0 is the parent return, index 1 is the child).
+
 ## Tool Reference
 
 | Tool | Description | Parameters |
 |------|-------------|------------|
 | `get_taproot_address` | Get wallet's Taproot address for receiving inscriptions | None |
-| `estimate_inscription_fee` | Calculate inscription cost | `contentType`, `contentBase64`, `feeRate?` |
-| `inscribe` | Broadcast commit transaction (non-blocking) | `contentType`, `contentBase64`, `feeRate?` |
-| `inscribe_reveal` | Broadcast reveal transaction (after commit confirms) | `commitTxid`, `revealAmount`, `contentType`, `contentBase64`, `feeRate?` |
+| `estimate_inscription_fee` | Calculate inscription cost | `contentType`, `contentBase64`, `feeRate?`, `parentInscriptionId?` |
+| `inscribe` | Broadcast commit transaction (non-blocking) | `contentType`, `contentBase64`, `feeRate?`, `parentInscriptionId?` |
+| `inscribe_reveal` | Broadcast reveal transaction (after commit confirms) | `commitTxid`, `revealAmount`, `contentType`, `contentBase64`, `feeRate?`, `parentInscriptionId?` |
 | `get_inscription` | Fetch inscription content from reveal tx | `txid` |
 | `get_inscriptions_by_address` | List all inscriptions owned by address (mainnet only) | `address?` |
 
@@ -192,6 +271,45 @@ echo -n '{"type":"brc-20","tick":"ordi"}' | base64
 
 **Solution**: Run `wallet_unlock` with your password before inscribing
 
+### Parent Not Found
+
+**Symptom**: Inscribe fails with "Parent inscription not found: {id}"
+
+**Cause**: The `parentInscriptionId` does not exist in the Hiro Ordinals API (wrong ID or inscription was never created)
+
+**Solution**:
+1. Verify the inscription ID is correct (check mempool.space or ord.io)
+2. Ensure the inscription exists on the correct network (mainnet vs testnet)
+
+### Parent Unconfirmed
+
+**Symptom**: Inscribe fails with "Parent inscription ... is not yet confirmed"
+
+**Cause**: The parent inscription's commit or reveal transaction has not been mined yet
+
+**Solution**: Wait for the parent inscription to be fully confirmed on-chain, then retry
+
+### Invalid Parent ID Format
+
+**Symptom**: Inscribe fails with "Invalid inscription ID format: ..."
+
+**Cause**: The `parentInscriptionId` does not match the required format
+
+**Solution**: Use the format `{64-hex-txid}i{index}` with:
+- Exactly 64 lowercase hex characters for the txid
+- The literal letter `i`
+- A non-negative integer (0, 1, 2, ...)
+
+Example valid ID: `a1b2c3...d4e5f6i0`
+
+### Parent ID Mismatch Between Commit and Reveal
+
+**Symptom**: Reveal produces a different inscription address than commit (broadcast fails or wrong inscription created)
+
+**Cause**: `parentInscriptionId` passed to `inscribe_reveal` differs from what was passed to `inscribe`
+
+**Solution**: The `parentInscriptionId` must be identical in both the commit and reveal steps because it is embedded in the inscription envelope, which determines the commit address derivation
+
 ## Taproot Address Usage
 
 Inscriptions are created at Taproot (P2TR) addresses following BIP86 derivation:
@@ -230,7 +348,7 @@ Uses `get_taproot_address` - this is where your inscriptions will appear after t
 
 5. "Reveal inscription with commitTxid abc123... and revealAmount 10000"
    → Uses same contentType and contentBase64 from step 3
-   → Returns inscriptionId
+   → Returns inscriptionId ({revealTxid}i0)
 
 6. "Get inscription from reveal transaction def456..."
    → Verifies content matches "GM Bitcoin"
@@ -260,19 +378,52 @@ Uses `get_taproot_address` - this is where your inscriptions will appear after t
    → Use reveal txid with get_inscription to fetch and display HTML content
 ```
 
+### Parent/Child Inscription
+
+```
+1. "Check my BTC balance"
+   → Need enough for two-step inscription plus parent input
+
+2. "Estimate fee for text inscription 'Child of parent' with parent
+    a1b2c3...d4e5f6i0"
+   → contentType: "text/plain"
+   → contentBase64: (base64 of "Child of parent")
+   → parentInscriptionId: "a1b2c3...d4e5f6i0"
+   → Response shows isParentChild: true, higher totalCost than standard
+
+3. "Inscribe 'Child of parent' as text/plain with parent a1b2c3...d4e5f6i0"
+   → Tool validates parent exists and is confirmed on-chain
+   → Broadcasts commit tx with parent tag in inscription envelope
+   → Save commitTxid, revealAmount, and parentInscriptionId from response
+
+4. Wait for commit confirmation (same as standard workflow)
+
+5. "Reveal inscription for commit abc123... with parent a1b2c3...d4e5f6i0"
+   → Provide same contentType, contentBase64, AND parentInscriptionId
+   → Parent UTXO is fetched and spent as input 0, returned as output 0
+   → Child inscription created at output 1
+   → inscriptionId = {revealTxid}i1 (not i0)
+   → Response shows parentReturned: true
+
+6. "Get inscription from reveal transaction def456..."
+   → Returns two inscriptions: index 0 (parent return), index 1 (child)
+```
+
 ## Cost Considerations
 
 **Factors affecting cost**:
 - **Content size** - Larger inscriptions cost more (reveal witness data)
 - **Fee rate** - Higher fees = faster confirmation
 - **Network congestion** - Prices fluctuate with mempool activity
+- **Parent/child** - Adds ~68-85 vbytes to the reveal transaction (extra P2TR input for parent UTXO + extra P2TR output to return parent), increasing reveal fee
 
 **Typical ranges** (mainnet, medium fees):
 - Small text (< 100 bytes): 5,000-10,000 sats
 - Medium text (1 KB): 20,000-50,000 sats
 - Images (10-50 KB): 100,000-500,000 sats
+- Parent/child overhead: +500-1,500 sats on reveal fee (at medium fee rates)
 
-Always run `estimate_inscription_fee` before committing funds.
+Always run `estimate_inscription_fee` before committing funds. Pass `parentInscriptionId` to get an accurate estimate when creating a child inscription.
 
 ## Level System Context
 
