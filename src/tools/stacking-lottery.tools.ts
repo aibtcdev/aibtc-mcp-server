@@ -279,7 +279,14 @@ Note: Stackspot is only available on mainnet.`,
           });
         }
 
-        const amountBigInt = BigInt(amount);
+        let amountBigInt: bigint;
+        try {
+          amountBigInt = BigInt(amount);
+        } catch {
+          return createJsonResponse({
+            error: `Invalid amount "${amount}": must be a whole number in micro-STX (e.g., "1000000" for 1 STX)`,
+          });
+        }
         if (amountBigInt <= 0n) {
           return createJsonResponse({
             error: "amount must be a positive integer in micro-STX",
@@ -434,9 +441,9 @@ Note: Stackspot is only available on mainnet.`,
           contractAddress: parsed.deployer,
           contractName: parsed.contractName,
           functionName: "claim-pot-reward",
-          functionArgs: [
-            contractPrincipalCV(parsed.deployer, parsed.contractName),
-          ],
+          functionArgs: [],
+          // TODO: tighten to PostConditionMode.Deny once post-conditions are
+          // defined; kept as Allow to match the upstream stackspot skill for now.
           postConditionMode: PostConditionMode.Allow,
         });
 
@@ -496,9 +503,9 @@ Note: Stackspot is only available on mainnet.`,
           contractAddress: parsed.deployer,
           contractName: parsed.contractName,
           functionName: "cancel-pot",
-          functionArgs: [
-            contractPrincipalCV(parsed.deployer, parsed.contractName),
-          ],
+          functionArgs: [],
+          // TODO: tighten to PostConditionMode.Deny once post-conditions are
+          // defined; kept as Allow to match the upstream stackspot skill for now.
           postConditionMode: PostConditionMode.Allow,
         });
 
