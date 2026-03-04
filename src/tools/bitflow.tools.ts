@@ -15,6 +15,33 @@ const HIGH_IMPACT_THRESHOLD = 0.05; // 5%
 const AMOUNT_SCALE_SUSPICION_MULTIPLIER = 10;
 
 /**
+ * Thrown by checkAmountScaling when the requested amount looks like it was
+ * supplied in base units instead of human units.
+ */
+class AmountUnitMismatchError extends Error {
+  readonly code = "AMOUNT_UNIT_MISMATCH_SUSPECTED";
+  readonly details: {
+    requestedAmountHuman: number;
+    requestedAmountInput: string;
+    walletBalanceHuman: number;
+    tokenDecimals: number;
+    tokenSymbol: string;
+    correctedHumanAmount: number;
+    correctedBaseAmount: string;
+    suspicionMultiplier: number;
+  };
+
+  constructor(
+    message: string,
+    details: AmountUnitMismatchError["details"]
+  ) {
+    super(message);
+    this.name = "AmountUnitMismatchError";
+    this.details = details;
+  }
+}
+
+/**
  * Resolve amountIn to the human-unit number the Bitflow SDK expects.
  * When amountUnit is "human" (default), validates and passes through.
  * When amountUnit is "base", converts from smallest units using token decimals.
@@ -89,18 +116,19 @@ async function checkAmountScaling(
     return;
   }
 
-  // Look up the token's decimals from the Bitflow token list.
-  // Fall back to 6 (micro-STX standard) if the token is unknown.
-  const tokens = await bitflowService.getAvailableTokens();
-  const tokenMeta = tokens.find((t) => t.id === tokenX);
-  const decimals = tokenMeta?.decimals ?? 6;
-
-  // Fetch the wallet's balance for this token.
-  // STX is identified in Bitflow as "token-stx".
-  const hiroApi = getHiroApi(NETWORK);
-  let walletBalanceHuman: number;
-
   try {
+    // Look up the token's decimals from the Bitflow token list.
+    // Fall back to 6 (micro-STX standard) if the token is unknown.
+    // NOTE: getAvailableTokens() is inside this try/catch so that a Bitflow
+    // API outage does not propagate as an uncaught error and block all swaps.
+    const tokens = await bitflowService.getAvailableTokens();
+    const tokenMeta = tokens.find((t) => t.id === tokenX);
+    const decimals = tokenMeta?.decimals ?? 6;
+
+    // Fetch the wallet's balance for this token.
+    // STX is identified in Bitflow as "token-stx".
+    const hiroApi = getHiroApi(NETWORK);
+    let walletBalanceHuman: number;
     const isStx = tokenX === "token-stx";
     if (isStx) {
       const stxInfo = await hiroApi.getStxBalance(walletAddress);
@@ -110,48 +138,48 @@ async function checkAmountScaling(
       const rawBalance = await hiroApi.getTokenBalance(walletAddress, tokenX);
       walletBalanceHuman = Number(rawBalance) / 10 ** decimals;
     }
-  } catch {
-    // Balance lookup failed (network issue, unknown token, etc.) — skip the
-    // guard rather than blocking legitimate swaps.
+
+    // If the wallet has no balance at all, there is nothing to compare against.
+    if (walletBalanceHuman <= 0) return;
+
+    const threshold = walletBalanceHuman * AMOUNT_SCALE_SUSPICION_MULTIPLIER;
+    if (humanAmount <= threshold) return;
+
+    // The requested amount looks like it was supplied in base units.
+    // Build a helpful error with corrected examples.
+    const correctedHumanAmount = (humanAmount / 10 ** decimals).toFixed(decimals > 0 ? 6 : 0);
+    const baseEquivalent = Math.round(humanAmount * 10 ** decimals).toString();
+
+    throw new AmountUnitMismatchError(
+      `AMOUNT_UNIT_MISMATCH_SUSPECTED: The requested amount (${humanAmount} in human units) is ` +
+      `${(humanAmount / walletBalanceHuman).toFixed(0)}x your wallet balance ` +
+      `(${walletBalanceHuman.toFixed(6)} ${tokenMeta?.symbol ?? tokenX}). ` +
+      `This strongly suggests you passed a base-unit value as a human-unit value. ` +
+      `To fix this, either:\n` +
+      `  1. Pass amountUnit="base" with amountIn="${Math.round(humanAmount)}" ` +
+      `     (the SDK will convert ${Math.round(humanAmount)} base-units → ~${correctedHumanAmount} ${tokenMeta?.symbol ?? tokenX})\n` +
+      `  2. Pass amountUnit="human" (default) with amountIn="${correctedHumanAmount}" ` +
+      `     (interpreted directly as ${correctedHumanAmount} ${tokenMeta?.symbol ?? tokenX})\n` +
+      `  3. If you really do intend to swap ${humanAmount} ${tokenMeta?.symbol ?? tokenX}, ` +
+      `     first fund your wallet — it currently holds ${walletBalanceHuman.toFixed(6)} ${tokenMeta?.symbol ?? tokenX}.`,
+      {
+        requestedAmountHuman: humanAmount,
+        requestedAmountInput: amountIn,
+        walletBalanceHuman,
+        tokenDecimals: decimals,
+        tokenSymbol: tokenMeta?.symbol ?? tokenX,
+        correctedHumanAmount: Number(correctedHumanAmount),
+        correctedBaseAmount: baseEquivalent,
+        suspicionMultiplier: AMOUNT_SCALE_SUSPICION_MULTIPLIER,
+      }
+    );
+  } catch (err) {
+    // Re-throw only our own typed error — for anything else (Bitflow API down,
+    // balance lookup failed, network issue, unknown token, etc.) we silently
+    // skip the guard rather than blocking legitimate swaps.
+    if (err instanceof AmountUnitMismatchError) throw err;
     return;
   }
-
-  // If the wallet has no balance at all, there is nothing to compare against.
-  if (walletBalanceHuman <= 0) return;
-
-  const threshold = walletBalanceHuman * AMOUNT_SCALE_SUSPICION_MULTIPLIER;
-  if (humanAmount <= threshold) return;
-
-  // The requested amount looks like it was supplied in base units.
-  // Build a helpful error with corrected examples.
-  const correctedHumanAmount = (humanAmount / 10 ** decimals).toFixed(decimals > 0 ? 6 : 0);
-  const baseEquivalent = Math.round(humanAmount * 10 ** decimals).toString();
-
-  const error = new Error(
-    `AMOUNT_UNIT_MISMATCH_SUSPECTED: The requested amount (${humanAmount} in human units) is ` +
-    `${(humanAmount / walletBalanceHuman).toFixed(0)}x your wallet balance ` +
-    `(${walletBalanceHuman.toFixed(6)} ${tokenMeta?.symbol ?? tokenX}). ` +
-    `This strongly suggests you passed a base-unit value as a human-unit value. ` +
-    `To fix this, either:\n` +
-    `  1. Pass amountUnit="base" with amountIn="${Math.round(humanAmount)}" ` +
-    `     (the SDK will convert ${Math.round(humanAmount)} base-units → ~${correctedHumanAmount} ${tokenMeta?.symbol ?? tokenX})\n` +
-    `  2. Pass amountUnit="human" (default) with amountIn="${correctedHumanAmount}" ` +
-    `     (interpreted directly as ${correctedHumanAmount} ${tokenMeta?.symbol ?? tokenX})\n` +
-    `  3. If you really do intend to swap ${humanAmount} ${tokenMeta?.symbol ?? tokenX}, ` +
-    `     first fund your wallet — it currently holds ${walletBalanceHuman.toFixed(6)} ${tokenMeta?.symbol ?? tokenX}.`
-  );
-  (error as any).code = "AMOUNT_UNIT_MISMATCH_SUSPECTED";
-  (error as any).details = {
-    requestedAmountHuman: humanAmount,
-    requestedAmountInput: amountIn,
-    walletBalanceHuman,
-    tokenDecimals: decimals,
-    tokenSymbol: tokenMeta?.symbol ?? tokenX,
-    correctedHumanAmount: Number(correctedHumanAmount),
-    correctedBaseAmount: baseEquivalent,
-    suspicionMultiplier: AMOUNT_SCALE_SUSPICION_MULTIPLIER,
-  };
-  throw error;
 }
 
 export function registerBitflowTools(server: McpServer): void {
