@@ -202,9 +202,7 @@ Note: Bitflow is only available on mainnet.`,
           .describe("Amount of input token. Default interpretation is human units (e.g. '100' = 100 LEO)."),
         amountUnit: z
           .enum(["human", "base"])
-          .optional()
-          .default("human")
-          .describe("Amount units: 'human' (default, frontend-style) or 'base' (smallest units)."),
+          .describe("Required. Amount units: 'human' (frontend-style decimal, e.g. '2' for 2 STX) or 'base' (smallest integer units, e.g. '2000000' for 2 STX)."),
       },
     },
     async ({ tokenX, tokenY, amountIn, amountUnit }) => {
@@ -310,9 +308,7 @@ Note: Bitflow is only available on mainnet.`,
           .describe("Amount of input token. Default interpretation is human units (e.g. '100' = 100 LEO)."),
         amountUnit: z
           .enum(["human", "base"])
-          .optional()
-          .default("human")
-          .describe("Amount units: 'human' (default, frontend-style) or 'base' (smallest units)."),
+          .describe("Required. Amount units: 'human' (frontend-style decimal, e.g. '2' for 2 STX) or 'base' (smallest integer units, e.g. '2000000' for 2 STX)."),
         slippageTolerance: z
           .number()
           .optional()
