@@ -42,7 +42,20 @@ class AmountUnitMismatchError extends Error {
 }
 
 /**
- * Resolve amountIn to the human-unit number the Bitflow SDK expects.
+ * Metadata describing how amountIn was interpreted and converted.
+ */
+interface AmountMetadata {
+  amountInRawInput: string;
+  amountUnit: "human" | "base";
+  tokenDecimals: number | null;
+  amountInHuman: number;
+  amountInBase: string;
+  interpretation: string;
+}
+
+/**
+ * Resolve amountIn to the human-unit number the Bitflow SDK expects,
+ * and return full interpretation metadata for auditability.
  * When amountUnit is "human" (default), validates and passes through.
  * When amountUnit is "base", converts from smallest units using token decimals.
  */
@@ -51,7 +64,7 @@ async function resolveAmountIn(
   tokenX: string,
   amountIn: string,
   amountUnit: "human" | "base"
-): Promise<number> {
+): Promise<{ normalizedAmountIn: number; amountMetadata: AmountMetadata }> {
   if (amountUnit === "base") {
     if (!/^[1-9]\d*$/.test(amountIn)) {
       throw new Error("amountIn must be a positive integer when amountUnit='base'");
@@ -65,14 +78,48 @@ async function resolveAmountIn(
     if (!Number.isFinite(numeric)) {
       throw new Error("Converted amount is too large to handle safely");
     }
-    return numeric;
+    const amountMetadata: AmountMetadata = {
+      amountInRawInput: amountIn,
+      amountUnit: "base",
+      tokenDecimals: tokenIn.decimals,
+      amountInHuman: numeric,
+      amountInBase: amountIn,
+      interpretation: `Input '${amountIn}' interpreted as base units; converted to ${numeric} human units using ${tokenIn.decimals} decimals`,
+    };
+    return { normalizedAmountIn: numeric, amountMetadata };
   }
 
   const numeric = Number(amountIn);
   if (!Number.isFinite(numeric) || numeric <= 0) {
     throw new Error("amountIn must be a positive number");
   }
-  return numeric;
+  // For human units we don't need decimals from the token list; base = round(human * 10^decimals).
+  // Since we don't know decimals without an extra fetch, we omit the base string here and
+  // attempt a best-effort lookup so the metadata is as complete as possible.
+  let tokenDecimals: number | null = null;
+  let amountInBase: string = "unknown (decimals not fetched for human-unit input)";
+  try {
+    const tokens = await bitflowService.getAvailableTokens();
+    const tokenIn = tokens.find((t) => t.id === tokenX);
+    if (tokenIn) {
+      tokenDecimals = tokenIn.decimals;
+      amountInBase = String(Math.round(numeric * 10 ** tokenIn.decimals));
+    }
+  } catch {
+    // Non-fatal: metadata degrades gracefully if token list is unavailable
+  }
+  const amountMetadata: AmountMetadata = {
+    amountInRawInput: amountIn,
+    amountUnit: "human",
+    tokenDecimals,
+    amountInHuman: numeric,
+    amountInBase,
+    interpretation:
+      tokenDecimals !== null
+        ? `Input '${amountIn}' interpreted as human units (${tokenDecimals} decimals); base unit equivalent is ${amountInBase}`
+        : `Input '${amountIn}' interpreted as human units; token decimals unavailable so base unit string is omitted`,
+  };
+  return { normalizedAmountIn: numeric, amountMetadata };
 }
 
 /**
@@ -356,7 +403,12 @@ Note: Bitflow is only available on mainnet.`,
         }
 
         const bitflowService = getBitflowService(NETWORK);
-        const normalizedAmountIn = await resolveAmountIn(bitflowService, tokenX, amountIn, amountUnit);
+        const { normalizedAmountIn, amountMetadata } = await resolveAmountIn(
+          bitflowService,
+          tokenX,
+          amountIn,
+          amountUnit
+        );
         await checkAmountScaling(bitflowService, tokenX, normalizedAmountIn, amountIn, amountUnit);
 
         const quote = await bitflowService.getSwapQuote(tokenX, tokenY, normalizedAmountIn);
@@ -376,6 +428,7 @@ Note: Bitflow is only available on mainnet.`,
             amountUnit,
             normalizedAmountIn,
           },
+          amountMetadata,
           quote,
           priceImpact,
           highImpactWarning,
@@ -477,7 +530,12 @@ Note: Bitflow is only available on mainnet.`,
         }
 
         const bitflowService = getBitflowService(NETWORK);
-        const normalizedAmountIn = await resolveAmountIn(bitflowService, tokenX, amountIn, amountUnit);
+        const { normalizedAmountIn, amountMetadata } = await resolveAmountIn(
+          bitflowService,
+          tokenX,
+          amountIn,
+          amountUnit
+        );
         await checkAmountScaling(bitflowService, tokenX, normalizedAmountIn, amountIn, amountUnit);
 
         // Safety check: require explicit confirmation for high-impact swaps
@@ -487,6 +545,7 @@ Note: Bitflow is only available on mainnet.`,
           return createJsonResponse({
             error: "High price impact swap requires explicit confirmation",
             message: `This swap has ${impact.combinedImpactPct} price impact (${impact.severity}). Set confirmHighImpact=true to proceed.`,
+            amountMetadata,
             quote,
             threshold: `${(HIGH_IMPACT_THRESHOLD * 100).toFixed(0)}%`,
             requiredParam: "confirmHighImpact",
@@ -516,6 +575,7 @@ Note: Bitflow is only available on mainnet.`,
             slippageTolerance: slippageTolerance || 0.01,
             priceImpact: impact,
           },
+          amountMetadata,
           network: NETWORK,
           explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
         });
