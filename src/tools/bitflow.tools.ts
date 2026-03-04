@@ -2,10 +2,17 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getAccount, getWalletAddress, NETWORK } from "../services/x402.service.js";
 import { getBitflowService, type BitflowService } from "../services/bitflow.service.js";
+import { getHiroApi } from "../services/hiro-api.js";
 import { getExplorerTxUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse, resolveFee } from "../utils/index.js";
 
 const HIGH_IMPACT_THRESHOLD = 0.05; // 5%
+
+/**
+ * How many times larger than the wallet balance an amount must be before
+ * we suspect the caller passed base-units instead of human-units.
+ */
+const AMOUNT_SCALE_SUSPICION_MULTIPLIER = 10;
 
 /**
  * Resolve amountIn to the human-unit number the Bitflow SDK expects.
@@ -39,6 +46,112 @@ async function resolveAmountIn(
     throw new Error("amountIn must be a positive number");
   }
   return numeric;
+}
+
+/**
+ * Preflight guardrail: detect likely base-unit / human-unit confusion.
+ *
+ * When amountUnit is "human" and the requested amount is more than
+ * AMOUNT_SCALE_SUSPICION_MULTIPLIER times the wallet's actual balance of that
+ * token, we reject the call early with a structured error that explains the
+ * mismatch and shows corrected examples.
+ *
+ * This prevents wasted retries and failed transactions caused by an agent (or
+ * human) passing micro-unit values (e.g. 1_000_000 micro-STX) when the API
+ * expects human units (e.g. 1 STX).
+ *
+ * The check is skipped (silently passes) when:
+ *  - amountUnit is "base" — the caller already opted into explicit unit
+ *    conversion via resolveAmountIn, so no confusion is expected.
+ *  - The wallet address cannot be resolved (no active session / no mnemonic),
+ *    because we cannot fetch the balance without an address.
+ *  - The balance fetch itself fails — we treat network errors as non-fatal so
+ *    that a temporary API outage does not block all swap traffic.
+ *
+ * @throws Error with code AMOUNT_UNIT_MISMATCH_SUSPECTED when suspicious.
+ */
+async function checkAmountScaling(
+  bitflowService: BitflowService,
+  tokenX: string,
+  humanAmount: number,
+  amountIn: string,
+  amountUnit: "human" | "base"
+): Promise<void> {
+  // Only guard the default "human" path — "base" users have already been
+  // explicit about their units.
+  if (amountUnit !== "human") return;
+
+  let walletAddress: string;
+  try {
+    walletAddress = await getWalletAddress();
+  } catch {
+    // No wallet unlocked / no mnemonic — skip the check rather than blocking.
+    return;
+  }
+
+  // Look up the token's decimals from the Bitflow token list.
+  // Fall back to 6 (micro-STX standard) if the token is unknown.
+  const tokens = await bitflowService.getAvailableTokens();
+  const tokenMeta = tokens.find((t) => t.id === tokenX);
+  const decimals = tokenMeta?.decimals ?? 6;
+
+  // Fetch the wallet's balance for this token.
+  // STX is identified in Bitflow as "token-stx".
+  const hiroApi = getHiroApi(NETWORK);
+  let walletBalanceHuman: number;
+
+  try {
+    const isStx = tokenX === "token-stx";
+    if (isStx) {
+      const stxInfo = await hiroApi.getStxBalance(walletAddress);
+      // balance is in micro-STX; convert to STX (6 decimals)
+      walletBalanceHuman = Number(stxInfo.balance) / 10 ** 6;
+    } else {
+      const rawBalance = await hiroApi.getTokenBalance(walletAddress, tokenX);
+      walletBalanceHuman = Number(rawBalance) / 10 ** decimals;
+    }
+  } catch {
+    // Balance lookup failed (network issue, unknown token, etc.) — skip the
+    // guard rather than blocking legitimate swaps.
+    return;
+  }
+
+  // If the wallet has no balance at all, there is nothing to compare against.
+  if (walletBalanceHuman <= 0) return;
+
+  const threshold = walletBalanceHuman * AMOUNT_SCALE_SUSPICION_MULTIPLIER;
+  if (humanAmount <= threshold) return;
+
+  // The requested amount looks like it was supplied in base units.
+  // Build a helpful error with corrected examples.
+  const correctedHumanAmount = (humanAmount / 10 ** decimals).toFixed(decimals > 0 ? 6 : 0);
+  const baseEquivalent = Math.round(humanAmount * 10 ** decimals).toString();
+
+  const error = new Error(
+    `AMOUNT_UNIT_MISMATCH_SUSPECTED: The requested amount (${humanAmount} in human units) is ` +
+    `${(humanAmount / walletBalanceHuman).toFixed(0)}x your wallet balance ` +
+    `(${walletBalanceHuman.toFixed(6)} ${tokenMeta?.symbol ?? tokenX}). ` +
+    `This strongly suggests you passed a base-unit value as a human-unit value. ` +
+    `To fix this, either:\n` +
+    `  1. Pass amountUnit="base" with amountIn="${Math.round(humanAmount)}" ` +
+    `     (the SDK will convert ${Math.round(humanAmount)} base-units → ~${correctedHumanAmount} ${tokenMeta?.symbol ?? tokenX})\n` +
+    `  2. Pass amountUnit="human" (default) with amountIn="${correctedHumanAmount}" ` +
+    `     (interpreted directly as ${correctedHumanAmount} ${tokenMeta?.symbol ?? tokenX})\n` +
+    `  3. If you really do intend to swap ${humanAmount} ${tokenMeta?.symbol ?? tokenX}, ` +
+    `     first fund your wallet — it currently holds ${walletBalanceHuman.toFixed(6)} ${tokenMeta?.symbol ?? tokenX}.`
+  );
+  (error as any).code = "AMOUNT_UNIT_MISMATCH_SUSPECTED";
+  (error as any).details = {
+    requestedAmountHuman: humanAmount,
+    requestedAmountInput: amountIn,
+    walletBalanceHuman,
+    tokenDecimals: decimals,
+    tokenSymbol: tokenMeta?.symbol ?? tokenX,
+    correctedHumanAmount: Number(correctedHumanAmount),
+    correctedBaseAmount: baseEquivalent,
+    suspicionMultiplier: AMOUNT_SCALE_SUSPICION_MULTIPLIER,
+  };
+  throw error;
 }
 
 export function registerBitflowTools(server: McpServer): void {
@@ -218,6 +331,7 @@ Note: Bitflow is only available on mainnet.`,
 
         const bitflowService = getBitflowService(NETWORK);
         const normalizedAmountIn = await resolveAmountIn(bitflowService, tokenX, amountIn, amountUnit);
+        await checkAmountScaling(bitflowService, tokenX, normalizedAmountIn, amountIn, amountUnit);
 
         const quote = await bitflowService.getSwapQuote(tokenX, tokenY, normalizedAmountIn);
 
@@ -340,6 +454,7 @@ Note: Bitflow is only available on mainnet.`,
 
         const bitflowService = getBitflowService(NETWORK);
         const normalizedAmountIn = await resolveAmountIn(bitflowService, tokenX, amountIn, amountUnit);
+        await checkAmountScaling(bitflowService, tokenX, normalizedAmountIn, amountIn, amountUnit);
 
         // Safety check: require explicit confirmation for high-impact swaps
         const quote = await bitflowService.getSwapQuote(tokenX, tokenY, normalizedAmountIn);
