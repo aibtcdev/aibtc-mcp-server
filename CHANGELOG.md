@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.32.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.32.0...mcp-server-v1.32.1) (2026-03-04)
+
+
+### Bug Fixes
+
+* correct Xverse API field mapping in lookupParentInscription ([#256](https://github.com/aibtcdev/aibtc-mcp-server/issues/256)) ([4b6bc06](https://github.com/aibtcdev/aibtc-mcp-server/commit/4b6bc068557cdd8f7845cc5ad27a940913f7e941))
+
 ## [1.32.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.31.0...mcp-server-v1.32.0) (2026-03-04)
 
 
