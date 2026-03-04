@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.30.3](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.30.2...mcp-server-v1.30.3) (2026-03-04)
+
+
+### Bug Fixes
+
+* add preflight guardrail for suspicious amount scaling (closes [#219](https://github.com/aibtcdev/aibtc-mcp-server/issues/219)) ([#248](https://github.com/aibtcdev/aibtc-mcp-server/issues/248)) ([8d24be4](https://github.com/aibtcdev/aibtc-mcp-server/commit/8d24be4951eb25636115086b523ed5b8371c363f))
+* require explicit amountUnit in Bitflow quote and swap tools (closes [#217](https://github.com/aibtcdev/aibtc-mcp-server/issues/217)) ([#246](https://github.com/aibtcdev/aibtc-mcp-server/issues/246)) ([b40ffd1](https://github.com/aibtcdev/aibtc-mcp-server/commit/b40ffd194db01edf2436adf791f5f91a34024259))
+
 ## [1.30.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.30.1...mcp-server-v1.30.2) (2026-03-03)
 
 
