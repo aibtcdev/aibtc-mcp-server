@@ -252,78 +252,107 @@ Signers later process the request and send BTC on L1.`,
     }
   );
 
+  // Shared withdrawal status logic used by sbtc_withdrawal_status and sbtc_withdraw_status
+  async function fetchWithdrawalStatus(params: {
+    requestId?: number;
+    txid?: string;
+  }) {
+    const { requestId, txid } = params;
+
+    if (requestId === undefined && !txid) {
+      throw new Error("Provide either requestId or txid.");
+    }
+
+    const sbtcService = getSbtcService(NETWORK);
+    let resolvedRequestId: number | null | undefined = requestId;
+
+    if (resolvedRequestId === undefined && txid) {
+      resolvedRequestId = await sbtcService.getWithdrawalRequestIdFromTx(txid);
+      if (resolvedRequestId === null) {
+        return createJsonResponse({
+          txid,
+          requestId: null,
+          status: "pending_tx",
+          message:
+            "Could not resolve requestId from tx yet. The transaction may still be pending or unindexed.",
+          network: NETWORK,
+          explorerUrl: getExplorerTxUrl(txid, NETWORK),
+        });
+      }
+    }
+
+    if (resolvedRequestId == null) {
+      throw new Error("Unable to resolve withdrawal request ID.");
+    }
+
+    const request = await sbtcService.getWithdrawalRequest(
+      resolvedRequestId,
+      getReadonlySenderAddress()
+    );
+
+    if (!request) {
+      return createJsonResponse({
+        requestId: resolvedRequestId,
+        status: "not_found",
+        network: NETWORK,
+      });
+    }
+
+    return createJsonResponse({
+      requestId: request.id,
+      status: request.status,
+      network: NETWORK,
+      amountSats: request.amountSats,
+      maxFeeSats: request.maxFeeSats,
+      sender: request.sender,
+      blockHeight: request.blockHeight,
+      recipient: request.recipient,
+      txid,
+      ...(txid ? { explorerUrl: getExplorerTxUrl(txid, NETWORK) } : {}),
+    });
+  }
+
+  const withdrawalStatusInputSchema = {
+    requestId: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("Withdrawal request ID"),
+    txid: z
+      .string()
+      .optional()
+      .describe("Initiate-withdrawal transaction ID (used to resolve requestId)"),
+  };
+
   // Check withdrawal request status
   server.registerTool(
     "sbtc_withdrawal_status",
     {
       description:
         "Check status of an sBTC withdrawal request by requestId or initiating txid.",
-      inputSchema: {
-        requestId: z
-          .number()
-          .int()
-          .positive()
-          .optional()
-          .describe("Withdrawal request ID"),
-        txid: z
-          .string()
-          .optional()
-          .describe("Initiate-withdrawal transaction ID (used to resolve requestId)"),
-      },
+      inputSchema: withdrawalStatusInputSchema,
     },
     async ({ requestId, txid }) => {
       try {
-        if (requestId === undefined && !txid) {
-          throw new Error("Provide either requestId or txid.");
-        }
+        return await fetchWithdrawalStatus({ requestId, txid });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
 
-        const sbtcService = getSbtcService(NETWORK);
-        let resolvedRequestId: number | null | undefined = requestId;
-
-        if (resolvedRequestId === undefined && txid) {
-          resolvedRequestId = await sbtcService.getWithdrawalRequestIdFromTx(txid);
-          if (resolvedRequestId === null) {
-            return createJsonResponse({
-              txid,
-              requestId: null,
-              status: "pending_tx",
-              message:
-                "Could not resolve requestId from tx yet. The transaction may still be pending or unindexed.",
-              network: NETWORK,
-              explorerUrl: getExplorerTxUrl(txid, NETWORK),
-            });
-          }
-        }
-
-        if (resolvedRequestId == null) {
-          throw new Error("Unable to resolve withdrawal request ID.");
-        }
-
-        const request = await sbtcService.getWithdrawalRequest(
-          resolvedRequestId,
-          getReadonlySenderAddress()
-        );
-
-        if (!request) {
-          return createJsonResponse({
-            requestId: resolvedRequestId,
-            status: "not_found",
-            network: NETWORK,
-          });
-        }
-
-        return createJsonResponse({
-          requestId: request.id,
-          status: request.status,
-          network: NETWORK,
-          amountSats: request.amountSats,
-          maxFeeSats: request.maxFeeSats,
-          sender: request.sender,
-          blockHeight: request.blockHeight,
-          recipient: request.recipient,
-          txid,
-          ...(txid ? { explorerUrl: getExplorerTxUrl(txid, NETWORK) } : {}),
-        });
+  // Compatibility alias for sbtc_withdrawal_status
+  server.registerTool(
+    "sbtc_withdraw_status",
+    {
+      description:
+        "Alias for sbtc_withdrawal_status. Check the status of an sBTC peg-out (withdrawal) request.",
+      inputSchema: withdrawalStatusInputSchema,
+    },
+    async ({ requestId, txid }) => {
+      try {
+        return await fetchWithdrawalStatus({ requestId, txid });
       } catch (error) {
         return createErrorResponse(error);
       }
