@@ -20,8 +20,6 @@ import {
   P2TR_OUTPUT_VBYTES,
   TX_OVERHEAD_VBYTES,
   DUST_THRESHOLD,
-  P2TR_INPUT_BASE_VBYTES,
-  WITNESS_OVERHEAD_VBYTES,
 } from "../config/bitcoin-constants.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import {
@@ -34,6 +32,7 @@ import {
   buildCommitTransaction,
   buildRevealTransaction,
   deriveRevealScript,
+  estimateRevealTxVbytes,
   type InscriptionData,
   type ParentUtxo,
 } from "../transactions/inscription-builder.js";
@@ -64,6 +63,29 @@ function formatInscription(inscription: ParsedInscription, index: number) {
       hasMetadata: !!inscription.metadata,
     },
   };
+}
+
+/**
+ * Resolve a BTC fee rate from a preset name, explicit number, or undefined (default medium).
+ * Uses MempoolApi.getFeeTiers() for consistency with bitcoin.tools.ts, sbtc.tools.ts, etc.
+ */
+async function resolveBtcFeeRate(
+  feeRate: "fast" | "medium" | "slow" | number | undefined,
+  mempoolApi: MempoolApi
+): Promise<number> {
+  if (typeof feeRate === "number") {
+    return feeRate;
+  }
+  const tiers = await mempoolApi.getFeeTiers();
+  switch (feeRate) {
+    case "fast":
+      return tiers.fast;
+    case "slow":
+      return tiers.slow;
+    case "medium":
+    default:
+      return tiers.medium;
+  }
 }
 
 const HIRO_ORDINALS_API_URL = "https://api.hiro.so/ordinals/v1";
@@ -252,12 +274,8 @@ export function registerOrdinalsTools(server: McpServer): void {
         const body = Buffer.from(contentBase64, "base64");
 
         // Get current fee estimate if not provided
-        let actualFeeRate = feeRate;
-        if (!actualFeeRate) {
-          const mempoolApi = new MempoolApi(NETWORK);
-          const fees = await mempoolApi.getFeeEstimates();
-          actualFeeRate = fees.halfHourFee;
-        }
+        const mempoolApi = new MempoolApi(NETWORK);
+        const actualFeeRate = await resolveBtcFeeRate(feeRate, mempoolApi);
 
         const hasParent = !!parentInscriptionId;
 
@@ -270,22 +288,8 @@ export function registerOrdinalsTools(server: McpServer): void {
           P2WPKH_OUTPUT_VBYTES;
         const commitFee = Math.ceil(commitSize * actualFeeRate);
 
-        // Reveal tx size:
-        // - 1 commit input (P2TR script-path) with inscription witness
-        // - When parent: +1 P2TR key-path input for parent UTXO
-        // - 1 output for inscription recipient
-        // - When parent: +1 P2TR output to return parent value
-        const revealWitnessSize =
-          Math.ceil((body.length / 4) * 1.25) + WITNESS_OVERHEAD_VBYTES;
-        const parentInputVbytes = hasParent ? P2TR_INPUT_BASE_VBYTES : 0;
-        const parentOutputVbytes = hasParent ? P2TR_OUTPUT_VBYTES : 0;
-        const revealSize =
-          TX_OVERHEAD_VBYTES +
-          P2TR_INPUT_BASE_VBYTES +
-          parentInputVbytes +
-          revealWitnessSize +
-          P2TR_OUTPUT_VBYTES +
-          parentOutputVbytes;
+        // Reveal tx size (uses shared formula from inscription-builder)
+        const revealSize = estimateRevealTxVbytes(body.length, hasParent);
         const revealFee = Math.ceil(revealSize * actualFeeRate);
 
         // Amount locked in reveal output
@@ -392,23 +396,7 @@ export function registerOrdinalsTools(server: McpServer): void {
 
         // Get fee rate
         const mempoolApi = new MempoolApi(NETWORK);
-        let actualFeeRate: number;
-
-        if (typeof feeRate === "string") {
-          const fees = await mempoolApi.getFeeEstimates();
-          switch (feeRate) {
-            case "fast":
-              actualFeeRate = fees.fastestFee;
-              break;
-            case "slow":
-              actualFeeRate = fees.hourFee;
-              break;
-            default:
-              actualFeeRate = fees.halfHourFee;
-          }
-        } else {
-          actualFeeRate = feeRate || (await mempoolApi.getFeeEstimates()).halfHourFee;
-        }
+        const actualFeeRate = await resolveBtcFeeRate(feeRate, mempoolApi);
 
         // Get UTXOs for funding
         const utxos = await mempoolApi.getUtxos(sessionInfo.btcAddress);
@@ -430,10 +418,7 @@ export function registerOrdinalsTools(server: McpServer): void {
           senderAddress: sessionInfo.btcAddress,
           network: NETWORK,
           ...(parentInscriptionId
-            ? {
-                parent: { inscriptionId: parentInscriptionId },
-                hasParent: true,
-              }
+            ? { parent: { inscriptionId: parentInscriptionId } }
             : {}),
         });
 
@@ -555,22 +540,7 @@ export function registerOrdinalsTools(server: McpServer): void {
         };
 
         // Get fee rate
-        let actualFeeRate: number;
-        if (typeof feeRate === "string") {
-          const fees = await mempoolApi.getFeeEstimates();
-          switch (feeRate) {
-            case "fast":
-              actualFeeRate = fees.fastestFee;
-              break;
-            case "slow":
-              actualFeeRate = fees.hourFee;
-              break;
-            default:
-              actualFeeRate = fees.halfHourFee;
-          }
-        } else {
-          actualFeeRate = feeRate || (await mempoolApi.getFeeEstimates()).halfHourFee;
-        }
+        const actualFeeRate = await resolveBtcFeeRate(feeRate, mempoolApi);
 
         // Derive the reveal script deterministically from inscription + sender key
         // (same derivation used in the commit step — no dummy UTXOs needed)

@@ -23,6 +23,35 @@ import type { UTXO } from "../services/mempool-api.js";
 import { getBtcNetwork } from "./bitcoin-builder.js";
 
 /**
+ * Estimate the virtual size (vbytes) of a reveal transaction.
+ *
+ * This formula is used by fee estimation, commit transaction building (to size
+ * the commit output), and reveal transaction building (to compute the actual fee).
+ * Centralizing it here ensures all three stay in sync.
+ *
+ * @param contentSize - Inscription content size in bytes
+ * @param hasParent - Whether the reveal includes a parent UTXO (adds extra P2TR input + output)
+ * @returns Estimated virtual size in vbytes
+ */
+export function estimateRevealTxVbytes(
+  contentSize: number,
+  hasParent: boolean
+): number {
+  const revealWitnessSize =
+    Math.ceil((contentSize / 4) * 1.25) + WITNESS_OVERHEAD_VBYTES;
+  const parentInputVbytes = hasParent ? P2TR_INPUT_BASE_VBYTES : 0;
+  const parentOutputVbytes = hasParent ? P2TR_OUTPUT_VBYTES : 0;
+  return (
+    TX_OVERHEAD_VBYTES +
+    P2TR_INPUT_BASE_VBYTES +
+    parentInputVbytes +
+    revealWitnessSize +
+    P2TR_OUTPUT_VBYTES +
+    parentOutputVbytes
+  );
+}
+
+/**
  * Parent UTXO for parent/child inscription reveals.
  *
  * In a parent/child inscription, the parent UTXO must be spent as an input
@@ -121,7 +150,8 @@ export interface BuildCommitTransactionOptions {
   network: Network;
   /**
    * Optional parent inscription info for parent/child inscriptions.
-   * When provided, the inscription envelope will include a parent tag (tag 3).
+   * When provided, the inscription envelope will include a parent tag (tag 3)
+   * and the reveal fee estimate will account for the extra parent input/output.
    */
   parent?: {
     /**
@@ -129,12 +159,6 @@ export interface BuildCommitTransactionOptions {
      */
     inscriptionId: string;
   };
-  /**
-   * When true, inflates the reveal fee estimate to account for the extra parent
-   * input and parent return output in the reveal transaction. Should be set
-   * whenever a parent UTXO will be used in the reveal.
-   */
-  hasParent?: boolean;
 }
 
 /**
@@ -315,7 +339,6 @@ export function buildCommitTransaction(
     senderAddress,
     network,
     parent,
-    hasParent,
   } = options;
 
   // Validate inputs
@@ -350,19 +373,7 @@ export function buildCommitTransaction(
   const btcNetwork = getBtcNetwork(network);
 
   // Estimate reveal transaction size to determine commit amount.
-  // For parent/child reveals, account for the extra parent P2TR input and parent return output.
-  const revealInputSize = P2TR_INPUT_BASE_VBYTES;
-  const revealWitnessSize =
-    Math.ceil((inscription.body.length / 4) * 1.25) + WITNESS_OVERHEAD_VBYTES;
-  const parentInputVbytes = hasParent ? P2TR_INPUT_BASE_VBYTES : 0;
-  const parentOutputVbytes = hasParent ? P2TR_OUTPUT_VBYTES : 0;
-  const revealTxSize =
-    TX_OVERHEAD_VBYTES +
-    revealInputSize +
-    parentInputVbytes +
-    revealWitnessSize +
-    P2TR_OUTPUT_VBYTES +
-    parentOutputVbytes;
+  const revealTxSize = estimateRevealTxVbytes(inscription.body.length, !!parent);
   const revealFee = Math.ceil(revealTxSize * feeRate);
 
   // Amount to send to reveal address (must cover reveal fee + dust for output)
@@ -513,22 +524,8 @@ export function buildRevealTransaction(
     throw new Error("Content size must be positive");
   }
 
-  // Estimate reveal transaction size.
-  // The witness includes the inscription content plus script & control-block overhead.
-  // For parent/child reveals, add a P2TR key-path input (parent) and a P2TR return output.
-  // Use the same formula as buildCommitTransaction to ensure consistency.
-  const revealInputSize = P2TR_INPUT_BASE_VBYTES;
-  const revealWitnessSize =
-    Math.ceil((contentSize / 4) * 1.25) + WITNESS_OVERHEAD_VBYTES;
-  const parentInputVbytes = parentUtxo ? P2TR_INPUT_BASE_VBYTES : 0;
-  const parentOutputVbytes = parentUtxo ? P2TR_OUTPUT_VBYTES : 0;
-  const revealTxSize =
-    TX_OVERHEAD_VBYTES +
-    revealInputSize +
-    parentInputVbytes +
-    revealWitnessSize +
-    P2TR_OUTPUT_VBYTES +
-    parentOutputVbytes;
+  // Estimate reveal transaction size using the shared formula.
+  const revealTxSize = estimateRevealTxVbytes(contentSize, !!parentUtxo);
   const revealFee = Math.ceil(revealTxSize * feeRate);
 
   // The commit output covers the inscription output dust plus the reveal fee.

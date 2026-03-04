@@ -64,6 +64,7 @@ describe("inscription-builder", () => {
       recipientAddress: testTaprootAddress,
       feeRate: 10,
       network: "mainnet",
+      contentSize: TEST_INSCRIPTION.body.length,
     });
   }
 
@@ -198,6 +199,7 @@ describe("inscription-builder", () => {
           recipientAddress: testTaprootAddress,
           feeRate: 10,
           network: "mainnet",
+          contentSize: TEST_INSCRIPTION.body.length,
         })
       ).toThrow("Invalid commit transaction ID");
     });
@@ -214,6 +216,7 @@ describe("inscription-builder", () => {
           recipientAddress: testTaprootAddress,
           feeRate: -5,
           network: "mainnet",
+          contentSize: TEST_INSCRIPTION.body.length,
         })
       ).toThrow("Fee rate must be positive");
     });
@@ -230,6 +233,7 @@ describe("inscription-builder", () => {
           recipientAddress: testTaprootAddress,
           feeRate: 10,
           network: "mainnet",
+          contentSize: TEST_INSCRIPTION.body.length,
         })
       ).toThrow("dust threshold");
     });
