@@ -8,7 +8,7 @@
  */
 
 import * as btc from "@scure/btc-signer";
-import { p2tr_ord_reveal } from "micro-ordinals";
+import { p2tr_ord_reveal, type Inscription } from "micro-ordinals";
 import type { Network } from "../config/networks.js";
 import {
   P2WPKH_INPUT_VBYTES,
@@ -21,6 +21,32 @@ import {
 } from "../config/bitcoin-constants.js";
 import type { UTXO } from "../services/mempool-api.js";
 import { getBtcNetwork } from "./bitcoin-builder.js";
+
+/**
+ * Parent UTXO for parent/child inscription reveals.
+ *
+ * In a parent/child inscription, the parent UTXO must be spent as an input
+ * to the reveal transaction (proving provenance) and returned as the first
+ * output (so the parent remains with its owner).
+ */
+export interface ParentUtxo {
+  /**
+   * UTXO txid of the parent inscription
+   */
+  txid: string;
+  /**
+   * Output index of the parent inscription UTXO
+   */
+  vout: number;
+  /**
+   * Value of the parent UTXO in satoshis (will be returned as first output)
+   */
+  value: number;
+  /**
+   * witnessUtxo script for the parent UTXO (P2TR script of the current owner)
+   */
+  script: Uint8Array;
+}
 
 /**
  * Inscription data structure
@@ -52,6 +78,17 @@ export interface DeriveRevealScriptOptions {
    * Network (mainnet or testnet)
    */
   network: Network;
+  /**
+   * Optional parent inscription info for parent/child inscriptions.
+   * When provided, the inscription envelope will include a parent tag (tag 3)
+   * with the parent inscription ID in "{txid}i{vout}" format.
+   */
+  parent?: {
+    /**
+     * Parent inscription ID in ordinals format: "{txid}i{vout}" (e.g. "abc123...i0")
+     */
+    inscriptionId: string;
+  };
 }
 
 /**
@@ -82,6 +119,22 @@ export interface BuildCommitTransactionOptions {
    * Network (mainnet or testnet)
    */
   network: Network;
+  /**
+   * Optional parent inscription info for parent/child inscriptions.
+   * When provided, the inscription envelope will include a parent tag (tag 3).
+   */
+  parent?: {
+    /**
+     * Parent inscription ID in ordinals format: "{txid}i{vout}" (e.g. "abc123...i0")
+     */
+    inscriptionId: string;
+  };
+  /**
+   * When true, inflates the reveal fee estimate to account for the extra parent
+   * input and parent return output in the reveal transaction. Should be set
+   * whenever a parent UTXO will be used in the reveal.
+   */
+  hasParent?: boolean;
 }
 
 /**
@@ -146,6 +199,14 @@ export interface BuildRevealTransactionOptions {
    * Inscription content size in bytes (used for accurate witness size estimation)
    */
   contentSize: number;
+  /**
+   * Optional parent UTXO for parent/child inscriptions.
+   * When provided:
+   * - Parent UTXO is added as input 0 (commit input becomes input 1)
+   * - Parent value is returned as output 0 (inscription output becomes output 1)
+   * - Fee estimate includes the extra P2TR input and P2TR output
+   */
+  parentUtxo?: ParentUtxo;
 }
 
 /**
@@ -164,6 +225,10 @@ export interface BuildRevealTransactionResult {
    * Amount sent to recipient (in satoshis)
    */
   outputAmount: number;
+  /**
+   * True when a parent UTXO was added as input 0 and its value returned as output 0.
+   */
+  parentReturned?: boolean;
 }
 
 /**
@@ -181,11 +246,18 @@ export interface BuildRevealTransactionResult {
 export function deriveRevealScript(
   options: DeriveRevealScriptOptions
 ): ReturnType<typeof btc.p2tr> {
-  const { inscription, senderPubKey, network } = options;
+  const { inscription, senderPubKey, network, parent } = options;
 
   const btcNetwork = getBtcNetwork(network);
-  const inscriptionData = {
-    tags: { contentType: inscription.contentType },
+  // Note: The micro-ordinals type definition for Tags.parent is incorrectly typed as
+  // P.Coder<string, Uint8Array> (the coder object), but at runtime it expects a string
+  // (the inscription ID). The cast below works around this type definition bug.
+  // See: https://github.com/paulmillr/micro-ordinals — TagCoders.parent.encode(to['parent'])
+  const inscriptionData: Inscription = {
+    tags: {
+      contentType: inscription.contentType,
+      ...(parent ? { parent: parent.inscriptionId as unknown as import("micro-ordinals").Tags["parent"] } : {}),
+    },
     body: inscription.body,
   };
 
@@ -235,8 +307,16 @@ export function deriveRevealScript(
 export function buildCommitTransaction(
   options: BuildCommitTransactionOptions
 ): BuildCommitTransactionResult {
-  const { utxos, inscription, feeRate, senderPubKey, senderAddress, network } =
-    options;
+  const {
+    utxos,
+    inscription,
+    feeRate,
+    senderPubKey,
+    senderAddress,
+    network,
+    parent,
+    hasParent,
+  } = options;
 
   // Validate inputs
   if (utxos.length === 0) {
@@ -264,17 +344,25 @@ export function buildCommitTransaction(
     throw new Error("No confirmed UTXOs available");
   }
 
-  // Derive the reveal script deterministically from inscription + sender key
-  const p2trReveal = deriveRevealScript({ inscription, senderPubKey, network });
+  // Derive the reveal script deterministically from inscription + sender key.
+  // Pass the parent inscription ID so the envelope includes the parent tag (tag 3).
+  const p2trReveal = deriveRevealScript({ inscription, senderPubKey, network, parent });
   const btcNetwork = getBtcNetwork(network);
 
-  // Estimate reveal transaction size to determine commit amount
-  // Reveal tx: 1 input (Taproot with inscription witness) + 1 output (recipient)
-  // The witness includes the inscription data plus script & control-block overhead
+  // Estimate reveal transaction size to determine commit amount.
+  // For parent/child reveals, account for the extra parent P2TR input and parent return output.
   const revealInputSize = P2TR_INPUT_BASE_VBYTES;
   const revealWitnessSize =
     Math.ceil((inscription.body.length / 4) * 1.25) + WITNESS_OVERHEAD_VBYTES;
-  const revealTxSize = TX_OVERHEAD_VBYTES + revealInputSize + revealWitnessSize + P2TR_OUTPUT_VBYTES;
+  const parentInputVbytes = hasParent ? P2TR_INPUT_BASE_VBYTES : 0;
+  const parentOutputVbytes = hasParent ? P2TR_OUTPUT_VBYTES : 0;
+  const revealTxSize =
+    TX_OVERHEAD_VBYTES +
+    revealInputSize +
+    parentInputVbytes +
+    revealWitnessSize +
+    P2TR_OUTPUT_VBYTES +
+    parentOutputVbytes;
   const revealFee = Math.ceil(revealTxSize * feeRate);
 
   // Amount to send to reveal address (must cover reveal fee + dust for output)
@@ -405,6 +493,7 @@ export function buildRevealTransaction(
     feeRate,
     network,
     contentSize,
+    parentUtxo,
   } = options;
 
   // Validate inputs
@@ -424,18 +513,26 @@ export function buildRevealTransaction(
     throw new Error("Content size must be positive");
   }
 
-  // Estimate reveal transaction size
-  // 1 input (Taproot with inscription witness) + 1 output (recipient)
+  // Estimate reveal transaction size.
   // The witness includes the inscription content plus script & control-block overhead.
+  // For parent/child reveals, add a P2TR key-path input (parent) and a P2TR return output.
   // Use the same formula as buildCommitTransaction to ensure consistency.
   const revealInputSize = P2TR_INPUT_BASE_VBYTES;
   const revealWitnessSize =
     Math.ceil((contentSize / 4) * 1.25) + WITNESS_OVERHEAD_VBYTES;
+  const parentInputVbytes = parentUtxo ? P2TR_INPUT_BASE_VBYTES : 0;
+  const parentOutputVbytes = parentUtxo ? P2TR_OUTPUT_VBYTES : 0;
   const revealTxSize =
-    TX_OVERHEAD_VBYTES + revealInputSize + revealWitnessSize + P2TR_OUTPUT_VBYTES;
+    TX_OVERHEAD_VBYTES +
+    revealInputSize +
+    parentInputVbytes +
+    revealWitnessSize +
+    P2TR_OUTPUT_VBYTES +
+    parentOutputVbytes;
   const revealFee = Math.ceil(revealTxSize * feeRate);
 
-  // Calculate output amount
+  // The commit output covers the inscription output dust plus the reveal fee.
+  // The parent UTXO value flows through net-zero (input == return output).
   const outputAmount = commitAmount - revealFee;
 
   if (outputAmount < DUST_THRESHOLD) {
@@ -448,8 +545,54 @@ export function buildRevealTransaction(
   const btcNetwork = getBtcNetwork(network);
   const tx = new btc.Transaction({ allowUnknownOutputs: true, allowUnknownInputs: true });
 
-  // Add input spending from commit transaction
-  // For Taproot script path spending, we need to provide the witness data
+  if (parentUtxo) {
+    // Parent/child reveal transaction structure:
+    //   Input 0:  parent UTXO (P2TR key-path spend — proves provenance)
+    //   Input 1:  commit output (P2TR script-path spend — reveals inscription)
+    //   Output 0: parent value returned to original script (net-zero for parent owner)
+    //   Output 1: inscription sent to recipient
+
+    // Input 0: parent UTXO
+    tx.addInput({
+      txid: parentUtxo.txid,
+      index: parentUtxo.vout,
+      witnessUtxo: {
+        script: parentUtxo.script,
+        amount: BigInt(parentUtxo.value),
+      },
+    });
+
+    // Input 1: commit output (Taproot script-path spend with inscription witness)
+    tx.addInput({
+      txid: commitTxid,
+      index: commitVout,
+      witnessUtxo: {
+        script: revealScript.script,
+        amount: BigInt(commitAmount),
+      },
+      tapLeafScript: revealScript.tapLeafScript,
+    });
+
+    // Output 0: return parent value to the same script (owner keeps the parent inscription)
+    tx.addOutput({
+      script: parentUtxo.script,
+      amount: BigInt(parentUtxo.value),
+    });
+
+    // Output 1: inscription to recipient
+    tx.addOutputAddress(recipientAddress, BigInt(outputAmount), btcNetwork);
+
+    return {
+      tx,
+      fee: revealFee,
+      outputAmount,
+      parentReturned: true,
+    };
+  }
+
+  // Standard (non-parent) reveal transaction:
+  //   Input 0:  commit output (P2TR script-path spend)
+  //   Output 0: inscription sent to recipient
   tx.addInput({
     txid: commitTxid,
     index: commitVout,
@@ -457,11 +600,9 @@ export function buildRevealTransaction(
       script: revealScript.script,
       amount: BigInt(commitAmount),
     },
-    // Include taproot script path info for script-path spending
     tapLeafScript: revealScript.tapLeafScript,
   });
 
-  // Add output to recipient (Taproot address)
   tx.addOutputAddress(recipientAddress, BigInt(outputAmount), btcNetwork);
 
   return {
