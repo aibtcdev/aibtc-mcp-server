@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.32.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.31.0...mcp-server-v1.32.0) (2026-03-04)
+
+
+### Features
+
+* parent-child inscription tools ([#254](https://github.com/aibtcdev/aibtc-mcp-server/issues/254)) ([ae9953f](https://github.com/aibtcdev/aibtc-mcp-server/commit/ae9953f3323c3dabff737a06efeddfad4062af51))
+
 ## [1.31.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.30.3...mcp-server-v1.31.0) (2026-03-04)
 
 
