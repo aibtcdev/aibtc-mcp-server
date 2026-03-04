@@ -22,6 +22,7 @@ import { registerErc8004Tools } from "./erc8004.tools.js";
 import { registerDefiTools } from "./defi.tools.js";
 import { registerStackingTools } from "./stacking.tools.js";
 import { registerBitflowTools } from "./bitflow.tools.js";
+import { registerStackingLotteryTools } from "./stacking-lottery.tools.js";
 
 // Layer 3: Pillar Smart Wallet
 import { registerPillarTools } from "./pillar.tools.js";
@@ -79,6 +80,7 @@ export function registerAllTools(server: McpServer): void {
   registerDefiTools(server);
   registerStackingTools(server);
   registerBitflowTools(server);
+  registerStackingLotteryTools(server);
 
   // =========================================================================
   // Layer 3: Pillar Smart Wallet
