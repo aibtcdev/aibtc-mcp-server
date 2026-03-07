@@ -451,9 +451,13 @@ export class ZestProtocolService {
       const ids = ZestProtocolService.PYTH_FEED_IDS
         .map((id) => `ids[]=${id}`)
         .join("&");
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5_000);
       const res = await fetch(
-        `https://hermes.pyth.network/v2/updates/price/latest?${ids}&encoding=hex`
+        `https://hermes.pyth.network/v2/updates/price/latest?${ids}&encoding=hex`,
+        { signal: controller.signal }
       );
+      clearTimeout(timeout);
       if (!res.ok) return noneCV();
       const data = await res.json() as { binary?: { data?: string[] } };
       const hex = data?.binary?.data?.[0];
@@ -619,7 +623,7 @@ export class ZestProtocolService {
     // 3. sender burns LP tokens (zsbtc etc.)
     const [lpFtContract, lpFtAssetName] = assetConfig.lpFungibleToken.split("::");
     const postConditions = [
-      Pc.principal(`${address}.pool-vault` as `${string}.${string}`)
+      Pc.principal(this.contracts!.poolVault as `${string}.${string}`)
         .willSendLte(amount)
         .ft(assetConfig.token as `${string}.${string}`, assetName),
       Pc.principal(account.address)
@@ -677,7 +681,7 @@ export class ZestProtocolService {
     // 1. pool-vault sends borrowed asset (not pool-reserve)
     // 2. sender pays small STX fee for Pyth oracle update (~2 uSTX)
     const postConditions = [
-      Pc.principal(`${address}.pool-vault` as `${string}.${string}`)
+      Pc.principal(this.contracts!.poolVault as `${string}.${string}`)
         .willSendLte(amount)
         .ft(assetConfig.token as `${string}.${string}`, assetName),
       Pc.principal(account.address)

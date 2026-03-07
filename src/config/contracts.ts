@@ -28,6 +28,7 @@ export const MAINNET_CONTRACTS = {
   ZEST_POOL_BORROW: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.pool-borrow-v2-3",
   ZEST_BORROW_HELPER: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.borrow-helper-v2-1-7",
   ZEST_POOL_RESERVE: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.pool-0-reserve-v2-0",
+  ZEST_POOL_VAULT: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.pool-vault",
   ZEST_FEES_CALCULATOR: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.fees-calculator",
   ZEST_INCENTIVES: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.incentives-v2-2",
   ZEST_WSTX: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.wstx",
@@ -45,7 +46,7 @@ export const MAINNET_CONTRACTS = {
 export interface ZestAssetConfig {
   token: string;
   lpToken: string;
-  lpFungibleToken: string; // FT contract that holds LP token balance (e.g. "ZEST.zsbtc-token::zsbtc")
+  lpFungibleToken: string; // FT contract::asset for LP token (e.g. "SP2VCQ...ZW1QF4N.zsbtc-token::zsbtc")
   oracle: string;
   decimals: number;
   symbol: string;
@@ -247,6 +248,7 @@ export function getZestContracts(network: Network) {
       poolBorrow: MAINNET_CONTRACTS.ZEST_POOL_BORROW,
       borrowHelper: MAINNET_CONTRACTS.ZEST_BORROW_HELPER,
       poolReserve: MAINNET_CONTRACTS.ZEST_POOL_RESERVE,
+      poolVault: MAINNET_CONTRACTS.ZEST_POOL_VAULT,
       feesCalculator: MAINNET_CONTRACTS.ZEST_FEES_CALCULATOR,
       incentives: MAINNET_CONTRACTS.ZEST_INCENTIVES,
       wstx: MAINNET_CONTRACTS.ZEST_WSTX,
