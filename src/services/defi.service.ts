@@ -607,6 +607,8 @@ export class ZestProtocolService {
     // Post-conditions:
     // 1. pool-vault sends us the withdrawn asset (not pool-reserve)
     // 2. sender pays small STX fee for Pyth oracle update (~2 uSTX)
+    // 3. sender burns LP tokens (zsbtc etc.)
+    const [lpFtContract, lpFtAssetName] = assetConfig.lpFungibleToken.split("::");
     const postConditions = [
       Pc.principal(`${address}.pool-vault` as `${string}.${string}`)
         .willSendLte(amount)
@@ -614,6 +616,9 @@ export class ZestProtocolService {
       Pc.principal(account.address)
         .willSendLte(100n)
         .ustx(),
+      Pc.principal(account.address)
+        .willSendLte(amount)
+        .ft(lpFtContract as `${string}.${string}`, lpFtAssetName),
     ];
 
     return callContract(account, {
