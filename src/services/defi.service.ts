@@ -604,12 +604,16 @@ export class ZestProtocolService {
       priceFeedBytes,                                          // price-feed-bytes (Pyth VAA)
     ];
 
-    // Post-condition: pool-vault sends us the withdrawn asset (not pool-reserve)
-    // Using willSendLte because actual amount may be slightly different due to interest
+    // Post-conditions:
+    // 1. pool-vault sends us the withdrawn asset (not pool-reserve)
+    // 2. sender pays small STX fee for Pyth oracle update (~2 uSTX)
     const postConditions = [
       Pc.principal(`${address}.pool-vault` as `${string}.${string}`)
         .willSendLte(amount)
         .ft(assetConfig.token as `${string}.${string}`, assetName),
+      Pc.principal(account.address)
+        .willSendLte(100n)
+        .ustx(),
     ];
 
     return callContract(account, {
@@ -655,11 +659,16 @@ export class ZestProtocolService {
       priceFeedBytes,                                          // price-feed-bytes (Pyth VAA)
     ];
 
-    // Post-condition: pool-vault sends borrowed asset (not pool-reserve)
+    // Post-conditions:
+    // 1. pool-vault sends borrowed asset (not pool-reserve)
+    // 2. sender pays small STX fee for Pyth oracle update (~2 uSTX)
     const postConditions = [
       Pc.principal(`${address}.pool-vault` as `${string}.${string}`)
         .willSendLte(amount)
         .ft(assetConfig.token as `${string}.${string}`, assetName),
+      Pc.principal(account.address)
+        .willSendLte(100n)
+        .ustx(),
     ];
 
     return callContract(account, {
@@ -748,13 +757,16 @@ export class ZestProtocolService {
       priceFeedBytes,                                          // price-feed-bytes (Pyth VAA)
     ];
 
-    // Post-condition: pool reserve will send wSTX rewards to user
-    // Using willSendGte(0n) since we don't know the exact reward amount
-    // Deny mode ensures no unexpected token transfers can occur
+    // Post-conditions:
+    // 1. pool reserve will send wSTX rewards to user
+    // 2. sender pays small STX fee for Pyth oracle update (~2 uSTX)
     const postConditions = [
       Pc.principal(this.contracts!.poolReserve)
         .willSendGte(0n)
         .ft(this.contracts!.wstx as `${string}.${string}`, wstxName),
+      Pc.principal(account.address)
+        .willSendLte(100n)
+        .ustx(),
     ];
 
     return callContract(account, {
