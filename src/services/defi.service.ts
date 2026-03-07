@@ -434,12 +434,19 @@ export class ZestProtocolService {
     "0xec7a775f46379b5e943c3526b1c8d54cd49749176b0b98e02dde68d1bd335c17", // STX/USD
   ];
 
+  private priceFeedCache: { value: ClarityValue; timestamp: number } | null = null;
+  private static PRICE_FEED_TTL_MS = 30_000; // 30s cache — oracle rejects >360s
+
   /**
    * Fetch fresh Pyth price update VAA from Hermes API.
+   * Caches for 30s to avoid redundant requests when multiple ops run in sequence.
    * Returns someCV(bufferCV(...)) for the price-feed-bytes parameter,
    * or noneCV() if the fetch fails (graceful degradation).
    */
   private async fetchPriceFeedBytes(): Promise<ClarityValue> {
+    if (this.priceFeedCache && Date.now() - this.priceFeedCache.timestamp < ZestProtocolService.PRICE_FEED_TTL_MS) {
+      return this.priceFeedCache.value;
+    }
     try {
       const ids = ZestProtocolService.PYTH_FEED_IDS
         .map((id) => `ids[]=${id}`)
@@ -451,7 +458,9 @@ export class ZestProtocolService {
       const data = await res.json() as { binary?: { data?: string[] } };
       const hex = data?.binary?.data?.[0];
       if (!hex) return noneCV();
-      return someCV(bufferCV(Buffer.from(hex, "hex")));
+      const value = someCV(bufferCV(Buffer.from(hex, "hex")));
+      this.priceFeedCache = { value, timestamp: Date.now() };
+      return value;
     } catch {
       return noneCV();
     }

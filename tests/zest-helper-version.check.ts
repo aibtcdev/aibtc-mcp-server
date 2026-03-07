@@ -5,7 +5,7 @@
  * is approved by the incentives contract, and that the function
  * signatures match.
  *
- * Run: npx tsx tests/zest-helper-version.test.ts
+ * Run: npx tsx tests/zest-helper-version.check.ts
  */
 
 import { contractPrincipalCV, cvToHex } from "@stacks/transactions";
