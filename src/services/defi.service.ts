@@ -429,6 +429,9 @@ export class ZestProtocolService {
    * Pyth price feed IDs used by Zest's oracle contracts.
    * BTC and STX feeds cover all current Zest assets.
    */
+  // BTC/USD and STX/USD are sufficient for all current Zest assets.
+  // Stablecoin assets (aeUSDC, sUSDT, USDA, USDh) use on-chain fixed-price oracles
+  // rather than Pyth feeds, so no additional feed IDs are needed here.
   private static PYTH_FEED_IDS = [
     "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43", // BTC/USD
     "0xec7a775f46379b5e943c3526b1c8d54cd49749176b0b98e02dde68d1bd335c17", // STX/USD
@@ -458,14 +461,21 @@ export class ZestProtocolService {
         { signal: controller.signal }
       );
       clearTimeout(timeout);
-      if (!res.ok) return noneCV();
+      if (!res.ok) {
+        console.warn(`Pyth Hermes returned HTTP ${res.status}, falling back to noneCV()`);
+        return noneCV();
+      }
       const data = await res.json() as { binary?: { data?: string[] } };
       const hex = data?.binary?.data?.[0];
-      if (!hex) return noneCV();
+      if (!hex) {
+        console.warn("Pyth Hermes response missing binary data, falling back to noneCV()");
+        return noneCV();
+      }
       const value = someCV(bufferCV(Buffer.from(hex, "hex")));
       this.priceFeedCache = { value, timestamp: Date.now() };
       return value;
-    } catch {
+    } catch (err) {
+      console.warn("Failed to fetch Pyth price feed, falling back to noneCV():", err);
       return noneCV();
     }
   }
@@ -621,6 +631,7 @@ export class ZestProtocolService {
     // 1. pool-vault sends us the withdrawn asset (not pool-reserve)
     // 2. sender pays small STX fee for Pyth oracle update (~2 uSTX)
     // 3. sender burns LP tokens (zsbtc etc.)
+    // LP tokens are minted 1:1 with supplied amount, so burning ≤ withdraw amount is safe.
     const [lpFtContract, lpFtAssetName] = assetConfig.lpFungibleToken.split("::");
     const postConditions = [
       Pc.principal(this.contracts!.poolVault as `${string}.${string}`)
