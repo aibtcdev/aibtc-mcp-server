@@ -26,6 +26,9 @@ export const MAINNET_CONTRACTS = {
 
   // Zest Protocol
   ZEST_POOL_BORROW: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.pool-borrow-v2-3",
+  // Note: v2-1-6 was deployed on-chain but never added to the approved-callers
+  // allowlist in incentives-v2-2. The Zest team went directly to v2-1-7 as
+  // the authorized borrow helper.
   ZEST_BORROW_HELPER: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.borrow-helper-v2-1-7",
   ZEST_POOL_RESERVE: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.pool-0-reserve-v2-0",
   ZEST_FEES_CALCULATOR: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.fees-calculator",
