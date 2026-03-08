@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.33.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.33.0...mcp-server-v1.33.1) (2026-03-08)
+
+
+### Bug Fixes
+
+* **zest:** update borrow-helper to v2-1-7, add Pyth price feeds and fix post-conditions ([#272](https://github.com/aibtcdev/aibtc-mcp-server/issues/272)) ([0331a66](https://github.com/aibtcdev/aibtc-mcp-server/commit/0331a66460133c393935af742e97217186465841))
+
 ## [1.33.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.32.1...mcp-server-v1.33.0) (2026-03-04)
 
 
