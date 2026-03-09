@@ -509,7 +509,11 @@ export class ZestProtocolService {
   }
 
   /**
-   * Get user's reserve/position data for an asset
+   * Get user's reserve/position data for an asset.
+   *
+   * Supply positions are tracked as LP token balances (e.g. zsbtc-v2-0.get-balance),
+   * not in pool-0-reserve-v2-0.get-user-reserve-data which only tracks borrow-side debt.
+   * Borrow positions are read from pool-borrow-v2-3.get-user-reserve-data.
    */
   async getUserPosition(
     asset: string,
@@ -517,8 +521,40 @@ export class ZestProtocolService {
   ): Promise<ZestUserPosition | null> {
     this.ensureMainnet();
 
+    // Look up the asset config to find the LP token contract
+    const assetConfig = Object.values(ZEST_ASSETS).find(
+      (a) => a.token === asset
+    );
+
+    // Read supply position from LP token balance
+    let supplied = "0";
+    if (assetConfig) {
+      try {
+        const lpResult = await this.hiro.callReadOnlyFunction(
+          assetConfig.lpToken,
+          "get-balance",
+          [principalCV(userAddress)],
+          userAddress
+        );
+
+        if (lpResult.okay && lpResult.result) {
+          const lpDecoded = cvToJSON(hexToCV(lpResult.result));
+          // get-balance returns (response uint uint) — success value is the balance
+          if (lpDecoded?.success && lpDecoded.value?.value !== undefined) {
+            supplied = lpDecoded.value.value;
+          } else if (lpDecoded?.value !== undefined && typeof lpDecoded.value === "string") {
+            supplied = lpDecoded.value;
+          }
+        }
+      } catch {
+        // LP token read failed; leave supplied as "0"
+      }
+    }
+
+    // Read borrow position from pool-borrow reserve data
+    let borrowed = "0";
     try {
-      const result = await this.hiro.callReadOnlyFunction(
+      const borrowResult = await this.hiro.callReadOnlyFunction(
         this.contracts!.poolBorrow,
         "get-user-reserve-data",
         [
@@ -528,24 +564,26 @@ export class ZestProtocolService {
         userAddress
       );
 
-      if (!result.okay || !result.result) {
-        return null;
+      if (borrowResult.okay && borrowResult.result) {
+        const borrowDecoded = cvToJSON(hexToCV(borrowResult.result));
+        if (borrowDecoded && typeof borrowDecoded === "object") {
+          borrowed = borrowDecoded["current-variable-debt"]?.value || "0";
+        }
       }
-
-      const decoded = cvToJSON(hexToCV(result.result));
-
-      if (decoded && typeof decoded === "object") {
-        return {
-          asset,
-          supplied: decoded["current-a-token-balance"]?.value || "0",
-          borrowed: decoded["current-variable-debt"]?.value || "0",
-        };
-      }
-
-      return null;
     } catch {
+      // Borrow data read failed; leave borrowed as "0"
+    }
+
+    // Return null only if both reads produced nothing useful and asset config is unknown
+    if (!assetConfig && supplied === "0" && borrowed === "0") {
       return null;
     }
+
+    return {
+      asset,
+      supplied,
+      borrowed,
+    };
   }
 
   /**
