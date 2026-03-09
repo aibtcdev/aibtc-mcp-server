@@ -510,6 +510,11 @@ export class ZestProtocolService {
 
   /**
    * Get user's reserve/position data for an asset
+   *
+   * Note: `current-a-token-balance` from pool-borrow tracks borrow collateral
+   * accounting and is zero for supply-only users. When it returns "0", we fall
+   * back to querying the LP token contract's `get-balance` to capture the
+   * actual supply position. See: https://github.com/aibtcdev/aibtc-mcp-server/issues/278
    */
   async getUserPosition(
     asset: string,
@@ -535,10 +540,38 @@ export class ZestProtocolService {
       const decoded = cvToJSON(hexToCV(result.result));
 
       if (decoded && typeof decoded === "object") {
+        let supplied = decoded["current-a-token-balance"]?.value || "0";
+        const borrowed = decoded["current-variable-debt"]?.value || "0";
+
+        // Fallback: current-a-token-balance only tracks borrow collateral.
+        // For supply-only users it reads "0", so check the LP token balance.
+        if (supplied === "0") {
+          try {
+            const assetConfig = this.getAssetConfig(asset);
+            const lpResult = await this.hiro.callReadOnlyFunction(
+              assetConfig.lpToken,
+              "get-balance",
+              [principalCV(userAddress)],
+              userAddress
+            );
+
+            if (lpResult.okay && lpResult.result) {
+              const lpDecoded = cvToJSON(hexToCV(lpResult.result));
+              // get-balance returns (ok u<amount>) — cvToJSON unwraps to { value: { value: "..." } }
+              const lpBalance = lpDecoded?.value?.value;
+              if (lpBalance && lpBalance !== "0") {
+                supplied = lpBalance;
+              }
+            }
+          } catch {
+            // LP token lookup failed — keep supplied as "0"
+          }
+        }
+
         return {
           asset,
-          supplied: decoded["current-a-token-balance"]?.value || "0",
-          borrowed: decoded["current-variable-debt"]?.value || "0",
+          supplied,
+          borrowed,
         };
       }
 
