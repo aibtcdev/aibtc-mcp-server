@@ -787,13 +787,26 @@ export class ZestProtocolService {
 
     if (rewardsResult.okay && rewardsResult.result) {
       const decoded = cvToJSON(hexToCV(rewardsResult.result));
-      if (decoded?.value === undefined) {
+      // get-vault-rewards returns a bare uint, but handle (ok uint) / (response uint uint)
+      // defensively in case the contract is upgraded.
+      // Bare uint: { type: "uint", value: "123" }
+      // Response-wrapped: { type: "ok", value: { type: "uint", value: "123" } }
+      const rawValue =
+        typeof decoded?.value === "object" && decoded.value?.value !== undefined
+          ? decoded.value.value
+          : decoded?.value;
+
+      if (rawValue === undefined) {
         // Can't decode response -- skip pre-check, let the on-chain tx decide
-      } else if (BigInt(decoded.value) === 0n) {
+      } else if (BigInt(rawValue) === 0n) {
         throw new Error(
           "No rewards available to claim. Skipping broadcast to avoid wasting gas."
         );
       }
+    } else if (!rewardsResult.okay) {
+      console.error(
+        `[zest] get-vault-rewards read-only call failed: ${rewardsResult.result ?? "unknown error"}. Skipping pre-check.`
+      );
     }
 
     const priceFeedBytes = await this.fetchPriceFeedBytes();
