@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.33.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.33.1...mcp-server-v1.33.2) (2026-03-09)
+
+
+### Bug Fixes
+
+* **deps:** add missing @scure/bip32 dependency ([#280](https://github.com/aibtcdev/aibtc-mcp-server/issues/280)) ([f3d7f2c](https://github.com/aibtcdev/aibtc-mcp-server/commit/f3d7f2c3812cb3b703f08bea3066760bf7218629))
+* pre-check rewards before broadcasting zest_claim_rewards ([#281](https://github.com/aibtcdev/aibtc-mcp-server/issues/281)) ([48bff3e](https://github.com/aibtcdev/aibtc-mcp-server/commit/48bff3e4acca1216532c2caa54e6088eef919e5f))
+* read LP token balance for zest supply positions ([#283](https://github.com/aibtcdev/aibtc-mcp-server/issues/283)) ([42aeee3](https://github.com/aibtcdev/aibtc-mcp-server/commit/42aeee35b64c62b26594d8a3ea617e7ec72c0fa1))
+
 ## [1.33.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.33.0...mcp-server-v1.33.1) (2026-03-08)
 
 
