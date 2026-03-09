@@ -772,6 +772,30 @@ export class ZestProtocolService {
     const [incentivesAddr, incentivesName] = parseContractIdTuple(this.contracts!.incentives);
     const [wstxAddr, wstxName] = parseContractIdTuple(this.contracts!.wstx);
 
+    // Pre-check: query pending rewards before broadcasting to avoid wasting gas
+    // when there are no rewards (on-chain tx would abort with ERR_NO_REWARDS)
+    const rewardsResult = await this.hiro.callReadOnlyFunction(
+      this.contracts!.incentives,
+      "get-vault-rewards",
+      [
+        principalCV(account.address),
+        contractPrincipalCV(assetAddr, assetName),
+        contractPrincipalCV(wstxAddr, wstxName),
+      ],
+      account.address
+    );
+
+    if (rewardsResult.okay && rewardsResult.result) {
+      const decoded = cvToJSON(hexToCV(rewardsResult.result));
+      const rewardAmount =
+        decoded?.value !== undefined ? BigInt(decoded.value) : 0n;
+      if (rewardAmount === 0n) {
+        throw new Error(
+          "No rewards available to claim. Skipping broadcast to avoid wasting gas."
+        );
+      }
+    }
+
     const priceFeedBytes = await this.fetchPriceFeedBytes();
 
     const functionArgs: ClarityValue[] = [
