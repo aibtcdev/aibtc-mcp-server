@@ -787,9 +787,9 @@ export class ZestProtocolService {
 
     if (rewardsResult.okay && rewardsResult.result) {
       const decoded = cvToJSON(hexToCV(rewardsResult.result));
-      const rewardAmount =
-        decoded?.value !== undefined ? BigInt(decoded.value) : 0n;
-      if (rewardAmount === 0n) {
+      if (decoded?.value === undefined) {
+        // Can't decode response -- skip pre-check, let the on-chain tx decide
+      } else if (BigInt(decoded.value) === 0n) {
         throw new Error(
           "No rewards available to claim. Skipping broadcast to avoid wasting gas."
         );
