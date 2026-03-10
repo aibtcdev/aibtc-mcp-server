@@ -513,7 +513,7 @@ export class ZestProtocolService {
    *
    * Supply positions are tracked as LP token balances (e.g. zsbtc-v2-0.get-balance),
    * not in pool-0-reserve-v2-0.get-user-reserve-data which only tracks borrow-side debt.
-   * Borrow positions are read from pool-borrow-v2-3.get-user-reserve-data.
+   * Borrow positions are read from get-user-reserve-data.principal-borrow-balance.
    */
   async getUserPosition(
     asset: string,
@@ -553,13 +553,13 @@ export class ZestProtocolService {
 
     // Read borrow position from pool-borrow reserve data
     let borrowed = "0";
-    try {
+    if (assetConfig) try {
       const borrowResult = await this.hiro.callReadOnlyFunction(
         this.contracts!.poolBorrow,
         "get-user-reserve-data",
         [
           principalCV(userAddress),
-          contractPrincipalCV(...parseContractIdTuple(asset)),
+          contractPrincipalCV(...parseContractIdTuple(assetConfig.token)),
         ],
         userAddress
       );
@@ -567,7 +567,7 @@ export class ZestProtocolService {
       if (borrowResult.okay && borrowResult.result) {
         const borrowDecoded = cvToJSON(hexToCV(borrowResult.result));
         if (borrowDecoded && typeof borrowDecoded === "object") {
-          borrowed = borrowDecoded["current-variable-debt"]?.value || "0";
+          borrowed = borrowDecoded["principal-borrow-balance"]?.value || "0";
         }
       }
     } catch {
