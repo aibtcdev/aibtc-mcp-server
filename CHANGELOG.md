@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.33.3](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.33.2...mcp-server-v1.33.3) (2026-03-10)
+
+
+### Bug Fixes
+
+* **zest:** read supply from LP token balance instead of reserve data ([#285](https://github.com/aibtcdev/aibtc-mcp-server/issues/285)) ([bf25698](https://github.com/aibtcdev/aibtc-mcp-server/commit/bf25698a270b6905e4a8661d833e07a3b5f92621))
+
 ## [1.33.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.33.1...mcp-server-v1.33.2) (2026-03-09)
 
 
