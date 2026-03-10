@@ -696,6 +696,35 @@ export class ZestProtocolService {
     const [incentivesAddr, incentivesName] = parseContractIdTuple(this.contracts!.incentives);
     const [wstxAddr, wstxName] = parseContractIdTuple(this.contracts!.wstx);
 
+    // Pre-check: query pending rewards before broadcasting to avoid wasted gas
+    try {
+      const rewardResult = await this.hiro.callReadOnlyFunction(
+        this.contracts!.incentives,
+        "get-vault-rewards",
+        [
+          principalCV(account.address),                            // who
+          contractPrincipalCV(lpAddr, lpName),                     // supplied-asset (LP token)
+          contractPrincipalCV(wstxAddr, wstxName),                 // reward-asset (wSTX)
+        ],
+        account.address
+      );
+
+      if (rewardResult.okay && rewardResult.result) {
+        const decoded = cvToJSON(hexToCV(rewardResult.result));
+        const rewards = BigInt(decoded?.value ?? "0");
+        if (rewards === 0n) {
+          return {
+            success: false,
+            message: "No rewards available to claim",
+            rewards: 0,
+          } as unknown as TransferResult;
+        }
+      }
+    } catch {
+      // If the pre-check fails for any reason, proceed with broadcast
+      // (network error, contract not responding, etc.)
+    }
+
     const functionArgs: ClarityValue[] = [
       contractPrincipalCV(lpAddr, lpName),                    // lp
       principalCV(this.contracts!.poolReserve),               // pool-reserve
