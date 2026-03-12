@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.33.4](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.33.3...mcp-server-v1.33.4) (2026-03-12)
+
+
+### Bug Fixes
+
+* **pillar:** hardcode default API key for direct tools auth ([#274](https://github.com/aibtcdev/aibtc-mcp-server/issues/274)) ([c58fbc5](https://github.com/aibtcdev/aibtc-mcp-server/commit/c58fbc556a80684e9decf4df863c02ecb50ed06a))
+
 ## [1.33.3](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.33.2...mcp-server-v1.33.3) (2026-03-10)
 
 
