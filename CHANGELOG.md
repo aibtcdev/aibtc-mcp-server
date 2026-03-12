@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.34.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.33.4...mcp-server-v1.34.0) (2026-03-12)
+
+
+### Features
+
+* add Styx BTC→sBTC conversion tools ([#268](https://github.com/aibtcdev/aibtc-mcp-server/issues/268)) ([f3505ab](https://github.com/aibtcdev/aibtc-mcp-server/commit/f3505aba087277321f0a33aec05fb03c8a6441eb))
+
 ## [1.33.4](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.33.3...mcp-server-v1.33.4) (2026-03-12)
 
 
