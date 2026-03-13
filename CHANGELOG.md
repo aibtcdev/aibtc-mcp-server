@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.35.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.34.0...mcp-server-v1.35.0) (2026-03-13)
+
+
+### Features
+
+* add skill references and relay recovery tools ([#296](https://github.com/aibtcdev/aibtc-mcp-server/issues/296)) ([4c14238](https://github.com/aibtcdev/aibtc-mcp-server/commit/4c142387a4e27f3d578cd61eb129ec89758dac72))
+
 ## [1.34.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.33.4...mcp-server-v1.34.0) (2026-03-12)
 
 
