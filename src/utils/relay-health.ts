@@ -9,6 +9,12 @@ import { getSponsorRelayUrl } from "../config/sponsor.js";
 import type { Network } from "../config/networks.js";
 import { getHiroApi } from "../services/hiro-api.js";
 
+export interface StuckTransaction {
+  txid: string;
+  nonce: number;
+  pendingSeconds: number;
+}
+
 export interface RelayHealthStatus {
   healthy: boolean;
   network: Network;
@@ -22,7 +28,10 @@ export interface RelayHealthStatus {
     mempoolNonces: number[];
     hasGaps: boolean;
     gapCount: number;
+    mempoolDesync: boolean;
+    desyncGap: number;
   };
+  stuckTransactions?: StuckTransaction[];
   issues?: string[];
 }
 
@@ -82,27 +91,67 @@ export async function checkRelayHealth(network: Network): Promise<RelayHealthSta
     const hasGaps = nonceInfo.detected_missing_nonces.length > 0;
     const gapCount = nonceInfo.detected_missing_nonces.length;
 
+    // Mempool desync: sponsor has submitted far more txs than have been confirmed
+    const lastExecuted = nonceInfo.last_executed_tx_nonce || 0;
+    const lastMempool = nonceInfo.last_mempool_tx_nonce;
+    const desyncGap = lastMempool !== null ? lastMempool - lastExecuted : 0;
+    const mempoolDesync = desyncGap > 5;
+
     if (hasGaps) {
       issues.push(
         `Sponsor has ${gapCount} missing nonce(s): ${nonceInfo.detected_missing_nonces.slice(0, 5).join(", ")}${gapCount > 5 ? "..." : ""}`
       );
     }
 
-    if (nonceInfo.detected_mempool_nonces.length > 10) {
+    if (mempoolDesync) {
+      issues.push(
+        `Mempool desync detected: sponsor nonce ${lastExecuted} (executed) vs ${lastMempool} (mempool), gap of ${desyncGap}`
+      );
+    } else if (nonceInfo.detected_mempool_nonces.length > 10) {
       issues.push(
         `Sponsor has ${nonceInfo.detected_mempool_nonces.length} transactions stuck in mempool`
       );
     }
 
     const nonceStatus = {
-      lastExecuted: nonceInfo.last_executed_tx_nonce || 0,
-      lastMempool: nonceInfo.last_mempool_tx_nonce,
+      lastExecuted,
+      lastMempool,
       possibleNext: nonceInfo.possible_next_nonce,
       missingNonces: nonceInfo.detected_missing_nonces,
       mempoolNonces: nonceInfo.detected_mempool_nonces,
       hasGaps,
       gapCount,
+      mempoolDesync,
+      desyncGap,
     };
+
+    // Fetch stuck transactions from mempool for actionable diagnostics
+    let stuckTransactions: StuckTransaction[] | undefined;
+    try {
+      const mempoolRes = await hiroApi.getMempoolTransactions({
+        sender_address: sponsorAddress,
+        limit: 50,
+      });
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const stuck = mempoolRes.results
+        .filter((tx) => {
+          const pendingSeconds = nowSeconds - tx.receipt_time;
+          return pendingSeconds > 60;
+        })
+        .map((tx) => ({
+          txid: tx.tx_id,
+          nonce: tx.nonce,
+          pendingSeconds: nowSeconds - tx.receipt_time,
+        }))
+        .sort((a, b) => b.pendingSeconds - a.pendingSeconds)
+        .slice(0, 10);
+
+      if (stuck.length > 0) {
+        stuckTransactions = stuck;
+      }
+    } catch {
+      // Non-fatal: stuck-tx fetch is best-effort
+    }
 
     return {
       healthy: issues.length === 0,
@@ -110,6 +159,7 @@ export async function checkRelayHealth(network: Network): Promise<RelayHealthSta
       version,
       sponsorAddress,
       nonceStatus,
+      stuckTransactions,
       issues: issues.length > 0 ? issues : undefined,
     };
   } catch (error) {
@@ -148,16 +198,31 @@ export function formatRelayHealthStatus(status: RelayHealthStatus): string {
     lines.push(`  Next nonce: ${ns.possibleNext}`);
     
     if (ns.hasGaps) {
-      lines.push(`  ❌ Missing nonces (${ns.gapCount}): ${ns.missingNonces.slice(0, 10).join(", ")}${ns.gapCount > 10 ? "..." : ""}`);
+      lines.push(`  GAPS Missing nonces (${ns.gapCount}): ${ns.missingNonces.slice(0, 10).join(", ")}${ns.gapCount > 10 ? "..." : ""}`);
     } else {
-      lines.push("  ✅ No nonce gaps");
+      lines.push("  OK No nonce gaps");
     }
-    
+
+    if (ns.mempoolDesync) {
+      lines.push(`  DESYNC Mempool desync: executed=${ns.lastExecuted}, mempool=${ns.lastMempool ?? "none"}, gap=${ns.desyncGap}`);
+    }
+
     if (ns.mempoolNonces.length > 0) {
-      lines.push(`  ⚠️  Mempool nonces (${ns.mempoolNonces.length}): ${ns.mempoolNonces.slice(0, 10).join(", ")}${ns.mempoolNonces.length > 10 ? "..." : ""}`);
+      lines.push(`  WARN Mempool nonces (${ns.mempoolNonces.length}): ${ns.mempoolNonces.slice(0, 10).join(", ")}${ns.mempoolNonces.length > 10 ? "..." : ""}`);
     }
   }
-  
+
+  if (status.stuckTransactions && status.stuckTransactions.length > 0) {
+    lines.push("");
+    lines.push("Stuck Transactions:");
+    status.stuckTransactions.forEach((tx) => {
+      const minutes = Math.floor(tx.pendingSeconds / 60);
+      const seconds = tx.pendingSeconds % 60;
+      const duration = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+      lines.push(`  nonce=${tx.nonce} pending=${duration} txid=${tx.txid}`);
+    });
+  }
+
   if (status.issues && status.issues.length > 0) {
     lines.push("");
     lines.push("Issues:");
