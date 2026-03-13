@@ -15,13 +15,16 @@ export function registerRelayDiagnosticTools(server: McpServer): void {
     {
       description: `Check the sponsor relay health and nonce status.
 
-Use this tool to diagnose send_inbox_message failures. It will:
+Use this tool to diagnose sponsored transaction failures. It will:
 - Check relay availability
 - Inspect sponsor address nonce state
 - Detect nonce gaps that block transactions
+- Detect mempool desync (confirmed nonce far behind mempool nonce)
+- List stuck transactions with txid, nonce, and how long they have been pending
 - Report mempool congestion
 
-If nonce gaps are detected, wait for AIBTC team to clear them before retrying sends.`,
+If nonce gaps or stuck transactions are detected, the output includes
+txids and pending durations to share with the AIBTC team for recovery.`,
       inputSchema: {},
     },
     async () => {
