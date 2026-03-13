@@ -5,7 +5,7 @@
  * diagnostic information when send failures occur.
  */
 
-import { getSponsorRelayUrl } from "../config/sponsor.js";
+import { getSponsorRelayUrl, getSponsorApiKey } from "../config/sponsor.js";
 import type { Network } from "../config/networks.js";
 import { getHiroApi } from "../services/hiro-api.js";
 
@@ -230,6 +230,113 @@ export function formatRelayHealthStatus(status: RelayHealthStatus): string {
   }
   
   return lines.join("\n");
+}
+
+export interface RelayRecoveryResult {
+  supported: boolean;
+  message?: string;
+  result?: unknown;
+}
+
+/**
+ * Attempt RBF (replace-by-fee) on stuck transactions via the relay API.
+ * If txids is provided, only those transactions are bumped; otherwise the relay
+ * bumps all stuck transactions it knows about.
+ *
+ * Gracefully returns { supported: false } if the relay returns 404 or 501.
+ */
+export async function attemptRbf(network: Network, txids?: string[]): Promise<RelayRecoveryResult> {
+  const relayUrl = getSponsorRelayUrl(network);
+  const apiKey = getSponsorApiKey();
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) {
+    headers["Authorization"] = `Bearer ${apiKey}`;
+  }
+
+  const body: Record<string, unknown> = {};
+  if (txids && txids.length > 0) {
+    body.txids = txids;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const res = await fetch(`${relayUrl}/recovery/rbf`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    if (res.status === 404 || res.status === 501) {
+      return {
+        supported: false,
+        message: "Relay does not support RBF recovery yet. Share stuck txids with the AIBTC team for manual recovery.",
+      };
+    }
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Relay RBF failed: HTTP ${res.status} — ${text}`);
+    }
+
+    const result = await res.json();
+    return { supported: true, result };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Attempt to fill nonce gaps on the relay by having it submit placeholder transactions.
+ * If nonces is provided, only those gaps are filled; otherwise the relay fills all detected gaps.
+ *
+ * Gracefully returns { supported: false } if the relay returns 404 or 501.
+ */
+export async function attemptFillGaps(network: Network, nonces?: number[]): Promise<RelayRecoveryResult> {
+  const relayUrl = getSponsorRelayUrl(network);
+  const apiKey = getSponsorApiKey();
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) {
+    headers["Authorization"] = `Bearer ${apiKey}`;
+  }
+
+  const body: Record<string, unknown> = {};
+  if (nonces && nonces.length > 0) {
+    body.nonces = nonces;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const res = await fetch(`${relayUrl}/recovery/fill-gaps`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    if (res.status === 404 || res.status === 501) {
+      return {
+        supported: false,
+        message: "Relay does not support nonce gap-fill recovery yet. Share missing nonces with the AIBTC team for manual recovery.",
+      };
+    }
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Relay gap-fill failed: HTTP ${res.status} — ${text}`);
+    }
+
+    const result = await res.json();
+    return { supported: true, result };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 /**

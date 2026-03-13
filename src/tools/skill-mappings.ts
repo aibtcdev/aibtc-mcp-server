@@ -182,6 +182,7 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   delete_stacks_api_url: "settings",
   get_server_version: "settings",
   check_relay_health: "settings",
+  recover_sponsor_nonce: "settings",
 
   // signing skill — message signing and verification
   stacks_sign_message: "signing",
