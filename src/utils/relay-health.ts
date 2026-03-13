@@ -245,14 +245,21 @@ export interface RelayRecoveryResult {
  *
  * Gracefully returns { supported: false } if the relay returns 404 or 501.
  */
-export async function attemptRbf(network: Network, txids?: string[]): Promise<RelayRecoveryResult> {
+export async function attemptRbf(network: Network, txids?: string[], apiKey?: string): Promise<RelayRecoveryResult> {
   const relayUrl = getSponsorRelayUrl(network);
-  const apiKey = getSponsorApiKey();
+  const resolvedKey = apiKey || getSponsorApiKey();
 
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (apiKey) {
-    headers["Authorization"] = `Bearer ${apiKey}`;
+  if (!resolvedKey) {
+    return {
+      supported: true,
+      message: "No sponsor API key available. Set SPONSOR_API_KEY env var or use a wallet with sponsorApiKey configured.",
+    };
   }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${resolvedKey}`,
+  };
 
   const body: Record<string, unknown> = {};
   if (txids && txids.length > 0) {
@@ -295,14 +302,21 @@ export async function attemptRbf(network: Network, txids?: string[]): Promise<Re
  *
  * Gracefully returns { supported: false } if the relay returns 404 or 501.
  */
-export async function attemptFillGaps(network: Network, nonces?: number[]): Promise<RelayRecoveryResult> {
+export async function attemptFillGaps(network: Network, nonces?: number[], apiKey?: string): Promise<RelayRecoveryResult> {
   const relayUrl = getSponsorRelayUrl(network);
-  const apiKey = getSponsorApiKey();
+  const resolvedKey = apiKey || getSponsorApiKey();
 
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (apiKey) {
-    headers["Authorization"] = `Bearer ${apiKey}`;
+  if (!resolvedKey) {
+    return {
+      supported: true,
+      message: "No sponsor API key available. Set SPONSOR_API_KEY env var or use a wallet with sponsorApiKey configured.",
+    };
   }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${resolvedKey}`,
+  };
 
   const body: Record<string, unknown> = {};
   if (nonces && nonces.length > 0) {

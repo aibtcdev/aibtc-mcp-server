@@ -9,6 +9,7 @@ import { z } from "zod";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { checkRelayHealth, formatRelayHealthStatus, attemptRbf, attemptFillGaps } from "../utils/relay-health.js";
 import { NETWORK } from "../services/x402.service.js";
+import { getWalletManager } from "../services/wallet-manager.js";
 
 export function registerRelayDiagnosticTools(server: McpServer): void {
   server.registerTool(
@@ -37,9 +38,7 @@ txids and pending durations to share with the AIBTC team for recovery.`,
           formatted: formatRelayHealthStatus(status),
         });
       } catch (error) {
-        return createErrorResponse(
-          error instanceof Error ? error.message : String(error)
-        );
+        return createErrorResponse(error);
       }
     }
   );
@@ -79,15 +78,19 @@ share the txids and nonces from check_relay_health with the AIBTC team.`,
     },
     async ({ action = "both", txids, nonces }) => {
       try {
+        // Resolve API key from wallet (if unlocked) to align with sponsor-builder auth flow
+        const walletAccount = getWalletManager().getAccount();
+        const walletApiKey = walletAccount?.sponsorApiKey;
+
         const results: Record<string, unknown> = { action };
 
         if (action === "rbf" || action === "both") {
-          const rbfResult = await attemptRbf(NETWORK, txids);
+          const rbfResult = await attemptRbf(NETWORK, txids, walletApiKey);
           results.rbf = rbfResult;
         }
 
         if (action === "fill-gaps" || action === "both") {
-          const fillResult = await attemptFillGaps(NETWORK, nonces);
+          const fillResult = await attemptFillGaps(NETWORK, nonces, walletApiKey);
           results.fillGaps = fillResult;
         }
 
@@ -107,9 +110,7 @@ share the txids and nonces from check_relay_health with the AIBTC team.`,
 
         return createJsonResponse(results);
       } catch (error) {
-        return createErrorResponse(
-          error instanceof Error ? error.message : String(error)
-        );
+        return createErrorResponse(error);
       }
     }
   );

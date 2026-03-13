@@ -30,18 +30,24 @@ import { getSkillForTool } from "./skill-mappings.js";
  */
 function withSkillMeta(server: McpServer): () => void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const original = (server.registerTool as any).bind(server);
+  const original = (server as any).registerTool;
+  const hasOwn = Object.prototype.hasOwnProperty.call(server, "registerTool");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (server as any).registerTool = (name: string, config: Record<string, unknown>, cb: unknown) => {
+  (server as any).registerTool = function (name: string, config: Record<string, unknown>, cb: unknown) {
     const skill = getSkillForTool(name);
     const patched = skill
       ? { ...config, _meta: { ...(config._meta as Record<string, unknown> | undefined ?? {}), skill } }
       : config;
-    return original(name, patched, cb);
+    return original.call(server, name, patched, cb);
   };
   return () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (server as any).registerTool = original;
+    if (hasOwn) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (server as any).registerTool = original;
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (server as any).registerTool;
+    }
   };
 }
 
