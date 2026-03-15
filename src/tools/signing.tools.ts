@@ -1024,8 +1024,9 @@ export function registerSigningTools(server: McpServer): void {
 
         return createJsonResponse({
           success: true,
-          signature,
+          signature: "0x" + signature,
           signatureFormat: "RSV (65 bytes hex)",
+          address: account.address,
           signer: account.address,
           network: NETWORK,
           message: {
@@ -1035,7 +1036,7 @@ export function registerSigningTools(server: McpServer): void {
             hash: msgHashHex,
           },
           verificationNote:
-            "Use stacks_verify_message with the original message and signature to verify. " +
+            "Use stacks_verify_message with the original message and signature (without 0x prefix) to verify. " +
             "Compatible with SIWS (Sign In With Stacks) authentication flows.",
         });
       } catch (error) {
@@ -1061,7 +1062,8 @@ export function registerSigningTools(server: McpServer): void {
         signature: z
           .string()
           .describe(
-            "The signature in RSV format (65 bytes hex from stacks_sign_message or wallet signature)."
+            "The signature in RSV format (65 bytes hex from stacks_sign_message or wallet signature). " +
+            "Accepts both '0x'-prefixed and bare hex formats."
           ),
         expectedSigner: z
           .string()
@@ -1078,15 +1080,18 @@ export function registerSigningTools(server: McpServer): void {
         const messageHash = hashMessage(message);
         const messageHashHex = bytesToHex(messageHash);
 
+        // Strip 0x prefix if present (stacks_sign_message returns 0x-prefixed signature)
+        const normalizedSignature = signature.startsWith("0x") ? signature.slice(2) : signature;
+
         // Recover public key from signature
-        const recoveredPubKey = publicKeyFromSignatureRsv(messageHashHex, signature);
+        const recoveredPubKey = publicKeyFromSignatureRsv(messageHashHex, normalizedSignature);
 
         // Derive address from public key for current network
         const recoveredAddress = getAddressFromPublicKey(recoveredPubKey, NETWORK);
 
         // Verify the signature using the encryption library
         const signatureValid = verifyMessageSignatureRsv({
-          signature,
+          signature: normalizedSignature,
           message,
           publicKey: recoveredPubKey,
         });
@@ -1194,8 +1199,11 @@ export function registerSigningTools(server: McpServer): void {
 
           return createJsonResponse({
             success: true,
+            signature: signatureBase64,
             signatureBase64,
+            format: "BIP-322" as const,
             signatureFormat: "BIP-322 (witness-serialized, Taproot/P2TR)",
+            address: account.taprootAddress,
             signer: account.taprootAddress,
             network: NETWORK,
             addressType: "P2TR (Taproot)",
@@ -1250,9 +1258,12 @@ export function registerSigningTools(server: McpServer): void {
 
           return createJsonResponse({
             success: true,
-            signature: signatureHex,
+            signature: signatureBase64,
+            signatureHex,
             signatureBase64,
+            format: "BIP-137" as const,
             signatureFormat: "BIP-137 (65 bytes: 1 header + 32 r + 32 s)",
+            address: account.btcAddress,
             signer: account.btcAddress,
             network: NETWORK,
             addressType: getAddressTypeFromHeader(header),
@@ -1285,8 +1296,11 @@ export function registerSigningTools(server: McpServer): void {
 
           return createJsonResponse({
             success: true,
+            signature: signatureBase64,
             signatureBase64,
+            format: "BIP-322" as const,
             signatureFormat: "BIP-322 (witness-serialized, native SegWit/P2WPKH)",
+            address: account.btcAddress,
             signer: account.btcAddress,
             network: NETWORK,
             addressType: "P2WPKH (native SegWit)",
