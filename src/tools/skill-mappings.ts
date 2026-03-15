@@ -73,6 +73,12 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   stack_stx: "stacking",
   extend_stacking: "stacking",
 
+  // dual-stacking skill — sBTC Dual Stacking yield protocol
+  dual_stacking_status: "dual-stacking",
+  dual_stacking_get_rewards: "dual-stacking",
+  dual_stacking_enroll: "dual-stacking",
+  dual_stacking_opt_out: "dual-stacking",
+
   // bns skill — Bitcoin Name System operations
   lookup_bns_name: "bns",
   reverse_bns_lookup: "bns",
