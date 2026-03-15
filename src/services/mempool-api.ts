@@ -64,6 +64,46 @@ export interface FeeEstimates {
 }
 
 /**
+ * Bitcoin transaction from mempool.space API
+ */
+export interface MempoolTx {
+  txid: string;
+  version: number;
+  locktime: number;
+  size: number;
+  weight: number;
+  fee: number;
+  vin: Array<{
+    txid: string;
+    vout: number;
+    prevout?: { value: number; scriptpubkey_address?: string };
+    sequence: number;
+    is_coinbase: boolean;
+  }>;
+  vout: Array<{
+    value: number;
+    scriptpubkey_address?: string;
+    scriptpubkey_type: string;
+  }>;
+  status: {
+    confirmed: boolean;
+    block_height?: number;
+    block_hash?: string;
+    block_time?: number;
+  };
+}
+
+/**
+ * Mempool statistics from mempool.space API
+ */
+export interface MempoolStats {
+  count: number;
+  vsize: number;
+  total_fee: number;
+  fee_histogram: Array<[number, number]>;
+}
+
+/**
  * Simplified fee tiers for user selection
  */
 export interface FeeTiers {
@@ -286,6 +326,65 @@ export class MempoolApi {
 
     const txHex = await response.text();
     return txHex.trim();
+  }
+
+  /**
+   * Get transaction details by txid
+   *
+   * @param txid - Bitcoin transaction ID (64 hex chars)
+   * @returns Transaction details including inputs, outputs, and confirmation status
+   * @throws Error if API request fails
+   */
+  async getTx(txid: string): Promise<MempoolTx> {
+    const response = await fetch(`${this.baseUrl}/tx/${txid}`);
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "Unknown error");
+      throw new Error(
+        `Failed to fetch transaction ${txid}: ${response.status} ${response.statusText} - ${errorText}`
+      );
+    }
+
+    return response.json() as Promise<MempoolTx>;
+  }
+
+  /**
+   * Get confirmed transaction history for a Bitcoin address (up to 25 most recent)
+   *
+   * @param address - Bitcoin address
+   * @returns Array of transactions (most recent first)
+   * @throws Error if API request fails
+   */
+  async getAddressTxs(address: string): Promise<MempoolTx[]> {
+    const response = await fetch(`${this.baseUrl}/address/${address}/txs`);
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "Unknown error");
+      throw new Error(
+        `Failed to fetch transactions for ${address}: ${response.status} ${response.statusText} - ${errorText}`
+      );
+    }
+
+    return response.json() as Promise<MempoolTx[]>;
+  }
+
+  /**
+   * Get current mempool statistics
+   *
+   * @returns Mempool stats including transaction count, vsize, total fee, and fee histogram
+   * @throws Error if API request fails
+   */
+  async getMempoolStats(): Promise<MempoolStats> {
+    const response = await fetch(`${this.baseUrl}/mempool`);
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "Unknown error");
+      throw new Error(
+        `Failed to fetch mempool stats: ${response.status} ${response.statusText} - ${errorText}`
+      );
+    }
+
+    return response.json() as Promise<MempoolStats>;
   }
 
   /**

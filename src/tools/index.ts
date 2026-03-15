@@ -21,6 +21,7 @@ import { registerYieldHunterTools } from "./yield-hunter.tools.js";
 import { registerPillarTools } from "./pillar.tools.js";
 import { registerPillarDirectTools } from "./pillar-direct.tools.js";
 import { registerBitcoinTools } from "./bitcoin.tools.js";
+import { registerMempoolTools } from "./mempool.tools.js";
 import { registerRelayDiagnosticTools } from "./relay-diagnostic.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 
@@ -116,6 +117,9 @@ export function registerAllTools(server: McpServer): void {
 
   // Bitcoin L1 (read-only: balance, fees, UTXOs)
   registerBitcoinTools(server);
+
+  // Mempool Watch (read-only: mempool stats, tx status, address tx history)
+  registerMempoolTools(server);
 
   // Relay Diagnostics (sponsor relay health, nonce status, stuck transactions)
   registerRelayDiagnosticTools(server);
