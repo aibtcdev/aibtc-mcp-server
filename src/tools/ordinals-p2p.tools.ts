@@ -560,6 +560,9 @@ Requires an unlocked wallet with Bitcoin keys.`,
     },
     async ({ inscription_id, to_agent, tx_hash, parent_trade_id, amount_sats, metadata }) => {
       try {
+        if (!/^[0-9a-f]{64}i\d+$/.test(inscription_id)) {
+          throw new Error("inscription_id must be in format: <64-char-hex-txid>i<index> e.g. abc123...i0");
+        }
         const account = getSignedAccount();
         const auth = buildAuthFields("transfer", inscription_id, account);
 
@@ -612,6 +615,9 @@ Requires an unlocked wallet with Bitcoin keys.`,
     },
     async ({ parent_trade_id, inscription_id, metadata }) => {
       try {
+        if (!/^[0-9a-f]{64}i\d+$/.test(inscription_id)) {
+          throw new Error("inscription_id must be in format: <64-char-hex-txid>i<index> e.g. abc123...i0");
+        }
         const account = getSignedAccount();
         const auth = buildAuthFields("cancel", inscription_id, account);
 
@@ -676,6 +682,9 @@ Requires an unlocked wallet with Bitcoin keys.`,
     },
     async ({ inscription_id, to_agent, amount_sats, tx_hash, parent_trade_id, metadata }) => {
       try {
+        if (!/^[0-9a-f]{64}i\d+$/.test(inscription_id)) {
+          throw new Error("inscription_id must be in format: <64-char-hex-txid>i<index> e.g. abc123...i0");
+        }
         const account = getSignedAccount();
         const auth = buildAuthFields("psbt_swap", inscription_id, account);
 
