@@ -69,27 +69,39 @@ export function forceResyncNonce(address: string): void {
  *    can cause the queue to stall until the gaps are filled.
  */
 async function getNextNonce(address: string, network: Network): Promise<bigint> {
-  const hiroApi = getHiroApi(network);
-  const nonceInfo = await hiroApi.getNonceInfo(address);
-  const networkNext = BigInt(nonceInfo.possible_next_nonce);
-
   // Stale-timeout: discard local counter if it hasn't been refreshed recently.
   const lastAdvanced = pendingNonceTimestamps.get(address);
-  if (lastAdvanced !== undefined && Date.now() - lastAdvanced > STALE_NONCE_MS) {
+  const isStale = lastAdvanced !== undefined && Date.now() - lastAdvanced > STALE_NONCE_MS;
+  if (isStale) {
     pendingNonces.delete(address);
     pendingNonceTimestamps.delete(address);
   }
 
-  // Warn about detected nonce gaps that could stall the queue.
-  if (nonceInfo.detected_missing_nonces && nonceInfo.detected_missing_nonces.length > 0) {
-    console.warn(
-      `[nonce] detected_missing_nonces for ${address}: [${nonceInfo.detected_missing_nonces.join(", ")}]. ` +
-      `These gaps may stall pending transactions. Use recover_sponsor_nonce with action=fill-gaps to resolve.`
-    );
-  }
-
   const pending = pendingNonces.get(address) ?? 0n;
-  return networkNext > pending ? networkNext : pending;
+
+  try {
+    const hiroApi = getHiroApi(network);
+    const nonceInfo = await hiroApi.getNonceInfo(address);
+    const networkNext = BigInt(nonceInfo.possible_next_nonce);
+
+    // Warn about detected nonce gaps that could stall the queue.
+    if (nonceInfo.detected_missing_nonces && nonceInfo.detected_missing_nonces.length > 0) {
+      console.warn(
+        `[nonce] detected_missing_nonces for ${address}: [${nonceInfo.detected_missing_nonces.join(", ")}]. ` +
+        `These gaps may stall pending transactions. Use recover_sponsor_nonce with action=fill-gaps to resolve.`
+      );
+    }
+
+    return networkNext > pending ? networkNext : pending;
+  } catch (err) {
+    // Fallback: if we have a fresh local counter, use it to keep the queue moving
+    // even when Hiro is temporarily unreachable (e.g., between rapid sequential calls).
+    if (pending > 0n) {
+      console.warn(`[nonce] API call failed, using local pending counter (${pending}) for ${address}:`, err);
+      return pending;
+    }
+    throw err;
+  }
 }
 
 /**
