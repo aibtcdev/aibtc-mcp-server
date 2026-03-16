@@ -26,6 +26,7 @@ import { registerMempoolTools } from "./mempool.tools.js";
 import { registerRelayDiagnosticTools } from "./relay-diagnostic.tools.js";
 import { registerTeneroTools } from "./tenero.tools.js";
 import { registerOrdinalsP2PTools } from "./ordinals-p2p.tools.js";
+import { registerOrdinalsMarketplaceTools } from "./ordinals-marketplace.tools.js";
 import { registerTaprootMultisigTools } from "./taproot-multisig.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 
@@ -136,6 +137,9 @@ export function registerAllTools(server: McpServer): void {
 
   // Ordinals P2P trading (ledger.drx4.xyz — offers, counters, transfers, PSBT swaps)
   registerOrdinalsP2PTools(server);
+
+  // Ordinals Marketplace (Magic Eden — browse listings, list/buy/cancel via PSBT)
+  registerOrdinalsMarketplaceTools(server);
 
   // Taproot Multisig (M-of-N coordination via OP_CHECKSIGADD, BIP-341/342)
   registerTaprootMultisigTools(server);

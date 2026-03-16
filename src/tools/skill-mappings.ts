@@ -212,6 +212,12 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   inscribe_child_reveal: "ordinals",
   estimate_child_inscription_fee: "ordinals",
 
+  // ordinals-marketplace skill — Magic Eden marketplace: browse listings, list/buy/cancel
+  ordinals_get_listings: "ordinals-marketplace",
+  ordinals_list_for_sale: "ordinals-marketplace",
+  ordinals_buy: "ordinals-marketplace",
+  ordinals_cancel_listing: "ordinals-marketplace",
+
   // ordinals-p2p skill — peer-to-peer ordinals trading via PSBT, trade ledger, and Taproot multisig
   psbt_decode: "ordinals-p2p",
   psbt_sign: "ordinals-p2p",
