@@ -212,11 +212,20 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   inscribe_child_reveal: "ordinals",
   estimate_child_inscription_fee: "ordinals",
 
-  // ordinals-p2p skill — peer-to-peer ordinals trading via PSBT
+  // ordinals-p2p skill — peer-to-peer ordinals trading via PSBT and trade ledger
   psbt_decode: "ordinals-p2p",
   psbt_sign: "ordinals-p2p",
   psbt_broadcast: "ordinals-p2p",
   psbt_create_ordinal_buy: "ordinals-p2p",
+  ordinals_p2p_list_trades: "ordinals-p2p",
+  ordinals_p2p_get_trade: "ordinals-p2p",
+  ordinals_p2p_my_trades: "ordinals-p2p",
+  ordinals_p2p_agents: "ordinals-p2p",
+  ordinals_p2p_create_offer: "ordinals-p2p",
+  ordinals_p2p_counter: "ordinals-p2p",
+  ordinals_p2p_transfer: "ordinals-p2p",
+  ordinals_p2p_cancel: "ordinals-p2p",
+  ordinals_p2p_psbt_swap: "ordinals-p2p",
 
   // identity skill — ERC-8004 on-chain agent identity
   register_identity: "identity",
