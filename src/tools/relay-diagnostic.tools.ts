@@ -10,6 +10,7 @@ import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { checkRelayHealth, formatRelayHealthStatus, attemptRbf, attemptFillGaps } from "../utils/relay-health.js";
 import { NETWORK } from "../services/x402.service.js";
 import { getWalletManager } from "../services/wallet-manager.js";
+import { forceResyncNonce } from "../transactions/builder.js";
 
 export function registerRelayDiagnosticTools(server: McpServer): void {
   server.registerTool(
@@ -46,24 +47,29 @@ txids and pending durations to share with the AIBTC team for recovery.`,
   server.registerTool(
     "recover_sponsor_nonce",
     {
-      description: `Attempt automated recovery of stuck sponsor transactions via the relay API.
+      description: `Attempt automated recovery of stuck sponsor transactions via the relay API, or resync the local nonce counter.
 
 Run check_relay_health first to identify stuck txids and missing nonces, then use
 this tool to trigger recovery without needing to contact the AIBTC team manually.
 
-Two recovery modes are available:
+Recovery modes:
 - rbf: Replace-by-fee — rebroadcasts stuck transactions with a higher fee so miners
   prioritize them. Provide specific txids or omit to bump all stuck transactions.
 - fill-gaps: Nonce gap-fill — submits placeholder transactions to fill any missing
   nonces that are blocking the queue. Provide specific nonces or omit to fill all gaps.
 - both: Attempt both RBF and gap-fill in sequence (default).
+- resync-local-nonce: Force-reset the MCP server's in-memory nonce counter for the
+  active wallet. Use this when the local counter is out of sync with the chain (e.g.
+  after a server restart, manual transaction sent outside the MCP server, or a
+  confirmed-but-locally-stuck counter). The counter will be re-seeded from the chain
+  on the next transaction. Requires the wallet to be unlocked.
 
-If the relay does not yet support these endpoints it returns a 404 or 501 and this
+If the relay does not yet support relay endpoints it returns a 404 or 501 and this
 tool will respond with a clear message rather than throwing an error. In that case,
 share the txids and nonces from check_relay_health with the AIBTC team.`,
       inputSchema: {
         action: z
-          .enum(["rbf", "fill-gaps", "both"])
+          .enum(["rbf", "fill-gaps", "both", "resync-local-nonce"])
           .default("both")
           .describe("Which recovery operation to attempt"),
         txids: z
@@ -81,6 +87,24 @@ share the txids and nonces from check_relay_health with the AIBTC team.`,
         // Resolve API key from wallet (if unlocked) to align with sponsor-builder auth flow
         const walletAccount = getWalletManager().getAccount();
         const walletApiKey = walletAccount?.sponsorApiKey;
+
+        // Local nonce resync — no relay call needed.
+        if (action === "resync-local-nonce") {
+          if (!walletAccount) {
+            return createJsonResponse({
+              action,
+              success: false,
+              message: "Wallet must be unlocked to resync the local nonce counter. Use wallet_unlock first.",
+            });
+          }
+          forceResyncNonce(walletAccount.address);
+          return createJsonResponse({
+            action,
+            success: true,
+            address: walletAccount.address,
+            message: `Local nonce counter cleared for ${walletAccount.address}. The next transaction will re-seed from the chain.`,
+          });
+        }
 
         const results: Record<string, unknown> = { action };
 
