@@ -331,20 +331,32 @@ You can optionally filter by status.`,
           .optional()
           .default(50)
           .describe("Results per page (default 50)"),
+        offset: z
+          .number()
+          .int()
+          .nonnegative()
+          .optional()
+          .default(0)
+          .describe("Pagination offset (default 0)"),
       },
     },
-    async ({ status, limit }) => {
+    async ({ status, limit, offset }) => {
       try {
-        const account = getSignedAccount();
+        const walletManager = getWalletManager();
+        const account = walletManager.getActiveAccount();
+        if (!account) throw new Error("Wallet is not unlocked. Use wallet_unlock first.");
+        if (!account.btcAddress) throw new Error("Bitcoin address not available.");
 
+        const btcAddress = account.btcAddress;
         const params = new URLSearchParams();
-        params.set("agent", account.btcAddress);
+        params.set("agent", btcAddress);
         if (status) params.set("status", status);
         params.set("limit", String(limit ?? 50));
+        params.set("offset", String(offset ?? 0));
 
         const data = await ledgerGet(`/api/trades?${params}`);
         return createJsonResponse({
-          btcAddress: account.btcAddress,
+          btcAddress,
           ...(data as Record<string, unknown>),
         });
       } catch (error) {
@@ -422,6 +434,9 @@ Requires an unlocked wallet with Bitcoin keys.`,
     },
     async ({ inscription_id, asking_price_sats, to_agent, metadata }) => {
       try {
+        if (inscription_id && !/^[0-9a-f]{64}i\d+$/.test(inscription_id)) {
+          throw new Error("inscription_id must be in format: <64-char-hex-txid>i<index> e.g. abc123...i0");
+        }
         const account = getSignedAccount();
         const auth = buildAuthFields("offer", inscription_id, account);
 
@@ -477,6 +492,9 @@ Requires an unlocked wallet with Bitcoin keys.`,
     },
     async ({ parent_trade_id, inscription_id, amount_sats, metadata }) => {
       try {
+        if (inscription_id && !/^[0-9a-f]{64}i\d+$/.test(inscription_id)) {
+          throw new Error("inscription_id must be in format: <64-char-hex-txid>i<index> e.g. abc123...i0");
+        }
         const account = getSignedAccount();
         const auth = buildAuthFields("counter", inscription_id, account);
 
