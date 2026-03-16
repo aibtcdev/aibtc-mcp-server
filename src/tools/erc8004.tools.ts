@@ -25,36 +25,10 @@ import { getWalletManager } from "../services/wallet-manager.js";
 import { Erc8004Service } from "../services/erc8004.service.js";
 import { resolveFee } from "../utils/fee.js";
 import { sponsoredSchema } from "./schemas.js";
+import { normalizeHex, getCallerAddress } from "../utils/erc8004-helpers.js";
 
 const MAX_METADATA_KEY_LENGTH = 128;
 const MAX_METADATA_VALUE_BYTES = 512;
-
-/** Default read-only caller address per network (boot addresses) */
-const DEFAULT_CALLER: Record<string, string> = {
-  mainnet: "SP000000000000000000002Q6VF78",
-  testnet: "ST000000000000000000002AMW42H",
-};
-
-/** Strip optional 0x prefix and validate hex string */
-function normalizeHex(hex: string, label: string, exactBytes?: number): string {
-  let normalized = hex;
-  if (normalized.startsWith("0x") || normalized.startsWith("0X")) {
-    normalized = normalized.slice(2);
-  }
-  if (normalized.length === 0 || normalized.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(normalized)) {
-    throw new Error(`${label} must be a non-empty, even-length hex string`);
-  }
-  if (exactBytes !== undefined && normalized.length !== exactBytes * 2) {
-    throw new Error(`${label} must be exactly ${exactBytes} bytes (${exactBytes * 2} hex characters)`);
-  }
-  return normalized;
-}
-
-function getCallerAddress(): string {
-  const walletManager = getWalletManager();
-  const sessionInfo = walletManager.getSessionInfo();
-  return sessionInfo?.address || DEFAULT_CALLER[NETWORK] || DEFAULT_CALLER.testnet;
-}
 
 export function registerErc8004Tools(server: McpServer): void {
   const service = new Erc8004Service(NETWORK);

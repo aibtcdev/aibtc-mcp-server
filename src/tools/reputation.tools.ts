@@ -28,33 +28,13 @@ import { getWalletManager } from "../services/wallet-manager.js";
 import { Erc8004Service } from "../services/erc8004.service.js";
 import { resolveFee } from "../utils/fee.js";
 import { sponsoredSchema } from "./schemas.js";
+import { normalizeHex, getCallerAddress } from "../utils/erc8004-helpers.js";
 
-/** Default read-only caller address per network (boot addresses) */
-const DEFAULT_CALLER: Record<string, string> = {
-  mainnet: "SP000000000000000000002Q6VF78",
-  testnet: "ST000000000000000000002AMW42H",
-};
-
-/** Strip optional 0x prefix and validate hex string */
-function normalizeHex(hex: string, label: string, exactBytes?: number): string {
-  let normalized = hex;
-  if (normalized.startsWith("0x") || normalized.startsWith("0X")) {
-    normalized = normalized.slice(2);
-  }
-  if (normalized.length === 0 || normalized.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(normalized)) {
-    throw new Error(`${label} must be a non-empty, even-length hex string`);
-  }
-  if (exactBytes !== undefined && normalized.length !== exactBytes * 2) {
-    throw new Error(`${label} must be exactly ${exactBytes} bytes (${exactBytes * 2} hex characters)`);
-  }
-  return normalized;
-}
-
-function getCallerAddress(): string {
-  const walletManager = getWalletManager();
-  const sessionInfo = walletManager.getSessionInfo();
-  return sessionInfo?.address || DEFAULT_CALLER[NETWORK] || DEFAULT_CALLER.testnet;
-}
+/** Zod schema for a Stacks principal address (mainnet SP... or testnet ST...) */
+const stacksAddressSchema = z
+  .string()
+  .regex(/^S[PT][0-9A-Z]{38,39}$/)
+  .describe("Stacks address of the client (SP... mainnet or ST... testnet)");
 
 export function registerReputationTools(server: McpServer): void {
   const service = new Erc8004Service(NETWORK);
@@ -160,6 +140,8 @@ export function registerReputationTools(server: McpServer): void {
       description:
         "Read all feedback entries for an agent with optional tag filtering and pagination. " +
         "Returns up to 20 entries per page. Pass nextCursor from the previous response to page. " +
+        "WARNING: Uses one RPC call per entry (N+1 pattern) — avoid calling for agents with " +
+        "large feedback sets without using cursor-based pagination. " +
         "No wallet required.",
       inputSchema: {
         agentId: z.number().int().min(0).describe("Agent ID to read all feedback for"),
@@ -283,7 +265,7 @@ export function registerReputationTools(server: McpServer): void {
         "No wallet required.",
       inputSchema: {
         agentId: z.number().int().min(0).describe("Agent ID"),
-        client: z.string().describe("Stacks address of the client"),
+        client: stacksAddressSchema,
       },
     },
     async ({ agentId, client }) => {
@@ -296,6 +278,7 @@ export function registerReputationTools(server: McpServer): void {
           agentId,
           client,
           approvedLimit: limit,
+          notFound: limit === null,
           network: NETWORK,
         });
       } catch (error) {
@@ -313,7 +296,7 @@ export function registerReputationTools(server: McpServer): void {
         "No wallet required.",
       inputSchema: {
         agentId: z.number().int().min(0).describe("Agent ID"),
-        client: z.string().describe("Stacks address of the client"),
+        client: stacksAddressSchema,
       },
     },
     async ({ agentId, client }) => {
@@ -326,6 +309,7 @@ export function registerReputationTools(server: McpServer): void {
           agentId,
           client,
           lastIndex,
+          notFound: lastIndex === null,
           network: NETWORK,
         });
       } catch (error) {
@@ -359,8 +343,8 @@ export function registerReputationTools(server: McpServer): void {
           .min(0)
           .max(18)
           .describe("Decimals for the value (e.g., 0 for integer ratings)"),
-        tag1: z.string().optional().describe("Optional tag 1 (max 64 chars)"),
-        tag2: z.string().optional().describe("Optional tag 2 (max 64 chars)"),
+        tag1: z.string().max(64).optional().describe("Optional tag 1 (max 64 chars)"),
+        tag2: z.string().max(64).optional().describe("Optional tag 2 (max 64 chars)"),
         endpoint: z.string().optional().describe("Optional endpoint URL"),
         feedbackUri: z.string().optional().describe("Optional URI pointing to off-chain feedback details"),
         feedbackHash: z
@@ -471,7 +455,7 @@ export function registerReputationTools(server: McpServer): void {
         "Requires an unlocked wallet.",
       inputSchema: {
         agentId: z.number().int().min(0).describe("Agent ID that received the feedback"),
-        client: z.string().describe("Stacks address of the client who gave the feedback"),
+        client: stacksAddressSchema,
         index: z.number().int().min(0).describe("Feedback index to respond to"),
         responseUri: z.string().describe("URI pointing to the response content"),
         responseHash: z.string().describe("Response hash as hex string (32 bytes)"),
@@ -530,7 +514,7 @@ export function registerReputationTools(server: McpServer): void {
         "Requires an unlocked wallet.",
       inputSchema: {
         agentId: z.number().int().min(0).describe("Agent ID to approve a client for"),
-        client: z.string().describe("Stacks address of the client to approve"),
+        client: stacksAddressSchema,
         indexLimit: z
           .number()
           .int()
