@@ -30,6 +30,7 @@ import {
 } from "../utils/errors.js";
 import { NETWORK, type Network } from "../config/networks.js";
 import type { Account } from "../transactions/builder.js";
+import { resetPendingNonce } from "../transactions/builder.js";
 import { deriveBitcoinAddress, deriveBitcoinKeyPair, deriveTaprootAddress, deriveTaprootKeyPair, deriveNostrKeyPair } from "../utils/bitcoin.js";
 
 /**
@@ -279,6 +280,9 @@ class WalletManager {
     config.activeWalletId = walletId;
     await writeAppConfig(config);
 
+    // Reset pending nonce counter so the new session re-syncs with the chain
+    resetPendingNonce(account.address);
+
     return account;
   }
 
@@ -287,6 +291,10 @@ class WalletManager {
    */
   lock(): void {
     this.clearAutoLockTimer();
+    // Reset pending nonce counter before clearing session
+    if (this.session?.account) {
+      resetPendingNonce(this.session.account.address);
+    }
     // Zero out sensitive key buffers before dropping references
     if (this.session?.account) {
       const acct = this.session.account;
