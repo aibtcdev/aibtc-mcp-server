@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.36.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.35.0...mcp-server-v1.36.0) (2026-03-16)
+
+
+### Features
+
+* **dual-stacking:** add Dual Stacking MCP tools ([#305](https://github.com/aibtcdev/aibtc-mcp-server/issues/305)) ([#313](https://github.com/aibtcdev/aibtc-mcp-server/issues/313)) ([53c9d20](https://github.com/aibtcdev/aibtc-mcp-server/commit/53c9d2017bc0545753fffa33e71724c082d1201e))
+* **mempool:** add mempool watch tools - get_mempool_info, get_transaction_status, get_address_txs ([#311](https://github.com/aibtcdev/aibtc-mcp-server/issues/311)) ([a61e1eb](https://github.com/aibtcdev/aibtc-mcp-server/commit/a61e1eb52bcdd19e831e324f6d1993a8eecb6f33))
+* **signing:** add btc_sign_message and stacks_sign_message MCP tools (closes [#298](https://github.com/aibtcdev/aibtc-mcp-server/issues/298)) ([#314](https://github.com/aibtcdev/aibtc-mcp-server/issues/314)) ([2150207](https://github.com/aibtcdev/aibtc-mcp-server/commit/21502073ec1f0e55ae6c8bf7091c73aed21351f6))
+* **tenero:** add market analytics MCP tools ([#302](https://github.com/aibtcdev/aibtc-mcp-server/issues/302)) ([#312](https://github.com/aibtcdev/aibtc-mcp-server/issues/312)) ([e81e01a](https://github.com/aibtcdev/aibtc-mcp-server/commit/e81e01a335df8f899305b8638825c51c8761ec16))
+
+
+### Bug Fixes
+
+* rename mempool tools to avoid duplicate registration ([#322](https://github.com/aibtcdev/aibtc-mcp-server/issues/322)) ([b56a7f6](https://github.com/aibtcdev/aibtc-mcp-server/commit/b56a7f6f98dcf791f811609f953a1f6ac134621c)), closes [#321](https://github.com/aibtcdev/aibtc-mcp-server/issues/321)
+* **sbtc:** correct testnet contract addresses and add network mismatch guard ([#318](https://github.com/aibtcdev/aibtc-mcp-server/issues/318)) ([547386e](https://github.com/aibtcdev/aibtc-mcp-server/commit/547386eabe1c42eda0794d0ad23e6b4555f40051)), closes [#309](https://github.com/aibtcdev/aibtc-mcp-server/issues/309)
+
 ## [1.35.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.34.0...mcp-server-v1.35.0) (2026-03-13)
 
 
