@@ -33,6 +33,13 @@ const STALE_NONCE_MS = 10 * 60 * 1000; // 10 minutes
 const pendingNonces = new Map<string, bigint>();
 
 /**
+ * Maximum number of addresses tracked in the pending-nonce maps.
+ * When the cap is exceeded after a new entry is added, the address with the
+ * oldest timestamp is evicted first (it is most likely to be inactive).
+ */
+const MAX_PENDING_NONCES = 100;
+
+/**
  * Tracks when each address last advanced its local nonce counter.
  * Used to detect stale entries: if no transaction was sent within STALE_NONCE_MS
  * the counter is expired and the network value is authoritative again.
@@ -115,6 +122,20 @@ function advancePendingNonce(address: string, nonce: bigint): void {
   if (next > current) {
     pendingNonces.set(address, next);
     pendingNonceTimestamps.set(address, Date.now());
+
+    // Evict the oldest entry when the cap is exceeded so the maps stay bounded
+    // in long-running processes that cycle through many addresses.
+    if (pendingNonces.size > MAX_PENDING_NONCES) {
+      let oldestAddr: string | undefined;
+      let oldestTime = Infinity;
+      for (const [addr, ts] of pendingNonceTimestamps) {
+        if (ts < oldestTime) { oldestTime = ts; oldestAddr = addr; }
+      }
+      if (oldestAddr) {
+        pendingNonces.delete(oldestAddr);
+        pendingNonceTimestamps.delete(oldestAddr);
+      }
+    }
   }
 }
 
