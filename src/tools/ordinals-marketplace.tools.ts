@@ -5,10 +5,11 @@
  * the Magic Eden marketplace (api-mainnet.magiceden.dev).
  *
  * Tools:
- * - ordinals_get_listings:     Browse inscriptions listed for sale (no wallet required)
- * - ordinals_list_for_sale:    List a wallet inscription for sale via ME PSBT flow
- * - ordinals_buy:              Buy a listed inscription — returns PSBT to sign + broadcast
- * - ordinals_cancel_listing:   Cancel an active Magic Eden listing
+ * - ordinals_get_listings:          Browse inscriptions listed for sale (no wallet required)
+ * - ordinals_list_for_sale:         List a wallet inscription for sale via ME PSBT flow
+ * - ordinals_list_for_sale_submit:  Submit the signed listing PSBT to finalize a listing
+ * - ordinals_buy:                   Buy a listed inscription — returns PSBT to sign + broadcast
+ * - ordinals_cancel_listing:        Cancel an active Magic Eden listing
  *
  * Read operations use the public Magic Eden API (unauthenticated).
  * Write operations use the ME PSBT-based listing flow which requires wallet unlock.
@@ -58,13 +59,18 @@ async function mePost(path: string, body: Record<string, unknown>): Promise<unkn
     },
     body: JSON.stringify(body),
   });
-  const data = await res.json();
   if (!res.ok) {
-    throw new Error(
-      `Magic Eden API ${res.status}: ${(data as Record<string, unknown>).message ?? JSON.stringify(data)}`
-    );
+    const text = await res.text();
+    let message: string;
+    try {
+      const parsed = JSON.parse(text) as Record<string, unknown>;
+      message = String(parsed.message ?? text);
+    } catch {
+      message = text;
+    }
+    throw new Error(`Magic Eden API ${res.status}: ${message}`);
   }
-  return data;
+  return res.json();
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +256,52 @@ Note: The inscription must be in the wallet's Taproot (P2TR) address.`,
   );
 
   // ==========================================================================
+  // ordinals_list_for_sale_submit — requires signed PSBT from ordinals_list_for_sale
+  // ==========================================================================
+
+  server.registerTool(
+    "ordinals_list_for_sale_submit",
+    {
+      description: `Submit a signed listing PSBT to Magic Eden to finalize an ordinal listing.
+
+Call this after signing the PSBT returned by ordinals_list_for_sale.
+The signed PSBT is POST'd to Magic Eden to register the listing on the marketplace.
+
+Steps:
+1. Call ordinals_list_for_sale to get a listing PSBT
+2. Sign the PSBT using psbt_sign
+3. Call this tool with the signed PSBT to publish the listing`,
+      inputSchema: {
+        signedPsbtBase64: z
+          .string()
+          .describe("The signed PSBT in base64 format"),
+        inscriptionId: z
+          .string()
+          .describe("The inscription ID being listed"),
+      },
+    },
+    async ({ signedPsbtBase64, inscriptionId }) => {
+      try {
+        if (NETWORK !== "mainnet") {
+          return createErrorResponse(
+            new Error("Magic Eden ordinals marketplace listing is only available on mainnet.")
+          );
+        }
+
+        const result = await mePost("/psbt/listing/sign-and-submit/seller", {
+          signedListingPSBT: signedPsbtBase64,
+          tokenId: inscriptionId,
+        });
+        return createJsonResponse({ status: "listed", result });
+      } catch (err) {
+        return createErrorResponse(
+          `Failed to submit listing: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }
+  );
+
+  // ==========================================================================
   // ordinals_buy — requires wallet (ME PSBT buy flow)
   // ==========================================================================
 
@@ -318,11 +370,7 @@ Steps:
         // Fetch token info (including active listing) from ME
         const tokenInfo = await meGet(`/tokens/${inscriptionId}`) as Record<string, unknown>;
 
-        const listing = tokenInfo.listed
-          ? tokenInfo
-          : (tokenInfo.owner as Record<string, unknown> | undefined);
-
-        if (!listing || !(tokenInfo.listedPrice ?? tokenInfo.price)) {
+        if (!tokenInfo.listed && !(tokenInfo.listedPrice ?? tokenInfo.price)) {
           return createJsonResponse({
             status: "not_listed",
             message: `Inscription ${inscriptionId} does not appear to be listed for sale on Magic Eden.`,
@@ -342,6 +390,8 @@ Steps:
           feeRateTier: feeRate ? undefined : "halfHourFee",
           feeRate: feeRate,
           buyerPaymentAddress: paymentAddress,
+          // btcPublicKey is the compressed 33-byte key (P2WPKH/P2TR). If it is a
+          // Buffer/Uint8Array, convert to hex: Buffer.from(account.btcPublicKey).toString('hex')
           buyerPaymentPublicKey: account.btcPublicKey,
         });
 
