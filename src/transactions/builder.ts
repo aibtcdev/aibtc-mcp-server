@@ -17,6 +17,14 @@ import type { WalletAddresses } from "../utils/storage.js";
 // ---------------------------------------------------------------------------
 
 /**
+ * How long a locally-tracked pending nonce is considered fresh.
+ * If no new transaction has been broadcast within this window the counter is
+ * stale (the tx likely confirmed or was dropped) and we fall back to the
+ * network value on the next call.
+ */
+const STALE_NONCE_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
  * In-memory map of STX address -> next expected nonce for non-sponsored txs.
  * Updated after each successful broadcast so sequential calls don't re-use
  * the same network nonce before the first tx lands in the mempool.
@@ -24,26 +32,62 @@ import type { WalletAddresses } from "../utils/storage.js";
 const pendingNonces = new Map<string, bigint>();
 
 /**
- * Reset the pending nonce for an address (called on wallet unlock/lock so the
- * counter re-syncs with the chain on the next transaction).
+ * Tracks when each address last advanced its local nonce counter.
+ * Used to detect stale entries: if no transaction was sent within STALE_NONCE_MS
+ * the counter is expired and the network value is authoritative again.
+ */
+const pendingNonceTimestamps = new Map<string, number>();
+
+/**
+ * Reset the pending nonce for an address (called on wallet unlock/lock/switch
+ * so the counter re-syncs with the chain on the next transaction).
  */
 export function resetPendingNonce(address: string): void {
   pendingNonces.delete(address);
+  pendingNonceTimestamps.delete(address);
+}
+
+/**
+ * Force-resync the local pending nonce for an address.
+ * Identical to resetPendingNonce but exported under a name that makes the
+ * intent clear for the recover_sponsor_nonce tool's resync-local-nonce action.
+ */
+export function forceResyncNonce(address: string): void {
+  resetPendingNonce(address);
 }
 
 /**
  * Fetch the next nonce to use for `address`.
  *
- * Uses the Hiro extended API `/extended/v1/address/{addr}/nonces` which
- * returns `possible_next_nonce` — the highest mempool nonce + 1. We then
- * take max(possible_next_nonce, pendingNonces[address]) so that if we submit
- * two transactions faster than the mempool endpoint updates we still get
- * sequential nonces.
+ * Algorithm:
+ * 1. Fetch `possible_next_nonce` and `detected_missing_nonces` from Hiro.
+ * 2. If the local counter exists but is older than STALE_NONCE_MS, discard it
+ *    so a stale counter never permanently blocks a recovered wallet.
+ * 3. Return max(possible_next_nonce, local_pending) so rapid sequential calls
+ *    get strictly increasing nonces even before the mempool reflects the first tx.
+ * 4. Warn if the network reports missing nonces — gaps below the pending counter
+ *    can cause the queue to stall until the gaps are filled.
  */
 async function getNextNonce(address: string, network: Network): Promise<bigint> {
   const hiroApi = getHiroApi(network);
   const nonceInfo = await hiroApi.getNonceInfo(address);
   const networkNext = BigInt(nonceInfo.possible_next_nonce);
+
+  // Stale-timeout: discard local counter if it hasn't been refreshed recently.
+  const lastAdvanced = pendingNonceTimestamps.get(address);
+  if (lastAdvanced !== undefined && Date.now() - lastAdvanced > STALE_NONCE_MS) {
+    pendingNonces.delete(address);
+    pendingNonceTimestamps.delete(address);
+  }
+
+  // Warn about detected nonce gaps that could stall the queue.
+  if (nonceInfo.detected_missing_nonces && nonceInfo.detected_missing_nonces.length > 0) {
+    console.warn(
+      `[nonce] detected_missing_nonces for ${address}: [${nonceInfo.detected_missing_nonces.join(", ")}]. ` +
+      `These gaps may stall pending transactions. Use recover_sponsor_nonce with action=fill-gaps to resolve.`
+    );
+  }
+
   const pending = pendingNonces.get(address) ?? 0n;
   return networkNext > pending ? networkNext : pending;
 }
@@ -57,6 +101,7 @@ function advancePendingNonce(address: string, nonce: bigint): void {
   const current = pendingNonces.get(address) ?? 0n;
   if (next > current) {
     pendingNonces.set(address, next);
+    pendingNonceTimestamps.set(address, Date.now());
   }
 }
 
