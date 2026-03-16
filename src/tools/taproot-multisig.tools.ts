@@ -44,13 +44,13 @@ export function registerTaprootMultisigTools(server: McpServer): void {
           );
         }
 
-        const pubkeyHex = Buffer.from(account.taprootPublicKey).toString("hex");
-
         if (account.taprootPublicKey.length !== 32) {
           throw new Error(
             `Unexpected taproot public key length: ${account.taprootPublicKey.length} bytes (expected 32).`
           );
         }
+
+        const pubkeyHex = Buffer.from(account.taprootPublicKey).toString("hex");
 
         return createJsonResponse({
           success: true,
@@ -80,6 +80,7 @@ export function registerTaprootMultisigTools(server: McpServer): void {
         sighash: z
           .string()
           .length(64)
+          .regex(/^[0-9a-fA-F]+$/, "must be valid hex")
           .describe(
             "BIP-341 sighash as 32-byte hex string (64 hex chars). " +
               "This is the transaction commitment that was signed."
@@ -87,12 +88,14 @@ export function registerTaprootMultisigTools(server: McpServer): void {
         signature: z
           .string()
           .length(128)
+          .regex(/^[0-9a-fA-F]+$/, "must be valid hex")
           .describe(
             "Schnorr signature as 64-byte hex string (128 hex chars, BIP-340 format)."
           ),
         pubkey: z
           .string()
           .length(64)
+          .regex(/^[0-9a-fA-F]+$/, "must be valid hex")
           .describe(
             "Signer's x-only public key as 32-byte hex string (64 hex chars). " +
               "Obtain via taproot_get_pubkey from each co-signer."
@@ -101,9 +104,9 @@ export function registerTaprootMultisigTools(server: McpServer): void {
     },
     async ({ sighash, signature, pubkey }) => {
       try {
-        const sighashBytes = Uint8Array.from(Buffer.from(sighash, "hex"));
-        const signatureBytes = Uint8Array.from(Buffer.from(signature, "hex"));
-        const pubkeyBytes = Uint8Array.from(Buffer.from(pubkey, "hex"));
+        const sighashBytes = Buffer.from(sighash, "hex");
+        const signatureBytes = Buffer.from(signature, "hex");
+        const pubkeyBytes = Buffer.from(pubkey, "hex");
 
         if (sighashBytes.length !== 32) {
           throw new Error(
@@ -220,7 +223,7 @@ export function registerTaprootMultisigTools(server: McpServer): void {
             title: "Sign independently with Schnorr",
             details: [
               "Each co-signer receives the PSBT and signs the BIP-341 sighash with their BIP-86 Taproot private key.",
-              "Use psbt_sign (or schnorr_sign_digest for the raw sighash) to produce a 64-byte BIP-340 Schnorr signature.",
+              "Use psbt_sign (or use raw sighash signing when available) to produce a 64-byte BIP-340 Schnorr signature.",
               `Only ${m} of the ${n} co-signers need to sign — but all ${n} must verify.`,
               "Each signer returns their (pubkey, signature) pair to the combiner.",
             ],
