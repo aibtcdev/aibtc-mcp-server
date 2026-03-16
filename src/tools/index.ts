@@ -9,6 +9,7 @@ import { registerTokenTools } from "./tokens.tools.js";
 import { registerNftTools } from "./nft.tools.js";
 import { registerStackingTools } from "./stacking.tools.js";
 import { registerDualStackingTools } from "./dual-stacking.tools.js";
+import { registerStackingLotteryTools } from "./stacking-lottery.tools.js";
 import { registerBnsTools } from "./bns.tools.js";
 import { registerStyxTools } from "./styx.tools.js";
 import { registerQueryTools } from "./query.tools.js";
@@ -91,6 +92,9 @@ export function registerAllTools(server: McpServer): void {
 
   // Dual Stacking (sBTC yield via Dual Stacking protocol)
   registerDualStackingTools(server);
+
+  // Stacking Lottery (StackSpot — pool STX, VRF picks sBTC winner)
+  registerStackingLotteryTools(server);
 
   // BNS Domains
   registerBnsTools(server);
