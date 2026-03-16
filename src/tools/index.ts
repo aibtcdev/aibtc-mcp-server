@@ -23,6 +23,7 @@ import { registerPillarTools } from "./pillar.tools.js";
 import { registerPillarDirectTools } from "./pillar-direct.tools.js";
 import { registerBitcoinTools } from "./bitcoin.tools.js";
 import { registerMempoolTools } from "./mempool.tools.js";
+import { registerNostrTools } from "./nostr.tools.js";
 import { registerRelayDiagnosticTools } from "./relay-diagnostic.tools.js";
 import { registerTeneroTools } from "./tenero.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
@@ -125,6 +126,9 @@ export function registerAllTools(server: McpServer): void {
 
   // Mempool Watch (read-only: mempool stats, tx status, address tx history)
   registerMempoolTools(server);
+
+  // Nostr protocol (publish notes, read feed, manage profile)
+  registerNostrTools(server);
 
   // Relay Diagnostics (sponsor relay health, nonce status, stuck transactions)
   registerRelayDiagnosticTools(server);
