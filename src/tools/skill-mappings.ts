@@ -212,7 +212,7 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   inscribe_child_reveal: "ordinals",
   estimate_child_inscription_fee: "ordinals",
 
-  // ordinals-p2p skill — peer-to-peer ordinals trading via PSBT and trade ledger
+  // ordinals-p2p skill — peer-to-peer ordinals trading via PSBT, trade ledger, and Taproot multisig
   psbt_decode: "ordinals-p2p",
   psbt_sign: "ordinals-p2p",
   psbt_broadcast: "ordinals-p2p",
@@ -226,6 +226,9 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   ordinals_p2p_transfer: "ordinals-p2p",
   ordinals_p2p_cancel: "ordinals-p2p",
   ordinals_p2p_psbt_swap: "ordinals-p2p",
+  taproot_get_pubkey: "ordinals-p2p",
+  taproot_verify_cosig: "ordinals-p2p",
+  taproot_multisig_guide: "ordinals-p2p",
 
   // identity skill — ERC-8004 on-chain agent identity
   register_identity: "identity",
