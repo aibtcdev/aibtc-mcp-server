@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.37.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.36.1...mcp-server-v1.37.0) (2026-03-16)
+
+
+### Features
+
+* **jingswap:** add blind batch auction tools for STX/sBTC (closes [#327](https://github.com/aibtcdev/aibtc-mcp-server/issues/327)) ([fa2b051](https://github.com/aibtcdev/aibtc-mcp-server/commit/fa2b051eab436415ff100b92b82b558583431489))
+* **nostr:** add Nostr protocol MCP tools (closes [#330](https://github.com/aibtcdev/aibtc-mcp-server/issues/330)) ([822c750](https://github.com/aibtcdev/aibtc-mcp-server/commit/822c750497afb805c1239550ff321dc16985faa2))
+* **ordinals-p2p:** P2P ordinals trade ledger tools via ledger.drx4.xyz ([#324](https://github.com/aibtcdev/aibtc-mcp-server/issues/324)) ([8672321](https://github.com/aibtcdev/aibtc-mcp-server/commit/8672321017f06cd07cca5e9b95988043a72e24d4))
+* **stacks-market:** add prediction market MCP tools (closes [#329](https://github.com/aibtcdev/aibtc-mcp-server/issues/329)) ([24d3bce](https://github.com/aibtcdev/aibtc-mcp-server/commit/24d3bceeef6f95c25cfb840fa33fd21426e1dc9f))
+* **taproot-multisig:** Taproot M-of-N multisig coordination tools ([#325](https://github.com/aibtcdev/aibtc-mcp-server/issues/325)) ([b027483](https://github.com/aibtcdev/aibtc-mcp-server/commit/b02748368d9d26d0e0a9092ae684fa8e1ab56564))
+
+
+### Bug Fixes
+
+* **transactions:** add LRU size bound to nonce maps and unit tests ([#338](https://github.com/aibtcdev/aibtc-mcp-server/issues/338)) ([d845e0f](https://github.com/aibtcdev/aibtc-mcp-server/commit/d845e0fe8d61df73ea8e0e40335555d560135bf6))
+
 ## [1.36.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.36.0...mcp-server-v1.36.1) (2026-03-16)
 
 
