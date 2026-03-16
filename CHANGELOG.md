@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.36.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.36.0...mcp-server-v1.36.1) (2026-03-16)
+
+
+### Bug Fixes
+
+* **fees:** lower contract_call ceiling to 50k uSTX and apply clamping on all write paths ([#333](https://github.com/aibtcdev/aibtc-mcp-server/issues/333)) ([fb3fa5f](https://github.com/aibtcdev/aibtc-mcp-server/commit/fb3fa5f76a59898708e8ad288cb03539fe2a3654))
+* **transactions:** track pending nonce to prevent dropped back-to-back txs (fixes [#326](https://github.com/aibtcdev/aibtc-mcp-server/issues/326)) ([#331](https://github.com/aibtcdev/aibtc-mcp-server/issues/331)) ([936594a](https://github.com/aibtcdev/aibtc-mcp-server/commit/936594a00f7fdf42efd37943c6f180b6849f6044))
+
 ## [1.36.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.35.0...mcp-server-v1.36.0) (2026-03-16)
 
 
