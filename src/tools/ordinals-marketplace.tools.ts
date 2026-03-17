@@ -397,7 +397,7 @@ Steps:
           feeRateTier: feeRate ? undefined : "halfHourFee",
           feeRate: feeRate,
           buyerPaymentAddress: paymentAddress,
-          buyerPaymentPublicKey: Buffer.from(account.btcPublicKey).toString("hex"),
+          buyerPaymentPublicKey: account.btcPublicKey ? Buffer.from(account.btcPublicKey).toString("hex") : undefined,
         });
 
         const result = buyRequest as Record<string, unknown>;
