@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.38.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.37.0...mcp-server-v1.38.0) (2026-03-17)
+
+
+### Features
+
+* **ordinals:** add marketplace tools for listing/buying/browsing (closes [#190](https://github.com/aibtcdev/aibtc-mcp-server/issues/190)) ([93982e3](https://github.com/aibtcdev/aibtc-mcp-server/commit/93982e3750ce5a75f30e07ecfd85e03dc685fee2))
+* **reputation:** add dedicated reputation MCP tools (closes [#304](https://github.com/aibtcdev/aibtc-mcp-server/issues/304)) ([be670db](https://github.com/aibtcdev/aibtc-mcp-server/commit/be670db78d61a905e8fe04dc146f2ee0ce55614c))
+
+
+### Bug Fixes
+
+* **stacking-lottery:** register stackspot tools in tools/index (closes [#308](https://github.com/aibtcdev/aibtc-mcp-server/issues/308)) ([85b1340](https://github.com/aibtcdev/aibtc-mcp-server/commit/85b1340f7cb6910a8518c45b3068e221aebacd17))
+
 ## [1.37.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.36.1...mcp-server-v1.37.0) (2026-03-16)
 
 
