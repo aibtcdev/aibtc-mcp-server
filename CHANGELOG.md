@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.39.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.38.0...mcp-server-v1.39.0) (2026-03-17)
+
+
+### Features
+
+* **jingswap:** add multi-market support (sbtc-stx + sbtc-usdcx) ([#349](https://github.com/aibtcdev/aibtc-mcp-server/issues/349)) ([444f1a5](https://github.com/aibtcdev/aibtc-mcp-server/commit/444f1a53b92a613c9edc758fedd2564b2e75cb1c))
+
 ## [1.38.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.37.0...mcp-server-v1.38.0) (2026-03-17)
 
 
