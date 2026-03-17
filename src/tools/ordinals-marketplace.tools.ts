@@ -279,15 +279,15 @@ Steps:
 2. Sign the PSBT using psbt_sign
 3. Call this tool with the signed PSBT to publish the listing`,
       inputSchema: {
-        signedPsbtBase64: z
-          .string()
-          .describe("The signed PSBT in base64 format"),
         inscriptionId: z
           .string()
           .describe("The inscription ID being listed"),
+        signedPsbt: z
+          .string()
+          .describe("The signed PSBT in base64 format returned by psbt_sign"),
       },
     },
-    async ({ signedPsbtBase64, inscriptionId }) => {
+    async ({ inscriptionId, signedPsbt }) => {
       try {
         if (NETWORK !== "mainnet") {
           return createErrorResponse(
@@ -295,9 +295,9 @@ Steps:
           );
         }
 
-        const result = await mePost("/psbt/listing/sign-and-submit/seller", {
-          signedListingPSBT: signedPsbtBase64,
-          tokenId: inscriptionId,
+        const result = await mePost("/instructions/sell/submit", {
+          signedPsbt,
+          inscriptionId,
         });
         return createJsonResponse({ status: "listed", result });
       } catch (err) {
