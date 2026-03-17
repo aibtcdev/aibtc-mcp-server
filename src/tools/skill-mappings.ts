@@ -215,6 +215,7 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   // ordinals-marketplace skill — Magic Eden marketplace: browse listings, list/buy/cancel
   ordinals_get_listings: "ordinals-marketplace",
   ordinals_list_for_sale: "ordinals-marketplace",
+  ordinals_list_for_sale_submit: "ordinals-marketplace",
   ordinals_buy: "ordinals-marketplace",
   ordinals_cancel_listing: "ordinals-marketplace",
 
