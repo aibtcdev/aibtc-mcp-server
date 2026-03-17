@@ -28,6 +28,7 @@ import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 // ---------------------------------------------------------------------------
 
 const ME_BASE = "https://api-mainnet.magiceden.dev/v2/ord/btc";
+const ME_API_KEY = process.env.MAGIC_EDEN_API_KEY ?? "";
 
 // ---------------------------------------------------------------------------
 // HTTP helpers
@@ -39,6 +40,7 @@ async function meGet(path: string): Promise<unknown> {
     headers: {
       Accept: "application/json",
       "User-Agent": "aibtc-mcp-server/1.0",
+      ...(ME_API_KEY ? { Authorization: `Bearer ${ME_API_KEY}` } : {}),
     },
   });
   if (!res.ok) {
@@ -56,6 +58,7 @@ async function mePost(path: string, body: Record<string, unknown>): Promise<unkn
       "Content-Type": "application/json",
       Accept: "application/json",
       "User-Agent": "aibtc-mcp-server/1.0",
+      ...(ME_API_KEY ? { Authorization: `Bearer ${ME_API_KEY}` } : {}),
     },
     body: JSON.stringify(body),
   });
@@ -89,6 +92,10 @@ export function registerOrdinalsMarketplaceTools(server: McpServer): void {
 
 Returns active sale listings with price, seller, and inscription details.
 Supports filtering by collection symbol and price range. No wallet required.
+
+Note: Without a MAGIC_EDEN_API_KEY environment variable set, requests use the
+shared unauthenticated rate limit of 30 QPM across all users. Set MAGIC_EDEN_API_KEY
+to use an authenticated rate limit.
 
 Examples:
 - Browse all listings: ordinals_get_listings {}
@@ -390,9 +397,7 @@ Steps:
           feeRateTier: feeRate ? undefined : "halfHourFee",
           feeRate: feeRate,
           buyerPaymentAddress: paymentAddress,
-          // btcPublicKey is the compressed 33-byte key (P2WPKH/P2TR). If it is a
-          // Buffer/Uint8Array, convert to hex: Buffer.from(account.btcPublicKey).toString('hex')
-          buyerPaymentPublicKey: account.btcPublicKey,
+          buyerPaymentPublicKey: Buffer.from(account.btcPublicKey).toString("hex"),
         });
 
         const result = buyRequest as Record<string, unknown>;
