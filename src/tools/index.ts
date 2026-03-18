@@ -33,6 +33,7 @@ import { registerOrdinalsP2PTools } from "./ordinals-p2p.tools.js";
 import { registerOrdinalsMarketplaceTools } from "./ordinals-marketplace.tools.js";
 import { registerTaprootMultisigTools } from "./taproot-multisig.tools.js";
 import { registerJingswapTools } from "./jingswap.tools.js";
+import { registerSigningTools } from "./signing.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 
 /**
@@ -163,6 +164,9 @@ export function registerAllTools(server: McpServer): void {
 
   // Jingswap Auction (blind batch auctions for STX/sBTC)
   registerJingswapTools(server);
+
+  // Message Signing (BTC BIP-322, Stacks SIWS, SIP-018 structured data, Nostr NIP-01)
+  registerSigningTools(server);
 
   restoreRegisterTool();
 }
