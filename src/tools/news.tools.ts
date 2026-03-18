@@ -25,121 +25,29 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
-  Transaction,
   p2wpkh,
-  RawWitness,
-  RawTx,
-  Script,
   NETWORK as BTC_MAINNET,
   TEST_NETWORK as BTC_TESTNET,
 } from "@scure/btc-signer";
-import { hashSha256Sync } from "@stacks/encryption";
-import { concatBytes } from "@stacks/common";
 import { NETWORK } from "../config/networks.js";
 import { getAccount } from "../services/x402.service.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
+import { bip322Sign } from "../utils/bip322.js";
 
 const NEWS_BASE = "https://aibtc.news/api";
 
 // ============================================================================
-// BIP-322 Signing helpers (P2WPKH / bc1q only)
-// Per aibtc.news auth spec: only P2WPKH (bc1q) addresses are supported.
-// ============================================================================
-
-/**
- * BIP-322 tagged hash: SHA256(SHA256(tag) || SHA256(tag) || msg)
- * where tag = "BIP0322-signed-message"
- */
-function bip322TaggedHash(message: string): Uint8Array {
-  const tagBytes = new TextEncoder().encode("BIP0322-signed-message");
-  const tagHash = hashSha256Sync(tagBytes);
-  const msgBytes = new TextEncoder().encode(message);
-  return hashSha256Sync(concatBytes(tagHash, tagHash, msgBytes));
-}
-
-/**
- * Build the BIP-322 to_spend virtual transaction and return its txid (32 bytes, LE).
- */
-function bip322BuildToSpendTxId(
-  message: string,
-  scriptPubKey: Uint8Array
-): Uint8Array {
-  const msgHash = bip322TaggedHash(message);
-  // scriptSig: OP_0 (0x00) push32 (0x20) <32-byte hash>
-  const scriptSig = concatBytes(new Uint8Array([0x00, 0x20]), msgHash);
-
-  const rawTx = RawTx.encode({
-    version: 0,
-    inputs: [
-      {
-        txid: new Uint8Array(32),
-        index: 0xffffffff,
-        finalScriptSig: scriptSig,
-        sequence: 0,
-      },
-    ],
-    outputs: [
-      {
-        amount: 0n,
-        script: scriptPubKey,
-      },
-    ],
-    lockTime: 0,
-  });
-
-  // txid = double-SHA256 of legacy-serialized tx, returned in little-endian byte order
-  const first = hashSha256Sync(rawTx);
-  const second = hashSha256Sync(first);
-  return second.reverse();
-}
-
-/**
- * BIP-322 "simple" signing for P2WPKH (bc1q) addresses.
- *
- * @param message - The message to sign (e.g. "POST /api/signals:1709500000")
- * @param privateKey - 32-byte BTC private key (P2WPKH / bc1q key)
- * @param scriptPubKey - scriptPubKey of the bc1q address
- * @returns Base64-encoded BIP-322 "simple" witness signature
- */
-function bip322SignP2WPKH(
-  message: string,
-  privateKey: Uint8Array,
-  scriptPubKey: Uint8Array
-): string {
-  const toSpendTxid = bip322BuildToSpendTxId(message, scriptPubKey);
-
-  // allowUnknownOutputs: true is required for the OP_RETURN output in BIP-322 virtual txs
-  const toSignTx = new Transaction({
-    version: 0,
-    lockTime: 0,
-    allowUnknownOutputs: true,
-  });
-
-  toSignTx.addInput({
-    txid: toSpendTxid,
-    index: 0,
-    sequence: 0,
-    witnessUtxo: { amount: 0n, script: scriptPubKey },
-  });
-
-  // Script.encode(["RETURN"]) produces OP_RETURN output
-  toSignTx.addOutput({ script: Script.encode(["RETURN"]), amount: 0n });
-
-  toSignTx.signIdx(privateKey, 0);
-  toSignTx.finalizeIdx(0);
-
-  const input = toSignTx.getInput(0);
-  if (!input.finalScriptWitness) {
-    throw new Error("BIP-322 signing failed: no witness produced");
-  }
-
-  const encodedWitness = RawWitness.encode(input.finalScriptWitness);
-  return Buffer.from(encodedWitness).toString("base64");
-}
-
-// ============================================================================
 // Auth header builder for authenticated endpoints
 // ============================================================================
+
+/**
+ * Account fields needed for BIP-322 auth header construction.
+ */
+type AccountForAuth = {
+  btcAddress: string;
+  btcPrivateKey: Uint8Array;
+  btcPublicKey: Uint8Array;
+};
 
 /**
  * Build BIP-322 auth headers for a given HTTP method and path.
@@ -147,20 +55,16 @@ function bip322SignP2WPKH(
  *
  * Only bc1q (P2WPKH) addresses are supported. If the account's btcAddress
  * starts with "bc1p" (Taproot), this will throw a clear error.
+ *
+ * @param method - HTTP method (e.g. "POST")
+ * @param path - API path (e.g. "/api/signals")
+ * @param account - Pre-fetched account to avoid a redundant getAccount() call
  */
-async function buildNewsAuthHeaders(
+function buildNewsAuthHeaders(
   method: string,
-  path: string
-): Promise<Record<string, string>> {
-  const account = await getAccount();
-
-  if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
-    throw new Error(
-      "Bitcoin keys not available. Ensure the wallet has Bitcoin key derivation. " +
-        "Unlock a wallet that was created with mnemonic derivation (not import-only)."
-    );
-  }
-
+  path: string,
+  account: AccountForAuth
+): Record<string, string> {
   if (!account.btcAddress.startsWith("bc1q") && !account.btcAddress.startsWith("tb1q")) {
     throw new Error(
       `aibtc.news only supports P2WPKH (bc1q) addresses for authentication. ` +
@@ -174,7 +78,7 @@ async function buildNewsAuthHeaders(
 
   const btcNetwork = NETWORK === "testnet" ? BTC_TESTNET : BTC_MAINNET;
   const scriptPubKey = p2wpkh(account.btcPublicKey, btcNetwork).script;
-  const signature = bip322SignP2WPKH(message, account.btcPrivateKey, scriptPubKey);
+  const signature = bip322Sign(message, account.btcPrivateKey, scriptPubKey);
 
   return {
     "X-BTC-Address": account.btcAddress,
@@ -465,14 +369,14 @@ Fields:
       try {
         const account = await getAccount();
 
-        if (!account.btcAddress) {
+        if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
           throw new Error(
-            "No BTC address found. Unlock a wallet with BTC key derivation to file signals."
+            "Bitcoin keys not available. Unlock a wallet with BTC key derivation to file signals."
           );
         }
 
         const path = "/api/signals";
-        const authHeaders = await buildNewsAuthHeaders("POST", path);
+        const authHeaders = buildNewsAuthHeaders("POST", path, account as AccountForAuth);
 
         const payload: Record<string, unknown> = {
           beat_slug,
