@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.40.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.39.0...mcp-server-v1.40.0) (2026-03-18)
+
+
+### Features
+
+* **news:** add aibtc-news MCP tools (closes [#354](https://github.com/aibtcdev/aibtc-mcp-server/issues/354)) ([#360](https://github.com/aibtcdev/aibtc-mcp-server/issues/360)) ([d8519d8](https://github.com/aibtcdev/aibtc-mcp-server/commit/d8519d875e3c3cfbc886f99c3d667b349eb02a2c))
+
+
+### Bug Fixes
+
+* **signing:** register signing tools in tools/index (closes [#356](https://github.com/aibtcdev/aibtc-mcp-server/issues/356)) ([363a3eb](https://github.com/aibtcdev/aibtc-mcp-server/commit/363a3eb66837abd36c4e16c612e3ad631aa9b9d9))
+
 ## [1.39.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.38.0...mcp-server-v1.39.0) (2026-03-17)
 
 
