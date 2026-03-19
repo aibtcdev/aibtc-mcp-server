@@ -240,6 +240,16 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   // identity skill — ERC-8004 on-chain agent identity
   register_identity: "identity",
   get_identity: "identity",
+  identity_get_last_id: "identity",
+  identity_get: "identity",
+  identity_get_metadata: "identity",
+  identity_register: "identity",
+  identity_set_uri: "identity",
+  identity_set_metadata: "identity",
+  identity_set_approval: "identity",
+  identity_set_wallet: "identity",
+  identity_unset_wallet: "identity",
+  identity_transfer: "identity",
 
   // reputation skill — ERC-8004 on-chain agent reputation
   give_feedback: "reputation",

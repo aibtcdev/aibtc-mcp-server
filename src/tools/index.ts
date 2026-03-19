@@ -35,6 +35,7 @@ import { registerTaprootMultisigTools } from "./taproot-multisig.tools.js";
 import { registerJingswapTools } from "./jingswap.tools.js";
 import { registerSigningTools } from "./signing.tools.js";
 import { registerNewsTools } from "./news.tools.js";
+import { registerIdentityTools } from "./identity.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 
 /**
@@ -171,6 +172,9 @@ export function registerAllTools(server: McpServer): void {
 
   // AIBTC News (signal feed, leaderboard, file signals)
   registerNewsTools(server);
+
+  // Identity (ERC-8004 on-chain agent identity management)
+  registerIdentityTools(server);
 
   restoreRegisterTool();
 }

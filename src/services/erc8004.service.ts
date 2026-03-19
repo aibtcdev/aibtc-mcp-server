@@ -217,6 +217,53 @@ export class Erc8004Service {
   }
 
   /**
+   * Get the last (most recently minted) agent ID
+   */
+  async getLastId(callerAddress: string): Promise<number | null> {
+    const result = await this.hiro.callReadOnlyFunction(
+      this.contracts.identityRegistry,
+      "get-last-token-id",
+      [],
+      callerAddress
+    );
+
+    if (!result.okay || !result.result) {
+      return null;
+    }
+
+    const data = cvToJSON(hexToCV(result.result));
+    if (!data.success || data.value.value === null) {
+      return null;
+    }
+
+    return parseInt(data.value.value, 10);
+  }
+
+  /**
+   * Get a single metadata value by key
+   */
+  async getMetadata(agentId: number, key: string, callerAddress: string): Promise<string | null> {
+    const result = await this.hiro.callReadOnlyFunction(
+      this.contracts.identityRegistry,
+      "get-metadata",
+      [uintCV(agentId), stringUtf8CV(key)],
+      callerAddress
+    );
+
+    if (!result.okay || !result.result) {
+      return null;
+    }
+
+    const data = cvToJSON(hexToCV(result.result));
+    if (!data.success || data.value.value === null) {
+      return null;
+    }
+
+    // Returns raw buffer as hex string
+    return data.value.value.value;
+  }
+
+  /**
    * Update identity URI
    */
   async updateIdentityUri(
@@ -233,6 +280,142 @@ export class Erc8004Service {
       contractName: name,
       functionName: "set-agent-uri",
       functionArgs: [uintCV(agentId), stringUtf8CV(newUri)],
+      fee,
+    };
+
+    if (sponsored) {
+      return sponsoredContractCall(account, contractCallOptions, this.network);
+    }
+
+    return callContract(account, contractCallOptions);
+  }
+
+  /**
+   * Set a single metadata key-value pair
+   */
+  async setMetadata(
+    account: Account,
+    agentId: number,
+    key: string,
+    value: Buffer,
+    fee?: bigint,
+    sponsored?: boolean
+  ): Promise<TransferResult> {
+    const { address, name } = parseContractId(this.contracts.identityRegistry);
+
+    const contractCallOptions = {
+      contractAddress: address,
+      contractName: name,
+      functionName: "set-metadata",
+      functionArgs: [uintCV(agentId), stringUtf8CV(key), bufferCV(value)],
+      fee,
+    };
+
+    if (sponsored) {
+      return sponsoredContractCall(account, contractCallOptions, this.network);
+    }
+
+    return callContract(account, contractCallOptions);
+  }
+
+  /**
+   * Approve or revoke an operator for an agent identity
+   */
+  async setApproval(
+    account: Account,
+    agentId: number,
+    operator: string,
+    approved: boolean,
+    fee?: bigint,
+    sponsored?: boolean
+  ): Promise<TransferResult> {
+    const { address, name } = parseContractId(this.contracts.identityRegistry);
+
+    const functionName = approved ? "set-approval-for" : "revoke-approval-for";
+    const contractCallOptions = {
+      contractAddress: address,
+      contractName: name,
+      functionName,
+      functionArgs: [uintCV(agentId), principalCV(operator)],
+      fee,
+    };
+
+    if (sponsored) {
+      return sponsoredContractCall(account, contractCallOptions, this.network);
+    }
+
+    return callContract(account, contractCallOptions);
+  }
+
+  /**
+   * Link active Stacks address to agent identity
+   */
+  async setWallet(
+    account: Account,
+    agentId: number,
+    fee?: bigint,
+    sponsored?: boolean
+  ): Promise<TransferResult> {
+    const { address, name } = parseContractId(this.contracts.identityRegistry);
+
+    const contractCallOptions = {
+      contractAddress: address,
+      contractName: name,
+      functionName: "set-agent-wallet",
+      functionArgs: [uintCV(agentId)],
+      fee,
+    };
+
+    if (sponsored) {
+      return sponsoredContractCall(account, contractCallOptions, this.network);
+    }
+
+    return callContract(account, contractCallOptions);
+  }
+
+  /**
+   * Remove agent wallet association
+   */
+  async unsetWallet(
+    account: Account,
+    agentId: number,
+    fee?: bigint,
+    sponsored?: boolean
+  ): Promise<TransferResult> {
+    const { address, name } = parseContractId(this.contracts.identityRegistry);
+
+    const contractCallOptions = {
+      contractAddress: address,
+      contractName: name,
+      functionName: "unset-agent-wallet",
+      functionArgs: [uintCV(agentId)],
+      fee,
+    };
+
+    if (sponsored) {
+      return sponsoredContractCall(account, contractCallOptions, this.network);
+    }
+
+    return callContract(account, contractCallOptions);
+  }
+
+  /**
+   * Transfer identity NFT to a new owner
+   */
+  async transferIdentity(
+    account: Account,
+    agentId: number,
+    recipient: string,
+    fee?: bigint,
+    sponsored?: boolean
+  ): Promise<TransferResult> {
+    const { address, name } = parseContractId(this.contracts.identityRegistry);
+
+    const contractCallOptions = {
+      contractAddress: address,
+      contractName: name,
+      functionName: "transfer",
+      functionArgs: [uintCV(agentId), principalCV(account.address), principalCV(recipient)],
       fee,
     };
 
