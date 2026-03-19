@@ -22,6 +22,7 @@ import { registerPillarTools } from "./pillar.tools.js";
 import { registerPillarDirectTools } from "./pillar-direct.tools.js";
 import { registerBitcoinTools } from "./bitcoin.tools.js";
 import { registerRelayDiagnosticTools } from "./relay-diagnostic.tools.js";
+import { registerBountyTools } from "./bounty.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 
 /**
@@ -119,6 +120,9 @@ export function registerAllTools(server: McpServer): void {
 
   // Relay Diagnostics (sponsor relay health, nonce status, stuck transactions)
   registerRelayDiagnosticTools(server);
+
+  // Bounty Scanner (list, get, claim, submit, status, my-claims)
+  registerBountyTools(server);
 
   restoreRegisterTool();
 }
