@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.41.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.40.0...mcp-server-v1.41.0) (2026-03-19)
+
+
+### Features
+
+* **bounty-scanner:** add bounty scanner MCP tools ([1e75a28](https://github.com/aibtcdev/aibtc-mcp-server/commit/1e75a2811a2472eaecfc75c999dba649a8715d18))
+* **credentials:** add encrypted credential store MCP tools ([#371](https://github.com/aibtcdev/aibtc-mcp-server/issues/371)) ([1d690af](https://github.com/aibtcdev/aibtc-mcp-server/commit/1d690afdcb631833536950939068eb6122887bcf)), closes [#368](https://github.com/aibtcdev/aibtc-mcp-server/issues/368)
+* **identity:** add ERC-8004 identity MCP tools ([#370](https://github.com/aibtcdev/aibtc-mcp-server/issues/370)) ([fed1729](https://github.com/aibtcdev/aibtc-mcp-server/commit/fed1729419fe1e75d1696e5527a0f24bb796df2f))
+* **runes:** add runes MCP tools ([dc58aa6](https://github.com/aibtcdev/aibtc-mcp-server/commit/dc58aa6862c9810466e171e9a3624eeb579f0d3f))
+* **stackspot:** document PostConditionMode.Allow intent for claim and cancel ([6b18ce8](https://github.com/aibtcdev/aibtc-mcp-server/commit/6b18ce84e1ca35eab18f0acd62442f89a643a0a3))
+* **tools:** add souldinals MCP tool group for soul inscription management ([#372](https://github.com/aibtcdev/aibtc-mcp-server/issues/372)) ([e6febbb](https://github.com/aibtcdev/aibtc-mcp-server/commit/e6febbbb24f330c1479206e92acc2d09f50e33b8)), closes [#366](https://github.com/aibtcdev/aibtc-mcp-server/issues/366)
+
+
+### Bug Fixes
+
+* **runes:** restore Unisat wallet tools and rune transfer infrastructure ([dc15406](https://github.com/aibtcdev/aibtc-mcp-server/commit/dc154067a47e143b117eda1cb0cd202eef97a4f2))
+
 ## [1.40.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.39.0...mcp-server-v1.40.0) (2026-03-18)
 
 
