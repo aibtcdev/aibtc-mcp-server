@@ -304,6 +304,13 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   jingswap_settle: "jingswap",
   jingswap_settle_with_refresh: "jingswap",
   jingswap_cancel_cycle: "jingswap",
+
+  // souldinals skill — soul.md child inscription management
+  souldinals_inscribe_soul: "souldinals",
+  souldinals_reveal_soul: "souldinals",
+  souldinals_list_souls: "souldinals",
+  souldinals_load_soul: "souldinals",
+  souldinals_display_soul: "souldinals",
 };
 
 /**
