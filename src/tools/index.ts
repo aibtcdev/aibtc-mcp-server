@@ -36,6 +36,7 @@ import { registerJingswapTools } from "./jingswap.tools.js";
 import { registerSigningTools } from "./signing.tools.js";
 import { registerNewsTools } from "./news.tools.js";
 import { registerIdentityTools } from "./identity.tools.js";
+import { registerCredentialsTools } from "./credentials.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 
 /**
@@ -175,6 +176,9 @@ export function registerAllTools(server: McpServer): void {
 
   // Identity (ERC-8004 on-chain agent identity management)
   registerIdentityTools(server);
+
+  // Credentials (encrypted credential store — list, get, set, delete, unlock)
+  registerCredentialsTools(server);
 
   restoreRegisterTool();
 }

@@ -281,6 +281,13 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   bitflow_cancel_order: "bitflow",
   bitflow_get_keeper_user: "bitflow",
 
+  // credentials skill — encrypted credential store (AES-256-GCM)
+  credentials_list: "credentials",
+  credentials_get: "credentials",
+  credentials_set: "credentials",
+  credentials_delete: "credentials",
+  credentials_unlock: "credentials",
+
   // jingswap skill — blind batch auction for sBTC
   jingswap_get_cycle_state: "jingswap",
   jingswap_get_depositors: "jingswap",
