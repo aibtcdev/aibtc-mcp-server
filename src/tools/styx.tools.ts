@@ -36,12 +36,9 @@ import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { getWalletManager } from "../services/wallet-manager.js";
 import { MempoolApi, getMempoolTxUrl } from "../services/mempool-api.js";
 import { OrdinalIndexer } from "../services/ordinal-indexer.js";
+import { getBtcNetwork } from "../transactions/bitcoin-builder.js";
 
 const FEE_PRIORITIES = ["low", "medium", "high"] as const;
-
-function getBtcNetwork() {
-  return NETWORK === "testnet" ? btc.TEST_NETWORK : btc.NETWORK;
-}
 
 export function registerStyxTools(server: McpServer): void {
   // ---------------------------------------------------------------------------
@@ -288,7 +285,7 @@ export function registerStyxTools(server: McpServer): void {
         }
 
         // Step 4: Build PSBT locally with @scure/btc-signer
-        const btcNetwork = getBtcNetwork();
+        const btcNetwork = getBtcNetwork(NETWORK);
         const tx = new btc.Transaction({ allowUnknownOutputs: true });
         const senderP2wpkh = btc.p2wpkh(account.btcPublicKey, btcNetwork);
 

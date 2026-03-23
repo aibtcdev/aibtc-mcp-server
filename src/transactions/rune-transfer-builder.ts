@@ -21,6 +21,7 @@ import {
   TX_OVERHEAD_VBYTES,
   DUST_THRESHOLD,
 } from "../config/bitcoin-constants.js";
+import { getBtcNetwork } from "./bitcoin-builder.js";
 import type { UTXO } from "../services/mempool-api.js";
 import { buildRunestoneScript, parseRuneId, type RuneEdict } from "./runestone-builder.js";
 
@@ -47,9 +48,6 @@ export interface RuneTransferResult {
   feeInputIndices: number[];
 }
 
-function getBtcNetwork(network: Network): typeof btc.NETWORK {
-  return network === "testnet" ? btc.TEST_NETWORK : btc.NETWORK;
-}
 
 const OP_RETURN_VBYTES = 50;
 
