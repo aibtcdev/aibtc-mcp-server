@@ -193,7 +193,7 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   check_relay_health: "settings",
   recover_sponsor_nonce: "settings",
 
-  // signing skill — message signing and verification
+  // signing skill — message signing and verification (BTC, Stacks, Nostr, SIP-018)
   stacks_sign_message: "signing",
   stacks_verify_message: "signing",
   btc_sign_message: "signing",
@@ -201,6 +201,9 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   schnorr_sign_digest: "signing",
   schnorr_verify_digest: "signing",
   nostr_sign_event: "signing",
+  sip018_sign: "signing",
+  sip018_verify: "signing",
+  sip018_hash: "signing",
 
   // ordinals skill — Bitcoin ordinals inscription operations
   get_taproot_address: "ordinals",
@@ -251,9 +254,37 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   identity_unset_wallet: "identity",
   identity_transfer: "identity",
 
+  // news skill — AIBTC news signals, beats, and front page
+  news_list_signals: "news",
+  news_front_page: "news",
+  news_leaderboard: "news",
+  news_check_status: "news",
+  news_list_beats: "news",
+  news_file_signal: "news",
+
+  // nostr skill — Nostr social protocol (profiles, posts, feeds, relays)
+  nostr_get_pubkey: "nostr",
+  nostr_post: "nostr",
+  nostr_read_feed: "nostr",
+  nostr_search_tags: "nostr",
+  nostr_get_profile: "nostr",
+  nostr_set_profile: "nostr",
+  nostr_relay_list: "nostr",
+
   // reputation skill — ERC-8004 on-chain agent reputation
   give_feedback: "reputation",
   get_reputation: "reputation",
+  reputation_get_summary: "reputation",
+  reputation_read_feedback: "reputation",
+  reputation_read_all_feedback: "reputation",
+  reputation_get_clients: "reputation",
+  reputation_get_feedback_count: "reputation",
+  reputation_get_approved_limit: "reputation",
+  reputation_get_last_index: "reputation",
+  reputation_give_feedback: "reputation",
+  reputation_revoke_feedback: "reputation",
+  reputation_append_response: "reputation",
+  reputation_approve_client: "reputation",
 
   // validation skill — ERC-8004 on-chain agent validation
   request_validation: "validation",
@@ -331,6 +362,32 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   get_rune_balances: "runes",
   get_rune_utxos: "runes",
   transfer_rune: "runes",
+
+  // stacks-market skill — Stacks binary outcome prediction markets
+  stacks_market_list: "stacks-market",
+  stacks_market_search: "stacks-market",
+  stacks_market_get: "stacks-market",
+  stacks_market_quote_buy: "stacks-market",
+  stacks_market_quote_sell: "stacks-market",
+  stacks_market_buy_yes: "stacks-market",
+  stacks_market_buy_no: "stacks-market",
+  stacks_market_sell_yes: "stacks-market",
+  stacks_market_sell_no: "stacks-market",
+  stacks_market_redeem: "stacks-market",
+  stacks_market_get_position: "stacks-market",
+
+  // tenero skill — DeFi analytics: token info, market stats, whale tracking
+  tenero_token_info: "tenero",
+  tenero_market_summary: "tenero",
+  tenero_market_stats: "tenero",
+  tenero_top_gainers: "tenero",
+  tenero_top_losers: "tenero",
+  tenero_trending_pools: "tenero",
+  tenero_wallet_trades: "tenero",
+  tenero_wallet_holdings: "tenero",
+  tenero_whale_trades: "tenero",
+  tenero_holder_stats: "tenero",
+  tenero_search: "tenero",
 };
 
 /**
