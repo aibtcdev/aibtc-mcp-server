@@ -144,34 +144,62 @@ async function buildSponsoredSbtcTransfer(
 // Retry helpers
 // ============================================================================
 
+interface RetryInfo {
+  retryable: boolean;
+  /** Delay in ms before next retry. Honors relay's retryAfter when present. */
+  delayMs: number;
+  /** Whether the error is a relay-side nonce conflict (safe to reuse same tx). */
+  relaySideConflict: boolean;
+}
+
+/** Default delay when no retryAfter hint is provided. */
+const DEFAULT_RETRY_DELAY_MS = 2_000;
+/** Cap retryAfter to avoid blocking too long (seconds). */
+const MAX_RETRY_AFTER_CAP_S = 60;
+
 /**
- * Check if a response body / error indicates a retryable nonce conflict.
+ * Classify a response as retryable and extract retry timing.
  */
-function isRetryableError(status: number, body: unknown): boolean {
+function classifyRetryableError(status: number, body: unknown): RetryInfo {
+  const NOT_RETRYABLE: RetryInfo = { retryable: false, delayMs: 0, relaySideConflict: false };
+
   // Duplicate-message 409 from the inbox API must NOT be retried —
   // the message was already delivered and retrying would re-pay.
   if (status === 409) {
     const bodyStr = typeof body === "string" ? body : JSON.stringify(body);
     if (/already exists|duplicate/i.test(bodyStr)) {
-      return false;
+      return NOT_RETRYABLE;
     }
   }
 
   if (typeof body === "object" && body !== null) {
     const b = body as Record<string, unknown>;
+
+    // Parse relay's retryAfter hint (seconds → ms), capped.
+    const rawRetryAfter = typeof b["retryAfter"] === "number" ? b["retryAfter"] : 0;
+    const retryAfterMs = rawRetryAfter > 0 && rawRetryAfter <= MAX_RETRY_AFTER_CAP_S
+      ? rawRetryAfter * 1000
+      : DEFAULT_RETRY_DELAY_MS;
+
     // Relay returns retryable: true for SETTLEMENT_BROADCAST_FAILED (issue #157)
     if (b["retryable"] === true) {
-      return true;
+      return { retryable: true, delayMs: retryAfterMs, relaySideConflict: false };
     }
-    // Relay returns HTTP 409 with code: "NONCE_CONFLICT"
+    // Relay returns HTTP 409 with code: "NONCE_CONFLICT" — relay-side conflict,
+    // safe to resubmit the same transaction for dedup.
     if (status === 409 && b["code"] === "NONCE_CONFLICT") {
-      return true;
+      return { retryable: true, delayMs: retryAfterMs, relaySideConflict: true };
     }
   }
+
+  // Sender-side nonce conflict from the Stacks node (not relay) — needs fresh tx.
   if (typeof body === "string") {
-    return body.includes("ConflictingNonceInMempool") || body.includes("BadNonce");
+    if (body.includes("ConflictingNonceInMempool") || body.includes("BadNonce")) {
+      return { retryable: true, delayMs: DEFAULT_RETRY_DELAY_MS, relaySideConflict: false };
+    }
   }
-  return false;
+
+  return NOT_RETRYABLE;
 }
 
 /**
@@ -357,9 +385,8 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
         }
 
         // Steps 3-5: Build payment and send with retry loop
-        // Max 3 total attempts (1 initial + 2 retries)
+        // 1 immediate retry for transient conflicts, then honor retryAfter for one more.
         const MAX_ATTEMPTS = 3;
-        const RETRY_DELAYS_MS = [1000, 2000];
 
         let lastError: string = "";
         let paymentSignature: string | null = null;
@@ -367,29 +394,54 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
         // Track relay txids across failed attempts to detect stale dedup.
         const seenRelayTxids = new Set<string>();
 
+        // Stash first attempt's tx + paymentId for reuse on relay-side conflicts.
+        let cachedTxHex: string | null = null;
+        let cachedPaymentId: string | null = null;
+        let cachedNonce: number | null = null;
+        let nextRetryDelayMs = 0;
+
         for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-          if (attempt > 0) {
-            const delay = RETRY_DELAYS_MS[attempt - 1];
+          if (attempt > 0 && nextRetryDelayMs > 0) {
             console.error(
-              `[send_inbox_message] Retry attempt ${attempt}/${MAX_ATTEMPTS - 1} after ${delay}ms`
+              `[send_inbox_message] Retry attempt ${attempt}/${MAX_ATTEMPTS - 1} after ${nextRetryDelayMs}ms`
             );
-            await sleep(delay);
+            await sleep(nextRetryDelayMs);
           }
 
-          // Step 3: Fetch fresh nonce and build sponsored sBTC transfer.
-          const nonce = await getNextNonce(account.address);
-          const txHex = await buildSponsoredSbtcTransfer(
-            account.privateKey,
-            account.address,
-            accept.payTo,
-            amount,
-            BigInt(nonce)
-          );
+          // Step 3: Build sponsored sBTC transfer.
+          // Reuse the cached transaction on relay-side nonce conflicts (the relay
+          // deduplicates by paymentId so we avoid consuming additional nonce slots).
+          let nonce: number;
+          let txHex: string;
+          let paymentId: string;
+
+          if (cachedTxHex && cachedPaymentId && cachedNonce !== null) {
+            // Relay-side conflict: resubmit the same tx for dedup
+            nonce = cachedNonce;
+            txHex = cachedTxHex;
+            paymentId = cachedPaymentId;
+            console.error(
+              `[send_inbox_message] Reusing cached tx (nonce=${nonce}) for relay-side dedup`
+            );
+          } else {
+            // Fresh tx: sender-side conflict or first attempt
+            nonce = await getNextNonce(account.address);
+            txHex = await buildSponsoredSbtcTransfer(
+              account.privateKey,
+              account.address,
+              accept.payTo,
+              amount,
+              BigInt(nonce)
+            );
+            paymentId = generatePaymentId();
+
+            // Cache for potential reuse on relay-side conflicts
+            cachedTxHex = txHex;
+            cachedPaymentId = paymentId;
+            cachedNonce = nonce;
+          }
 
           // Step 4: Encode PaymentPayloadV2 with payment-identifier extension.
-          // Each attempt gets a fresh paymentId since the tx hex changes per retry
-          // (fresh nonce). The relay treats same id + different payload as 409 Conflict.
-          const paymentId = generatePaymentId();
           paymentSignature = encodePaymentPayload({
             x402Version: 2,
             resource: paymentRequired.resource,
@@ -458,17 +510,27 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
             seenRelayTxids.add(failedTxid);
           }
 
-          // Check if the error is retryable
-          const retryable = isRetryableError(finalRes.status, parsed);
+          // Classify the error and extract retry timing
+          const retry = classifyRetryableError(finalRes.status, parsed);
 
-          if (retryable && attempt < MAX_ATTEMPTS - 1) {
+          if (retry.retryable && attempt < MAX_ATTEMPTS - 1) {
             console.error(
-              `[send_inbox_message] Retryable error on attempt ${attempt + 1}: status=${finalRes.status} body=${responseData}`
+              `[send_inbox_message] Retryable error on attempt ${attempt + 1}: status=${finalRes.status} relaySide=${retry.relaySideConflict} delayMs=${retry.delayMs} body=${responseData}`
             );
-            // Advance nonce cache even on failure so the next attempt uses a
-            // strictly higher nonce. Without this, getNextNonce could return the
-            // same value if the rejected tx never reached the mempool.
-            advanceNonceCache(account.address, nonce);
+
+            nextRetryDelayMs = retry.delayMs;
+
+            if (retry.relaySideConflict) {
+              // Keep cached tx/paymentId — relay will dedup on resubmit
+            } else {
+              // Sender-side conflict: need a fresh tx with new nonce
+              cachedTxHex = null;
+              cachedPaymentId = null;
+              cachedNonce = null;
+              // Advance nonce cache so the next attempt uses a strictly higher nonce.
+              advanceNonceCache(account.address, nonce);
+            }
+
             lastError = `${finalRes.status}: ${responseData}`;
             continue;
           }
