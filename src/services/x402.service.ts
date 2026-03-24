@@ -233,12 +233,19 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
       const attempts = paymentAttempts.get(axiosInstance) || 0;
 
       if (attempts >= 1) {
-        // Reject retry - payment already attempted once
-        return Promise.reject(
-          new Error(
-            "Payment retry limit exceeded (max 1 attempt). This endpoint may have payment/settlement issues. Check balance and try again."
-          )
+        // Reject retry - payment already attempted once.
+        // Include the second 402's response details so callers can see WHY settlement failed,
+        // and preserve the axios config (with payment-signature header) for txid recovery.
+        const settleDetails = error.response?.data
+          ? ` Settlement response: ${JSON.stringify(error.response.data)}`
+          : '';
+        const retryError = new Error(
+          `Payment retry limit exceeded (max 1 attempt). The endpoint returned 402 again after payment, meaning settlement failed.${settleDetails}`
         );
+        // Attach axios error properties so downstream recovery (txid extraction) works
+        (retryError as any).config = error.config;
+        (retryError as any).response = error.response;
+        return Promise.reject(retryError);
       }
 
       // Increment counter and pass through to the native payment interceptor
