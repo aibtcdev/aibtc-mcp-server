@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.42.3](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.42.2...mcp-server-v1.42.3) (2026-03-24)
+
+
+### Bug Fixes
+
+* inbox retry honors retryAfter and reuses tx on relay-side conflicts ([#404](https://github.com/aibtcdev/aibtc-mcp-server/issues/404)) ([eb8af80](https://github.com/aibtcdev/aibtc-mcp-server/commit/eb8af80bc261173ffc624b7f099d86eb4d91bc0f))
+* news_file_signal disclosure + @noble/hashes build error ([#406](https://github.com/aibtcdev/aibtc-mcp-server/issues/406)) ([14f1f4b](https://github.com/aibtcdev/aibtc-mcp-server/commit/14f1f4be8b9e5e2fed632ad92084bd16713a0bd5))
+
 ## [1.42.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.42.1...mcp-server-v1.42.2) (2026-03-24)
 
 
