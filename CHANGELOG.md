@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.42.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.42.1...mcp-server-v1.42.2) (2026-03-24)
+
+
+### Bug Fixes
+
+* **x402:** break payment interceptor spiral, surface errors, extract payment_txid ([#400](https://github.com/aibtcdev/aibtc-mcp-server/issues/400)) ([0d4b2a6](https://github.com/aibtcdev/aibtc-mcp-server/commit/0d4b2a6d76d99dae2bcc5d6f365d01b6528e0b3e)), closes [#397](https://github.com/aibtcdev/aibtc-mcp-server/issues/397)
+
 ## [1.42.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.42.0...mcp-server-v1.42.1) (2026-03-24)
 
 
