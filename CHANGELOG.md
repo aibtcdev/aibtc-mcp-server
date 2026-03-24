@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.42.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.42.0...mcp-server-v1.42.1) (2026-03-24)
+
+
+### Bug Fixes
+
+* x402 payment flow — eliminate redundant probe, add 429 retry ([#395](https://github.com/aibtcdev/aibtc-mcp-server/issues/395)) ([4445f65](https://github.com/aibtcdev/aibtc-mcp-server/commit/4445f65dd71b8f1a456ac49973a270f14ac3a784))
+
 ## [1.42.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.41.0...mcp-server-v1.42.0) (2026-03-20)
 
 
