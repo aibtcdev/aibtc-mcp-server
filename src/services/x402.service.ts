@@ -114,6 +114,14 @@ function createBaseAxiosInstance(baseURL?: string): AxiosInstance {
         return Promise.reject(error);
       }
 
+      // Never retry 429s once a payment has been attempted on this instance.
+      // Without this guard, a spiral forms: the 429 retry re-enters the full
+      // interceptor chain, triggers a new 402 → payment → 429 → retry loop
+      // that fires onBeforePayment repeatedly and drains the rate-limit budget.
+      if (paymentAttempts.get(instance)) {
+        return Promise.reject(error);
+      }
+
       const retries = rateLimitRetries.get(instance) ?? 0;
 
       // Parse Retry-After header; default to 0 when absent so the backoff delay governs
@@ -233,12 +241,19 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
       const attempts = paymentAttempts.get(axiosInstance) || 0;
 
       if (attempts >= 1) {
-        // Reject retry - payment already attempted once
-        return Promise.reject(
-          new Error(
-            "Payment retry limit exceeded (max 1 attempt). This endpoint may have payment/settlement issues. Check balance and try again."
-          )
+        // Reject retry - payment already attempted once.
+        // Include the second 402's response details so callers can see WHY settlement failed.
+        // IMPORTANT: Do NOT copy error.response onto retryError — the payment handler
+        // (Interceptor 2) checks error.response?.status === 402 and would re-process it,
+        // creating an infinite loop. Only copy .config for txid recovery via payment-signature header.
+        const settleDetails = error.response?.data
+          ? ` Settlement response: ${JSON.stringify(error.response.data)}`
+          : '';
+        const retryError = new Error(
+          `Payment retry limit exceeded (max 1 attempt). The endpoint returned 402 again after payment, meaning settlement failed.${settleDetails}`
         );
+        (retryError as any).config = error.config;
+        return Promise.reject(retryError);
       }
 
       // Increment counter and pass through to the native payment interceptor
