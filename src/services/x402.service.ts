@@ -29,6 +29,19 @@ import { getContracts, parseContractId } from "../config/contracts.js";
 // Track payment attempts per client instance (auto-cleanup via WeakMap)
 const paymentAttempts: WeakMap<AxiosInstance, number> = new WeakMap();
 
+// Track 429 retry counts per client instance
+const rateLimitRetries: WeakMap<AxiosInstance, number> = new WeakMap();
+
+/**
+ * Error thrown when an x402 endpoint returns 429 Too Many Requests and all retries are exhausted.
+ */
+export class X402RateLimitError extends Error {
+  constructor(message: string, public readonly retryAfterSeconds: number) {
+    super(message);
+    this.name = "X402RateLimitError";
+  }
+}
+
 // Transaction deduplication cache: {dedupKey -> {txid, timestamp}}
 const dedupCache: Map<string, { txid: string; timestamp: number }> = new Map();
 
@@ -80,6 +93,41 @@ function createBaseAxiosInstance(baseURL?: string): AxiosInstance {
         error.response.data = safeJsonTransform(error.response.data);
       }
       return Promise.reject(error);
+    }
+  );
+
+  // Handle 429 Too Many Requests with Retry-After header parsing and exponential backoff.
+  // Max 2 retries with delays [2s, 5s] or the Retry-After value if larger.
+  // Runs before payment interceptors so payment flows benefit automatically.
+  const backoffDelays = [2000, 5000];
+  instance.interceptors.response.use(
+    (response) => response,
+    async (error) => {
+      if (error?.response?.status !== 429) {
+        return Promise.reject(error);
+      }
+
+      const parsed = parseInt(error.response.headers?.["retry-after"] ?? "", 10);
+      const retryAfterSeconds = isNaN(parsed) ? 60 : parsed;
+
+      const retries = rateLimitRetries.get(instance) ?? 0;
+
+      if (retries >= backoffDelays.length) {
+        return Promise.reject(
+          new X402RateLimitError(
+            `x402 endpoint rate limit exceeded. All retries exhausted. ` +
+              `Retry after ${retryAfterSeconds}s (server recommendation).`,
+            retryAfterSeconds
+          )
+        );
+      }
+
+      rateLimitRetries.set(instance, retries + 1);
+
+      const delay = Math.max(retryAfterSeconds * 1000, backoffDelays[retries]);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+
+      return instance.request(error.config);
     }
   );
 
