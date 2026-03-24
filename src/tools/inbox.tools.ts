@@ -177,9 +177,10 @@ function classifyRetryableError(status: number, body: unknown): RetryInfo {
 
     // Parse relay's retryAfter hint (seconds → ms), capped.
     const rawRetryAfter = typeof b["retryAfter"] === "number" ? b["retryAfter"] : 0;
-    const retryAfterMs = rawRetryAfter > 0 && rawRetryAfter <= MAX_RETRY_AFTER_CAP_S
-      ? rawRetryAfter * 1000
-      : DEFAULT_RETRY_DELAY_MS;
+    const retryAfterMs =
+      rawRetryAfter > 0
+        ? Math.min(rawRetryAfter, MAX_RETRY_AFTER_CAP_S) * 1000
+        : DEFAULT_RETRY_DELAY_MS;
 
     // Relay returns retryable: true for SETTLEMENT_BROADCAST_FAILED (issue #157)
     if (b["retryable"] === true) {
@@ -385,7 +386,7 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
         }
 
         // Steps 3-5: Build payment and send with retry loop
-        // 1 immediate retry for transient conflicts, then honor retryAfter for one more.
+        // Up to 3 attempts, waiting nextRetryDelayMs (or retryAfter) before each retry.
         const MAX_ATTEMPTS = 3;
 
         let lastError: string = "";
