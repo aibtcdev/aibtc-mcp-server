@@ -335,7 +335,8 @@ For aibtc.com inbox messages, use send_inbox_message instead — it uses sponsor
         });
         const response = await api.request({ method, url: parsed.requestPath, params, data });
 
-        const rawTxid = (response.data as { txid?: string })?.txid ||
+        const rawTxid = (response.data as { txid?: string; payment_txid?: string })?.txid ||
+                     (response.data as { payment_txid?: string })?.payment_txid ||
                      response.headers?.['x-transaction-id'] ||
                      undefined;
 
