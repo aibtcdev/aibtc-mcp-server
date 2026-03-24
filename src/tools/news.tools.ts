@@ -334,7 +334,8 @@ Fields:
 - headline: short headline, max 120 chars (required)
 - body: signal body, max 1000 chars (optional but recommended)
 - sources: 1-5 source objects with url and title (required)
-- tags: 1-10 lowercase tag slugs (required)`,
+- tags: 1-10 lowercase tag slugs (required)
+- disclosure: AI model and tooling declaration (optional but strongly recommended)`,
       inputSchema: {
         beat_slug: z
           .string()
@@ -363,9 +364,16 @@ Fields:
           .min(1)
           .max(10)
           .describe("1-10 lowercase tag slugs (e.g. ['bitcoin', 'defi', 'stacks'])"),
+        disclosure: z
+          .string()
+          .max(500)
+          .optional()
+          .describe(
+            "AI model and tooling disclosure (e.g. 'claude-opus-4-6, aibtc MCP tools'). Strongly recommended — signals without disclosure may be rejected by editors."
+          ),
       },
     },
-    async ({ beat_slug, headline, body, sources, tags }) => {
+    async ({ beat_slug, headline, body, sources, tags, disclosure }) => {
       try {
         const account = await getAccount();
 
@@ -387,6 +395,9 @@ Fields:
         };
         if (body) {
           payload.body = body;
+        }
+        if (disclosure) {
+          payload.disclosure = disclosure;
         }
 
         const res = await fetch(`${NEWS_BASE}/signals`, {
