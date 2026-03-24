@@ -97,9 +97,12 @@ function createBaseAxiosInstance(baseURL?: string): AxiosInstance {
   );
 
   // Handle 429 Too Many Requests with Retry-After header parsing and exponential backoff.
-  // Max 2 retries with minimum delays [2s, 5s] or the Retry-After value if larger.
-  // Runs before payment interceptors so payment flows benefit automatically.
+  // Max 2 retries with minimum delays [2s, 5s]. If Retry-After exceeds the cap (30s),
+  // skip retries and immediately surface the error so interactive calls aren't blocked.
+  // Runs before payment interceptors (response interceptors are FIFO) so payment flows
+  // benefit automatically.
   const MAX_RETRY_DELAYS_MS = [2000, 5000];
+  const MAX_RETRY_AFTER_CAP_S = 30;
   instance.interceptors.response.use(
     (response) => {
       // Reset retry counter on success so later 429s get the full retry budget
@@ -117,9 +120,19 @@ function createBaseAxiosInstance(baseURL?: string): AxiosInstance {
       const parsed = parseInt(error.response.headers?.["retry-after"] ?? "", 10);
       const retryAfterSeconds = isNaN(parsed) ? 0 : parsed;
 
+      // If the server says to wait longer than our cap, don't block — fail immediately
+      if (retryAfterSeconds > MAX_RETRY_AFTER_CAP_S) {
+        return Promise.reject(
+          new X402RateLimitError(
+            `x402 endpoint rate limit exceeded. Server requested ${retryAfterSeconds}s wait (exceeds ${MAX_RETRY_AFTER_CAP_S}s cap). ` +
+              `Retry after ${retryAfterSeconds}s.`,
+            retryAfterSeconds
+          )
+        );
+      }
+
       if (retries >= MAX_RETRY_DELAYS_MS.length) {
-        // Report the server's Retry-After if available, otherwise a sensible default
-        const reportSeconds = retryAfterSeconds > 0 ? retryAfterSeconds : 60;
+        const reportSeconds = retryAfterSeconds > 0 ? retryAfterSeconds : 10;
         return Promise.reject(
           new X402RateLimitError(
             `x402 endpoint rate limit exceeded. All retries exhausted. ` +

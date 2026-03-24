@@ -335,18 +335,26 @@ For aibtc.com inbox messages, use send_inbox_message instead — it uses sponsor
         });
         const response = await api.request({ method, url: parsed.requestPath, params, data });
 
-        const txid = (response.data as { txid?: string })?.txid ||
+        const rawTxid = (response.data as { txid?: string })?.txid ||
                      response.headers?.['x-transaction-id'] ||
-                     'unknown';
-        // Only record dedup entry if a payment was actually made (txid present)
-        if (txid !== 'unknown') {
+                     undefined;
+
+        // Detect whether a payment was made by checking for the payment-signature
+        // header added by the x402 interceptor. This is more reliable than checking
+        // for a txid, which some endpoints may not return.
+        const paymentSigHeader = (response as { config?: { headers?: Record<string, string> } })
+          .config?.headers?.[X402_HEADERS.PAYMENT_SIGNATURE];
+        const paymentAttempted = Boolean(paymentSigHeader);
+        const txid = rawTxid ?? (paymentAttempted ? `unknown-txid-${Date.now()}` : undefined);
+
+        if (paymentAttempted && txid) {
           recordTransaction(dedupKey, txid);
         }
 
         return createJsonResponse({
           endpoint: `${method} ${fullUrl}`,
           response: response.data,
-          ...(txid !== 'unknown' && { txid }),
+          ...(txid && { txid }),
         });
       } catch (error) {
         const label = fullUrl || url || path || "unknown";
