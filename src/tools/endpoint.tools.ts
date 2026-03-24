@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { createApiClient, API_URL, probeEndpoint, formatPaymentAmount, type ProbeResult, checkSufficientBalance, generateDedupKey, checkDedupCache, recordTransaction, getAccount, NETWORK } from "../services/x402.service.js";
+import { createApiClient, API_URL, probeEndpoint, formatPaymentAmount, type ProbeResult, checkSufficientBalance, generateDedupKey, checkDedupCache, recordTransaction, NETWORK } from "../services/x402.service.js";
 import {
   ALL_ENDPOINTS,
   searchEndpoints,
@@ -328,10 +328,9 @@ For aibtc.com inbox messages, use send_inbox_message instead — it uses sponsor
           });
         }
 
-        const account = await getAccount();
         const api = await createApiClient(parsed.baseUrl, {
           onBeforePayment: async (requirements) => {
-            await checkSufficientBalance(account, requirements.amount, requirements.asset, true);
+            await checkSufficientBalance(requirements.account, requirements.amount, requirements.asset, true);
           },
         });
         const response = await api.request({ method, url: parsed.requestPath, params, data });

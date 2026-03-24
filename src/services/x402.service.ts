@@ -97,34 +97,41 @@ function createBaseAxiosInstance(baseURL?: string): AxiosInstance {
   );
 
   // Handle 429 Too Many Requests with Retry-After header parsing and exponential backoff.
-  // Max 2 retries with delays [2s, 5s] or the Retry-After value if larger.
+  // Max 2 retries with minimum delays [2s, 5s] or the Retry-After value if larger.
   // Runs before payment interceptors so payment flows benefit automatically.
-  const backoffDelays = [2000, 5000];
+  const MAX_RETRY_DELAYS_MS = [2000, 5000];
   instance.interceptors.response.use(
-    (response) => response,
+    (response) => {
+      // Reset retry counter on success so later 429s get the full retry budget
+      rateLimitRetries.delete(instance);
+      return response;
+    },
     async (error) => {
       if (error?.response?.status !== 429) {
         return Promise.reject(error);
       }
 
-      const parsed = parseInt(error.response.headers?.["retry-after"] ?? "", 10);
-      const retryAfterSeconds = isNaN(parsed) ? 60 : parsed;
-
       const retries = rateLimitRetries.get(instance) ?? 0;
 
-      if (retries >= backoffDelays.length) {
+      // Parse Retry-After header; default to 0 when absent so the backoff delay governs
+      const parsed = parseInt(error.response.headers?.["retry-after"] ?? "", 10);
+      const retryAfterSeconds = isNaN(parsed) ? 0 : parsed;
+
+      if (retries >= MAX_RETRY_DELAYS_MS.length) {
+        // Report the server's Retry-After if available, otherwise a sensible default
+        const reportSeconds = retryAfterSeconds > 0 ? retryAfterSeconds : 60;
         return Promise.reject(
           new X402RateLimitError(
             `x402 endpoint rate limit exceeded. All retries exhausted. ` +
-              `Retry after ${retryAfterSeconds}s (server recommendation).`,
-            retryAfterSeconds
+              `Retry after ${reportSeconds}s.`,
+            reportSeconds
           )
         );
       }
 
       rateLimitRetries.set(instance, retries + 1);
 
-      const delay = Math.max(retryAfterSeconds * 1000, backoffDelays[retries]);
+      const delay = Math.max(retryAfterSeconds * 1000, MAX_RETRY_DELAYS_MS[retries]);
       await new Promise((resolve) => setTimeout(resolve, delay));
 
       return instance.request(error.config);
@@ -157,6 +164,18 @@ export async function mnemonicToAccount(
 }
 
 /**
+ * Payment requirements passed to the onBeforePayment callback.
+ * Includes the account so callers can validate balance without a redundant getAccount() call.
+ */
+export interface PaymentRequirements {
+  amount: string;
+  asset: string;
+  recipient: string;
+  network: string;
+  account: Account;
+}
+
+/**
  * Options for createApiClient
  */
 export interface CreateApiClientOptions {
@@ -165,12 +184,7 @@ export interface CreateApiClientOptions {
    * parsed, but BEFORE the transaction is signed/broadcast. Throwing from this
    * callback aborts the payment (e.g. insufficient balance check).
    */
-  onBeforePayment?: (requirements: {
-    amount: string;
-    asset: string;
-    recipient: string;
-    network: string;
-  }) => Promise<void>;
+  onBeforePayment?: (requirements: PaymentRequirements) => Promise<void>;
 }
 
 /**
@@ -265,6 +279,7 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
             asset: selectedOption.asset,
             recipient: selectedOption.payTo,
             network: paymentNetwork ?? account.network,
+            account,
           });
         }
 
