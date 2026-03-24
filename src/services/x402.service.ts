@@ -194,8 +194,15 @@ export interface CreateApiClientOptions {
 export async function createApiClient(baseUrl?: string, options?: CreateApiClientOptions): Promise<AxiosInstance> {
   const url = baseUrl || API_URL;
 
-  // Get account (from managed wallet or env mnemonic)
-  const account = await getAccount();
+  // Account is lazy-loaded on first 402 so free endpoints work without a wallet.
+  let account: Account | null = null;
+  const ensureAccount = async (): Promise<Account> => {
+    if (!account) {
+      account = await getAccount();
+    }
+    return account;
+  };
+
   const axiosInstance = createBaseAxiosInstance(url);
 
   // Interceptor 1 (FIFO): max-1-payment-attempt guard.
@@ -260,13 +267,16 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           );
         }
 
+        // Lazy-load account on first 402 — free endpoints never reach here
+        const acct = await ensureAccount();
+
         // Verify the payment network matches our configured network
         const paymentNetwork = getNetworkFromStacksChainId(selectedOption.network);
-        if (paymentNetwork && paymentNetwork !== account.network) {
+        if (paymentNetwork && paymentNetwork !== acct.network) {
           return Promise.reject(
             new Error(
-              `Network mismatch: endpoint requires ${paymentNetwork} but wallet is configured for ${account.network}. ` +
-              `Switch to a ${paymentNetwork} wallet or use a ${account.network} endpoint.`
+              `Network mismatch: endpoint requires ${paymentNetwork} but wallet is configured for ${acct.network}. ` +
+              `Switch to a ${paymentNetwork} wallet or use a ${acct.network} endpoint.`
             )
           );
         }
@@ -278,19 +288,19 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
             amount: selectedOption.amount,
             asset: selectedOption.asset,
             recipient: selectedOption.payTo,
-            network: paymentNetwork ?? account.network,
-            account,
+            network: paymentNetwork ?? acct.network,
+            account: acct,
           });
         }
 
         // Build a sponsored signed transaction (relay pays gas; fee: 0n)
         const tokenType = detectTokenType(selectedOption.asset);
         const amount = BigInt(selectedOption.amount);
-        const networkName = getStacksNetwork(account.network);
+        const networkName = getStacksNetwork(acct.network);
 
         let transaction;
         if (tokenType === "sBTC") {
-          const contracts = getContracts(account.network);
+          const contracts = getContracts(acct.network);
           const { address: contractAddress, name: contractName } = parseContractId(
             contracts.SBTC_TOKEN
           );
@@ -301,11 +311,11 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
             functionName: "transfer",
             functionArgs: [
               uintCV(amount),
-              principalCV(account.address),
+              principalCV(acct.address),
               principalCV(selectedOption.payTo),
               noneCV(),
             ],
-            senderKey: account.privateKey,
+            senderKey: acct.privateKey,
             network: networkName,
             postConditionMode: PostConditionMode.Allow,
             sponsored: true,
@@ -315,7 +325,7 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           transaction = await makeSTXTokenTransfer({
             recipient: selectedOption.payTo,
             amount,
-            senderKey: account.privateKey,
+            senderKey: acct.privateKey,
             network: networkName,
             memo: "",
             sponsored: true,
