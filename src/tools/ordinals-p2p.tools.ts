@@ -20,8 +20,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
-import { sha256 } from "@noble/hashes/sha256";
-import { hexToBytes } from "@noble/hashes/utils";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { hexToBytes } from "@noble/hashes/utils.js";
 import { NETWORK } from "../config/networks.js";
 import { getWalletManager } from "../services/wallet-manager.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
