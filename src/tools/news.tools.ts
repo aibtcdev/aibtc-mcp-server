@@ -396,7 +396,7 @@ Fields:
         if (body) {
           payload.body = body;
         }
-        if (disclosure) {
+        if (disclosure !== undefined) {
           payload.disclosure = disclosure;
         }
 
