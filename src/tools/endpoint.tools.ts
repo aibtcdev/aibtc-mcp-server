@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { createApiClient, createPlainClient, API_URL, probeEndpoint, formatPaymentAmount, type ProbeResult, checkSufficientBalance, generateDedupKey, checkDedupCache, recordTransaction, getAccount, NETWORK } from "../services/x402.service.js";
+import { createApiClient, API_URL, probeEndpoint, formatPaymentAmount, type ProbeResult, checkSufficientBalance, generateDedupKey, checkDedupCache, recordTransaction, getAccount, NETWORK } from "../services/x402.service.js";
 import {
   ALL_ENDPOINTS,
   searchEndpoints,
@@ -314,46 +314,40 @@ For aibtc.com inbox messages, use send_inbox_message instead — it uses sponsor
           return formatProbeResponse(probeResult, method, fullUrl, { method, url, path, apiUrl, params, data });
         }
 
-        // autoApprove=true: probe first to check if payment is required and validate balance
-        const probeResult = await probeEndpoint({ method, url: fullUrl, params, data });
-
-        if (probeResult.type === 'payment_required') {
-          const dedupKey = generateDedupKey(method, fullUrl, params, data);
-          const existingTxid = checkDedupCache(dedupKey);
-          if (existingTxid) {
-            return createJsonResponse({
-              endpoint: `${method} ${fullUrl}`,
-              message: 'Request already processed within the last 60 seconds. This prevents accidental duplicate payments.',
-              txid: existingTxid,
-              note: 'Wait 60s or use different endpoint/params to force a new transaction.',
-            });
-          }
-
-          const account = await getAccount();
-          await checkSufficientBalance(account, probeResult.amount, probeResult.asset, true);
-
-          const api = await createApiClient(parsed.baseUrl);
-          const response = await api.request({ method, url: parsed.requestPath, params, data });
-
-          const txid = (response.data as { txid?: string })?.txid ||
-                       response.headers?.['x-transaction-id'] ||
-                       'unknown';
-          recordTransaction(dedupKey, txid);
-
+        // autoApprove=true: check dedup cache before any network request, then execute
+        // with a single request. Balance validation happens inside the onBeforePayment
+        // callback when the interceptor receives the 402, eliminating the separate probe.
+        const dedupKey = generateDedupKey(method, fullUrl, params, data);
+        const existingTxid = checkDedupCache(dedupKey);
+        if (existingTxid) {
           return createJsonResponse({
             endpoint: `${method} ${fullUrl}`,
-            response: response.data,
-            ...(txid !== 'unknown' && { txid }),
+            message: 'Request already processed within the last 60 seconds. This prevents accidental duplicate payments.',
+            txid: existingTxid,
+            note: 'Wait 60s or use different endpoint/params to force a new transaction.',
           });
         }
 
-        // Free endpoint - execute directly without payment client
-        const api = createPlainClient(parsed.baseUrl);
+        const account = await getAccount();
+        const api = await createApiClient(parsed.baseUrl, {
+          onBeforePayment: async (requirements) => {
+            await checkSufficientBalance(account, requirements.amount, requirements.asset, true);
+          },
+        });
         const response = await api.request({ method, url: parsed.requestPath, params, data });
+
+        const txid = (response.data as { txid?: string })?.txid ||
+                     response.headers?.['x-transaction-id'] ||
+                     'unknown';
+        // Only record dedup entry if a payment was actually made (txid present)
+        if (txid !== 'unknown') {
+          recordTransaction(dedupKey, txid);
+        }
 
         return createJsonResponse({
           endpoint: `${method} ${fullUrl}`,
           response: response.data,
+          ...(txid !== 'unknown' && { txid }),
         });
       } catch (error) {
         const label = fullUrl || url || path || "unknown";

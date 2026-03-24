@@ -109,10 +109,27 @@ export async function mnemonicToAccount(
 }
 
 /**
+ * Options for createApiClient
+ */
+export interface CreateApiClientOptions {
+  /**
+   * Optional callback invoked after a 402 is received and payment requirements are
+   * parsed, but BEFORE the transaction is signed/broadcast. Throwing from this
+   * callback aborts the payment (e.g. insufficient balance check).
+   */
+  onBeforePayment?: (requirements: {
+    amount: string;
+    asset: string;
+    recipient: string;
+    network: string;
+  }) => Promise<void>;
+}
+
+/**
  * Create an API client with x402 payment interceptor.
  * Creates a fresh client instance per call with max-1-payment-attempt guard.
  */
-export async function createApiClient(baseUrl?: string): Promise<AxiosInstance> {
+export async function createApiClient(baseUrl?: string, options?: CreateApiClientOptions): Promise<AxiosInstance> {
   const url = baseUrl || API_URL;
 
   // Get account (from managed wallet or env mnemonic)
@@ -190,6 +207,17 @@ export async function createApiClient(baseUrl?: string): Promise<AxiosInstance> 
               `Switch to a ${paymentNetwork} wallet or use a ${account.network} endpoint.`
             )
           );
+        }
+
+        // Invoke pre-payment callback (e.g. balance check) before signing/broadcasting.
+        // If the callback throws, the payment is aborted and the error propagates to the caller.
+        if (options?.onBeforePayment) {
+          await options.onBeforePayment({
+            amount: selectedOption.amount,
+            asset: selectedOption.asset,
+            recipient: selectedOption.payTo,
+            network: paymentNetwork ?? account.network,
+          });
         }
 
         // Build a sponsored signed transaction (relay pays gas; fee: 0n)
