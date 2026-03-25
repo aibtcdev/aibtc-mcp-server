@@ -40,6 +40,7 @@ import { registerCredentialsTools } from "./credentials.tools.js";
 import { registerSouldinalsTools } from "./souldinals.tools.js";
 import { registerBountyScannerTools } from "./bounty-scanner.tools.js";
 import { registerRunesTools } from "./runes.tools.js";
+import { registerInboxTools } from "./inbox.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 
 /**
@@ -191,6 +192,9 @@ export function registerAllTools(server: McpServer): void {
 
   // Runes (Bitcoin-native fungible tokens — list, query, holders, activity, balances)
   registerRunesTools(server);
+
+  // Inbox (AIBTC agent messaging — send paid inbox messages)
+  registerInboxTools(server);
 
   restoreRegisterTool();
 }
