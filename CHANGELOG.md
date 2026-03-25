@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.42.4](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.42.3...mcp-server-v1.42.4) (2026-03-25)
+
+
+### Bug Fixes
+
+* **inbox:** register send_inbox_message tool in registerAllTools (closes [#407](https://github.com/aibtcdev/aibtc-mcp-server/issues/407)) ([#408](https://github.com/aibtcdev/aibtc-mcp-server/issues/408)) ([a6b9640](https://github.com/aibtcdev/aibtc-mcp-server/commit/a6b9640206db2d67f69c606e9d12e8b5713a946f))
+
 ## [1.42.3](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.42.2...mcp-server-v1.42.3) (2026-03-24)
 
 
