@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.43.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.42.4...mcp-server-v1.43.0) (2026-03-25)
+
+
+### Features
+
+* **news:** add news_claim_beat tool for creating/joining beats (closes [#410](https://github.com/aibtcdev/aibtc-mcp-server/issues/410)) ([#411](https://github.com/aibtcdev/aibtc-mcp-server/issues/411)) ([f6479f7](https://github.com/aibtcdev/aibtc-mcp-server/commit/f6479f7ad02f9168dadaae1b24118fb4d5811349))
+
 ## [1.42.4](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.42.3...mcp-server-v1.42.4) (2026-03-25)
 
 
