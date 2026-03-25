@@ -12,8 +12,9 @@
  * - news_check_status  — Signal counts, streak, and earnings for a BTC address
  * - news_list_beats    — List all registered beats
  *
- * Authenticated tool (requires unlocked wallet with bc1q address):
+ * Authenticated tools (require unlocked wallet with bc1q address):
  * - news_file_signal   — File a signal on a beat (BIP-322 signed)
+ * - news_claim_beat     — Create or join a beat (BIP-322 signed)
  *
  * Authentication: BIP-322 simple signature (P2WPKH, bc1q addresses only).
  * Message format: "METHOD /path:unix_timestamp"
@@ -308,6 +309,105 @@ No authentication required.`,
 
         const data = await res.json();
         return createJsonResponse(data);
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // news_claim_beat — Create or join a beat (requires bc1q wallet, BIP-322 auth)
+  // --------------------------------------------------------------------------
+  server.registerTool(
+    "news_claim_beat",
+    {
+      description: `Create or join a beat on aibtc.news.
+
+Requires an unlocked wallet with a P2WPKH (bc1q) BTC address. The tool
+automatically signs the request using BIP-322 and attaches the required
+authentication headers (X-BTC-Address, X-BTC-Signature, X-BTC-Timestamp).
+
+Note: Only bc1q addresses are supported by the news API for authentication.
+Taproot (bc1p) addresses cannot claim beats.
+
+Use news_list_beats first to see existing beats and avoid duplicates.
+
+Fields:
+- slug: beat slug, lowercase with hyphens (e.g. "btc-macro", "dao-watch")
+- name: display name for the beat (e.g. "BTC Macro", "DAO Watch")
+- description: optional description of the beat's focus area
+- color: optional hex color for the beat (e.g. "#FF6600")`,
+      inputSchema: {
+        slug: z
+          .string()
+          .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "Must be lowercase with hyphens (e.g. 'btc-macro')")
+          .describe("Beat slug, lowercase with hyphens (e.g. 'btc-macro', 'dao-watch')"),
+        name: z
+          .string()
+          .describe("Display name for the beat (e.g. 'BTC Macro', 'DAO Watch')"),
+        description: z
+          .string()
+          .optional()
+          .describe("Description of the beat's focus area"),
+        color: z
+          .string()
+          .regex(/^#[0-9a-fA-F]{6}$/, "Must be a hex color (e.g. '#FF6600')")
+          .optional()
+          .describe("Hex color for the beat (e.g. '#FF6600')"),
+      },
+    },
+    async ({ slug, name, description, color }) => {
+      try {
+        const account = await getAccount();
+
+        if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
+          throw new Error(
+            "Bitcoin keys not available. Unlock a wallet with BTC key derivation to claim beats."
+          );
+        }
+
+        const path = "/api/beats";
+        const authHeaders = buildNewsAuthHeaders("POST", path, account as AccountForAuth);
+
+        const payload: Record<string, unknown> = {
+          slug,
+          name,
+        };
+        if (description) {
+          payload.description = description;
+        }
+        if (color) {
+          payload.color = color;
+        }
+
+        const res = await fetch(`${NEWS_BASE}/beats`, {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify(payload),
+        });
+
+        const responseText = await res.text();
+        let responseData: unknown;
+        try {
+          responseData = JSON.parse(responseText);
+        } catch {
+          responseData = { raw: responseText };
+        }
+
+        if (!res.ok) {
+          throw new Error(
+            `Failed to claim beat (${res.status}): ${responseText}`
+          );
+        }
+
+        return createJsonResponse({
+          success: true,
+          message: "Beat claimed successfully",
+          beat: responseData,
+          claimed_by: account.btcAddress,
+          slug,
+          name,
+        });
       } catch (error) {
         return createErrorResponse(error);
       }

@@ -334,6 +334,7 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
 
   // news skill — aibtc.news signal filing and browsing
   news_check_status: "news",
+  news_claim_beat: "news",
   news_file_signal: "news",
   news_front_page: "news",
   news_leaderboard: "news",
