@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.45.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.44.0...mcp-server-v1.45.0) (2026-03-26)
+
+
+### Features
+
+* correlate sender/sponsor nonces for complete tx diagnostics (closes [#417](https://github.com/aibtcdev/aibtc-mcp-server/issues/417)) ([#419](https://github.com/aibtcdev/aibtc-mcp-server/issues/419)) ([42c51c1](https://github.com/aibtcdev/aibtc-mcp-server/commit/42c51c1700128b0325637dccfd402f3b8f915bda))
+
 ## [1.44.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.43.0...mcp-server-v1.44.0) (2026-03-26)
 
 
