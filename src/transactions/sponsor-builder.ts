@@ -5,9 +5,62 @@ import {
   PostConditionMode,
 } from "@stacks/transactions";
 import { getStacksNetwork, type Network } from "../config/networks.js";
-import { getSponsorRelayUrl, getSponsorApiKey } from "../config/sponsor.js";
+import { getSponsorRelayUrl, getSponsorApiKey, isFallbackEnabled } from "../config/sponsor.js";
 import type { Account, ContractCallOptions, ContractDeployOptions, TransferResult } from "./builder.js";
+import { callContract, transferStx, deployContract } from "./builder.js";
 import { recordNonceUsed } from "../services/nonce-tracker.js";
+import { isRelayHealthy } from "../utils/relay-health.js";
+
+/**
+ * Relay-side error codes and keywords that indicate a nonce conflict on the
+ * relay, not a user-side error. When these are present the tx itself is valid
+ * and a direct fallback makes sense.
+ */
+const NONCE_FAULT_PATTERNS = [
+  "ConflictingNonceInMempool",
+  "TooMuchChaining",
+  "BadNonce",
+  "nonce",
+];
+
+/**
+ * Returns true when a failed relay response is caused by a relay-side nonce
+ * problem rather than a user-side error (bad args, insufficient balance, etc).
+ */
+function isRelayNonceFault(response: SponsorRelayResponse): boolean {
+  const code = response.code ?? "";
+  const error = response.error ?? "";
+  const details = response.details ?? "";
+  const haystack = `${code} ${error} ${details}`.toLowerCase();
+  return NONCE_FAULT_PATTERNS.some((p) => haystack.includes(p.toLowerCase()));
+}
+
+/**
+ * Decide whether to fall back to direct submission for a relay failure.
+ * Returns { shouldFallback: true, reason } or { shouldFallback: false }.
+ */
+async function evaluateFallback(
+  response: SponsorRelayResponse,
+  network: Network
+): Promise<{ shouldFallback: boolean; reason?: string }> {
+  if (!isFallbackEnabled()) {
+    return { shouldFallback: false };
+  }
+
+  if (isRelayNonceFault(response)) {
+    return {
+      shouldFallback: true,
+      reason: `relay nonce error: ${response.code ?? response.error}`,
+    };
+  }
+
+  const healthy = await isRelayHealthy(network);
+  if (!healthy) {
+    return { shouldFallback: true, reason: "relay unhealthy" };
+  }
+
+  return { shouldFallback: false };
+}
 
 export interface SponsorRelayResponse {
   success: boolean;
@@ -82,6 +135,12 @@ export async function sponsoredContractCall(
   const response = await submitToSponsorRelay(serializedTx, network, apiKey);
 
   if (!response.success) {
+    const { shouldFallback, reason } = await evaluateFallback(response, network);
+    if (shouldFallback) {
+      console.warn(`[sponsor] Relay unavailable or nonce error (${reason}), falling back to direct submission (sender pays fee)`);
+      const result = await callContract(account, options);
+      return { ...result, fallback: true, fallbackReason: reason };
+    }
     throw new Error(formatRelayError(response));
   }
 
@@ -121,6 +180,12 @@ export async function sponsoredStxTransfer(
   const response = await submitToSponsorRelay(serializedTx, network, apiKey);
 
   if (!response.success) {
+    const { shouldFallback, reason } = await evaluateFallback(response, network);
+    if (shouldFallback) {
+      console.warn(`[sponsor] Relay unavailable or nonce error (${reason}), falling back to direct submission (sender pays fee)`);
+      const result = await transferStx(account, recipient, amount, memo);
+      return { ...result, fallback: true, fallbackReason: reason };
+    }
     throw new Error(formatRelayError(response));
   }
 
@@ -157,6 +222,12 @@ export async function sponsoredContractDeploy(
   const response = await submitToSponsorRelay(serializedTx, network, apiKey);
 
   if (!response.success) {
+    const { shouldFallback, reason } = await evaluateFallback(response, network);
+    if (shouldFallback) {
+      console.warn(`[sponsor] Relay unavailable or nonce error (${reason}), falling back to direct submission (sender pays fee)`);
+      const result = await deployContract(account, options);
+      return { ...result, fallback: true, fallbackReason: reason };
+    }
     throw new Error(formatRelayError(response));
   }
 

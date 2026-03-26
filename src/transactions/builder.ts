@@ -140,6 +140,10 @@ export interface Account extends WalletAddresses {
 export interface TransferResult {
   txid: string;
   rawTx: string;
+  /** True when the tx was submitted directly (sender pays fee) as a relay fallback. */
+  fallback?: boolean;
+  /** Human-readable reason for the fallback, e.g. "relay unhealthy" or relay error code. */
+  fallbackReason?: string;
 }
 
 export interface ContractCallOptions {
