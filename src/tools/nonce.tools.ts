@@ -26,6 +26,7 @@ import {
 } from "@stacks/transactions";
 import { getStacksNetwork, getExplorerTxUrl } from "../config/networks.js";
 import { resolveDefaultFee } from "../utils/fee.js";
+import { SPONSOR_ADDRESSES } from "../utils/relay-health.js";
 
 export function registerNonceTools(server: McpServer): void {
   // ============================================================================
@@ -268,6 +269,200 @@ Requires the wallet to be unlocked. The fee is auto-estimated.`,
           txid: broadcastResponse.txid,
           explorer: getExplorerTxUrl(broadcastResponse.txid, NETWORK),
           message: `Gap-fill transaction sent at nonce ${nonce}. txid: ${broadcastResponse.txid}`,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ============================================================================
+  // tx_status_deep — cross-reference sender pending txids with sponsor mempool
+  // ============================================================================
+  server.registerTool(
+    "tx_status_deep",
+    {
+      description: `Deep diagnostic view correlating sender nonces with sponsor nonces for sponsored transactions.
+
+Reads the sender's local pending txid log and cross-references each entry against
+the sponsor's mempool to show the full lifecycle of sponsored transactions:
+- Which sender nonce maps to which sponsor nonce
+- Whether sponsor nonce gaps are blocking specific transactions
+- Which pending txids are missing from the sponsor mempool entirely
+- Multiple competing txids (RBF candidates) for the same sender nonce slot
+
+Output per nonce slot:
+  Sender nonce N:
+    - 0xabc (sponsored, sponsor nonce 47) -- BLOCKED by missing sponsor nonces [44, 45]
+    - 0xdef (direct, fee 0.01 STX) -- competing RBF candidate
+  Sender nonce M (0xghi, sponsored) -> sponsor nonce 48 -- pending, no gaps ahead
+  Sender nonce P (0xjkl, sponsored) -> NOT IN SPONSOR MEMPOOL
+
+Use this when check_relay_health shows issues but you need per-transaction clarity.
+Returns structured JSON with pendingSlots, sponsorMissingNonces, and summary counts.`,
+      inputSchema: {
+        address: z
+          .string()
+          .optional()
+          .describe(
+            "STX address to check. Defaults to the active wallet address."
+          ),
+      },
+    },
+    async ({ address: inputAddress }) => {
+      try {
+        const walletAccount = getWalletManager().getAccount();
+        const address = inputAddress || walletAccount?.address;
+
+        if (!address) {
+          return createJsonResponse({
+            error:
+              "No address provided and no wallet is unlocked. Provide an address or unlock a wallet first.",
+            pendingSlots: [],
+            summary: { total: 0, sponsored: 0, direct: 0, blocked: 0, notInSponsorMempool: 0 },
+          });
+        }
+
+        // Reload from disk to pick up changes from other processes
+        await reloadFromDisk();
+
+        const localState = await getAddressState(address);
+
+        if (!localState || localState.pending.length === 0) {
+          return createJsonResponse({
+            address,
+            pendingSlots: [],
+            sponsorAddress: SPONSOR_ADDRESSES[NETWORK] ?? null,
+            sponsorMissingNonces: [],
+            summary: { total: 0, sponsored: 0, direct: 0, blocked: 0, notInSponsorMempool: 0 },
+            message: "No pending transactions in local tracker for this address.",
+          });
+        }
+
+        // Group pending log entries by nonce (handle RBF — multiple txids per nonce)
+        const byNonce = new Map<number, { nonce: number; txid: string; timestamp: string }[]>();
+        for (const entry of localState.pending) {
+          const existing = byNonce.get(entry.nonce) ?? [];
+          existing.push(entry);
+          byNonce.set(entry.nonce, existing);
+        }
+
+        // Determine sponsor address for this network
+        const sponsorAddress = SPONSOR_ADDRESSES[NETWORK];
+
+        // Fetch sponsor data (best-effort — failures degrade gracefully)
+        let sponsorMempoolIndex = new Map<string, { nonce: number; sponsor_nonce?: number; fee_rate: string; tx_status: string; sponsored: boolean }>();
+        let sponsorMissingNonces: number[] = [];
+
+        if (sponsorAddress) {
+          const hiroApi = getHiroApi(NETWORK);
+
+          // Fetch sponsor mempool txs and nonce gaps in parallel
+          const [sponsorMempoolResult, sponsorNonceInfo] = await Promise.all([
+            hiroApi
+              .getMempoolTransactions({ sender_address: sponsorAddress, limit: 200 })
+              .catch(() => null),
+            hiroApi.getNonceInfo(sponsorAddress).catch(() => null),
+          ]);
+
+          if (sponsorMempoolResult) {
+            for (const tx of sponsorMempoolResult.results) {
+              sponsorMempoolIndex.set(tx.tx_id, {
+                nonce: tx.nonce,
+                sponsor_nonce: tx.sponsor_nonce,
+                fee_rate: tx.fee_rate ?? "unknown",
+                tx_status: tx.tx_status,
+                sponsored: tx.sponsored ?? false,
+              });
+            }
+          }
+
+          if (sponsorNonceInfo) {
+            sponsorMissingNonces = sponsorNonceInfo.detected_missing_nonces ?? [];
+          }
+        }
+
+        const sponsorMissingSet = new Set(sponsorMissingNonces);
+
+        // Build diagnostic per nonce slot
+        const pendingSlots: Array<{
+          senderNonce: number;
+          candidates: Array<{
+            txid: string;
+            timestamp: string;
+            sponsored: boolean;
+            sponsorNonce?: number;
+            feeRate?: string;
+            txStatus?: string;
+            inSponsorMempool: boolean;
+            blocked: boolean;
+            blockingGaps?: number[];
+          }>;
+        }> = [];
+
+        const sortedNonces = [...byNonce.keys()].sort((a, b) => a - b);
+
+        let totalSponsored = 0;
+        let totalDirect = 0;
+        let totalBlocked = 0;
+        let totalNotInSponsorMempool = 0;
+
+        for (const senderNonce of sortedNonces) {
+          const entries = byNonce.get(senderNonce)!;
+          const candidates: typeof pendingSlots[0]["candidates"] = [];
+
+          for (const entry of entries) {
+            const sponsorTx = sponsorMempoolIndex.get(entry.txid);
+            const inSponsorMempool = !!sponsorTx;
+            const isSponsored = inSponsorMempool ? (sponsorTx!.sponsored || sponsorTx!.sponsor_nonce !== undefined) : false;
+
+            let blocked = false;
+            let blockingGaps: number[] = [];
+
+            if (isSponsored && sponsorTx?.sponsor_nonce !== undefined) {
+              // Find sponsor nonce gaps below this tx's sponsor_nonce that would block it
+              blockingGaps = sponsorMissingNonces.filter(
+                (missing) => missing < sponsorTx!.sponsor_nonce!
+              );
+              blocked = blockingGaps.length > 0;
+            }
+
+            candidates.push({
+              txid: entry.txid,
+              timestamp: entry.timestamp,
+              sponsored: isSponsored,
+              ...(sponsorTx?.sponsor_nonce !== undefined
+                ? { sponsorNonce: sponsorTx.sponsor_nonce }
+                : {}),
+              ...(sponsorTx ? { feeRate: sponsorTx.fee_rate, txStatus: sponsorTx.tx_status } : {}),
+              inSponsorMempool,
+              blocked,
+              ...(blockingGaps.length > 0 ? { blockingGaps } : {}),
+            });
+
+            if (isSponsored) totalSponsored++;
+            else totalDirect++;
+            if (blocked) totalBlocked++;
+            if (!inSponsorMempool) totalNotInSponsorMempool++;
+          }
+
+          pendingSlots.push({ senderNonce, candidates });
+        }
+
+        const total = localState.pending.length;
+
+        return createJsonResponse({
+          address,
+          pendingSlots,
+          sponsorAddress: sponsorAddress ?? null,
+          sponsorMissingNonces,
+          summary: {
+            total,
+            sponsored: totalSponsored,
+            direct: totalDirect,
+            blocked: totalBlocked,
+            notInSponsorMempool: totalNotInSponsorMempool,
+          },
         });
       } catch (error) {
         return createErrorResponse(error);
