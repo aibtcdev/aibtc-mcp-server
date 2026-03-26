@@ -81,9 +81,12 @@ const CURRENT_VERSION = 1;
 /**
  * How long a locally-tracked nonce is considered fresh. After this window the
  * tracker falls back to the chain value on the next getNextNonce() call.
- * Matches the original builder.ts STALE_NONCE_MS (10 minutes).
+ *
+ * Set to 90 seconds (~15-30 Stacks blocks post-Nakamoto, where blocks are 3-5s).
+ * Previously 10 minutes (calibrated for Bitcoin block times). The shorter window
+ * ensures the tracker detects external sends and chain advances promptly.
  */
-export const STALE_NONCE_MS = 10 * 60 * 1000;
+export const STALE_NONCE_MS = 90 * 1000;
 
 /**
  * Maximum pending tx records kept per address. Older entries are evicted FIFO.

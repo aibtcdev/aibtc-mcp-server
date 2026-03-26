@@ -13,10 +13,6 @@ import fs from "fs/promises";
 import os from "os";
 import path from "path";
 import {
-  MAX_NONCE_ENTRIES,
-  _testingNonceMaps,
-} from "../../src/transactions/builder.js";
-import {
   getTrackedNonce,
   getAddressState,
   recordNonceUsed,
@@ -33,6 +29,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  _testing.resetStateFilePath();
   await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
 });
 
@@ -40,17 +37,7 @@ beforeEach(() => {
   _testing.clearMemory();
 });
 
-describe("backward-compat exports", () => {
-  it("should export MAX_NONCE_ENTRIES as 100", () => {
-    expect(MAX_NONCE_ENTRIES).toBe(100);
-  });
-
-  it("should export _testingNonceMaps with STALE_NONCE_MS as 10 minutes", () => {
-    expect(_testingNonceMaps.STALE_NONCE_MS).toBe(10 * 60 * 1000);
-  });
-});
-
-describe("advancePendingNonce (delegates to SharedNonceTracker)", () => {
+describe("SharedNonceTracker delegation", () => {
   it("should record nonce in shared tracker", async () => {
     await recordNonceUsed("SP1", 0, "tx_0");
 
@@ -85,7 +72,7 @@ describe("advancePendingNonce (delegates to SharedNonceTracker)", () => {
   });
 });
 
-describe("resetPendingNonce (delegates to SharedNonceTracker)", () => {
+describe("resetTrackedNonce", () => {
   it("should clear address from shared tracker", async () => {
     await recordNonceUsed("SP1", 5, "tx_5");
     expect(await getAddressState("SP1")).not.toBeNull();
@@ -106,15 +93,5 @@ describe("resetPendingNonce (delegates to SharedNonceTracker)", () => {
 
     expect(await getAddressState("SP1")).toBeNull();
     expect((await getAddressState("SP2"))!.lastUsedNonce).toBe(9);
-  });
-});
-
-describe("forceResyncNonce", () => {
-  it("should clear address from shared tracker", async () => {
-    await recordNonceUsed("SP1", 2, "tx_2");
-    expect(await getAddressState("SP1")).not.toBeNull();
-
-    await resetTrackedNonce("SP1");
-    expect(await getAddressState("SP1")).toBeNull();
   });
 });

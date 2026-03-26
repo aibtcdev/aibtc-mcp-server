@@ -197,11 +197,16 @@ Returns:
   server.registerTool(
     "nonce_fill_gap",
     {
-      description: `Fill a nonce gap by sending a minimal self-transfer at the specified nonce.
+      description: `Fill a nonce gap by sending a minimal STX transfer at the specified nonce.
+
+LAST-RESORT recovery action. Each gap-fill is a real on-chain transaction with a real
+fee (~0.001-0.01 STX). Most gaps self-resolve within seconds as Stacks blocks are 3-5s.
+Only use this after confirming the gap persists via nonce_health.
 
 When transactions are pending but a gap exists in the nonce sequence (e.g., nonces
 5 and 7 are pending but 6 is missing), the Stacks mempool will not process nonces
-7+ until 6 is filled. This tool fills the gap with a 1 micro-STX self-transfer.
+7+ until 6 is filled. This tool fills the gap with a 1 micro-STX transfer to the
+PoX burn address.
 
 Use nonce_health first to identify gaps, then call this tool for each missing nonce.
 
@@ -226,12 +231,13 @@ Requires the wallet to be unlocked. The fee is auto-estimated.`,
           });
         }
 
-        // Build a minimal self-transfer at the exact specified nonce
+        // Send 1 uSTX to the PoX burn address (self-transfers are rejected by Stacks)
+        const POX_BURN_ADDRESS = "SP000000000000000000002Q6VF78";
         const networkName = getStacksNetwork(NETWORK);
         const fee = await resolveDefaultFee(NETWORK, "token_transfer");
 
         const transaction = await makeSTXTokenTransfer({
-          recipient: walletAccount.address,
+          recipient: POX_BURN_ADDRESS,
           amount: 1n,
           senderKey: walletAccount.privateKey,
           network: networkName,

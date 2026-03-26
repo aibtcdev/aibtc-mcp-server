@@ -281,7 +281,7 @@ class WalletManager {
     await writeAppConfig(config);
 
     // Reset pending nonce counter so the new session re-syncs with the chain
-    resetPendingNonce(account.address);
+    await resetPendingNonce(account.address);
 
     return account;
   }
@@ -289,11 +289,11 @@ class WalletManager {
   /**
    * Lock the wallet (clear session)
    */
-  lock(): void {
+  async lock(): Promise<void> {
     this.clearAutoLockTimer();
     // Reset pending nonce counter before clearing session
     if (this.session?.account) {
-      resetPendingNonce(this.session.account.address);
+      await resetPendingNonce(this.session.account.address);
     }
     // Zero out sensitive key buffers before dropping references
     if (this.session?.account) {
@@ -318,7 +318,7 @@ class WalletManager {
 
     // Check if session expired
     if (this.session.expiresAt && new Date() > this.session.expiresAt) {
-      this.lock();
+      void this.lock();
       return null;
     }
 
@@ -345,7 +345,7 @@ class WalletManager {
 
     // Check expiry
     if (this.session.expiresAt && new Date() > this.session.expiresAt) {
-      this.lock();
+      void this.lock();
       return null;
     }
 
@@ -369,7 +369,7 @@ class WalletManager {
 
     // Check expiry
     if (this.session.expiresAt && new Date() > this.session.expiresAt) {
-      this.lock();
+      void this.lock();
       return null;
     }
 
@@ -417,7 +417,7 @@ class WalletManager {
     }
 
     // Lock current session
-    this.lock();
+    await this.lock();
 
     // Update active wallet
     const config = await readAppConfig();
@@ -454,7 +454,7 @@ class WalletManager {
 
     // If this wallet is currently active, lock it
     if (this.session?.walletId === walletId) {
-      this.lock();
+      await this.lock();
     }
 
     // Delete wallet storage
@@ -618,7 +618,7 @@ class WalletManager {
 
     // Lock wallet if currently unlocked (force re-auth with new password)
     if (this.session?.walletId === walletId) {
-      this.lock();
+      await this.lock();
     }
   }
 
@@ -652,7 +652,7 @@ class WalletManager {
     }
 
     this.lockTimer = setTimeout(() => {
-      this.lock();
+      void this.lock();
     }, minutes * 60 * 1000);
   }
 

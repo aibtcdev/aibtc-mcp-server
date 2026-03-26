@@ -234,17 +234,17 @@ async function startDaemon(config: YieldHunterConfig): Promise<void> {
   }, config.checkIntervalMs);
 
   // Handle shutdown
-  process.on("SIGINT", () => {
+  process.on("SIGINT", async () => {
     log("\nShutting down...");
     clearInterval(intervalId);
-    walletManager.lock();
+    await walletManager.lock();
     process.exit(0);
   });
 
-  process.on("SIGTERM", () => {
+  process.on("SIGTERM", async () => {
     log("\nShutting down...");
     clearInterval(intervalId);
-    walletManager.lock();
+    await walletManager.lock();
     process.exit(0);
   });
 }

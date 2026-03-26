@@ -31,11 +31,8 @@ import {
  * Reset the pending nonce for an address (called on wallet unlock/lock/switch
  * so the counter re-syncs with the chain on the next transaction).
  */
-export function resetPendingNonce(address: string): void {
-  // Fire-and-forget — wallet unlock/lock is sync in the caller.
-  resetTrackedNonce(address).catch((err) => {
-    console.error(`[nonce] Failed to reset tracked nonce for ${address}:`, err);
-  });
+export async function resetPendingNonce(address: string): Promise<void> {
+  await resetTrackedNonce(address);
 }
 
 /**
@@ -43,8 +40,8 @@ export function resetPendingNonce(address: string): void {
  * Identical to resetPendingNonce but exported under a name that makes the
  * intent clear for the recover_sponsor_nonce tool's resync-local-nonce action.
  */
-export function forceResyncNonce(address: string): void {
-  resetPendingNonce(address);
+export async function forceResyncNonce(address: string): Promise<void> {
+  await resetPendingNonce(address);
 }
 
 /**
@@ -104,23 +101,6 @@ export function advancePendingNonce(address: string, nonce: bigint, txid = ""): 
     console.error(`[nonce] Failed to record nonce ${nonce} for ${address}:`, err);
   });
 }
-
-/**
- * @deprecated Kept for backward compatibility with existing tests.
- * Nonce tracking is now handled by SharedNonceTracker (issue #413).
- * Use `_testing` from `../services/nonce-tracker.js` for new tests.
- */
-export const MAX_NONCE_ENTRIES = 100;
-
-/**
- * @deprecated Kept for backward compatibility with existing tests.
- * See MAX_NONCE_ENTRIES comment above.
- */
-export const _testingNonceMaps = {
-  pendingNonces: new Map<string, bigint>(),
-  pendingNonceTimestamps: new Map<string, number>(),
-  STALE_NONCE_MS: 10 * 60 * 1000,
-};
 
 export interface Account extends WalletAddresses {
   privateKey: string;

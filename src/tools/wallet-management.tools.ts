@@ -179,7 +179,7 @@ If no wallet ID is provided, unlocks the active wallet.`,
       try {
         const walletManager = getWalletManager();
         const wasUnlocked = walletManager.isUnlocked();
-        walletManager.lock();
+        await walletManager.lock();
 
         return createJsonResponse({
           success: true,

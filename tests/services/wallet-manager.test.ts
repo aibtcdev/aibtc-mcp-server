@@ -123,7 +123,7 @@ describe("WalletManager", () => {
     // Get fresh wallet manager instance
     walletManager = await getWalletManager();
     // Lock it to reset state
-    walletManager.lock();
+    await walletManager.lock();
   });
 
   describe("createWallet", () => {
@@ -256,7 +256,7 @@ describe("WalletManager", () => {
 
       expect(walletManager.isUnlocked()).toBe(true);
 
-      walletManager.lock();
+      await walletManager.lock();
 
       expect(walletManager.isUnlocked()).toBe(false);
       expect(walletManager.getActiveAccount()).toBeNull();
@@ -511,7 +511,7 @@ describe("WalletManager", () => {
       expect(sessionInfo?.btcAddress).toBe(btcAddressFromCreate);
 
       // Step 3: Lock wallet and verify state clears properly
-      walletManager.lock();
+      await walletManager.lock();
       expect(walletManager.isUnlocked()).toBe(false);
       expect(walletManager.getActiveAccount()).toBeNull();
       expect(walletManager.getSessionInfo()).toBeNull();

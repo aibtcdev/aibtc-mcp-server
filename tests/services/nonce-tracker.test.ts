@@ -25,8 +25,8 @@ beforeEach(() => {
 });
 
 describe("constants", () => {
-  it("should use 10-minute stale timeout", () => {
-    expect(STALE_NONCE_MS).toBe(10 * 60 * 1000);
+  it("should use 90-second stale timeout (Nakamoto block times)", () => {
+    expect(STALE_NONCE_MS).toBe(90 * 1000);
   });
 
   it("should keep at most 50 pending records per address", () => {
