@@ -45,6 +45,36 @@ export const SPONSOR_ADDRESSES: Partial<Record<Network, string>> = {
 };
 
 /**
+ * Lightweight relay health probe — returns true only if the relay /health
+ * endpoint responds within 5 seconds with HTTP 200 and status "ok".
+ *
+ * Use this on the hot path (e.g., before deciding to fall back to direct
+ * submission) where the full checkRelayHealth() diagnostics are unnecessary.
+ */
+export async function isRelayHealthy(network: Network): Promise<boolean> {
+  const relayUrl = getSponsorRelayUrl(network);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const res = await fetch(`${relayUrl}/health`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+    });
+
+    if (!res.ok) return false;
+
+    const data = await res.json() as { status?: string };
+    return data.status === "ok";
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
  * Check relay health and sponsor nonce status
  */
 export async function checkRelayHealth(network: Network): Promise<RelayHealthStatus> {
