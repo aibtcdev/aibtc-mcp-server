@@ -141,6 +141,12 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   yield_hunter_status: "yield-hunter",
   yield_hunter_configure: "yield-hunter",
 
+  // yield-dashboard skill — read-only cross-protocol DeFi yield aggregation
+  yield_dashboard_overview: "yield-dashboard",
+  yield_dashboard_positions: "yield-dashboard",
+  yield_dashboard_apy_breakdown: "yield-dashboard",
+  yield_dashboard_rebalance: "yield-dashboard",
+
   // pillar skill — Pillar smart wallet (browser-handoff + agent-signed direct modes)
   pillar_connect: "pillar",
   pillar_disconnect: "pillar",
