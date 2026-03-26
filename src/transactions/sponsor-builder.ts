@@ -7,6 +7,7 @@ import {
 import { getStacksNetwork, type Network } from "../config/networks.js";
 import { getSponsorRelayUrl, getSponsorApiKey } from "../config/sponsor.js";
 import type { Account, ContractCallOptions, ContractDeployOptions, TransferResult } from "./builder.js";
+import { recordNonceUsed } from "../services/nonce-tracker.js";
 
 export interface SponsorRelayResponse {
   success: boolean;
@@ -76,12 +77,15 @@ export async function sponsoredContractCall(
     fee: 0n,
   });
 
+  const senderNonce = Number(transaction.auth.spendingCondition!.nonce);
   const serializedTx = transaction.serialize();
   const response = await submitToSponsorRelay(serializedTx, network, apiKey);
 
   if (!response.success) {
     throw new Error(formatRelayError(response));
   }
+
+  await recordNonceUsed(account.address, senderNonce, response.txid!);
 
   return { txid: response.txid!, rawTx: serializedTx };
 }
@@ -112,12 +116,15 @@ export async function sponsoredStxTransfer(
     fee: 0n,
   });
 
+  const senderNonce = Number(transaction.auth.spendingCondition!.nonce);
   const serializedTx = transaction.serialize();
   const response = await submitToSponsorRelay(serializedTx, network, apiKey);
 
   if (!response.success) {
     throw new Error(formatRelayError(response));
   }
+
+  await recordNonceUsed(account.address, senderNonce, response.txid!);
 
   return { txid: response.txid!, rawTx: serializedTx };
 }
@@ -145,12 +152,15 @@ export async function sponsoredContractDeploy(
     fee: 0n,
   });
 
+  const senderNonce = Number(transaction.auth.spendingCondition!.nonce);
   const serializedTx = transaction.serialize();
   const response = await submitToSponsorRelay(serializedTx, network, apiKey);
 
   if (!response.success) {
     throw new Error(formatRelayError(response));
   }
+
+  await recordNonceUsed(account.address, senderNonce, response.txid!);
 
   return { txid: response.txid!, rawTx: serializedTx };
 }
