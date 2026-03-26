@@ -13,6 +13,7 @@ export interface StuckTransaction {
   txid: string;
   nonce: number;
   pendingSeconds: number;
+  sponsor_nonce?: number;
 }
 
 export interface RelayHealthStatus {
@@ -142,6 +143,7 @@ export async function checkRelayHealth(network: Network): Promise<RelayHealthSta
           txid: tx.tx_id,
           nonce: tx.nonce,
           pendingSeconds: nowSeconds - tx.receipt_time,
+          ...(tx.sponsor_nonce !== undefined ? { sponsor_nonce: tx.sponsor_nonce } : {}),
         }))
         .sort((a, b) => b.pendingSeconds - a.pendingSeconds)
         .slice(0, 10);
@@ -219,7 +221,7 @@ export function formatRelayHealthStatus(status: RelayHealthStatus): string {
       const minutes = Math.floor(tx.pendingSeconds / 60);
       const seconds = tx.pendingSeconds % 60;
       const duration = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-      lines.push(`  nonce=${tx.nonce} pending=${duration} txid=${tx.txid}`);
+      lines.push(`  nonce=${tx.nonce}${tx.sponsor_nonce !== undefined ? ` sponsor_nonce=${tx.sponsor_nonce}` : ""} pending=${duration} txid=${tx.txid}`);
     });
   }
 

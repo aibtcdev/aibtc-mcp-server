@@ -145,6 +145,9 @@ export interface MempoolTransaction {
   fee_rate: string;
   sender_address: string;
   nonce: number;
+  sponsored?: boolean;
+  sponsor_address?: string;
+  sponsor_nonce?: number;
 }
 
 export interface PoxInfo {
