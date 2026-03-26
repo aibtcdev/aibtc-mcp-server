@@ -12,74 +12,30 @@ import { getStacksNetwork, getApiBaseUrl, type Network } from "../config/network
 import { getHiroApi } from "../services/hiro-api.js";
 import { resolveDefaultFee } from "../utils/fee.js";
 import type { WalletAddresses } from "../utils/storage.js";
+import {
+  getTrackedNonce,
+  recordNonceUsed,
+  resetTrackedNonce,
+  reconcileWithChain,
+} from "../services/nonce-tracker.js";
 
 // ---------------------------------------------------------------------------
-// Pending nonce tracking (fixes back-to-back tx nonce collision, issue #326)
+// Pending nonce tracking (unified via SharedNonceTracker, issue #413)
+//
+// All nonce state is now managed by src/services/nonce-tracker.ts which
+// persists to ~/.aibtc/nonce-state.json. This module delegates to the tracker
+// and keeps the same public API surface for backward compatibility.
 // ---------------------------------------------------------------------------
-
-/**
- * How long a locally-tracked pending nonce is considered fresh.
- * If no new transaction has been broadcast within this window the counter is
- * stale (the tx likely confirmed or was dropped) and we fall back to the
- * network value on the next call.
- */
-const STALE_NONCE_MS = 10 * 60 * 1000; // 10 minutes
-
-/**
- * Maximum number of addresses tracked simultaneously in pendingNonces and
- * pendingNonceTimestamps. When this limit is reached the oldest entry (by
- * insertion order) is evicted before a new one is added. This prevents
- * unbounded memory growth in long-running server processes (issue #336).
- */
-export const MAX_NONCE_ENTRIES = 100;
-
-/**
- * Evict the oldest entry from a Map when it has reached MAX_NONCE_ENTRIES.
- * JS Maps iterate in insertion order, so map.keys().next() yields the oldest
- * key — no additional bookkeeping is needed.
- */
-function evictOldestIfFull<K, V>(map: Map<K, V>): void {
-  if (map.size >= MAX_NONCE_ENTRIES) {
-    const oldestKey = map.keys().next().value;
-    if (oldestKey !== undefined) {
-      map.delete(oldestKey);
-    }
-  }
-}
-
-/**
- * In-memory map of STX address -> next expected nonce for non-sponsored txs.
- * Updated after each successful broadcast so sequential calls don't re-use
- * the same network nonce before the first tx lands in the mempool.
- * Bounded to MAX_NONCE_ENTRIES entries; oldest evicted on overflow (issue #336).
- */
-const pendingNonces = new Map<string, bigint>();
-
-/**
- * Tracks when each address last advanced its local nonce counter.
- * Used to detect stale entries: if no transaction was sent within STALE_NONCE_MS
- * the counter is expired and the network value is authoritative again.
- * Bounded to MAX_NONCE_ENTRIES entries; oldest evicted on overflow (issue #336).
- */
-const pendingNonceTimestamps = new Map<string, number>();
-
-/**
- * Exported references to the internal nonce Maps for unit testing only.
- * Do not use these outside of test files.
- */
-export const _testingNonceMaps = {
-  pendingNonces,
-  pendingNonceTimestamps,
-  STALE_NONCE_MS,
-};
 
 /**
  * Reset the pending nonce for an address (called on wallet unlock/lock/switch
  * so the counter re-syncs with the chain on the next transaction).
  */
 export function resetPendingNonce(address: string): void {
-  pendingNonces.delete(address);
-  pendingNonceTimestamps.delete(address);
+  // Fire-and-forget — wallet unlock/lock is sync in the caller.
+  resetTrackedNonce(address).catch((err) => {
+    console.error(`[nonce] Failed to reset tracked nonce for ${address}:`, err);
+  });
 }
 
 /**
@@ -95,29 +51,24 @@ export function forceResyncNonce(address: string): void {
  * Fetch the next nonce to use for `address`.
  *
  * Algorithm:
- * 1. Fetch `possible_next_nonce` and `detected_missing_nonces` from Hiro.
- * 2. If the local counter exists but is older than STALE_NONCE_MS, discard it
- *    so a stale counter never permanently blocks a recovered wallet.
- * 3. Return max(possible_next_nonce, local_pending) so rapid sequential calls
+ * 1. Check the shared nonce tracker for a locally-tracked next nonce.
+ * 2. Fetch `possible_next_nonce` and `detected_missing_nonces` from Hiro.
+ * 3. Reconcile: if chain advanced past local, update tracker.
+ * 4. Return max(chain_next, local_tracked) so rapid sequential calls
  *    get strictly increasing nonces even before the mempool reflects the first tx.
- * 4. Warn if the network reports missing nonces — gaps below the pending counter
- *    can cause the queue to stall until the gaps are filled.
+ * 5. Warn if the network reports missing nonces.
  */
 async function getNextNonce(address: string, network: Network): Promise<bigint> {
-  // Stale-timeout: discard local counter if it hasn't been refreshed recently.
-  const lastAdvanced = pendingNonceTimestamps.get(address);
-  const isStale = lastAdvanced !== undefined && Date.now() - lastAdvanced > STALE_NONCE_MS;
-  if (isStale) {
-    pendingNonces.delete(address);
-    pendingNonceTimestamps.delete(address);
-  }
-
-  const pending = pendingNonces.get(address) ?? 0n;
+  // Read local tracker state (no network call)
+  const localNext = await getTrackedNonce(address);
 
   try {
     const hiroApi = getHiroApi(network);
     const nonceInfo = await hiroApi.getNonceInfo(address);
     const networkNext = BigInt(nonceInfo.possible_next_nonce);
+
+    // Reconcile: if chain advanced past local state, update the tracker
+    await reconcileWithChain(address, nonceInfo.possible_next_nonce);
 
     // Warn about detected nonce gaps that could stall the queue.
     if (nonceInfo.detected_missing_nonces && nonceInfo.detected_missing_nonces.length > 0) {
@@ -127,13 +78,14 @@ async function getNextNonce(address: string, network: Network): Promise<bigint> 
       );
     }
 
-    return networkNext > pending ? networkNext : pending;
+    const localNextBig = localNext !== null ? BigInt(localNext) : 0n;
+    return networkNext > localNextBig ? networkNext : localNextBig;
   } catch (err) {
     // Fallback: if we have a fresh local counter, use it to keep the queue moving
     // even when Hiro is temporarily unreachable (e.g., between rapid sequential calls).
-    if (pending > 0n) {
-      console.warn(`[nonce] API call failed, using local pending counter (${pending}) for ${address}:`, err);
-      return pending;
+    if (localNext !== null && localNext > 0) {
+      console.warn(`[nonce] API call failed, using local tracked nonce (${localNext}) for ${address}:`, err);
+      return BigInt(localNext);
     }
     throw err;
   }
@@ -143,23 +95,32 @@ async function getNextNonce(address: string, network: Network): Promise<bigint> 
  * Record that a transaction with `nonce` was successfully broadcast for
  * `address`, so the next call advances past it.
  *
- * Exported for unit testing. Not part of the public API.
+ * @param txid - Optional transaction ID for the pending log. Pass empty string
+ *               if not available (e.g., legacy callers).
  */
-export function advancePendingNonce(address: string, nonce: bigint): void {
-  const next = nonce + 1n;
-  const current = pendingNonces.get(address) ?? 0n;
-  if (next > current) {
-    // Evict oldest entry before inserting a new address to keep maps bounded.
-    // Only evict when this is a new address — updates to existing keys don't
-    // change Map size so no eviction is needed.
-    if (!pendingNonces.has(address)) {
-      evictOldestIfFull(pendingNonces);
-      evictOldestIfFull(pendingNonceTimestamps);
-    }
-    pendingNonces.set(address, next);
-    pendingNonceTimestamps.set(address, Date.now());
-  }
+export function advancePendingNonce(address: string, nonce: bigint, txid = ""): void {
+  // Delegate to shared tracker (fire-and-forget since callers are sync)
+  recordNonceUsed(address, Number(nonce), txid).catch((err) => {
+    console.error(`[nonce] Failed to record nonce ${nonce} for ${address}:`, err);
+  });
 }
+
+/**
+ * @deprecated Kept for backward compatibility with existing tests.
+ * Nonce tracking is now handled by SharedNonceTracker (issue #413).
+ * Use `_testing` from `../services/nonce-tracker.js` for new tests.
+ */
+export const MAX_NONCE_ENTRIES = 100;
+
+/**
+ * @deprecated Kept for backward compatibility with existing tests.
+ * See MAX_NONCE_ENTRIES comment above.
+ */
+export const _testingNonceMaps = {
+  pendingNonces: new Map<string, bigint>(),
+  pendingNonceTimestamps: new Map<string, number>(),
+  STALE_NONCE_MS: 10 * 60 * 1000,
+};
 
 export interface Account extends WalletAddresses {
   privateKey: string;
@@ -257,7 +218,7 @@ export async function transferStx(
     );
   }
 
-  advancePendingNonce(account.address, nonce);
+  advancePendingNonce(account.address, nonce, broadcastResponse.txid);
 
   return {
     txid: broadcastResponse.txid,
@@ -302,7 +263,7 @@ export async function callContract(
     );
   }
 
-  advancePendingNonce(account.address, nonce);
+  advancePendingNonce(account.address, nonce, broadcastResponse.txid);
 
   return {
     txid: broadcastResponse.txid,
@@ -343,7 +304,7 @@ export async function deployContract(
     );
   }
 
-  advancePendingNonce(account.address, nonce);
+  advancePendingNonce(account.address, nonce, broadcastResponse.txid);
 
   return {
     txid: broadcastResponse.txid,
