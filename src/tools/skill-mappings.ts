@@ -188,7 +188,7 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   pillar_direct_revoke_fast_pool: "pillar",
   pillar_direct_stacking_status: "pillar",
 
-  // settings skill — MCP server configuration and relay health
+  // settings skill — MCP server configuration, relay health, and nonce management
   set_hiro_api_key: "settings",
   get_hiro_api_key: "settings",
   delete_hiro_api_key: "settings",
@@ -198,6 +198,8 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   get_server_version: "settings",
   check_relay_health: "settings",
   recover_sponsor_nonce: "settings",
+  nonce_health: "settings",
+  nonce_fill_gap: "settings",
 
   // signing skill — message signing and verification
   stacks_sign_message: "signing",
@@ -338,14 +340,14 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   get_rune_utxos: "runes",
   transfer_rune: "runes",
 
-  // news skill — aibtc.news signal filing and browsing
-  news_check_status: "news",
-  news_claim_beat: "news",
-  news_file_signal: "news",
-  news_front_page: "news",
-  news_leaderboard: "news",
-  news_list_beats: "news",
-  news_list_signals: "news",
+  // aibtc-news skill — aibtc.news signal filing and browsing
+  news_check_status: "aibtc-news",
+  news_claim_beat: "aibtc-news",
+  news_file_signal: "aibtc-news",
+  news_front_page: "aibtc-news",
+  news_leaderboard: "aibtc-news",
+  news_list_beats: "aibtc-news",
+  news_list_signals: "aibtc-news",
 
   // nostr skill — Nostr protocol social network
   nostr_get_profile: "nostr",
