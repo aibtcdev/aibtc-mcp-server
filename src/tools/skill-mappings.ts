@@ -399,6 +399,11 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   tenero_wallet_holdings: "tenero",
   tenero_wallet_trades: "tenero",
   tenero_whale_trades: "tenero",
+
+  // arxiv-research skill — arXiv paper search and digest compilation
+  arxiv_search: "arxiv-research",
+  arxiv_compile_digest: "arxiv-research",
+  arxiv_list_digests: "arxiv-research",
 };
 
 /**
