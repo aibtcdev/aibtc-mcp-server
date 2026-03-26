@@ -21,6 +21,7 @@ import { registerDefiTools } from "./defi.tools.js";
 import { registerScaffoldTools } from "./scaffold.tools.js";
 import { registerOpenRouterTools } from "./openrouter.tools.js";
 import { registerYieldHunterTools } from "./yield-hunter.tools.js";
+import { registerYieldDashboardTools } from "./yield-dashboard.tools.js";
 import { registerPillarTools } from "./pillar.tools.js";
 import { registerPillarDirectTools } from "./pillar-direct.tools.js";
 import { registerBitcoinTools } from "./bitcoin.tools.js";
@@ -136,6 +137,9 @@ export function registerAllTools(server: McpServer): void {
 
   // Yield Hunter (autonomous sBTC yield farming)
   registerYieldHunterTools(server);
+
+  // Yield Dashboard (read-only cross-protocol DeFi yield aggregation)
+  registerYieldDashboardTools(server);
 
   // Pillar (handoff to frontend + polling)
   registerPillarTools(server);
