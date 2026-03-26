@@ -43,6 +43,7 @@ import { registerSouldinalsTools } from "./souldinals.tools.js";
 import { registerBountyScannerTools } from "./bounty-scanner.tools.js";
 import { registerRunesTools } from "./runes.tools.js";
 import { registerInboxTools } from "./inbox.tools.js";
+import { registerArxivResearchTools } from "./arxiv-research.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 
 /**
@@ -203,6 +204,9 @@ export function registerAllTools(server: McpServer): void {
 
   // Inbox (AIBTC agent messaging — send paid inbox messages)
   registerInboxTools(server);
+
+  // arXiv Research (public arXiv Atom API — paper search and digest compilation)
+  registerArxivResearchTools(server);
 
   restoreRegisterTool();
 }
