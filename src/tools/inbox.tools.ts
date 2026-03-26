@@ -38,15 +38,22 @@ import {
 /**
  * Compute the next safe nonce for a sender address.
  *
- * Reads from the shared nonce tracker (no network call if fresh), then
- * reconciles with the chain for accuracy. Returns the higher of local
- * tracked vs chain-reported nonce.
+ * If the shared tracker has a fresh local value, returns it immediately
+ * (no network call). Otherwise falls back to chain query + reconciliation.
  */
 async function getNextNonce(address: string): Promise<number> {
   // 1. Check shared tracker (fast, no network)
   const localNext = await getTrackedNonce(address);
 
-  // 2. Fetch chain state for reconciliation
+  // Short-circuit: if local state is fresh, skip the Hiro call entirely.
+  // send_inbox_message is already network-heavy (402 challenge + relay),
+  // but avoiding an extra Hiro round-trip on the nonce hot path matters
+  // for rapid sequential sends.
+  if (localNext !== null && localNext > 0) {
+    return localNext;
+  }
+
+  // 2. No local state or stale — fetch chain state for reconciliation
   const hiroApi = getHiroApi(NETWORK);
   const accountInfo = await hiroApi.getAccountInfo(address);
   const confirmedNonce = accountInfo.nonce;
@@ -71,8 +78,7 @@ async function getNextNonce(address: string): Promise<number> {
   // 3. Reconcile tracker with chain state
   await reconcileWithChain(address, chainNext);
 
-  // 4. Return the highest of all sources
-  return Math.max(chainNext, localNext ?? 0);
+  return chainNext;
 }
 
 /**

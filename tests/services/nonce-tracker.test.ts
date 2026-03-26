@@ -12,11 +12,12 @@ import {
 
 const { STALE_NONCE_MS, MAX_PENDING_LOG, MAX_ADDRESSES } = _testing;
 
-// Generate unique address prefix per test to avoid cross-test contamination
-// when vitest shares module singletons across test files in the same thread.
+// Generate unique address prefix per test to avoid cross-test and cross-run
+// contamination when vitest shares module singletons across test files.
+const runId = Date.now();
 let testId = 0;
 function addr(suffix = ""): string {
-  return `SP_NT_${testId}_${suffix || "default"}`;
+  return `SP_NT_${runId}_${testId}_${suffix || "default"}`;
 }
 
 beforeEach(() => {

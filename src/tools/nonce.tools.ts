@@ -16,9 +16,10 @@ import { getHiroApi } from "../services/hiro-api.js";
 import {
   getAddressState,
   reloadFromDisk,
+  recordNonceUsed,
+  STALE_NONCE_MS,
   type NonceHealthSnapshot,
 } from "../services/nonce-tracker.js";
-import { advancePendingNonce } from "../transactions/builder.js";
 import {
   makeSTXTokenTransfer,
   broadcastTransaction,
@@ -82,7 +83,7 @@ Returns:
         ]);
 
         const issues: string[] = [];
-        const STALE_MS = 10 * 60 * 1000;
+        const STALE_MS = STALE_NONCE_MS;
 
         // Build local status
         const isStale = localState
@@ -253,7 +254,7 @@ Requires the wallet to be unlocked. The fee is auto-estimated.`,
         }
 
         // Record in shared tracker
-        advancePendingNonce(walletAccount.address, BigInt(nonce), broadcastResponse.txid);
+        await recordNonceUsed(walletAccount.address, nonce, broadcastResponse.txid);
 
         return createJsonResponse({
           success: true,

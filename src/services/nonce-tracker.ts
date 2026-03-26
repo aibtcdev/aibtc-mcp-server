@@ -83,7 +83,7 @@ const CURRENT_VERSION = 1;
  * tracker falls back to the chain value on the next getNextNonce() call.
  * Matches the original builder.ts STALE_NONCE_MS (10 minutes).
  */
-const STALE_NONCE_MS = 10 * 60 * 1000;
+export const STALE_NONCE_MS = 10 * 60 * 1000;
 
 /**
  * Maximum pending tx records kept per address. Older entries are evicted FIFO.
@@ -125,6 +125,37 @@ async function readStateFile(): Promise<NonceStateFile> {
   } catch {
     return createDefaultState();
   }
+}
+
+/**
+ * Merge on-disk state into in-memory state to prevent cross-process write
+ * races from silently regressing a nonce (see PR review suggestion).
+ *
+ * For each address:
+ * - Takes the higher lastUsedNonce (never regress)
+ * - In-memory pending log is authoritative (disk entries are stale copies of
+ *   our own prior writes); we only pull in disk-only addresses that another
+ *   process (CLI skills) may have created.
+ */
+function mergeStates(disk: NonceStateFile, memory: NonceStateFile): NonceStateFile {
+  const merged: NonceStateFile = { version: CURRENT_VERSION, addresses: { ...memory.addresses } };
+
+  for (const [addr, diskEntry] of Object.entries(disk.addresses)) {
+    const memEntry = merged.addresses[addr];
+    if (!memEntry) {
+      // Address exists on disk but not in memory — another process wrote it
+      merged.addresses[addr] = diskEntry;
+      continue;
+    }
+
+    // Both exist: take the higher nonce to prevent regression
+    if (diskEntry.lastUsedNonce > memEntry.lastUsedNonce) {
+      memEntry.lastUsedNonce = diskEntry.lastUsedNonce;
+      memEntry.lastUpdated = diskEntry.lastUpdated;
+    }
+  }
+
+  return merged;
 }
 
 async function writeStateFile(state: NonceStateFile): Promise<void> {
@@ -333,9 +364,16 @@ export async function getFullState(): Promise<NonceStateFile> {
 
 /**
  * Force reload state from disk (useful after external process wrote to file).
+ * Merges disk state into memory so external writes (CLI skills) are picked up
+ * without losing any in-memory nonce advancements.
  */
 export async function reloadFromDisk(): Promise<void> {
-  _memoryState = await readStateFile();
+  const diskState = await readStateFile();
+  if (_memoryState && Object.keys(_memoryState.addresses).length > 0) {
+    _memoryState = mergeStates(diskState, _memoryState);
+  } else {
+    _memoryState = diskState;
+  }
 }
 
 // ---------------------------------------------------------------------------
