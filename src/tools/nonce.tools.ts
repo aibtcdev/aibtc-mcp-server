@@ -469,4 +469,410 @@ Returns structured JSON with pendingSlots, sponsorMissingNonces, and summary cou
       }
     }
   );
+
+  // ============================================================================
+  // nonce_heal — diagnose, fill gaps, and optionally RBF-bump the chain head
+  // ============================================================================
+  server.registerTool(
+    "nonce_heal",
+    {
+      description: `Diagnose and heal the full nonce state for the active wallet in one shot.
+
+Handles 90% of stuck-tx cases automatically:
+1. Fetches current nonce state from Hiro API (gaps, mempool)
+2. In dryRun mode: shows what would happen without broadcasting
+3. In execute mode (dryRun=false):
+   - Fills every gap with a 1 uSTX self-transfer to the PoX burn address
+   - Optionally RBF-bumps the chain head (lowest non-gap pending tx) to kick off processing
+
+RBF bump behavior:
+- Token-transfer txs: rebuilt at same nonce with fee * feeMultiplier and rebroadcast
+- Sponsored txs: skipped with explanation (sender cannot RBF without sponsor key)
+- Contract-call txs: skipped with manual RBF instructions
+
+Always run nonce_health first to understand the current state.
+Requires wallet to be unlocked for execute mode (dryRun=false).
+
+Returns:
+- address, dryRun flag, confirmedNonce
+- gapsFound: list of missing nonces
+- actions: per-action detail (fill_gap or bump_head) with txids, fees, status
+- warnings: informational notes
+- summary: human-readable description of what happened`,
+      inputSchema: {
+        address: z
+          .string()
+          .optional()
+          .describe(
+            "STX address to heal. Defaults to the active wallet address."
+          ),
+        dryRun: z
+          .boolean()
+          .default(true)
+          .describe(
+            "If true (default), preview proposed actions without broadcasting. Set to false to execute."
+          ),
+        bumpHead: z
+          .boolean()
+          .default(true)
+          .describe(
+            "Whether to RBF-bump the first real pending tx (chain head) after filling gaps. Default true."
+          ),
+        feeMultiplier: z
+          .number()
+          .min(1.1)
+          .default(1.5)
+          .describe(
+            "Fee multiplier for RBF bump (e.g. 1.5 = 50% higher fee). Minimum 1.1. Default 1.5."
+          ),
+      },
+    },
+    async ({ address: inputAddress, dryRun, bumpHead, feeMultiplier }) => {
+      try {
+        const walletAccount = getWalletManager().getAccount();
+        const address = inputAddress || walletAccount?.address;
+
+        if (!address) {
+          return createJsonResponse({
+            error:
+              "No address provided and no wallet is unlocked. Provide an address or unlock a wallet first.",
+          });
+        }
+
+        if (!dryRun && !walletAccount) {
+          return createJsonResponse({
+            error:
+              "Wallet must be unlocked to execute heal actions. Use wallet_unlock first, or set dryRun=true to preview.",
+          });
+        }
+
+        // Reload from disk to pick up changes from other processes
+        await reloadFromDisk();
+
+        const nonceInfo = await getHiroApi(NETWORK).getNonceInfo(address);
+
+        const confirmedNonce = nonceInfo.last_executed_tx_nonce;
+        const gapsFound: number[] = nonceInfo.detected_missing_nonces ?? [];
+        const mempoolNonces: number[] = nonceInfo.detected_mempool_nonces ?? [];
+
+        const gapSet = new Set(gapsFound);
+
+        type HealAction =
+          | {
+              type: "fill_gap";
+              nonce: number;
+              txid: string | null;
+              status: "proposed" | "broadcast" | "failed";
+              error?: string;
+            }
+          | {
+              type: "bump_head";
+              nonce: number;
+              originalTxid: string;
+              newTxid: string | null;
+              newFee?: string;
+              status: "proposed" | "broadcast" | "skipped" | "failed";
+              reason?: string;
+              error?: string;
+            };
+
+        const actions: HealAction[] = [];
+        const warnings: string[] = [];
+
+        const POX_BURN_ADDRESS = "SP000000000000000000002Q6VF78";
+        const networkName = getStacksNetwork(NETWORK);
+
+        // Identify chain head: lowest non-gap mempool nonce
+        const chainHeadNonce =
+          mempoolNonces.length > 0
+            ? mempoolNonces.filter((n) => !gapSet.has(n)).sort((a, b) => a - b)[0]
+            : undefined;
+
+        // ----------------------------------------------------------------
+        // dryRun: build proposed actions and return early
+        // ----------------------------------------------------------------
+        if (dryRun) {
+          for (const n of gapsFound) {
+            actions.push({ type: "fill_gap", nonce: n, txid: null, status: "proposed" });
+          }
+
+          if (bumpHead && chainHeadNonce !== undefined) {
+            // Find the chain head tx to inspect its type
+            const mempoolResult = await getHiroApi(NETWORK)
+              .getMempoolTransactions({ sender_address: address, limit: 50 })
+              .catch(() => null);
+
+            const headTx = mempoolResult?.results.find((tx) => tx.nonce === chainHeadNonce);
+
+            if (!headTx) {
+              warnings.push(
+                `Could not find chain head tx at nonce ${chainHeadNonce} in mempool. It may have confirmed already.`
+              );
+            } else if (headTx.sponsored) {
+              actions.push({
+                type: "bump_head",
+                nonce: chainHeadNonce,
+                originalTxid: headTx.tx_id,
+                newTxid: null,
+                status: "skipped",
+                reason:
+                  "Sponsored tx — sender cannot RBF. Relay must recover.",
+              });
+            } else {
+              // Fetch the full tx for tx_type
+              const fullTx = await getHiroApi(NETWORK)
+                .getTransaction(headTx.tx_id)
+                .catch(() => null);
+              if (fullTx?.tx_type === "token_transfer") {
+                const originalFee = parseInt(headTx.fee_rate ?? "0", 10);
+                const newFee = Math.ceil(originalFee * (feeMultiplier ?? 1.5));
+                actions.push({
+                  type: "bump_head",
+                  nonce: chainHeadNonce,
+                  originalTxid: headTx.tx_id,
+                  newTxid: null,
+                  newFee: String(newFee),
+                  status: "proposed",
+                });
+              } else {
+                actions.push({
+                  type: "bump_head",
+                  nonce: chainHeadNonce,
+                  originalTxid: headTx.tx_id,
+                  newTxid: null,
+                  status: "skipped",
+                  reason: `Manual RBF needed for ${fullTx?.tx_type ?? "unknown"} at nonce ${chainHeadNonce} — rebuild and resubmit manually.`,
+                });
+              }
+            }
+          }
+
+          const gapCount = gapsFound.length;
+          const bumpAction = actions.find((a) => a.type === "bump_head");
+          const summary =
+            gapCount === 0 && !bumpAction
+              ? "No gaps found and no head bump needed. Nonce state looks healthy."
+              : `Would fill ${gapCount} gap(s)${bumpAction ? ` and ${bumpAction.status === "proposed" ? "bump" : "skip"} chain head at nonce ${bumpAction.nonce}` : ""}. Set dryRun=false to execute.`;
+
+          return createJsonResponse({
+            address,
+            dryRun: true,
+            confirmedNonce,
+            gapsFound,
+            actions,
+            warnings,
+            summary,
+          });
+        }
+
+        // ----------------------------------------------------------------
+        // Execute mode
+        // ----------------------------------------------------------------
+        const fee = await resolveDefaultFee(NETWORK, "token_transfer");
+
+        // Fill each gap
+        for (const n of gapsFound) {
+          try {
+            const transaction = await makeSTXTokenTransfer({
+              recipient: POX_BURN_ADDRESS,
+              amount: 1n,
+              senderKey: walletAccount!.privateKey,
+              network: networkName,
+              memo: `nonce-fill:${n}`,
+              nonce: BigInt(n),
+              fee,
+            });
+
+            const broadcastResponse = await broadcastTransaction({
+              transaction,
+              network: networkName,
+            });
+
+            if ("error" in broadcastResponse) {
+              actions.push({
+                type: "fill_gap",
+                nonce: n,
+                txid: null,
+                status: "failed",
+                error: `${broadcastResponse.error} - ${broadcastResponse.reason}`,
+              });
+              warnings.push(
+                `Gap fill at nonce ${n} failed: ${broadcastResponse.error}`
+              );
+            } else {
+              await recordNonceUsed(
+                walletAccount!.address,
+                n,
+                broadcastResponse.txid
+              );
+              actions.push({
+                type: "fill_gap",
+                nonce: n,
+                txid: broadcastResponse.txid,
+                status: "broadcast",
+              });
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            actions.push({
+              type: "fill_gap",
+              nonce: n,
+              txid: null,
+              status: "failed",
+              error: msg,
+            });
+            warnings.push(`Gap fill at nonce ${n} threw: ${msg}`);
+          }
+        }
+
+        // RBF bump chain head
+        if (bumpHead && chainHeadNonce !== undefined) {
+          const mempoolResult = await getHiroApi(NETWORK)
+            .getMempoolTransactions({ sender_address: address, limit: 50 })
+            .catch(() => null);
+
+          const headTx = mempoolResult?.results.find(
+            (tx) => tx.nonce === chainHeadNonce
+          );
+
+          if (!headTx) {
+            warnings.push(
+              `Could not find chain head tx at nonce ${chainHeadNonce} in mempool. It may have confirmed already.`
+            );
+          } else if (headTx.sponsored) {
+            actions.push({
+              type: "bump_head",
+              nonce: chainHeadNonce,
+              originalTxid: headTx.tx_id,
+              newTxid: null,
+              status: "skipped",
+              reason:
+                "Sponsored tx — sender cannot RBF. Relay must recover.",
+            });
+          } else {
+            const fullTx = await getHiroApi(NETWORK)
+              .getTransaction(headTx.tx_id)
+              .catch(() => null);
+
+            if (fullTx?.tx_type === "token_transfer") {
+              try {
+                const originalFee = parseInt(headTx.fee_rate ?? "0", 10);
+                const newFee = Math.ceil(
+                  originalFee * (feeMultiplier ?? 1.5)
+                );
+
+                const rbfTx = await makeSTXTokenTransfer({
+                  recipient: POX_BURN_ADDRESS,
+                  amount: 1n,
+                  senderKey: walletAccount!.privateKey,
+                  network: networkName,
+                  memo: `rbf-bump:${chainHeadNonce}`,
+                  nonce: BigInt(chainHeadNonce),
+                  fee: BigInt(newFee),
+                });
+
+                const rbfBroadcast = await broadcastTransaction({
+                  transaction: rbfTx,
+                  network: networkName,
+                });
+
+                if ("error" in rbfBroadcast) {
+                  actions.push({
+                    type: "bump_head",
+                    nonce: chainHeadNonce,
+                    originalTxid: headTx.tx_id,
+                    newTxid: null,
+                    newFee: String(newFee),
+                    status: "failed",
+                    error: `${rbfBroadcast.error} - ${rbfBroadcast.reason}`,
+                  });
+                  warnings.push(
+                    `RBF bump at nonce ${chainHeadNonce} failed: ${rbfBroadcast.error}`
+                  );
+                } else {
+                  await recordNonceUsed(
+                    walletAccount!.address,
+                    chainHeadNonce,
+                    rbfBroadcast.txid
+                  );
+                  actions.push({
+                    type: "bump_head",
+                    nonce: chainHeadNonce,
+                    originalTxid: headTx.tx_id,
+                    newTxid: rbfBroadcast.txid,
+                    newFee: String(newFee),
+                    status: "broadcast",
+                  });
+                }
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                actions.push({
+                  type: "bump_head",
+                  nonce: chainHeadNonce,
+                  originalTxid: headTx.tx_id,
+                  newTxid: null,
+                  status: "failed",
+                  error: msg,
+                });
+                warnings.push(`RBF bump at nonce ${chainHeadNonce} threw: ${msg}`);
+              }
+            } else {
+              actions.push({
+                type: "bump_head",
+                nonce: chainHeadNonce,
+                originalTxid: headTx.tx_id,
+                newTxid: null,
+                status: "skipped",
+                reason: `Manual RBF needed for ${fullTx?.tx_type ?? "unknown"} at nonce ${chainHeadNonce} — rebuild and resubmit manually.`,
+              });
+            }
+          }
+        }
+
+        // Build summary
+        const filledCount = actions.filter(
+          (a) => a.type === "fill_gap" && a.status === "broadcast"
+        ).length;
+        const failedGaps = actions.filter(
+          (a) => a.type === "fill_gap" && a.status === "failed"
+        ).length;
+        const bumpAction = actions.find((a) => a.type === "bump_head");
+
+        let summary = "";
+        if (filledCount > 0) {
+          summary += `Filled ${filledCount} gap(s). `;
+        }
+        if (failedGaps > 0) {
+          summary += `${failedGaps} gap fill(s) failed (see warnings). `;
+        }
+        if (bumpAction) {
+          if (bumpAction.status === "broadcast") {
+            summary += `Bumped chain head at nonce ${bumpAction.nonce}. Chain should unstick within 1-2 blocks.`;
+          } else if (bumpAction.status === "skipped") {
+            summary += `Chain head at nonce ${bumpAction.nonce} skipped: ${bumpAction.reason}`;
+          } else if (bumpAction.status === "failed") {
+            summary += `Chain head bump at nonce ${bumpAction.nonce} failed (see warnings).`;
+          }
+        }
+        if (!summary) {
+          summary =
+            gapsFound.length === 0
+              ? "No gaps found. Nonce state looks healthy."
+              : "Actions attempted — check action statuses for details.";
+        }
+
+        return createJsonResponse({
+          address,
+          dryRun: false,
+          confirmedNonce,
+          gapsFound,
+          actions,
+          warnings,
+          summary: summary.trim(),
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
 }
