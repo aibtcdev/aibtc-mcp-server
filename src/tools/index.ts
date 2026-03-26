@@ -27,6 +27,7 @@ import { registerBitcoinTools } from "./bitcoin.tools.js";
 import { registerMempoolTools } from "./mempool.tools.js";
 import { registerNostrTools } from "./nostr.tools.js";
 import { registerRelayDiagnosticTools } from "./relay-diagnostic.tools.js";
+import { registerNonceTools } from "./nonce.tools.js";
 import { registerStacksMarketTools } from "./stacks-market.tools.js";
 import { registerTeneroTools } from "./tenero.tools.js";
 import { registerOrdinalsP2PTools } from "./ordinals-p2p.tools.js";
@@ -153,6 +154,9 @@ export function registerAllTools(server: McpServer): void {
 
   // Relay Diagnostics (sponsor relay health, nonce status, stuck transactions)
   registerRelayDiagnosticTools(server);
+
+  // Nonce Diagnostics (sender nonce health, gap-fill — issue #413)
+  registerNonceTools(server);
 
   // Stacks Market prediction market trading
   registerStacksMarketTools(server);
