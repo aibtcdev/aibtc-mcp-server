@@ -28,6 +28,65 @@ import { getStacksNetwork, getExplorerTxUrl } from "../config/networks.js";
 import { resolveDefaultFee } from "../utils/fee.js";
 import { SPONSOR_ADDRESSES } from "../utils/relay-health.js";
 
+/** PoX burn address used as the recipient for gap-fill/RBF self-transfers. */
+const POX_BURN_ADDRESS = "SP000000000000000000002Q6VF78";
+
+/** Result of a single gap-fill broadcast attempt. */
+interface GapFillResult {
+  nonce: number;
+  txid: string | null;
+  status: "broadcast" | "failed";
+  error?: string;
+  explorer?: string;
+}
+
+/**
+ * Broadcast a 1 uSTX gap-fill transaction at the given nonce.
+ *
+ * Shared by both the nonce_fill_gap tool (single gap) and nonce_heal
+ * (batch gaps). Records the nonce in the shared tracker on success.
+ */
+async function broadcastGapFill(
+  privateKey: string,
+  senderAddress: string,
+  nonce: number,
+  fee: bigint,
+): Promise<GapFillResult> {
+  const networkName = getStacksNetwork(NETWORK);
+  const transaction = await makeSTXTokenTransfer({
+    recipient: POX_BURN_ADDRESS,
+    amount: 1n,
+    senderKey: privateKey,
+    network: networkName,
+    memo: `nonce-fill:${nonce}`,
+    nonce: BigInt(nonce),
+    fee,
+  });
+
+  const broadcastResponse = await broadcastTransaction({
+    transaction,
+    network: networkName,
+  });
+
+  if ("error" in broadcastResponse) {
+    return {
+      nonce,
+      txid: null,
+      status: "failed",
+      error: `${broadcastResponse.error} - ${broadcastResponse.reason}`,
+    };
+  }
+
+  await recordNonceUsed(senderAddress, nonce, broadcastResponse.txid);
+
+  return {
+    nonce,
+    txid: broadcastResponse.txid,
+    status: "broadcast",
+    explorer: getExplorerTxUrl(broadcastResponse.txid, NETWORK),
+  };
+}
+
 export function registerNonceTools(server: McpServer): void {
   // ============================================================================
   // nonce_health — surface local tracker state vs chain
@@ -84,11 +143,10 @@ Returns:
         ]);
 
         const issues: string[] = [];
-        const STALE_MS = STALE_NONCE_MS;
 
         // Build local status
         const isStale = localState
-          ? Date.now() - new Date(localState.lastUpdated).getTime() > STALE_MS
+          ? Date.now() - new Date(localState.lastUpdated).getTime() > STALE_NONCE_MS
           : true;
 
         const local = localState
@@ -232,43 +290,28 @@ Requires the wallet to be unlocked. The fee is auto-estimated.`,
           });
         }
 
-        // Send 1 uSTX to the PoX burn address (self-transfers are rejected by Stacks)
-        const POX_BURN_ADDRESS = "SP000000000000000000002Q6VF78";
-        const networkName = getStacksNetwork(NETWORK);
         const fee = await resolveDefaultFee(NETWORK, "token_transfer");
-
-        const transaction = await makeSTXTokenTransfer({
-          recipient: POX_BURN_ADDRESS,
-          amount: 1n,
-          senderKey: walletAccount.privateKey,
-          network: networkName,
-          memo: `nonce-fill:${nonce}`,
-          nonce: BigInt(nonce),
+        const result = await broadcastGapFill(
+          walletAccount.privateKey,
+          walletAccount.address,
+          nonce,
           fee,
-        });
+        );
 
-        const broadcastResponse = await broadcastTransaction({
-          transaction,
-          network: networkName,
-        });
-
-        if ("error" in broadcastResponse) {
+        if (result.status === "failed") {
           return createJsonResponse({
             success: false,
             nonce,
-            error: `Broadcast failed: ${broadcastResponse.error} - ${broadcastResponse.reason}`,
+            error: `Broadcast failed: ${result.error}`,
           });
         }
-
-        // Record in shared tracker
-        await recordNonceUsed(walletAccount.address, nonce, broadcastResponse.txid);
 
         return createJsonResponse({
           success: true,
           nonce,
-          txid: broadcastResponse.txid,
-          explorer: getExplorerTxUrl(broadcastResponse.txid, NETWORK),
-          message: `Gap-fill transaction sent at nonce ${nonce}. txid: ${broadcastResponse.txid}`,
+          txid: result.txid,
+          explorer: result.explorer,
+          message: `Gap-fill transaction sent at nonce ${nonce}. txid: ${result.txid}`,
         });
       } catch (error) {
         return createErrorResponse(error);
@@ -579,9 +622,6 @@ Returns:
         const actions: HealAction[] = [];
         const warnings: string[] = [];
 
-        const POX_BURN_ADDRESS = "SP000000000000000000002Q6VF78";
-        const networkName = getStacksNetwork(NETWORK);
-
         // Identify chain head: lowest non-gap mempool nonce
         const chainHeadNonce =
           mempoolNonces.length > 0
@@ -673,54 +713,19 @@ Returns:
         // Fill each gap
         for (const n of gapsFound) {
           try {
-            const transaction = await makeSTXTokenTransfer({
-              recipient: POX_BURN_ADDRESS,
-              amount: 1n,
-              senderKey: walletAccount!.privateKey,
-              network: networkName,
-              memo: `nonce-fill:${n}`,
-              nonce: BigInt(n),
+            const result = await broadcastGapFill(
+              walletAccount!.privateKey,
+              walletAccount!.address,
+              n,
               fee,
-            });
-
-            const broadcastResponse = await broadcastTransaction({
-              transaction,
-              network: networkName,
-            });
-
-            if ("error" in broadcastResponse) {
-              actions.push({
-                type: "fill_gap",
-                nonce: n,
-                txid: null,
-                status: "failed",
-                error: `${broadcastResponse.error} - ${broadcastResponse.reason}`,
-              });
-              warnings.push(
-                `Gap fill at nonce ${n} failed: ${broadcastResponse.error}`
-              );
-            } else {
-              await recordNonceUsed(
-                walletAccount!.address,
-                n,
-                broadcastResponse.txid
-              );
-              actions.push({
-                type: "fill_gap",
-                nonce: n,
-                txid: broadcastResponse.txid,
-                status: "broadcast",
-              });
+            );
+            actions.push({ type: "fill_gap", ...result });
+            if (result.status === "failed") {
+              warnings.push(`Gap fill at nonce ${n} failed: ${result.error}`);
             }
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            actions.push({
-              type: "fill_gap",
-              nonce: n,
-              txid: null,
-              status: "failed",
-              error: msg,
-            });
+            actions.push({ type: "fill_gap", nonce: n, txid: null, status: "failed", error: msg });
             warnings.push(`Gap fill at nonce ${n} threw: ${msg}`);
           }
         }
@@ -765,7 +770,7 @@ Returns:
                   recipient: POX_BURN_ADDRESS,
                   amount: 1n,
                   senderKey: walletAccount!.privateKey,
-                  network: networkName,
+                  network: getStacksNetwork(NETWORK),
                   memo: `rbf-bump:${chainHeadNonce}`,
                   nonce: BigInt(chainHeadNonce),
                   fee: BigInt(newFee),
@@ -773,7 +778,7 @@ Returns:
 
                 const rbfBroadcast = await broadcastTransaction({
                   transaction: rbfTx,
-                  network: networkName,
+                  network: getStacksNetwork(NETWORK),
                 });
 
                 if ("error" in rbfBroadcast) {
