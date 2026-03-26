@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.44.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.43.0...mcp-server-v1.44.0) (2026-03-26)
+
+
+### Features
+
+* **nonce:** unified sender nonce tracker with file-backed persistence ([#415](https://github.com/aibtcdev/aibtc-mcp-server/issues/415)) ([9d62348](https://github.com/aibtcdev/aibtc-mcp-server/commit/9d623485378580d26b51668ea98c75f7ddf9cb4c)), closes [#413](https://github.com/aibtcdev/aibtc-mcp-server/issues/413)
+
 ## [1.43.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.42.4...mcp-server-v1.43.0) (2026-03-25)
 
 
