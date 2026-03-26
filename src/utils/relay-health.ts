@@ -40,7 +40,7 @@ export interface RelayHealthStatus {
  * Known sponsor addresses for each network.
  * Only mainnet has a known relay sponsor address.
  */
-const SPONSOR_ADDRESSES: Partial<Record<Network, string>> = {
+export const SPONSOR_ADDRESSES: Partial<Record<Network, string>> = {
   mainnet: "SP1PMPPVCMVW96FSWFV30KJQ4MNBMZ8MRWR3JWQ7",
 };
 
