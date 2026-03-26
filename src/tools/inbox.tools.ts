@@ -23,29 +23,31 @@ import { extractTxidFromPaymentSignature, pollTransactionConfirmation } from "..
 const INBOX_BASE = "https://aibtc.com/api/inbox";
 
 // ============================================================================
-// Nonce Manager
-// Per-address nonce cache with 120s TTL. Prevents ConflictingNonceInMempool
-// by tracking the highest known next-nonce across confirmed + mempool + local.
+// Nonce Manager (delegated to SharedNonceTracker — issue #413)
+//
+// All nonce tracking is now handled by the shared tracker, which persists to
+// ~/.aibtc/nonce-state.json and is shared across MCP tools and CLI skills.
 // ============================================================================
 
-interface NonceCacheEntry {
-  nextNonce: number;
-  expiresAt: number;
-}
-
-const nonceCache: Map<string, NonceCacheEntry> = new Map();
-const NONCE_TTL_MS = 120_000;
+import {
+  getTrackedNonce,
+  recordNonceUsed,
+  reconcileWithChain,
+} from "../services/nonce-tracker.js";
 
 /**
  * Compute the next safe nonce for a sender address.
- * Takes the max of:
- *   - confirmed account nonce (on-chain)
- *   - highest pending mempool nonce + 1
- *   - locally cached next nonce (from a recent send)
+ *
+ * Reads from the shared nonce tracker (no network call if fresh), then
+ * reconciles with the chain for accuracy. Returns the higher of local
+ * tracked vs chain-reported nonce.
  */
 async function getNextNonce(address: string): Promise<number> {
-  const hiroApi = getHiroApi(NETWORK);
+  // 1. Check shared tracker (fast, no network)
+  const localNext = await getTrackedNonce(address);
 
+  // 2. Fetch chain state for reconciliation
+  const hiroApi = getHiroApi(NETWORK);
   const accountInfo = await hiroApi.getAccountInfo(address);
   const confirmedNonce = accountInfo.nonce;
 
@@ -64,21 +66,20 @@ async function getNextNonce(address: string): Promise<number> {
     // Non-fatal: fall back to confirmed nonce only
   }
 
-  const cached = nonceCache.get(address);
-  const fromCache = (cached && Date.now() < cached.expiresAt) ? cached.nextNonce : 0;
+  const chainNext = Math.max(confirmedNonce, highestMempoolNonce + 1);
 
-  return Math.max(confirmedNonce, highestMempoolNonce + 1, fromCache);
+  // 3. Reconcile tracker with chain state
+  await reconcileWithChain(address, chainNext);
+
+  // 4. Return the highest of all sources
+  return Math.max(chainNext, localNext ?? 0);
 }
 
 /**
  * Record that we used a nonce for an address so subsequent calls use a higher value.
  */
-function advanceNonceCache(address: string, usedNonce: number): void {
-  const now = Date.now();
-  nonceCache.set(address, {
-    nextNonce: usedNonce + 1,
-    expiresAt: now + NONCE_TTL_MS,
-  });
+async function advanceNonceCache(address: string, usedNonce: number, txid = ""): Promise<void> {
+  await recordNonceUsed(address, usedNonce, txid);
 }
 
 // ============================================================================
@@ -470,14 +471,14 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
           }
 
           if (finalRes.status === 201 || finalRes.status === 200) {
-            // Advance local nonce cache on success
-            advanceNonceCache(account.address, nonce);
-
             // Extract payment response header for txid
             const settlement = decodePaymentResponse(
               finalRes.headers.get(X402_HEADERS.PAYMENT_RESPONSE)
             );
             const txid = settlement?.transaction;
+
+            // Advance shared nonce tracker on success
+            await advanceNonceCache(account.address, nonce, txid ?? "");
 
             return createJsonResponse({
               success: true,
@@ -529,7 +530,7 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
               cachedPaymentId = null;
               cachedNonce = null;
               // Advance nonce cache so the next attempt uses a strictly higher nonce.
-              advanceNonceCache(account.address, nonce);
+              await advanceNonceCache(account.address, nonce);
             }
 
             lastError = `${finalRes.status}: ${responseData}`;
