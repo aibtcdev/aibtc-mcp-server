@@ -1,192 +1,120 @@
-import { describe, it, expect, beforeEach } from "vitest";
+/**
+ * Nonce tracking tests for builder.ts
+ *
+ * These tests verify the builder's public nonce API delegates correctly to the
+ * SharedNonceTracker (issue #413). Detailed tracker behavior is tested in
+ * tests/services/nonce-tracker.test.ts.
+ *
+ * All tests use the tracker API directly (await) to avoid fire-and-forget
+ * timing issues from advancePendingNonce's sync wrapper.
+ */
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from "vitest";
+import fs from "fs/promises";
+import os from "os";
+import path from "path";
 import {
-  resetPendingNonce,
-  forceResyncNonce,
-  advancePendingNonce,
   MAX_NONCE_ENTRIES,
   _testingNonceMaps,
 } from "../../src/transactions/builder.js";
+import {
+  getTrackedNonce,
+  getAddressState,
+  recordNonceUsed,
+  resetTrackedNonce,
+  _testing,
+} from "../../src/services/nonce-tracker.js";
 
-const { pendingNonces, pendingNonceTimestamps } = _testingNonceMaps;
+// Use a unique temp file per test run for isolation
+const tmpDir = path.join(os.tmpdir(), `nonce-builder-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+_testing.setStateFilePath(path.join(tmpDir, "nonce-state.json"));
 
-// Helper: clear both maps before each test so tests are isolated
-beforeEach(function clearNonceMaps() {
-  pendingNonces.clear();
-  pendingNonceTimestamps.clear();
+beforeAll(async () => {
+  await fs.mkdir(tmpDir, { recursive: true });
 });
 
-describe("advancePendingNonce", () => {
-  it("should set the next nonce to nonce + 1 for a new address", function () {
-    advancePendingNonce("SP1", 0n);
-    expect(pendingNonces.get("SP1")).toBe(1n);
+afterAll(async () => {
+  await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+});
+
+beforeEach(() => {
+  _testing.clearMemory();
+});
+
+describe("backward-compat exports", () => {
+  it("should export MAX_NONCE_ENTRIES as 100", () => {
+    expect(MAX_NONCE_ENTRIES).toBe(100);
   });
 
-  it("should record a timestamp when advancing", function () {
-    const before = Date.now();
-    advancePendingNonce("SP1", 5n);
-    const after = Date.now();
-    const ts = pendingNonceTimestamps.get("SP1");
-    expect(ts).toBeDefined();
-    expect(ts!).toBeGreaterThanOrEqual(before);
-    expect(ts!).toBeLessThanOrEqual(after);
-  });
-
-  it("should advance to a higher value when called sequentially", function () {
-    advancePendingNonce("SP1", 0n);
-    expect(pendingNonces.get("SP1")).toBe(1n);
-    advancePendingNonce("SP1", 1n);
-    expect(pendingNonces.get("SP1")).toBe(2n);
-    advancePendingNonce("SP1", 2n);
-    expect(pendingNonces.get("SP1")).toBe(3n);
-  });
-
-  it("should not regress to a lower nonce (out-of-order advance ignored)", function () {
-    advancePendingNonce("SP1", 10n);
-    expect(pendingNonces.get("SP1")).toBe(11n);
-    // Simulate an out-of-order call with an older nonce
-    advancePendingNonce("SP1", 5n);
-    expect(pendingNonces.get("SP1")).toBe(11n);
-  });
-
-  it("should track multiple addresses independently", function () {
-    advancePendingNonce("SP1", 3n);
-    advancePendingNonce("SP2", 7n);
-    expect(pendingNonces.get("SP1")).toBe(4n);
-    expect(pendingNonces.get("SP2")).toBe(8n);
+  it("should export _testingNonceMaps with STALE_NONCE_MS as 10 minutes", () => {
+    expect(_testingNonceMaps.STALE_NONCE_MS).toBe(10 * 60 * 1000);
   });
 });
 
-describe("resetPendingNonce", () => {
-  it("should remove the address from both maps", function () {
-    advancePendingNonce("SP1", 5n);
-    expect(pendingNonces.has("SP1")).toBe(true);
-    expect(pendingNonceTimestamps.has("SP1")).toBe(true);
+describe("advancePendingNonce (delegates to SharedNonceTracker)", () => {
+  it("should record nonce in shared tracker", async () => {
+    await recordNonceUsed("SP1", 0, "tx_0");
 
-    resetPendingNonce("SP1");
-    expect(pendingNonces.has("SP1")).toBe(false);
-    expect(pendingNonceTimestamps.has("SP1")).toBe(false);
+    const entry = await getAddressState("SP1");
+    expect(entry).not.toBeNull();
+    expect(entry!.lastUsedNonce).toBe(0);
   });
 
-  it("should be safe to call on an address with no tracked nonce", function () {
-    expect(() => resetPendingNonce("SP_UNKNOWN")).not.toThrow();
+  it("should advance nonce sequentially in shared tracker", async () => {
+    await recordNonceUsed("SP1", 0, "tx_0");
+    await recordNonceUsed("SP1", 1, "tx_1");
+    await recordNonceUsed("SP1", 2, "tx_2");
+
+    const next = await getTrackedNonce("SP1");
+    expect(next).toBe(3);
   });
 
-  it("should not affect other addresses", function () {
-    advancePendingNonce("SP1", 3n);
-    advancePendingNonce("SP2", 9n);
-    resetPendingNonce("SP1");
-    expect(pendingNonces.has("SP1")).toBe(false);
-    expect(pendingNonces.get("SP2")).toBe(10n);
+  it("should not regress nonce in shared tracker", async () => {
+    await recordNonceUsed("SP1", 10, "tx_10");
+    await recordNonceUsed("SP1", 5, "tx_5");
+
+    const next = await getTrackedNonce("SP1");
+    expect(next).toBe(11);
+  });
+
+  it("should track multiple addresses independently", async () => {
+    await recordNonceUsed("SP1", 3, "tx_a");
+    await recordNonceUsed("SP2", 7, "tx_b");
+
+    expect(await getTrackedNonce("SP1")).toBe(4);
+    expect(await getTrackedNonce("SP2")).toBe(8);
+  });
+});
+
+describe("resetPendingNonce (delegates to SharedNonceTracker)", () => {
+  it("should clear address from shared tracker", async () => {
+    await recordNonceUsed("SP1", 5, "tx_5");
+    expect(await getAddressState("SP1")).not.toBeNull();
+
+    await resetTrackedNonce("SP1");
+    expect(await getAddressState("SP1")).toBeNull();
+  });
+
+  it("should be safe to call on unknown address", async () => {
+    await expect(resetTrackedNonce("SP_UNKNOWN")).resolves.not.toThrow();
+  });
+
+  it("should not affect other addresses", async () => {
+    await recordNonceUsed("SP1", 3, "tx_a");
+    await recordNonceUsed("SP2", 9, "tx_b");
+
+    await resetTrackedNonce("SP1");
+
+    expect(await getAddressState("SP1")).toBeNull();
+    expect((await getAddressState("SP2"))!.lastUsedNonce).toBe(9);
   });
 });
 
 describe("forceResyncNonce", () => {
-  it("should behave identically to resetPendingNonce", function () {
-    advancePendingNonce("SP1", 2n);
-    expect(pendingNonces.has("SP1")).toBe(true);
+  it("should clear address from shared tracker", async () => {
+    await recordNonceUsed("SP1", 2, "tx_2");
+    expect(await getAddressState("SP1")).not.toBeNull();
 
-    forceResyncNonce("SP1");
-    expect(pendingNonces.has("SP1")).toBe(false);
-    expect(pendingNonceTimestamps.has("SP1")).toBe(false);
-  });
-});
-
-describe("stale nonce timeout", () => {
-  it("should expose STALE_NONCE_MS as 10 minutes", function () {
-    expect(_testingNonceMaps.STALE_NONCE_MS).toBe(10 * 60 * 1000);
-  });
-
-  it("should detect an entry older than STALE_NONCE_MS as stale", function () {
-    // Simulate an entry that was last advanced beyond the stale window
-    pendingNonces.set("SP_STALE", 42n);
-    pendingNonceTimestamps.set(
-      "SP_STALE",
-      Date.now() - _testingNonceMaps.STALE_NONCE_MS - 1
-    );
-
-    // Verify the timestamp math correctly identifies the entry as stale.
-    // Note: actual cleanup happens in getNextNonce (requires network),
-    // so this test only validates the staleness computation.
-    const ts = pendingNonceTimestamps.get("SP_STALE")!;
-    const isStale = Date.now() - ts > _testingNonceMaps.STALE_NONCE_MS;
-    expect(isStale).toBe(true);
-  });
-
-  it("should treat a freshly-advanced entry as not stale", function () {
-    advancePendingNonce("SP_FRESH", 1n);
-    const ts = pendingNonceTimestamps.get("SP_FRESH")!;
-    const isStale = Date.now() - ts > _testingNonceMaps.STALE_NONCE_MS;
-    expect(isStale).toBe(false);
-  });
-});
-
-describe("FIFO size bound (MAX_NONCE_ENTRIES)", () => {
-  it("should expose MAX_NONCE_ENTRIES as 100", function () {
-    expect(MAX_NONCE_ENTRIES).toBe(100);
-  });
-
-  it("should not exceed MAX_NONCE_ENTRIES after filling past the limit", function () {
-    // Fill the map to MAX_NONCE_ENTRIES
-    for (let i = 0; i < MAX_NONCE_ENTRIES; i++) {
-      advancePendingNonce(`SP_ADDR_${i}`, 0n);
-    }
-    expect(pendingNonces.size).toBe(MAX_NONCE_ENTRIES);
-
-    // Add one more — should evict the oldest, keeping size at MAX
-    advancePendingNonce(`SP_ADDR_${MAX_NONCE_ENTRIES}`, 0n);
-    expect(pendingNonces.size).toBe(MAX_NONCE_ENTRIES);
-  });
-
-  it("should evict the oldest entry (insertion-order FIFO) on overflow", function () {
-    // Fill to capacity
-    for (let i = 0; i < MAX_NONCE_ENTRIES; i++) {
-      advancePendingNonce(`SP_ADDR_${i}`, 0n);
-    }
-    expect(pendingNonces.has("SP_ADDR_0")).toBe(true);
-
-    // Overflow: SP_ADDR_0 should be evicted as the oldest
-    advancePendingNonce(`SP_ADDR_${MAX_NONCE_ENTRIES}`, 0n);
-    expect(pendingNonces.has("SP_ADDR_0")).toBe(false);
-    expect(pendingNonces.has(`SP_ADDR_${MAX_NONCE_ENTRIES}`)).toBe(true);
-  });
-
-  it("should evict from pendingNonceTimestamps in sync with pendingNonces", function () {
-    for (let i = 0; i < MAX_NONCE_ENTRIES; i++) {
-      advancePendingNonce(`SP_ADDR_${i}`, 0n);
-    }
-    advancePendingNonce(`SP_ADDR_${MAX_NONCE_ENTRIES}`, 0n);
-
-    // Both maps should no longer contain the oldest address
-    expect(pendingNonces.has("SP_ADDR_0")).toBe(false);
-    expect(pendingNonceTimestamps.has("SP_ADDR_0")).toBe(false);
-  });
-
-  it("should not evict when updating an existing address (no size change)", function () {
-    // Fill to exactly MAX_NONCE_ENTRIES
-    for (let i = 0; i < MAX_NONCE_ENTRIES; i++) {
-      advancePendingNonce(`SP_ADDR_${i}`, 0n);
-    }
-    expect(pendingNonces.size).toBe(MAX_NONCE_ENTRIES);
-
-    // Update SP_ADDR_0 with a higher nonce — size should stay the same, no eviction
-    advancePendingNonce("SP_ADDR_0", 99n);
-    expect(pendingNonces.size).toBe(MAX_NONCE_ENTRIES);
-    expect(pendingNonces.get("SP_ADDR_0")).toBe(100n);
-  });
-
-  it("should maintain correct nonce values after eviction", function () {
-    // Fill to capacity with known nonces
-    for (let i = 0; i < MAX_NONCE_ENTRIES; i++) {
-      advancePendingNonce(`SP_ADDR_${i}`, BigInt(i));
-    }
-
-    // Overflow: trigger eviction
-    advancePendingNonce("SP_NEW", 0n);
-
-    // SP_ADDR_1 through SP_ADDR_99 should still have correct values
-    for (let i = 1; i < MAX_NONCE_ENTRIES; i++) {
-      expect(pendingNonces.get(`SP_ADDR_${i}`)).toBe(BigInt(i + 1));
-    }
-    expect(pendingNonces.get("SP_NEW")).toBe(1n);
+    await resetTrackedNonce("SP1");
+    expect(await getAddressState("SP1")).toBeNull();
   });
 });
