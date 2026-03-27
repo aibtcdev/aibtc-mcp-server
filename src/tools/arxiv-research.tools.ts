@@ -17,17 +17,18 @@ import { z } from "zod";
 import { existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-const ARXIV_API = "http://export.arxiv.org/api/query";
+const ARXIV_API = "https://export.arxiv.org/api/query";
 const DEFAULT_CATEGORIES = ["cs.AI", "cs.CL", "cs.LG", "cs.MA"];
 const DEFAULT_MAX = 50;
 const DEFAULT_MIN_SCORE = 3;
-const STATE_DIR = join(process.env.HOME ?? "~", ".aibtc", "arxiv-research");
+const STATE_DIR = join(homedir(), ".aibtc", "arxiv-research");
 const DIGESTS_DIR = join(STATE_DIR, "digests");
 
 // ============================================================================
@@ -91,7 +92,7 @@ function parseArxivResponse(xml: string): ArxivPaper[] {
 
     const rawId = extractTag(block, "id");
     const arxivId = rawId
-      .replace("http://arxiv.org/abs/", "")
+      .replace(/https?:\/\/arxiv\.org\/abs\//, "")
       .replace(/v\d+$/, "");
     const title = extractTag(block, "title");
     const abstract = extractTag(block, "summary");
