@@ -146,7 +146,7 @@ async function readZestPosition(walletAddress: string): Promise<ProtocolPosition
           const [aTokContract, aTokName] = aTokenAddr.split(".");
           const balRes = await hiro.callReadOnlyFunction(
             `${aTokContract}.${aTokName}`,
-            "ft-get-balance",
+            "get-balance",
             [standardPrincipalCV(walletAddress)],
             aTokContract
           );
