@@ -456,6 +456,53 @@ Note: Zest Protocol is only available on mainnet.`,
     }
   );
 
+  // Enable collateral on Zest v2
+  server.registerTool(
+    "zest_enable_collateral",
+    {
+      description: `Add existing zTokens as collateral on Zest Protocol v2.
+
+Use this when you deposited directly to a vault and need to register
+those zTokens as collateral for borrowing.
+
+Note: zest_supply already handles this atomically via supply-collateral-add.
+This tool is only needed if you used vault deposit separately.
+
+Mainnet only.`,
+      inputSchema: {
+        asset: z.string().describe("Asset symbol (e.g., 'sBTC', 'USDC') or full contract ID"),
+        amount: z.string().describe("Amount of zTokens to add as collateral (in smallest units)"),
+      },
+    },
+    async ({ asset, amount }) => {
+      try {
+        if (NETWORK !== "mainnet") {
+          return createJsonResponse({
+            error: "Zest Protocol is only available on mainnet",
+            network: NETWORK,
+          });
+        }
+
+        const zestService = getZestProtocolService(NETWORK);
+        const resolvedAsset = await zestService.resolveAsset(asset);
+        const account = await getAccount();
+        const result = await zestService.enableCollateral(account, resolvedAsset, BigInt(amount));
+
+        return createJsonResponse({
+          success: true,
+          txid: result.txid,
+          action: "enable_collateral",
+          asset: resolvedAsset,
+          amount,
+          network: NETWORK,
+          explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
   // Repay to Zest v2
   server.registerTool(
     "zest_repay",
