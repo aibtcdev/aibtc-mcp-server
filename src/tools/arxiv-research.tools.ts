@@ -14,7 +14,8 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 
@@ -529,7 +530,8 @@ Read-only.`,
           });
         }
 
-        const entries = readdirSync(DIGESTS_DIR)
+        const allEntries = await readdir(DIGESTS_DIR);
+        const entries = allEntries
           .filter((e) => e.endsWith("_arxiv_digest.md"))
           .sort()
           .reverse()
