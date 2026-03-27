@@ -70,14 +70,21 @@ async function main() {
 
   let allPassed = true;
 
+  // Fetch market contract interface once (used by tests 1, 4, 5)
+  console.log("Fetching v0-4-market contract interface...");
+  const ifaceRes = await fetch(
+    `${API}/v2/contracts/interface/${MARKET_ADDR}/${MARKET_NAME}`
+  );
+  if (!ifaceRes.ok) {
+    console.error(`Failed to fetch interface: ${ifaceRes.status}`);
+    process.exit(1);
+  }
+  const iface = await ifaceRes.json();
+  console.log("  Done.\n");
+
   // Test 1: Verify collateral-add exists on v0-4-market
   console.log("--- Test 1: v0-4-market contract interface ---");
   try {
-    const res = await fetch(
-      `${API}/v2/contracts/interface/${MARKET_ADDR}/${MARKET_NAME}`
-    );
-    if (!res.ok) throw new Error(`${res.status}`);
-    const iface = await res.json();
     const functions = iface.functions.map((f: any) => f.name);
 
     const collateralFns = functions.filter((n: string) =>
@@ -171,10 +178,6 @@ async function main() {
   // Test 4: Verify supply-collateral-add also exists (our normal supply flow)
   console.log("--- Test 4: supply-collateral-add exists ---");
   try {
-    const res = await fetch(
-      `${API}/v2/contracts/interface/${MARKET_ADDR}/${MARKET_NAME}`
-    );
-    const iface = await res.json();
     const fn = iface.functions.find(
       (f: any) => f.name === "supply-collateral-add"
     );
@@ -196,10 +199,6 @@ async function main() {
   // Test 5: Verify borrow exists and check args
   console.log("--- Test 5: borrow function args ---");
   try {
-    const res = await fetch(
-      `${API}/v2/contracts/interface/${MARKET_ADDR}/${MARKET_NAME}`
-    );
-    const iface = await res.json();
     const fn = iface.functions.find((f: any) => f.name === "borrow");
     if (fn) {
       console.log(
