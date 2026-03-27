@@ -21,25 +21,20 @@ import {
   uintCV,
   hexToCV,
   cvToValue,
+  cvToJSON,
 } from "@stacks/transactions";
 import { NETWORK, getWalletAddress } from "../services/x402.service.js";
 import { getHiroApi } from "../services/hiro-api.js";
+import { ZEST_ASSETS, ZEST_V2_DEPLOYER } from "../config/contracts.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 
 // ============================================================================
 // Constants
 // ============================================================================
 
-// Zest V2 pool-borrow contract (active on mainnet)
-const ZEST_POOL_CONTRACT = "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N";
-const ZEST_POOL_NAME = "pool-borrow-v2-3";
-const SBTC_TOKEN_ADDRESS = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4";
-const SBTC_TOKEN_NAME = "sbtc-token";
-const ZEST_CONTRACT_ID = `${ZEST_POOL_CONTRACT}.${ZEST_POOL_NAME}`;
-
-// Zest V2 pool-read-supply (pending deployment)
-const ZEST_V2_DEPLOYER = "SP4SZE494VC2YC5JYG7AYFQ44F5Q4PYV7DVMDPBG";
-const ZEST_V2_POOL_READ = "pool-read-supply";
+// Zest V2 contracts
+const ZEST_DATA_CONTRACT = `${ZEST_V2_DEPLOYER}.v0-1-data`;
+const ZEST_SBTC_VAULT = ZEST_ASSETS.sBTC.vault;
 
 // ALEX AMM
 const ALEX_CONTRACT = "SP102V8P0F7JX67ARQ77WEA3D3CFB5XW39REDT0AM";
@@ -117,56 +112,63 @@ async function readZestPosition(walletAddress: string): Promise<ProtocolPosition
 
   try {
     const hiro = getHiroApi("mainnet");
-    const sbtcPrincipal = contractPrincipalCV(SBTC_TOKEN_ADDRESS, SBTC_TOKEN_NAME);
+    const [vaultAddr] = ZEST_SBTC_VAULT.split(".");
 
-    const res = await hiro.callReadOnlyFunction(
-      ZEST_CONTRACT_ID,
-      "get-reserve-state",
-      [sbtcPrincipal],
-      ZEST_POOL_CONTRACT
-    );
-
-    if (res.okay && res.result) {
-      const liquidityRate = decodeTupleField(res.result, "current-liquidity-rate");
-      if (liquidityRate !== null && liquidityRate > 0n) {
-        // Ray units: 1e27 = 100%
-        pos.apyPct = Number(liquidityRate) / 1e25;
+    // Fetch APY from vault get-interest-rate (V2)
+    try {
+      const rateRes = await hiro.callReadOnlyFunction(
+        ZEST_SBTC_VAULT,
+        "get-interest-rate",
+        [],
+        vaultAddr
+      );
+      if (rateRes.okay && rateRes.result) {
+        const decoded = cvToJSON(hexToCV(rateRes.result));
+        const rateValue = decoded?.value?.value ?? decoded?.value;
+        if (rateValue) {
+          // V2 vault returns rate in 1e8 scale; convert to percentage
+          const rateBigInt = BigInt(rateValue);
+          pos.apyPct = Number(rateBigInt) / 1e8 * 100;
+        }
       }
-      const borrowsStable = decodeTupleField(res.result, "total-borrows-stable") ?? 0n;
-      const borrowsVariable = decodeTupleField(res.result, "total-borrows-variable") ?? 0n;
-      pos.details.totalBorrows = (borrowsStable + borrowsVariable).toString();
+    } catch {
+      // APY fetch failed — continue with 0
+    }
 
-      // Try to get user a-token balance
-      try {
-        const hex = res.result.startsWith("0x") ? res.result.slice(2) : res.result;
-        const cv = hexToCV(hex);
-        const decoded = cvToValue(cv, true) as Record<string, unknown>;
-        const aTokenAddr = decoded["a-token-address"];
-        if (aTokenAddr && typeof aTokenAddr === "string" && aTokenAddr.includes(".")) {
-          const [aTokContract, aTokName] = aTokenAddr.split(".");
-          const balRes = await hiro.callReadOnlyFunction(
-            `${aTokContract}.${aTokName}`,
-            "get-balance",
-            [standardPrincipalCV(walletAddress)],
-            aTokContract
-          );
-          if (balRes.okay && balRes.result) {
-            const balHex = balRes.result.startsWith("0x")
-              ? balRes.result.slice(2)
-              : balRes.result;
-            const balCv = hexToCV(balHex);
-            const balance = cvToValue(balCv, true);
-            pos.valueSats =
-              typeof balance === "bigint"
-                ? Number(balance)
-                : typeof balance === "number"
-                  ? balance
-                  : 0;
+    // Fetch user zToken balance from vault get-balance (V2)
+    try {
+      const balRes = await hiro.callReadOnlyFunction(
+        ZEST_SBTC_VAULT,
+        "get-balance",
+        [standardPrincipalCV(walletAddress)],
+        vaultAddr
+      );
+      if (balRes.okay && balRes.result) {
+        const decoded = cvToJSON(hexToCV(balRes.result));
+        const balValue = decoded?.value?.value ?? decoded?.value;
+        if (balValue) {
+          const zTokenShares = BigInt(balValue);
+          // Convert zToken shares to underlying sBTC amount
+          if (zTokenShares > 0n) {
+            const convertRes = await hiro.callReadOnlyFunction(
+              ZEST_SBTC_VAULT,
+              "convert-to-assets",
+              [uintCV(zTokenShares)],
+              vaultAddr
+            );
+            if (convertRes.okay && convertRes.result) {
+              const convDecoded = cvToJSON(hexToCV(convertRes.result));
+              const underlyingValue = convDecoded?.value?.value ?? convDecoded?.value;
+              if (underlyingValue) {
+                pos.valueSats = Number(BigInt(underlyingValue));
+              }
+            }
+            pos.details.zTokenShares = zTokenShares.toString();
           }
         }
-      } catch {
-        // Position read failed — APY still valid
       }
+    } catch {
+      // Position read failed — APY still valid
     }
   } catch (e) {
     pos.details.error = String(e);
@@ -336,16 +338,6 @@ async function getWalletBalances(
   }
 }
 
-async function checkZestV2(): Promise<boolean> {
-  try {
-    const hiro = getHiroApi("mainnet");
-    await hiro.getContractInterface(`${ZEST_V2_DEPLOYER}.${ZEST_V2_POOL_READ}`);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 // ============================================================================
 // MCP Tools
 // ============================================================================
@@ -378,13 +370,12 @@ expose user LP positions via read-only calls. APY figures are still returned.`,
 
         const walletAddress = await getWalletAddress();
 
-        const [zest, alex, bitflow, stacking, balances, v2Ready] = await Promise.all([
+        const [zest, alex, bitflow, stacking, balances] = await Promise.all([
           readZestPosition(walletAddress),
           readAlexPosition(walletAddress),
           readBitflowPosition(walletAddress),
           readStackingPosition(walletAddress),
           getWalletBalances(walletAddress),
-          checkZestV2(),
         ]);
 
         const positions = [zest, alex, bitflow, stacking];
@@ -429,7 +420,6 @@ expose user LP positions via read-only calls. APY figures are still returned.`,
           },
           walletSbtcSats: balances.sbtcSats,
           walletStxMicroStx: balances.stxMicroStx,
-          zestV2Ready: v2Ready,
         });
       } catch (error) {
         return createErrorResponse(error);
@@ -505,7 +495,7 @@ Returns live APY data for Zest Protocol (sBTC lending), ALEX DEX (aBTC/STX LP),
 Bitflow (sBTC LP), and STX Stacking. No wallet required — pure market data.
 
 Data sources:
-- Zest Protocol: on-chain reserve state (current-liquidity-rate, Ray units)
+- Zest Protocol: on-chain V2 vault interest rate (v0-vault-sbtc get-interest-rate)
 - ALEX DEX: static 3.5% estimate (pool data available but per-user APY not live)
 - Bitflow: public API at app.bitflow.finance/api/pools (fallback: 2.8% estimate)
 - STX Stacking: static 8.0% estimate
@@ -518,11 +508,10 @@ Mainnet data only (contract addresses are mainnet-specific).`,
         // APY breakdown does not require a wallet — use burn address as dummy
         const dummyAddress = "SP000000000000000000002Q6VF78";
 
-        const [zest, alex, bitflow, v2Ready] = await Promise.all([
+        const [zest, alex, bitflow] = await Promise.all([
           readZestPosition(dummyAddress),
           readAlexPosition(dummyAddress),
           readBitflowPosition(dummyAddress),
-          checkZestV2(),
         ]);
 
         return createJsonResponse({
@@ -553,7 +542,6 @@ Mainnet data only (contract addresses are mainnet-specific).`,
               riskScore: 10,
             },
           ],
-          zestV2Ready: v2Ready,
         });
       } catch (error) {
         return createErrorResponse(error);
