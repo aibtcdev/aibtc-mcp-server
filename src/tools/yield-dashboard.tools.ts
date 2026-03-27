@@ -22,8 +22,7 @@ import {
   hexToCV,
   cvToValue,
 } from "@stacks/transactions";
-import { NETWORK } from "../services/x402.service.js";
-import { getWalletAddress } from "../services/x402.service.js";
+import { NETWORK, getWalletAddress } from "../services/x402.service.js";
 import { getHiroApi } from "../services/hiro-api.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 
@@ -31,14 +30,14 @@ import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 // Constants
 // ============================================================================
 
-// Zest V1 (active on mainnet)
+// Zest V2 pool-borrow contract (active on mainnet)
 const ZEST_POOL_CONTRACT = "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N";
 const ZEST_POOL_NAME = "pool-borrow-v2-3";
 const SBTC_TOKEN_ADDRESS = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4";
 const SBTC_TOKEN_NAME = "sbtc-token";
 const ZEST_CONTRACT_ID = `${ZEST_POOL_CONTRACT}.${ZEST_POOL_NAME}`;
 
-// Zest V2 (rewards live, pool-read-supply pending)
+// Zest V2 pool-read-supply (pending deployment)
 const ZEST_V2_DEPLOYER = "SP4SZE494VC2YC5JYG7AYFQ44F5Q4PYV7DVMDPBG";
 const ZEST_V2_POOL_READ = "pool-read-supply";
 
@@ -59,9 +58,6 @@ const BITFLOW_API = "https://app.bitflow.finance/api";
 const POX_CONTRACT = "SP000000000000000000002Q6VF78";
 const POX_NAME = "pox-4";
 const POX_CONTRACT_ID = `${POX_CONTRACT}.${POX_NAME}`;
-
-// Mainnet Hiro API base URL (direct — not network-switched, this skill is mainnet-only)
-const MAINNET_HIRO_API = "https://api.hiro.so";
 
 // ============================================================================
 // Types
@@ -324,20 +320,15 @@ async function getWalletBalances(
   walletAddress: string
 ): Promise<{ stxMicroStx: number; sbtcSats: number }> {
   try {
-    const res = await fetch(
-      `${MAINNET_HIRO_API}/extended/v1/address/${walletAddress}/balances`
-    );
-    if (!res.ok) return { stxMicroStx: 0, sbtcSats: 0 };
-    const data = (await res.json()) as {
-      stx?: { balance?: string };
-      fungible_tokens?: Record<string, { balance?: string }>;
-    };
-    const stxMicroStx = parseInt(data.stx?.balance ?? "0", 10);
-    const sbtcKey = Object.keys(data.fungible_tokens ?? {}).find((k) =>
+    const hiro = getHiroApi("mainnet");
+    const data = await hiro.getAccountBalances(walletAddress);
+    const stxMicroStx = parseInt((data as any).stx?.balance ?? "0", 10);
+    const fungibleTokens = (data as any).fungible_tokens as Record<string, { balance?: string }> | undefined;
+    const sbtcKey = Object.keys(fungibleTokens ?? {}).find((k) =>
       k.toLowerCase().includes("sbtc")
     );
     const sbtcSats = sbtcKey
-      ? parseInt(data.fungible_tokens?.[sbtcKey]?.balance ?? "0", 10)
+      ? parseInt(fungibleTokens?.[sbtcKey]?.balance ?? "0", 10)
       : 0;
     return { stxMicroStx, sbtcSats };
   } catch {
@@ -347,11 +338,9 @@ async function getWalletBalances(
 
 async function checkZestV2(): Promise<boolean> {
   try {
-    const res = await fetch(
-      `${MAINNET_HIRO_API}/v2/contracts/interface/${ZEST_V2_DEPLOYER}/${ZEST_V2_POOL_READ}`,
-      { method: "GET" }
-    );
-    return res.status === 200;
+    const hiro = getHiroApi("mainnet");
+    await hiro.getContractInterface(`${ZEST_V2_DEPLOYER}.${ZEST_V2_POOL_READ}`);
+    return true;
   } catch {
     return false;
   }
@@ -613,21 +602,28 @@ Read-only. Mainnet-only. Requires an unlocked wallet for address context.`,
           readStackingPosition(walletAddress),
         ]);
 
-        const totalValue = positions.reduce((s, p) => s + p.valueSats, 0);
-        const keys = ["zest", "alex", "bitflow", "stacking"];
+        // Separate sats (Zest, ALEX, Bitflow) from microSTX (Stacking) — different units
+        const satsPositions = positions.filter((p) => p.valueUnit === "sats");
+        const stxPositions = positions.filter((p) => p.valueUnit === "microSTX");
+        const totalValueSats = satsPositions.reduce((s, p) => s + p.valueSats, 0);
+        const totalValueMicroStx = stxPositions.reduce((s, p) => s + p.valueSats, 0);
+
+        const keys = ["zest", "alex", "bitflow"];
         const currentAllocation: Record<string, number> = {};
-        positions.forEach((p, i) => {
+        satsPositions.forEach((p, i) => {
           currentAllocation[keys[i]] =
-            totalValue > 0 ? Math.round((p.valueSats / totalValue) * 100) : 0;
+            totalValueSats > 0 ? Math.round((p.valueSats / totalValueSats) * 100) : 0;
         });
+        // STX stacking is a different unit — not directly comparable to sats positions
+        currentAllocation["stacking"] = 0;
 
         const targets: Record<string, Record<string, number>> = {
           low: { zest: 40, alex: 10, bitflow: 10, stacking: 40 },
           medium: { zest: 45, alex: 20, bitflow: 15, stacking: 20 },
           high: { zest: 50, alex: 30, bitflow: 20, stacking: 0 },
         };
-        const riskLevel = riskTolerance ?? "medium";
-        const suggested = targets[riskLevel] ?? targets["medium"];
+        const riskLevel = riskTolerance;
+        const suggested = targets[riskLevel];
 
         const suggestions: string[] = [];
         for (const key of keys) {
@@ -667,7 +663,11 @@ Read-only. Mainnet-only. Requires an unlocked wallet for address context.`,
         return createJsonResponse({
           walletAddress,
           riskTolerance: riskLevel,
-          totalValueSats: totalValue,
+          totalValueSats,
+          totalValueBtc: formatBtc(totalValueSats),
+          totalValueMicroStx,
+          totalValueStx: totalValueMicroStx / 1_000_000,
+          note: "Allocation percentages are based on sats-denominated positions only. STX stacking is shown separately (different unit).",
           currentAllocation,
           suggestedAllocation: suggested,
           suggestions,
