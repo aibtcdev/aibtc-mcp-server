@@ -16,3 +16,14 @@ export function getSponsorRelayUrl(network: Network): string {
 export function getSponsorApiKey(): string | undefined {
   return process.env.SPONSOR_API_KEY;
 }
+
+/**
+ * Whether the direct-submission fallback is enabled.
+ *
+ * Defaults to true. Set SPONSOR_FALLBACK_ENABLED=false to disable.
+ * When disabled, sponsored tx failures throw immediately without retrying
+ * as a direct (sender-pays) transaction.
+ */
+export function isFallbackEnabled(): boolean {
+  return process.env.SPONSOR_FALLBACK_ENABLED !== "false";
+}

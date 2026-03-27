@@ -13,6 +13,7 @@ export interface StuckTransaction {
   txid: string;
   nonce: number;
   pendingSeconds: number;
+  sponsor_nonce?: number;
 }
 
 export interface RelayHealthStatus {
@@ -39,9 +40,39 @@ export interface RelayHealthStatus {
  * Known sponsor addresses for each network.
  * Only mainnet has a known relay sponsor address.
  */
-const SPONSOR_ADDRESSES: Partial<Record<Network, string>> = {
+export const SPONSOR_ADDRESSES: Partial<Record<Network, string>> = {
   mainnet: "SP1PMPPVCMVW96FSWFV30KJQ4MNBMZ8MRWR3JWQ7",
 };
+
+/**
+ * Lightweight relay health probe — returns true only if the relay /health
+ * endpoint responds within 5 seconds with HTTP 200 and status "ok".
+ *
+ * Use this on the hot path (e.g., before deciding to fall back to direct
+ * submission) where the full checkRelayHealth() diagnostics are unnecessary.
+ */
+export async function isRelayHealthy(network: Network): Promise<boolean> {
+  const relayUrl = getSponsorRelayUrl(network);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const res = await fetch(`${relayUrl}/health`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+    });
+
+    if (!res.ok) return false;
+
+    const data = await res.json() as { status?: string };
+    return data.status === "ok";
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 /**
  * Check relay health and sponsor nonce status
@@ -142,6 +173,7 @@ export async function checkRelayHealth(network: Network): Promise<RelayHealthSta
           txid: tx.tx_id,
           nonce: tx.nonce,
           pendingSeconds: nowSeconds - tx.receipt_time,
+          ...(tx.sponsor_nonce !== undefined ? { sponsor_nonce: tx.sponsor_nonce } : {}),
         }))
         .sort((a, b) => b.pendingSeconds - a.pendingSeconds)
         .slice(0, 10);
@@ -219,7 +251,7 @@ export function formatRelayHealthStatus(status: RelayHealthStatus): string {
       const minutes = Math.floor(tx.pendingSeconds / 60);
       const seconds = tx.pendingSeconds % 60;
       const duration = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-      lines.push(`  nonce=${tx.nonce} pending=${duration} txid=${tx.txid}`);
+      lines.push(`  nonce=${tx.nonce}${tx.sponsor_nonce !== undefined ? ` sponsor_nonce=${tx.sponsor_nonce}` : ""} pending=${duration} txid=${tx.txid}`);
     });
   }
 
@@ -239,13 +271,19 @@ export interface RelayRecoveryResult {
 }
 
 /**
- * Attempt RBF (replace-by-fee) on stuck transactions via the relay API.
- * If txids is provided, only those transactions are bumped; otherwise the relay
- * bumps all stuck transactions it knows about.
+ * Send a recovery request to the relay API.
  *
- * Gracefully returns { supported: false } if the relay returns 404 or 501.
+ * Shared implementation for RBF and gap-fill operations which differ only in
+ * path, request body, and the "unsupported" message shown when the relay
+ * returns 404 or 501.
  */
-export async function attemptRbf(network: Network, txids?: string[], apiKey?: string): Promise<RelayRecoveryResult> {
+async function relayRecoveryRequest(
+  network: Network,
+  relayPath: string,
+  body: Record<string, unknown>,
+  unsupportedMessage: string,
+  apiKey?: string,
+): Promise<RelayRecoveryResult> {
   const relayUrl = getSponsorRelayUrl(network);
   const resolvedKey = apiKey || getSponsorApiKey();
 
@@ -256,37 +294,27 @@ export async function attemptRbf(network: Network, txids?: string[], apiKey?: st
     };
   }
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${resolvedKey}`,
-  };
-
-  const body: Record<string, unknown> = {};
-  if (txids && txids.length > 0) {
-    body.txids = txids;
-  }
-
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
 
   try {
-    const res = await fetch(`${relayUrl}/recovery/rbf`, {
+    const res = await fetch(`${relayUrl}${relayPath}`, {
       method: "POST",
-      headers,
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${resolvedKey}`,
+      },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
 
     if (res.status === 404 || res.status === 501) {
-      return {
-        supported: false,
-        message: "Relay does not support RBF recovery yet. Share stuck txids with the AIBTC team for manual recovery.",
-      };
+      return { supported: false, message: unsupportedMessage };
     }
 
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Relay RBF failed: HTTP ${res.status} — ${text}`);
+      throw new Error(`Relay ${relayPath} failed: HTTP ${res.status} — ${text}`);
     }
 
     const result = await res.json();
@@ -294,6 +322,26 @@ export async function attemptRbf(network: Network, txids?: string[], apiKey?: st
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/**
+ * Attempt RBF (replace-by-fee) on stuck transactions via the relay API.
+ * If txids is provided, only those transactions are bumped; otherwise the relay
+ * bumps all stuck transactions it knows about.
+ *
+ * Gracefully returns { supported: false } if the relay returns 404 or 501.
+ */
+export function attemptRbf(network: Network, txids?: string[], apiKey?: string): Promise<RelayRecoveryResult> {
+  const body: Record<string, unknown> = {};
+  if (txids && txids.length > 0) body.txids = txids;
+
+  return relayRecoveryRequest(
+    network,
+    "/recovery/rbf",
+    body,
+    "Relay does not support RBF recovery yet. Share stuck txids with the AIBTC team for manual recovery.",
+    apiKey,
+  );
 }
 
 /**
@@ -302,68 +350,15 @@ export async function attemptRbf(network: Network, txids?: string[], apiKey?: st
  *
  * Gracefully returns { supported: false } if the relay returns 404 or 501.
  */
-export async function attemptFillGaps(network: Network, nonces?: number[], apiKey?: string): Promise<RelayRecoveryResult> {
-  const relayUrl = getSponsorRelayUrl(network);
-  const resolvedKey = apiKey || getSponsorApiKey();
-
-  if (!resolvedKey) {
-    return {
-      supported: true,
-      message: "No sponsor API key available. Set SPONSOR_API_KEY env var or use a wallet with sponsorApiKey configured.",
-    };
-  }
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${resolvedKey}`,
-  };
-
+export function attemptFillGaps(network: Network, nonces?: number[], apiKey?: string): Promise<RelayRecoveryResult> {
   const body: Record<string, unknown> = {};
-  if (nonces && nonces.length > 0) {
-    body.nonces = nonces;
-  }
+  if (nonces && nonces.length > 0) body.nonces = nonces;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
-
-  try {
-    const res = await fetch(`${relayUrl}/recovery/fill-gaps`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    if (res.status === 404 || res.status === 501) {
-      return {
-        supported: false,
-        message: "Relay does not support nonce gap-fill recovery yet. Share missing nonces with the AIBTC team for manual recovery.",
-      };
-    }
-
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Relay gap-fill failed: HTTP ${res.status} — ${text}`);
-    }
-
-    const result = await res.json();
-    return { supported: true, result };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-/**
- * Wait with exponential backoff when relay nonce issues are detected
- * Returns recommended wait time in milliseconds
- */
-export function getRelayBackoffDelay(attempt: number, hasNonceGaps: boolean): number {
-  if (hasNonceGaps) {
-    // With nonce gaps, use longer delays: 30s, 60s, 120s
-    const delays = [30000, 60000, 120000];
-    return delays[Math.min(attempt, delays.length - 1)];
-  }
-  // Normal backoff: 2s, 5s, 10s
-  const delays = [2000, 5000, 10000];
-  return delays[Math.min(attempt, delays.length - 1)];
+  return relayRecoveryRequest(
+    network,
+    "/recovery/fill-gaps",
+    body,
+    "Relay does not support nonce gap-fill recovery yet. Share missing nonces with the AIBTC team for manual recovery.",
+    apiKey,
+  );
 }
