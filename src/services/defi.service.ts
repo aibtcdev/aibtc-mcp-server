@@ -630,6 +630,53 @@ export class ZestProtocolService {
   }
 
   /**
+   * Add existing zTokens as collateral on Zest v2.
+   * Use this when you deposited directly to a vault (via depositToVault)
+   * and need to register those zTokens as collateral for borrowing.
+   *
+   * Note: supply() already calls supply-collateral-add which handles this
+   * atomically. This method is only needed for the deposit → collateral flow.
+   *
+   * Token flow (1 ft-transfer):
+   * 1. user → market-vault (zTokens registered as collateral)
+   *
+   * Contract: v0-4-market.collateral-add(ft, amount, price-feeds)
+   */
+  async enableCollateral(
+    account: Account,
+    asset: string,
+    amount: bigint
+  ): Promise<TransferResult> {
+    this.ensureMainnet();
+
+    const assetConfig = this.getAssetConfig(asset);
+    const { address, name } = parseContractId(this.contracts!.market);
+    const [vaultAddr, vaultName] = parseContractIdTuple(assetConfig.vault);
+
+    const functionArgs: ClarityValue[] = [
+      contractPrincipalCV(vaultAddr, vaultName),  // ft (zToken vault contract)
+      uintCV(amount),                              // amount of zTokens
+      noneCV(),                                    // price-feeds (use cached)
+    ];
+
+    // Post-condition: user sends zTokens to market-vault
+    const postConditions = [
+      Pc.principal(account.address)
+        .willSendLte(amount)
+        .ft(assetConfig.vault as `${string}.${string}`, "zft"),
+    ];
+
+    return callContract(account, {
+      contractAddress: address,
+      contractName: name,
+      functionName: "collateral-add",
+      functionArgs,
+      postConditionMode: PostConditionMode.Deny,
+      postConditions,
+    });
+  }
+
+  /**
    * Withdraw assets from Zest v2 via market's collateral-remove-redeem.
    * Atomically removes zToken collateral and redeems for underlying.
    *
