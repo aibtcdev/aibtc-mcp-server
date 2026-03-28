@@ -26,16 +26,165 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
+  makeContractCall,
+  uintCV,
+  principalCV,
+  noneCV,
+} from "@stacks/transactions";
+import {
   p2wpkh,
   NETWORK as BTC_MAINNET,
   TEST_NETWORK as BTC_TESTNET,
 } from "@scure/btc-signer";
-import { NETWORK } from "../config/networks.js";
+import { NETWORK, getStacksNetwork, getExplorerTxUrl } from "../config/networks.js";
+import { getContracts, parseContractId } from "../config/contracts.js";
 import { getAccount } from "../services/x402.service.js";
+import { getSbtcService } from "../services/sbtc.service.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
+import { InsufficientBalanceError } from "../utils/errors.js";
+import { formatSbtc } from "../utils/formatting.js";
 import { bip322Sign } from "../utils/bip322.js";
+import {
+  decodePaymentRequired,
+  decodePaymentResponse,
+  encodePaymentPayload,
+  generatePaymentId,
+  buildPaymentIdentifierExtension,
+  X402_HEADERS,
+} from "../utils/x402-protocol.js";
+import { createFungiblePostCondition } from "../transactions/post-conditions.js";
+import { getHiroApi } from "../services/hiro-api.js";
+import {
+  getTrackedNonce,
+  recordNonceUsed,
+  reconcileWithChain,
+} from "../services/nonce-tracker.js";
 
 const NEWS_BASE = "https://aibtc.news/api";
+
+// ============================================================================
+// Nonce Management (shared tracker — same as inbox.tools.ts)
+// ============================================================================
+
+async function getNextNonce(address: string): Promise<number> {
+  const localNext = await getTrackedNonce(address);
+  const hiroApi = getHiroApi(NETWORK);
+  const accountInfo = await hiroApi.getAccountInfo(address);
+  const confirmedNonce = accountInfo.nonce;
+
+  let highestMempoolNonce = -1;
+  try {
+    const mempool = await hiroApi.getMempoolTransactions({
+      sender_address: address,
+      limit: 50,
+    });
+    for (const tx of mempool.results) {
+      if (tx.nonce > highestMempoolNonce) {
+        highestMempoolNonce = tx.nonce;
+      }
+    }
+  } catch {
+    // Non-fatal
+  }
+
+  const chainNext = Math.max(confirmedNonce, highestMempoolNonce + 1);
+  await reconcileWithChain(address, chainNext);
+  return Math.max(chainNext, localNext ?? 0);
+}
+
+async function advanceNonceCache(address: string, usedNonce: number, txid = ""): Promise<void> {
+  await recordNonceUsed(address, usedNonce, txid);
+}
+
+// ============================================================================
+// Sponsored sBTC Transfer Builder
+// ============================================================================
+
+async function buildSponsoredSbtcTransfer(
+  senderKey: string,
+  senderAddress: string,
+  recipient: string,
+  amount: bigint,
+  nonce: bigint,
+): Promise<string> {
+  const contracts = getContracts(NETWORK);
+  const { address: contractAddress, name: contractName } = parseContractId(
+    contracts.SBTC_TOKEN
+  );
+
+  const postCondition = createFungiblePostCondition(
+    senderAddress,
+    contracts.SBTC_TOKEN,
+    "sbtc-token",
+    "eq",
+    amount
+  );
+
+  const transaction = await makeContractCall({
+    contractAddress,
+    contractName,
+    functionName: "transfer",
+    functionArgs: [
+      uintCV(amount),
+      principalCV(senderAddress),
+      principalCV(recipient),
+      noneCV(),
+    ],
+    senderKey,
+    network: getStacksNetwork(NETWORK),
+    postConditions: [postCondition],
+    sponsored: true,
+    fee: 0n,
+    nonce,
+  });
+
+  return "0x" + transaction.serialize();
+}
+
+// ============================================================================
+// Retry helpers
+// ============================================================================
+
+const DEFAULT_RETRY_DELAY_MS = 2_000;
+const MAX_RETRY_AFTER_CAP_S = 60;
+
+interface RetryInfo {
+  retryable: boolean;
+  delayMs: number;
+  relaySideConflict: boolean;
+}
+
+function classifyRetryableError(status: number, body: unknown): RetryInfo {
+  const NOT_RETRYABLE: RetryInfo = { retryable: false, delayMs: 0, relaySideConflict: false };
+
+  if (typeof body === "object" && body !== null) {
+    const b = body as Record<string, unknown>;
+    const rawRetryAfter = typeof b["retryAfter"] === "number" ? b["retryAfter"] : 0;
+    const retryAfterMs =
+      rawRetryAfter > 0
+        ? Math.min(rawRetryAfter, MAX_RETRY_AFTER_CAP_S) * 1000
+        : DEFAULT_RETRY_DELAY_MS;
+
+    if (b["retryable"] === true) {
+      return { retryable: true, delayMs: retryAfterMs, relaySideConflict: false };
+    }
+    if (status === 409 && b["code"] === "NONCE_CONFLICT") {
+      return { retryable: true, delayMs: retryAfterMs, relaySideConflict: true };
+    }
+  }
+
+  if (typeof body === "string") {
+    if (body.includes("ConflictingNonceInMempool") || body.includes("BadNonce")) {
+      return { retryable: true, delayMs: DEFAULT_RETRY_DELAY_MS, relaySideConflict: false };
+    }
+  }
+
+  return NOT_RETRYABLE;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // ============================================================================
 // Auth header builder for authenticated endpoints
@@ -422,12 +571,14 @@ Fields:
     {
       description: `File a signal on a beat at aibtc.news.
 
-Requires an unlocked wallet with a P2WPKH (bc1q) BTC address. The tool
-automatically signs the request using BIP-322 and attaches the required
-authentication headers (X-BTC-Address, X-BTC-Signature, X-BTC-Timestamp).
+Requires an unlocked wallet with a P2WPKH (bc1q) BTC address and sBTC balance
+for the x402 payment. The tool handles the full payment flow:
+1. POST with BIP-322 auth → receive 402 payment challenge
+2. Build sponsored sBTC transfer (relay pays gas)
+3. Retry with payment proof → signal filed
 
-Note: Only bc1q addresses are supported by the news API for authentication.
-Taproot (bc1p) addresses cannot file signals.
+Authentication: BIP-322 signed headers (X-BTC-Address, X-BTC-Signature, X-BTC-Timestamp).
+Only bc1q (P2WPKH) addresses are supported. Taproot (bc1p) cannot file signals.
 
 Fields:
 - beat_slug: the beat to file under (use news_list_beats to discover slugs)
@@ -483,10 +634,8 @@ Fields:
           );
         }
 
-        const path = "/api/signals";
-        const authHeaders = buildNewsAuthHeaders("POST", path, account as AccountForAuth);
-
-        const payload: Record<string, unknown> = {
+        const apiPath = "/api/signals";
+        const signalPayload: Record<string, unknown> = {
           beat_slug,
           btc_address: account.btcAddress,
           headline,
@@ -494,40 +643,190 @@ Fields:
           tags,
         };
         if (body) {
-          payload.body = body;
+          signalPayload.body = body;
         }
         if (disclosure !== undefined) {
-          payload.disclosure = disclosure;
+          signalPayload.disclosure = disclosure;
         }
 
-        const res = await fetch(`${NEWS_BASE}/signals`, {
+        // Step 1: POST with BIP-322 auth, no payment → expect 402
+        const authHeaders = buildNewsAuthHeaders("POST", apiPath, account as AccountForAuth);
+
+        const initialRes = await fetch(`${NEWS_BASE}/signals`, {
           method: "POST",
           headers: authHeaders,
-          body: JSON.stringify(payload),
+          body: JSON.stringify(signalPayload),
         });
 
-        const responseText = await res.text();
-        let responseData: unknown;
-        try {
-          responseData = JSON.parse(responseText);
-        } catch {
-          responseData = { raw: responseText };
+        // If signal was filed without payment (endpoint may not require it)
+        if (initialRes.status === 200 || initialRes.status === 201) {
+          const responseText = await initialRes.text();
+          let responseData: unknown;
+          try { responseData = JSON.parse(responseText); } catch { responseData = { raw: responseText }; }
+          return createJsonResponse({
+            success: true,
+            message: "Signal filed successfully (no payment required)",
+            signal: responseData,
+            filed_by: account.btcAddress,
+            beat: beat_slug,
+            headline,
+          });
         }
 
-        if (!res.ok) {
+        if (initialRes.status !== 402) {
+          const text = await initialRes.text();
           throw new Error(
-            `Failed to file signal (${res.status}): ${responseText}`
+            `Expected 402 payment challenge, got ${initialRes.status}: ${text}`
           );
         }
 
-        return createJsonResponse({
-          success: true,
-          message: "Signal filed successfully",
-          signal: responseData,
-          filed_by: account.btcAddress,
-          beat: beat_slug,
-          headline,
-        });
+        // Step 2: Parse payment requirements
+        const paymentHeader = initialRes.headers.get(X402_HEADERS.PAYMENT_REQUIRED);
+        if (!paymentHeader) {
+          throw new Error("402 response missing payment-required header");
+        }
+
+        const paymentRequired = decodePaymentRequired(paymentHeader);
+        if (!paymentRequired || !paymentRequired.accepts || paymentRequired.accepts.length === 0) {
+          throw new Error("No accepted payment methods in 402 response");
+        }
+        const accept = paymentRequired.accepts[0];
+        const amount = BigInt(accept.amount);
+
+        // Pre-check sBTC balance (sponsored tx = no STX gas needed)
+        const sbtcService = getSbtcService(NETWORK);
+        const balanceInfo = await sbtcService.getBalance(account.address);
+        const sbtcBalance = BigInt(balanceInfo.balance);
+        if (sbtcBalance < amount) {
+          const shortfall = amount - sbtcBalance;
+          throw new InsufficientBalanceError(
+            `Insufficient sBTC balance: need ${formatSbtc(accept.amount)}, have ${formatSbtc(balanceInfo.balance)} (shortfall: ${formatSbtc(shortfall.toString())}). ` +
+              `Deposit more sBTC via the bridge at https://bridge.stx.eco or use a different wallet.`,
+            "sBTC",
+            balanceInfo.balance,
+            accept.amount,
+            shortfall.toString()
+          );
+        }
+
+        // Steps 3-5: Build payment and send with retry loop
+        const MAX_ATTEMPTS = 3;
+        let lastError = "";
+        let cachedTxHex: string | null = null;
+        let cachedPaymentId: string | null = null;
+        let cachedNonce: number | null = null;
+        let nextRetryDelayMs = 0;
+
+        for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+          if (attempt > 0 && nextRetryDelayMs > 0) {
+            console.error(
+              `[news_file_signal] Retry attempt ${attempt}/${MAX_ATTEMPTS - 1} after ${nextRetryDelayMs}ms`
+            );
+            await sleep(nextRetryDelayMs);
+          }
+
+          // Step 3: Build sponsored sBTC transfer
+          let nonce: number;
+          let txHex: string;
+          let paymentId: string;
+
+          if (cachedTxHex && cachedPaymentId && cachedNonce !== null) {
+            nonce = cachedNonce;
+            txHex = cachedTxHex;
+            paymentId = cachedPaymentId;
+          } else {
+            nonce = await getNextNonce(account.address);
+            txHex = await buildSponsoredSbtcTransfer(
+              account.privateKey,
+              account.address,
+              accept.payTo,
+              amount,
+              BigInt(nonce)
+            );
+            paymentId = generatePaymentId();
+            cachedTxHex = txHex;
+            cachedPaymentId = paymentId;
+            cachedNonce = nonce;
+          }
+
+          // Step 4: Encode PaymentPayloadV2 with payment-identifier extension
+          const paymentSignature = encodePaymentPayload({
+            x402Version: 2,
+            resource: paymentRequired.resource,
+            accepted: accept,
+            payload: { transaction: txHex },
+            extensions: buildPaymentIdentifierExtension(paymentId),
+          });
+
+          // Step 5: POST with fresh BIP-322 auth + payment header
+          const finalAuthHeaders = buildNewsAuthHeaders("POST", apiPath, account as AccountForAuth);
+
+          const finalRes = await fetch(`${NEWS_BASE}/signals`, {
+            method: "POST",
+            headers: {
+              ...finalAuthHeaders,
+              [X402_HEADERS.PAYMENT_SIGNATURE]: paymentSignature,
+            },
+            body: JSON.stringify(signalPayload),
+          });
+
+          const responseData = await finalRes.text();
+          let parsed: Record<string, unknown>;
+          try { parsed = JSON.parse(responseData); } catch { parsed = { raw: responseData }; }
+
+          if (finalRes.status === 200 || finalRes.status === 201) {
+            const settlement = decodePaymentResponse(
+              finalRes.headers.get(X402_HEADERS.PAYMENT_RESPONSE)
+            );
+            const txid = settlement?.transaction;
+
+            await advanceNonceCache(account.address, nonce, txid ?? "");
+
+            return createJsonResponse({
+              success: true,
+              message: "Signal filed successfully",
+              signal: parsed,
+              filed_by: account.btcAddress,
+              beat: beat_slug,
+              headline,
+              ...(txid && {
+                payment: {
+                  txid,
+                  amount: accept.amount + " sats sBTC",
+                  explorer: getExplorerTxUrl(txid, NETWORK),
+                },
+              }),
+            });
+          }
+
+          // Classify error for retry
+          const retry = classifyRetryableError(finalRes.status, parsed);
+
+          if (retry.retryable && attempt < MAX_ATTEMPTS - 1) {
+            console.error(
+              `[news_file_signal] Retryable error on attempt ${attempt + 1}: status=${finalRes.status} relaySide=${retry.relaySideConflict} body=${responseData}`
+            );
+            nextRetryDelayMs = retry.delayMs;
+
+            if (!retry.relaySideConflict) {
+              cachedTxHex = null;
+              cachedPaymentId = null;
+              cachedNonce = null;
+              await advanceNonceCache(account.address, nonce);
+            }
+
+            lastError = `${finalRes.status}: ${responseData}`;
+            continue;
+          }
+
+          throw new Error(
+            `Failed to file signal (${finalRes.status}): ${responseData}`
+          );
+        }
+
+        throw new Error(
+          `Signal filing failed after ${MAX_ATTEMPTS} attempts. Last error: ${lastError}`
+        );
       } catch (error) {
         return createErrorResponse(error);
       }
