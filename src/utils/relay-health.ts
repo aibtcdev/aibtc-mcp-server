@@ -16,11 +16,23 @@ export interface StuckTransaction {
   sponsor_nonce?: number;
 }
 
+export interface RelayPoolStatus {
+  poolAvailable: number;
+  poolReserved: number;
+  conflictsDetected: number;
+  circuitBreakerOpen: boolean;
+  effectiveCapacity: number;
+  poolStatus: string;
+  lastConflictAt?: string;
+  recommendation?: string | null;
+}
+
 export interface RelayHealthStatus {
   healthy: boolean;
   network: Network;
   version?: string;
   sponsorAddress?: string;
+  poolStatus?: RelayPoolStatus;
   nonceStatus?: {
     lastExecuted: number;
     lastMempool: number | null;
@@ -46,7 +58,8 @@ export const SPONSOR_ADDRESSES: Partial<Record<Network, string>> = {
 
 /**
  * Lightweight relay health probe — returns true only if the relay /health
- * endpoint responds within 5 seconds with HTTP 200 and status "ok".
+ * endpoint responds within 5 seconds with HTTP 200, status "ok", and the
+ * nonce pool circuit breaker is not open.
  *
  * Use this on the hot path (e.g., before deciding to fall back to direct
  * submission) where the full checkRelayHealth() diagnostics are unnecessary.
@@ -65,8 +78,10 @@ export async function isRelayHealthy(network: Network): Promise<boolean> {
 
     if (!res.ok) return false;
 
-    const data = await res.json() as { status?: string };
-    return data.status === "ok";
+    const data = await res.json() as { status?: string; nonce?: { circuitBreakerOpen?: boolean } };
+    if (data.status !== "ok") return false;
+    if (data.nonce?.circuitBreakerOpen === true) return false;
+    return true;
   } catch {
     return false;
   } finally {
@@ -97,11 +112,33 @@ export async function checkRelayHealth(network: Network): Promise<RelayHealthSta
       };
     }
 
-    const healthData = await healthRes.json() as { status?: string; version?: string; network?: string };
+    const healthData = await healthRes.json() as {
+      status?: string;
+      version?: string;
+      network?: string;
+      nonce?: RelayPoolStatus;
+    };
     const version = healthData.version;
 
     if (healthData.status !== "ok") {
       issues.push(`Relay status: ${healthData.status || "unknown"}`);
+    }
+
+    // Check relay pool state fields (v1.26.1+)
+    const poolStatus = healthData.nonce;
+    if (poolStatus) {
+      if (poolStatus.circuitBreakerOpen) {
+        issues.push("Relay circuit breaker is open");
+      }
+      if (poolStatus.poolStatus === "critical") {
+        issues.push("Relay nonce pool is critical");
+      }
+      if (poolStatus.effectiveCapacity < 5) {
+        issues.push(`Relay effective capacity degraded (${poolStatus.effectiveCapacity}/${poolStatus.poolAvailable + poolStatus.poolReserved})`);
+      }
+      if (poolStatus.conflictsDetected > 10) {
+        issues.push(`Relay has ${poolStatus.conflictsDetected} nonce conflicts`);
+      }
     }
 
     // Check sponsor address nonce status
@@ -112,6 +149,7 @@ export async function checkRelayHealth(network: Network): Promise<RelayHealthSta
         healthy: issues.length === 0,
         network,
         version,
+        poolStatus,
         issues: issues.length > 0 ? issues : undefined,
       };
     }
@@ -190,6 +228,7 @@ export async function checkRelayHealth(network: Network): Promise<RelayHealthSta
       network,
       version,
       sponsorAddress,
+      poolStatus,
       nonceStatus,
       stuckTransactions,
       issues: issues.length > 0 ? issues : undefined,
@@ -220,7 +259,23 @@ export function formatRelayHealthStatus(status: RelayHealthStatus): string {
   if (status.sponsorAddress) {
     lines.push(`Sponsor: ${status.sponsorAddress}`);
   }
-  
+
+  if (status.poolStatus) {
+    const ps = status.poolStatus;
+    lines.push("");
+    lines.push("Pool State:");
+    lines.push(`  Status: ${ps.poolStatus}`);
+    lines.push(`  Circuit breaker: ${ps.circuitBreakerOpen ? "OPEN" : "closed"}`);
+    lines.push(`  Effective capacity: ${ps.effectiveCapacity} (available=${ps.poolAvailable} reserved=${ps.poolReserved})`);
+    lines.push(`  Conflicts detected: ${ps.conflictsDetected}`);
+    if (ps.lastConflictAt) {
+      lines.push(`  Last conflict: ${ps.lastConflictAt}`);
+    }
+    if (ps.recommendation) {
+      lines.push(`  Recommendation: ${ps.recommendation}`);
+    }
+  }
+
   if (status.nonceStatus) {
     const ns = status.nonceStatus;
     lines.push("");
