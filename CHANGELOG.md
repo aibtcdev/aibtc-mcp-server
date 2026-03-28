@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.46.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.45.0...mcp-server-v1.46.0) (2026-03-28)
+
+
+### Features
+
+* add zest_enable_collateral tool for V2 collateral-add (closes [#422](https://github.com/aibtcdev/aibtc-mcp-server/issues/422)) ([#423](https://github.com/aibtcdev/aibtc-mcp-server/issues/423)) ([f5385fc](https://github.com/aibtcdev/aibtc-mcp-server/commit/f5385fc4d664b13bf2eb0c4e4ba647f8eed741bf))
+
 ## [1.45.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.44.0...mcp-server-v1.45.0) (2026-03-26)
 
 
