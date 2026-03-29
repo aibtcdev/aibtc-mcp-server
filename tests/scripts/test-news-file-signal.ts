@@ -29,6 +29,7 @@ import { getWalletManager } from "../../src/services/wallet-manager.js";
 import { getAccount, NETWORK, checkSufficientBalance } from "../../src/services/x402.service.js";
 import { getStacksNetwork } from "../../src/config/networks.js";
 import { getContracts, parseContractId } from "../../src/config/contracts.js";
+import { createFungiblePostCondition } from "../../src/transactions/post-conditions.js";
 import { bip322Sign } from "../../src/utils/bip322.js";
 
 const SIGNALS_URL = process.env.SIGNALS_URL || "http://localhost:8787/api/signals";
@@ -180,6 +181,13 @@ async function main() {
   console.log("\n[6] Building sponsored tx...");
   const contracts = getContracts(NETWORK);
   const { address: contractAddress, name: contractName } = parseContractId(contracts.SBTC_TOKEN);
+  const postCondition = createFungiblePostCondition(
+    account.address,
+    contracts.SBTC_TOKEN,
+    "sbtc-token",
+    "eq",
+    amount
+  );
   const transaction = await makeContractCall({
     contractAddress,
     contractName,
@@ -192,6 +200,7 @@ async function main() {
     ],
     senderKey: account.privateKey,
     network: getStacksNetwork(NETWORK),
+    postConditions: [postCondition],
     sponsored: true,
     fee: 0n,
   });

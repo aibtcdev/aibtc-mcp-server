@@ -157,6 +157,15 @@ interface RetryInfo {
 function classifyRetryableError(status: number, body: unknown): RetryInfo {
   const NOT_RETRYABLE: RetryInfo = { retryable: false, delayMs: 0, relaySideConflict: false };
 
+  // Duplicate-signal 409 from the news API must NOT be retried —
+  // the signal was already delivered and retrying would re-pay.
+  if (status === 409) {
+    const bodyStr = typeof body === "string" ? body : JSON.stringify(body);
+    if (/already exists|duplicate/i.test(bodyStr)) {
+      return NOT_RETRYABLE;
+    }
+  }
+
   if (typeof body === "object" && body !== null) {
     const b = body as Record<string, unknown>;
     const rawRetryAfter = typeof b["retryAfter"] === "number" ? b["retryAfter"] : 0;
@@ -719,7 +728,7 @@ Fields:
 
         for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
           if (attempt > 0 && nextRetryDelayMs > 0) {
-            console.error(
+            console.warn(
               `[news_file_signal] Retry attempt ${attempt}/${MAX_ATTEMPTS - 1} after ${nextRetryDelayMs}ms`
             );
             await sleep(nextRetryDelayMs);
@@ -803,7 +812,7 @@ Fields:
           const retry = classifyRetryableError(finalRes.status, parsed);
 
           if (retry.retryable && attempt < MAX_ATTEMPTS - 1) {
-            console.error(
+            console.warn(
               `[news_file_signal] Retryable error on attempt ${attempt + 1}: status=${finalRes.status} relaySide=${retry.relaySideConflict} body=${responseData}`
             );
             nextRetryDelayMs = retry.delayMs;
@@ -824,6 +833,8 @@ Fields:
           );
         }
 
+        // Dead code: the loop always exits via return (success) or throw (failure above).
+        // This path is only reached if MAX_ATTEMPTS is 0, which is not a valid config.
         throw new Error(
           `Signal filing failed after ${MAX_ATTEMPTS} attempts. Last error: ${lastError}`
         );
