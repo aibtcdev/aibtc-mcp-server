@@ -27,10 +27,9 @@ import {
 } from "../../src/utils/x402-protocol.js";
 import { getWalletManager } from "../../src/services/wallet-manager.js";
 import { getAccount, NETWORK } from "../../src/services/x402.service.js";
-import { getStacksNetwork, getExplorerTxUrl } from "../../src/config/networks.js";
+import { getStacksNetwork } from "../../src/config/networks.js";
 import { getContracts, parseContractId } from "../../src/config/contracts.js";
 import { createFungiblePostCondition } from "../../src/transactions/post-conditions.js";
-import { getSbtcService } from "../../src/services/sbtc.service.js";
 import { getHiroApi } from "../../src/services/hiro-api.js";
 import {
   getTrackedNonce,
@@ -39,13 +38,15 @@ import {
   getAddressState,
 } from "../../src/services/nonce-tracker.js";
 
-// Test target: send to self (cheapest test)
-const RECIPIENT_STX = "SP5Y3W3F78NKFH4HYFNDQMJC484VZWKDH35ZR2M9";
-const RECIPIENT_BTC = "bc1qv6lt5utlfvfdpdj8emmar4vt4p484pjnhlwwnn";
+// Configurable via env vars for portability across dev machines and CI
+const RECIPIENT_STX =
+  process.env.TEST_RECIPIENT_STX || "SP5Y3W3F78NKFH4HYFNDQMJC484VZWKDH35ZR2M9";
+const RECIPIENT_BTC =
+  process.env.TEST_RECIPIENT_BTC || "bc1qv6lt5utlfvfdpdj8emmar4vt4p484pjnhlwwnn";
 
-const WALLET_NAME = "secret mars name";
+const WALLET_NAME = process.env.TEST_WALLET_NAME || "secret mars name";
 const WALLET_PASSWORD = process.env.TEST_WALLET_PASSWORD || "";
-const INBOX_BASE = "https://aibtc.com/api/inbox";
+const INBOX_BASE = process.env.TEST_INBOX_BASE || "https://aibtc.com/api/inbox";
 
 let passed = 0;
 let failed = 0;
@@ -196,7 +197,7 @@ async function main() {
       resource: paymentRequired!.resource,
       accepted: accept,
       payload: { transaction: txHex },
-      extensions: buildPaymentIdentifierExtension(generatePaymentId()),
+      extensions: buildPaymentIdentifierExtension(paymentId),
     });
 
     console.log(`\n[6] POST with payment-signature (attempt ${attempt + 1}, nonce ${currentNonce})...`);

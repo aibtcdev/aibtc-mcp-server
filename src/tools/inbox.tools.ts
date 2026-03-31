@@ -485,14 +485,17 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
             // Advance shared nonce tracker on success.
             // When no txid is available (pending settlement), record the paymentId
             // so the agent can correlate the nonce with a trackable reference.
-            const nonceRef = txid || (inboxPaymentId ? `pending:${inboxPaymentId}` : "");
+            // Fall back to the client-generated paymentId if the response body is
+            // missing/malformed, so success responses always record a non-empty ref.
+            const resolvedPaymentId = inboxPaymentId || paymentId;
+            const nonceRef = txid || `pending:${resolvedPaymentId}`;
             await advanceNonceCache(account.address, nonce, nonceRef);
 
             // Build payment info — always include when we have any payment reference.
             // This ensures the agent sees payment status even when settlement is pending.
-            const paymentCheckUrl = inboxPaymentId
-              ? `https://aibtc.com/api/payment-status/${inboxPaymentId}`
-              : undefined;
+            // Derive checkUrl from INBOX_BASE to avoid host drift.
+            const inboxBaseUrl = new URL(INBOX_BASE);
+            const paymentCheckUrl = `${inboxBaseUrl.origin}/api/payment-status/${resolvedPaymentId}`;
 
             return createJsonResponse({
               success: true,
@@ -509,9 +512,9 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
                   explorer: getExplorerTxUrl(txid, NETWORK),
                 }),
                 amount: accept.amount + " sats sBTC",
-                status: inboxPaymentStatus ?? (txid ? "confirmed" : "unknown"),
-                ...(inboxPaymentId && { paymentId: inboxPaymentId }),
-                ...(paymentCheckUrl && { checkUrl: paymentCheckUrl }),
+                status: inboxPaymentStatus ?? (txid ? "confirmed" : resolvedPaymentId ? "pending" : "unknown"),
+                paymentId: resolvedPaymentId,
+                checkUrl: paymentCheckUrl,
               },
             });
           }
