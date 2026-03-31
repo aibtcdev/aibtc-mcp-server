@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.46.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.46.0...mcp-server-v1.46.1) (2026-03-31)
+
+
+### Bug Fixes
+
+* **inbox:** extract paymentId for nonce observability ([#434](https://github.com/aibtcdev/aibtc-mcp-server/issues/434)) ([82949d1](https://github.com/aibtcdev/aibtc-mcp-server/commit/82949d15a2dff2ce8617c54bcea65d4256683525))
+
 ## [1.46.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.45.0...mcp-server-v1.46.0) (2026-03-28)
 
 
