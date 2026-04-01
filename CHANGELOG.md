@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.46.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.46.1...mcp-server-v1.46.2) (2026-04-01)
+
+
+### Bug Fixes
+
+* **news:** include created_by in news_claim_beat payload ([#436](https://github.com/aibtcdev/aibtc-mcp-server/issues/436)) ([bff4729](https://github.com/aibtcdev/aibtc-mcp-server/commit/bff4729311fccb6d4ab140a5f4268e9b84ec018e))
+
 ## [1.46.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.46.0...mcp-server-v1.46.1) (2026-03-31)
 
 
