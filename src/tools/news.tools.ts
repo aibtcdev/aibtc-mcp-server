@@ -372,6 +372,7 @@ Fields:
         const payload: Record<string, unknown> = {
           slug,
           name,
+          created_by: account.btcAddress,
         };
         if (description) {
           payload.description = description;
