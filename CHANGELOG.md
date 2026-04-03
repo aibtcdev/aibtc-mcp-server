@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.46.3](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.46.2...mcp-server-v1.46.3) (2026-04-03)
+
+
+### Bug Fixes
+
+* align relay payment polling contract with tx-schemas ([#439](https://github.com/aibtcdev/aibtc-mcp-server/issues/439)) ([b394f5c](https://github.com/aibtcdev/aibtc-mcp-server/commit/b394f5cb82be30e723606a8f469c526d8ee894ce))
+
 ## [1.46.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.46.1...mcp-server-v1.46.2) (2026-04-01)
 
 
