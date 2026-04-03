@@ -273,6 +273,104 @@ No authentication required.`,
   );
 
   // --------------------------------------------------------------------------
+  // bounty_create — Create a new bounty (requires bc1q wallet, BIP-322 auth)
+  // --------------------------------------------------------------------------
+  server.registerTool(
+    "bounty_create",
+    {
+      description: `Create a new bounty on bounty.drx4.xyz.
+
+Posts a new bounty to the sBTC bounty board. Requires an unlocked wallet with
+BTC keys and AIBTC level >= 1. The request is authenticated via BIP-322 signing.
+
+Fields:
+- title: short descriptive title for the bounty
+- description: full details of the task, deliverables, and acceptance criteria
+- amount_sats: reward amount in satoshis
+- tags: comma-separated tags (e.g. "stacks,defi,clarity")
+- deadline: optional ISO 8601 deadline (e.g. "2026-04-15T00:00:00Z")`,
+      inputSchema: {
+        title: z
+          .string()
+          .min(1)
+          .describe("Bounty title"),
+        description: z
+          .string()
+          .min(1)
+          .describe("Full description of the task, deliverables, and acceptance criteria"),
+        amount_sats: z
+          .number()
+          .min(1)
+          .describe("Reward amount in satoshis"),
+        tags: z
+          .string()
+          .optional()
+          .describe("Comma-separated tags (e.g. 'stacks,defi,clarity')"),
+        deadline: z
+          .string()
+          .optional()
+          .describe("Optional deadline in ISO 8601 format (e.g. '2026-04-15T00:00:00Z')"),
+      },
+    },
+    async ({ title, description, amount_sats, tags, deadline }) => {
+      try {
+        const account = await getAccount();
+
+        if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
+          throw new Error(
+            "Bitcoin keys not available. Unlock a wallet with BTC key derivation to create bounties."
+          );
+        }
+
+        const authHeaders = buildBountyAuthHeaders("create-bounty", "bounties", account as AccountForAuth);
+
+        const payload: Record<string, unknown> = {
+          title,
+          description,
+          amount_sats,
+          btc_address: account.btcAddress,
+        };
+        if (account.address) {
+          payload.stx_address = account.address;
+        }
+        if (tags) {
+          payload.tags = tags;
+        }
+        if (deadline) {
+          payload.deadline = deadline;
+        }
+
+        const res = await fetch(`${BOUNTY_BASE}/bounties`, {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify(payload),
+        });
+
+        const responseText = await res.text();
+        let responseData: unknown;
+        try {
+          responseData = JSON.parse(responseText);
+        } catch {
+          responseData = { raw: responseText };
+        }
+
+        if (!res.ok) {
+          throw new Error(`Failed to create bounty (${res.status}): ${responseText}`);
+        }
+
+        return createJsonResponse({
+          success: true,
+          message: "Bounty created successfully",
+          bounty: responseData,
+          created_by: account.btcAddress,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --------------------------------------------------------------------------
   // bounty_claim — Claim a bounty (requires bc1q wallet, BIP-322 auth)
   // --------------------------------------------------------------------------
   server.registerTool(
