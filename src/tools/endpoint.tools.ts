@@ -10,7 +10,14 @@ import {
 } from "../endpoints/registry.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { X402_HEADERS } from "../utils/x402-protocol.js";
-import { extractTxidFromPaymentSignature, pollTransactionConfirmation } from "../utils/x402-recovery.js";
+import type { HttpPaymentStatusResponse } from "@aibtc/tx-schemas/http";
+import {
+  extractPaymentIdFromPaymentSignature,
+  extractTxidFromPaymentSignature,
+  pollTransactionConfirmation,
+} from "../utils/x402-recovery.js";
+import { formatCanonicalPaymentStatus } from "../utils/x402-payment-state.js";
+import { emitPaymentLog } from "../utils/x402-payment-logging.js";
 
 const ALL_SOURCES = "x402.biwas.xyz, x402.aibtc.com, stx402.com, aibtc.com";
 
@@ -329,6 +336,7 @@ For aibtc.com inbox messages, use send_inbox_message instead — it uses sponsor
         }
 
         const api = await createApiClient(parsed.baseUrl, {
+          toolName: "execute_x402_endpoint",
           onBeforePayment: async (requirements) => {
             await checkSufficientBalance(requirements.account, requirements.amount, requirements.asset, true);
           },
@@ -366,13 +374,63 @@ For aibtc.com inbox messages, use send_inbox_message instead — it uses sponsor
         const axiosError = error as {
           config?: { headers?: Record<string, string> };
           response?: { status?: number; data?: unknown };
+          x402PaymentStatus?: unknown;
+          x402PaymentDecision?: { summary?: string };
         };
+        const canonicalStatus = axiosError.x402PaymentStatus as
+          | HttpPaymentStatusResponse
+          | undefined;
+        if (canonicalStatus) {
+          const baseError = formatEndpointError(error, label);
+          const paymentSigHeader = axiosError.config?.headers?.[X402_HEADERS.PAYMENT_SIGNATURE];
+          const fallbackTxid = paymentSigHeader
+            ? extractTxidFromPaymentSignature(paymentSigHeader)
+            : null;
+          const fallbackPaymentId = paymentSigHeader
+            ? extractPaymentIdFromPaymentSignature(paymentSigHeader)
+            : null;
+
+          let text =
+            baseError.content[0].text +
+            `\n\nCanonical payment status:\n${formatCanonicalPaymentStatus(canonicalStatus)}`;
+
+          if (axiosError.x402PaymentDecision?.summary) {
+            text += `\n\nGuidance: ${axiosError.x402PaymentDecision.summary}`;
+          }
+
+          if (fallbackPaymentId && fallbackPaymentId !== canonicalStatus.paymentId) {
+            text += `\n\nRequest paymentId: ${fallbackPaymentId}`;
+          }
+
+          if (fallbackTxid && fallbackTxid !== canonicalStatus.txid) {
+            const confirmation = await pollTransactionConfirmation(fallbackTxid, NETWORK);
+            text +=
+              `\n\nOperational fallback only:\n` +
+              `  txid: ${confirmation.txid}\n` +
+              `  status: ${confirmation.status}\n` +
+              `  explorer: ${confirmation.explorer}`;
+          }
+
+          return {
+            ...baseError,
+            content: [{ type: "text" as const, text }],
+          };
+        }
+
         const paymentSigHeader = axiosError.config?.headers?.[X402_HEADERS.PAYMENT_SIGNATURE];
         if (paymentSigHeader) {
           const txid = extractTxidFromPaymentSignature(paymentSigHeader);
+          const fallbackPaymentId = extractPaymentIdFromPaymentSignature(paymentSigHeader);
           if (txid) {
             // Poll briefly to get current status
             const confirmation = await pollTransactionConfirmation(txid, NETWORK);
+            emitPaymentLog("payment.fallback_used", {
+              tool: "execute_x402_endpoint",
+              paymentId: fallbackPaymentId,
+              status: confirmation.status,
+              action: "txid_recovery",
+              compatShimUsed: false,
+            });
             const baseError = formatEndpointError(error, label);
             return {
               ...baseError,
@@ -380,7 +438,8 @@ For aibtc.com inbox messages, use send_inbox_message instead — it uses sponsor
                 {
                   type: "text" as const,
                   text: baseError.content[0].text +
-                    `\n\nPayment transaction was submitted but settlement failed. Transaction recovery info:\n` +
+                    `\n\nCanonical payment status was unavailable, so only txid recovery fallback is available.\n` +
+                    `Transaction recovery info:\n` +
                     `  txid: ${confirmation.txid}\n` +
                     `  status: ${confirmation.status}\n` +
                     `  explorer: ${confirmation.explorer}`,

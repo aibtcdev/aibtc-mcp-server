@@ -379,6 +379,7 @@ describe("checkSufficientBalance", () => {
 describe("payment attempt guard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
     // Mock wallet manager to return test account
     mockGetActiveAccount.mockReturnValue({
       address: "SP000000000000000000002Q6VF78",
@@ -477,5 +478,92 @@ describe("payment attempt guard", () => {
     await expect(client.get("/test")).rejects.toThrow(
       "Payment retry limit exceeded",
     );
+  });
+
+  it("prefers canonical paymentId polling from upstream header hints on second 402", async () => {
+    const client = await createApiClient("https://aibtc.com");
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const fetchSpy = vi.fn().mockResolvedValue({
+      json: async () => ({
+        paymentId: "pay_canonical_123",
+        status: "failed",
+        terminalReason: "sender_nonce_stale",
+        retryable: true,
+        checkStatusUrl: "https://aibtc.com/api/payment-status/pay_canonical_123",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    client.defaults.adapter = async (config) => {
+      throw {
+        response: {
+          status: 402,
+          data: {
+            error: "payment still pending",
+          },
+          headers: {
+            "x-payment-id": "pay_canonical_123",
+            "x-payment-status": "pending",
+            "x-payment-check-url": "/api/payment-status/pay_canonical_123",
+          },
+          config,
+        },
+        config,
+      };
+    };
+
+    await client.get("/test").catch(() => undefined);
+
+    await expect(client.get("/test")).rejects.toMatchObject({
+      message: expect.stringContaining("sender_nonce_stale"),
+      x402PaymentStatus: expect.objectContaining({
+        paymentId: "pay_canonical_123",
+        status: "failed",
+        terminalReason: "sender_nonce_stale",
+      }),
+    });
+
+    expect(fetchSpy).toHaveBeenCalledWith("https://aibtc.com/api/payment-status/pay_canonical_123", {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+
+    const logEvents = consoleSpy.mock.calls
+      .map(([entry]) => {
+        try {
+          return JSON.parse(String(entry)) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })
+      .filter((entry): entry is Record<string, unknown> => entry !== null);
+
+    expect(logEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: "payment.poll",
+        service: "aibtc-mcp-server",
+        tool: "createApiClient",
+        paymentId: "pay_canonical_123",
+        checkStatusUrl_present: true,
+        compat_shim_used: false,
+      }),
+      expect.objectContaining({
+        event: "payment.retry_decision",
+        paymentId: "pay_canonical_123",
+        status: "failed",
+        terminalReason: "sender_nonce_stale",
+        action: "rebuild_sender",
+        compat_shim_used: false,
+      }),
+      expect.objectContaining({
+        event: "payment.finalized",
+        paymentId: "pay_canonical_123",
+        status: "failed",
+        action: "rebuild_sender",
+        compat_shim_used: false,
+      }),
+    ]));
+    expect(logEvents.find((entry) => entry.event === "payment.fallback_used")).toBeUndefined();
+    consoleSpy.mockRestore();
   });
 });

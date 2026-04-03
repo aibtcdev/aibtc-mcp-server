@@ -4,8 +4,8 @@
  * Helpers for extracting transaction IDs from payment-signature headers
  * and polling transaction confirmation status.
  *
- * Used by inbox.tools.ts and endpoint.tools.ts to provide txid recovery
- * info when settlement fails after payment was submitted.
+ * Used by inbox.tools.ts and endpoint.tools.ts as an operational fallback
+ * when canonical paymentId polling is unavailable or inconclusive.
  */
 
 import { deserializeTransaction } from "@stacks/transactions";
@@ -41,6 +41,32 @@ export function extractTxidFromPaymentSignature(
 
     const tx = deserializeTransaction(txBytes);
     return tx.txid();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Extract the relay-owned paymentId from a base64-encoded payment-signature header.
+ *
+ * This is useful when the caller needs to recover the stable payment identity
+ * from a previously signed request before canonical polling can begin.
+ */
+export function extractPaymentIdFromPaymentSignature(
+  paymentSignatureHeader: string
+): string | null {
+  try {
+    const payload = decodePaymentPayload(paymentSignatureHeader);
+    const id = payload?.extensions?.["payment-identifier"];
+    if (!id || typeof id !== "object" || Array.isArray(id)) {
+      return null;
+    }
+    const info = (id as { info?: unknown }).info;
+    if (!info || typeof info !== "object" || Array.isArray(info)) {
+      return null;
+    }
+    const paymentId = (info as { id?: unknown }).id;
+    return typeof paymentId === "string" && paymentId.length > 0 ? paymentId : null;
   } catch {
     return null;
   }

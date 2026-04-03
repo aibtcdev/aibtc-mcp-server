@@ -18,7 +18,22 @@ import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { InsufficientBalanceError } from "../utils/errors.js";
 import { formatSbtc } from "../utils/formatting.js";
 import { getHiroApi } from "../services/hiro-api.js";
-import { extractTxidFromPaymentSignature, pollTransactionConfirmation } from "../utils/x402-recovery.js";
+import {
+  extractPaymentIdFromPaymentSignature,
+  extractTxidFromPaymentSignature,
+  pollTransactionConfirmation,
+} from "../utils/x402-recovery.js";
+import {
+  classifyCanonicalPaymentStatus,
+  formatCanonicalPaymentStatus,
+  normalizeCallerFacingStatus,
+  resolveCanonicalPaymentStatus,
+} from "../utils/x402-payment-state.js";
+import {
+  emitCanonicalPaymentDecisionLogs,
+  emitCanonicalPaymentPollLogs,
+  emitPaymentLog,
+} from "../utils/x402-payment-logging.js";
 
 const INBOX_BASE = "https://aibtc.com/api/inbox";
 
@@ -160,7 +175,7 @@ const MAX_RETRY_AFTER_CAP_S = 60;
 /**
  * Classify a response as retryable and extract retry timing.
  */
-function classifyRetryableError(status: number, body: unknown): RetryInfo {
+function classifyLegacyRetryableError(status: number, body: unknown): RetryInfo {
   const NOT_RETRYABLE: RetryInfo = { retryable: false, delayMs: 0, relaySideConflict: false };
 
   // Duplicate-message 409 from the inbox API must NOT be retried —
@@ -201,6 +216,11 @@ function classifyRetryableError(status: number, body: unknown): RetryInfo {
   }
 
   return NOT_RETRYABLE;
+}
+
+function getInboxPaymentStatusUrl(paymentId: string): string {
+  const inboxBaseUrl = new URL(INBOX_BASE);
+  return `${inboxBaseUrl.origin}/api/payment-status/${paymentId}`;
 }
 
 /**
@@ -450,6 +470,12 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
             payload: { transaction: txHex },
             extensions: buildPaymentIdentifierExtension(paymentId),
           });
+          emitPaymentLog("payment.accepted", {
+            tool: "send_inbox_message",
+            paymentId,
+            action: "payment_submitted",
+            compatShimUsed: false,
+          });
 
           // Step 5: Send with payment header
           const finalRes = await fetch(inboxUrl, {
@@ -481,21 +507,49 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
             const inboxData = (parsed as Record<string, unknown>).inbox as Record<string, unknown> | undefined;
             const inboxPaymentId = (inboxData?.paymentId ?? parsed.paymentId) as string | undefined;
             const inboxPaymentStatus = (inboxData?.paymentStatus ?? parsed.paymentStatus) as string | undefined;
+            const resolvedPaymentId = inboxPaymentId || paymentId;
+            let compatShimUsed = false;
+
+            const canonicalStatus = await resolveCanonicalPaymentStatus({
+              payload: parsed,
+              paymentId: resolvedPaymentId,
+              baseUrl: INBOX_BASE,
+              fallbackCheckStatusUrl: resolvedPaymentId
+                ? getInboxPaymentStatusUrl(resolvedPaymentId)
+                : undefined,
+              onPoll: ({ paymentId: polledPaymentId, checkStatusUrl, source }) => {
+                compatShimUsed = emitCanonicalPaymentPollLogs({
+                  tool: "send_inbox_message",
+                  paymentId: polledPaymentId ?? resolvedPaymentId,
+                  checkStatusUrl,
+                  source,
+                });
+              },
+            });
+            if (canonicalStatus) {
+              const decision = classifyCanonicalPaymentStatus(canonicalStatus);
+              emitCanonicalPaymentDecisionLogs({
+                tool: "send_inbox_message",
+                status: canonicalStatus,
+                decision,
+                compatShimUsed,
+              });
+            }
 
             // Advance shared nonce tracker on success.
             // When no txid is available (pending settlement), record the paymentId
             // so the agent can correlate the nonce with a trackable reference.
             // Fall back to the client-generated paymentId if the response body is
             // missing/malformed, so success responses always record a non-empty ref.
-            const resolvedPaymentId = inboxPaymentId || paymentId;
             const nonceRef = txid || `pending:${resolvedPaymentId}`;
             await advanceNonceCache(account.address, nonce, nonceRef);
 
             // Build payment info — always include when we have any payment reference.
             // This ensures the agent sees payment status even when settlement is pending.
-            // Derive checkUrl from INBOX_BASE to avoid host drift.
-            const inboxBaseUrl = new URL(INBOX_BASE);
-            const paymentCheckUrl = `${inboxBaseUrl.origin}/api/payment-status/${resolvedPaymentId}`;
+            // Derive checkStatusUrl from INBOX_BASE to avoid host drift.
+            const paymentCheckUrl = resolvedPaymentId
+              ? getInboxPaymentStatusUrl(resolvedPaymentId)
+              : undefined;
 
             return createJsonResponse({
               success: true,
@@ -512,9 +566,15 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
                   explorer: getExplorerTxUrl(txid, NETWORK),
                 }),
                 amount: accept.amount + " sats sBTC",
-                status: inboxPaymentStatus ?? (txid ? "confirmed" : resolvedPaymentId ? "pending" : "unknown"),
+                status:
+                  canonicalStatus?.status ??
+                  normalizeCallerFacingStatus(inboxPaymentStatus) ??
+                  (txid ? "confirmed" : resolvedPaymentId ? "queued" : "unknown"),
                 paymentId: resolvedPaymentId,
-                checkUrl: paymentCheckUrl,
+                ...(canonicalStatus?.terminalReason && {
+                  terminalReason: canonicalStatus.terminalReason,
+                }),
+                ...(paymentCheckUrl && { checkStatusUrl: paymentCheckUrl }),
               },
             });
           }
@@ -532,8 +592,66 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
             seenRelayTxids.add(failedTxid);
           }
 
-          // Classify the error and extract retry timing
-          const retry = classifyRetryableError(finalRes.status, parsed);
+          const paymentIdForStatus =
+            cachedPaymentId ??
+            extractPaymentIdFromPaymentSignature(paymentSignature) ??
+            undefined;
+          let compatShimUsed = false;
+          const canonicalStatus = await resolveCanonicalPaymentStatus({
+            payload: parsed,
+            paymentId: paymentIdForStatus,
+            baseUrl: INBOX_BASE,
+            fallbackCheckStatusUrl: paymentIdForStatus
+              ? getInboxPaymentStatusUrl(paymentIdForStatus)
+              : undefined,
+            onPoll: ({ paymentId: polledPaymentId, checkStatusUrl, source }) => {
+              compatShimUsed = emitCanonicalPaymentPollLogs({
+                tool: "send_inbox_message",
+                paymentId: polledPaymentId ?? paymentIdForStatus,
+                checkStatusUrl,
+                source,
+              });
+            },
+          });
+
+          if (canonicalStatus) {
+            const decision = classifyCanonicalPaymentStatus(canonicalStatus);
+            emitCanonicalPaymentDecisionLogs({
+              tool: "send_inbox_message",
+              status: canonicalStatus,
+              decision,
+              compatShimUsed,
+            });
+
+            if (
+              (decision.action === "poll_same_payment" || decision.action === "rebuild_sender") &&
+              attempt < MAX_ATTEMPTS - 1
+            ) {
+              nextRetryDelayMs = decision.action === "poll_same_payment" ? DEFAULT_RETRY_DELAY_MS : 0;
+
+              if (decision.action === "rebuild_sender") {
+                cachedTxHex = null;
+                cachedPaymentId = null;
+                cachedNonce = null;
+                await advanceNonceCache(account.address, nonce);
+              }
+
+              lastError = `${finalRes.status}: ${decision.summary}`;
+              continue;
+            }
+
+            const errorBase =
+              `Message delivery failed (${finalRes.status}). ${decision.summary}` +
+              (canonicalStatus.error ? ` Relay detail: ${canonicalStatus.error}` : "");
+            throw new Error(
+              `${errorBase}\n\nCanonical payment status:\n${formatCanonicalPaymentStatus(
+                canonicalStatus
+              )}`
+            );
+          }
+
+          // Fall back to transport-specific retry hints only when canonical status is unavailable.
+          const retry = classifyLegacyRetryableError(finalRes.status, parsed);
 
           if (retry.retryable && attempt < MAX_ATTEMPTS - 1) {
             console.error(
@@ -566,8 +684,16 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
           if (txid) {
             // Poll briefly for on-chain status so the error includes actionable info
             const confirmation = await pollTransactionConfirmation(txid, NETWORK);
+            emitPaymentLog("payment.fallback_used", {
+              tool: "send_inbox_message",
+              paymentId: paymentIdForStatus,
+              status: confirmation.status,
+              action: "txid_recovery",
+              compatShimUsed: false,
+            });
             throw new Error(
-              `${errorBase}\n\nPayment transaction was submitted but settlement failed. ` +
+              `${errorBase}\n\nCanonical payment status was unavailable, so only txid recovery fallback is available. ` +
+              `Payment transaction may already exist on-chain. ` +
               `Transaction recovery info:\n  txid: ${confirmation.txid}\n  status: ${confirmation.status}\n  explorer: ${confirmation.explorer}`
             );
           }

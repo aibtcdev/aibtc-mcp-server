@@ -18,7 +18,7 @@ export function registerRelayDiagnosticTools(server: McpServer): void {
     {
       description: `Check the sponsor relay health and nonce status.
 
-Use this tool to diagnose sponsored transaction failures. It will:
+Use this tool for operator diagnostics around relay-owned sponsor state. It will:
 - Check relay availability
 - Inspect sponsor address nonce state
 - Detect nonce gaps that block transactions
@@ -26,8 +26,8 @@ Use this tool to diagnose sponsored transaction failures. It will:
 - List stuck transactions with txid, nonce, and how long they have been pending
 - Report mempool congestion
 
-If nonce gaps or stuck transactions are detected, the output includes
-txids and pending durations to share with the AIBTC team for recovery.`,
+This tool does not redefine caller-facing x402 payment states. Use paymentId
+polling for payment lifecycle truth; use this output only as backup diagnostics.`,
       inputSchema: {},
     },
     async () => {
@@ -127,7 +127,7 @@ share the txids and nonces from check_relay_health with the AIBTC team.`,
         );
 
         results.summary = anySupported
-          ? "Recovery request submitted to relay. Run check_relay_health to verify nonce state improved."
+          ? "Recovery request sent to relay operator endpoints. Run check_relay_health to verify nonce state improved."
           : anyUnsupported
           ? "Relay does not yet support automated recovery. Run check_relay_health for txids and nonces to share with the AIBTC team."
           : "Recovery attempted.";

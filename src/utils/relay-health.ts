@@ -1,8 +1,8 @@
 /**
  * Relay Health Monitoring & Nonce Gap Detection
- * 
- * Proactively checks the sponsor relay for nonce gaps and provides
- * diagnostic information when send failures occur.
+ *
+ * Operator-facing diagnostics for sponsor nonce health. This is intentionally
+ * separate from the caller-facing x402 payment state machine.
  */
 
 import { getSponsorRelayUrl, getSponsorApiKey } from "../config/sponsor.js";
@@ -122,7 +122,7 @@ export async function checkRelayHealth(network: Network): Promise<RelayHealthSta
     const hasGaps = nonceInfo.detected_missing_nonces.length > 0;
     const gapCount = nonceInfo.detected_missing_nonces.length;
 
-    // Mempool desync: sponsor has submitted far more txs than have been confirmed
+    // Mempool desync: sponsor has far more queued/broadcast transactions than confirmed ones
     const lastExecuted = nonceInfo.last_executed_tx_nonce || 0;
     const lastMempool = nonceInfo.last_mempool_tx_nonce;
     const desyncGap = lastMempool !== null ? lastMempool - lastExecuted : 0;
@@ -140,7 +140,7 @@ export async function checkRelayHealth(network: Network): Promise<RelayHealthSta
       );
     } else if (nonceInfo.detected_mempool_nonces.length > 10) {
       issues.push(
-        `Sponsor has ${nonceInfo.detected_mempool_nonces.length} transactions stuck in mempool`
+        `Sponsor has ${nonceInfo.detected_mempool_nonces.length} relay-owned transactions stuck in mempool`
       );
     }
 

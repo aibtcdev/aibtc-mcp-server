@@ -5,7 +5,7 @@
  * 1. paymentId is extracted from the inbox response body
  * 2. paymentStatus is extracted correctly
  * 3. Nonce tracker records a reference (paymentId) even when txid is pending
- * 4. The agent gets a checkUrl for polling payment status
+ * 4. The agent gets a checkStatusUrl for polling payment status
  *
  * Usage:
  *   TEST_WALLET_PASSWORD=<password> npx tsx tests/scripts/test-inbox-observability.ts
@@ -289,28 +289,31 @@ async function main() {
     "Nonce tracker recorded the paymentId ref"
   );
 
-  // ── Verify: checkUrl construction ──────────────────────────────────
-  console.log("\n[10] Verifying checkUrl...");
-  const checkUrl = inboxPaymentId
+  // ── Verify: checkStatusUrl construction ────────────────────────────
+  console.log("\n[10] Verifying checkStatusUrl...");
+  const checkStatusUrl = inboxPaymentId
     ? `https://aibtc.com/api/payment-status/${inboxPaymentId}`
     : undefined;
-  console.log("  checkUrl:", checkUrl);
-  assert(!!checkUrl, "checkUrl is constructable from paymentId");
+  console.log("  checkStatusUrl:", checkStatusUrl);
+  assert(!!checkStatusUrl, "checkStatusUrl is constructable from paymentId");
 
-  // Verify the checkUrl actually works
-  if (checkUrl) {
-    console.log("  Polling checkUrl...");
-    const pollRes = await fetch(checkUrl);
+  // Verify the checkStatusUrl actually works
+  if (checkStatusUrl) {
+    console.log("  Polling checkStatusUrl...");
+    const pollRes = await fetch(checkStatusUrl);
     console.log("  poll status:", pollRes.status);
     if (pollRes.ok) {
       const pollData = await pollRes.json();
       console.log("  poll data:", JSON.stringify(pollData, null, 2));
-      assert(true, `checkUrl returned ${pollRes.status}`);
+      assert(true, `checkStatusUrl returned ${pollRes.status}`);
     } else {
       const pollText = await pollRes.text();
       console.log("  poll response:", pollText);
       // 404 is ok — the paymentId might not be our client-side ID
-      assert(pollRes.status === 404 || pollRes.status === 200, `checkUrl returned ${pollRes.status}`);
+      assert(
+        pollRes.status === 404 || pollRes.status === 200,
+        `checkStatusUrl returned ${pollRes.status}`
+      );
     }
   }
 

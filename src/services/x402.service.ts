@@ -25,6 +25,17 @@ import { getHiroApi } from "./hiro-api.js";
 import { createHash } from "crypto";
 import { InsufficientBalanceError } from "../utils/errors.js";
 import { getContracts, parseContractId } from "../config/contracts.js";
+import {
+  classifyCanonicalPaymentStatus,
+  formatCanonicalPaymentStatus,
+  resolveCanonicalPaymentStatus,
+} from "../utils/x402-payment-state.js";
+import { extractPaymentIdFromPaymentSignature } from "../utils/x402-recovery.js";
+import {
+  emitCanonicalPaymentDecisionLogs,
+  emitCanonicalPaymentPollLogs,
+  emitPaymentLog,
+} from "../utils/x402-payment-logging.js";
 
 // Track payment attempts per client instance (auto-cleanup via WeakMap)
 const paymentAttempts: WeakMap<AxiosInstance, number> = new WeakMap();
@@ -206,6 +217,7 @@ export interface CreateApiClientOptions {
    * callback aborts the payment (e.g. insufficient balance check).
    */
   onBeforePayment?: (requirements: PaymentRequirements) => Promise<void>;
+  toolName?: string;
 }
 
 /**
@@ -214,6 +226,7 @@ export interface CreateApiClientOptions {
  */
 export async function createApiClient(baseUrl?: string, options?: CreateApiClientOptions): Promise<AxiosInstance> {
   const url = baseUrl || API_URL;
+  const toolName = options?.toolName ?? "createApiClient";
 
   // Account is lazy-loaded on first 402 so free endpoints work without a wallet.
   let account: Account | null = null;
@@ -231,7 +244,7 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
   // On a second 402 (would-be retry loop), rejects with a user-facing error.
   axiosInstance.interceptors.response.use(
     (response) => response,
-    (error) => {
+    async (error) => {
       // Only intercept 402 payment errors
       if (error.response?.status !== 402) {
         return Promise.reject(error);
@@ -241,17 +254,51 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
       const attempts = paymentAttempts.get(axiosInstance) || 0;
 
       if (attempts >= 1) {
-        // Reject retry - payment already attempted once.
-        // Include the second 402's response details so callers can see WHY settlement failed.
-        // IMPORTANT: Do NOT copy error.response onto retryError — the payment handler
-        // (Interceptor 2) checks error.response?.status === 402 and would re-process it,
-        // creating an infinite loop. Only copy .config for txid recovery via payment-signature header.
-        const settleDetails = error.response?.data
-          ? ` Settlement response: ${JSON.stringify(error.response.data)}`
-          : '';
-        const retryError = new Error(
-          `Payment retry limit exceeded (max 1 attempt). The endpoint returned 402 again after payment, meaning settlement failed.${settleDetails}`
-        );
+        const paymentSignature = error.config?.headers?.[X402_HEADERS.PAYMENT_SIGNATURE];
+        const paymentId = typeof paymentSignature === "string"
+          ? extractPaymentIdFromPaymentSignature(paymentSignature)
+          : null;
+        let compatShimUsed = false;
+        const canonicalStatus = await resolveCanonicalPaymentStatus({
+          payload: error.response?.data,
+          paymentId: paymentId ?? undefined,
+          responseHeaders: error.response?.headers,
+          baseUrl: url,
+          onPoll: ({ paymentId: polledPaymentId, checkStatusUrl, source }) => {
+            compatShimUsed = emitCanonicalPaymentPollLogs({
+              tool: toolName,
+              paymentId: polledPaymentId ?? paymentId,
+              checkStatusUrl,
+              source,
+            });
+          },
+        });
+
+        let retryError: Error;
+        if (canonicalStatus) {
+          const decision = classifyCanonicalPaymentStatus(canonicalStatus);
+          emitCanonicalPaymentDecisionLogs({
+            tool: toolName,
+            status: canonicalStatus,
+            decision,
+            compatShimUsed,
+          });
+          retryError = new Error(
+            `Payment retry limit exceeded (max 1 attempt).\n` +
+              `${decision.summary}\n` +
+              `${formatCanonicalPaymentStatus(canonicalStatus)}`
+          );
+          (retryError as any).x402PaymentStatus = canonicalStatus;
+          (retryError as any).x402PaymentDecision = decision;
+        } else {
+          const settleDetails = error.response?.data
+            ? ` Settlement response: ${JSON.stringify(error.response.data)}`
+            : "";
+          retryError = new Error(
+            `Payment retry limit exceeded (max 1 attempt). The endpoint returned 402 again after payment, and no canonical payment status was available.${settleDetails}`
+          );
+        }
+
         (retryError as any).config = error.config;
         return Promise.reject(retryError);
       }
@@ -374,6 +421,12 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           accepted: selectedOption,
           payload: { transaction: txHex },
           extensions: buildPaymentIdentifierExtension(paymentId),
+        });
+        emitPaymentLog("payment.accepted", {
+          tool: toolName,
+          paymentId,
+          action: "payment_submitted",
+          compatShimUsed: false,
         });
 
         // Retry the original request with the payment header
