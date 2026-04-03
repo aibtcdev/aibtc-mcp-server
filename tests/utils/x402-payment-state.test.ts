@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   classifyCanonicalPaymentStatus,
+  extractCanonicalPaymentHints,
   resolveCanonicalPaymentStatus,
 } from "../../src/utils/x402-payment-state.js";
 import { extractPaymentIdFromPaymentSignature } from "../../src/utils/x402-recovery.js";
@@ -73,6 +74,25 @@ describe("classifyCanonicalPaymentStatus", () => {
 });
 
 describe("resolveCanonicalPaymentStatus", () => {
+  it("extracts canonical checkStatusUrl hints from inbox payloads without inventing inbox-specific URLs", () => {
+    const hints = extractCanonicalPaymentHints({
+      payload: {
+        inbox: {
+          paymentId: "pay_canonical_hint",
+          paymentStatus: "queued_with_warning",
+          checkStatusUrl: "/payment/pay_canonical_hint",
+        },
+      },
+      baseUrl: "https://relay.example/api/inbox/bc1example",
+    });
+
+    expect(hints).toMatchObject({
+      paymentId: "pay_canonical_hint",
+      status: "queued",
+      checkStatusUrl: "https://relay.example/payment/pay_canonical_hint",
+    });
+  });
+
   it("accepts canonical poll data directly from the payload", async () => {
     const status = await resolveCanonicalPaymentStatus({
       payload: {

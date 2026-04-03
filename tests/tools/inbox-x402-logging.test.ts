@@ -248,7 +248,6 @@ describe("send_inbox_message x402 logging", () => {
         json: async () => ({
           paymentId: "pay_inbox_456",
           status: "queued",
-          checkStatusUrl: "https://canonical.example/payment-status/pay_inbox_456",
         }),
       });
     vi.stubGlobal("fetch", fetchMock);

@@ -140,7 +140,7 @@ function normalizeCheckStatusUrl(checkStatusUrl: string | undefined, baseUrl?: s
   }
 }
 
-function extractCanonicalPollingHints(options: {
+export function extractCanonicalPaymentHints(options: {
   payload?: unknown;
   paymentId?: string;
   responseHeaders?: HeaderBag;
@@ -230,7 +230,7 @@ export async function resolveCanonicalPaymentStatus(options: {
     }
   }
 
-  const hints = extractCanonicalPollingHints(options);
+  const hints = extractCanonicalPaymentHints(options);
 
   const canonicalCheckStatusUrl = hints.checkStatusUrl;
   const compatFallbackCheckStatusUrl = canonicalCheckStatusUrl

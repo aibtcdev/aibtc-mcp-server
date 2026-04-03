@@ -25,6 +25,7 @@ import {
 } from "../utils/x402-recovery.js";
 import {
   classifyCanonicalPaymentStatus,
+  extractCanonicalPaymentHints,
   formatCanonicalPaymentStatus,
   normalizeCallerFacingStatus,
   resolveCanonicalPaymentStatus,
@@ -507,6 +508,11 @@ export function registerInboxTools(server: McpServer): void {
             const inboxPaymentId = (inboxData?.paymentId ?? parsed.paymentId) as string | undefined;
             const inboxPaymentStatus = (inboxData?.paymentStatus ?? parsed.paymentStatus) as string | undefined;
             const resolvedPaymentId = inboxPaymentId || paymentId;
+            const canonicalHints = extractCanonicalPaymentHints({
+              payload: parsed,
+              paymentId: resolvedPaymentId,
+              baseUrl: INBOX_BASE,
+            });
             let compatShimUsed = false;
 
             const canonicalStatus = await resolveCanonicalPaymentStatus({
@@ -549,6 +555,7 @@ export function registerInboxTools(server: McpServer): void {
             // payment-status URL only as an explicit compatibility fallback.
             const paymentCheckUrl =
               canonicalStatus?.checkStatusUrl ??
+              canonicalHints.checkStatusUrl ??
               (resolvedPaymentId ? getInboxPaymentStatusUrl(resolvedPaymentId) : undefined);
 
             return createJsonResponse({
