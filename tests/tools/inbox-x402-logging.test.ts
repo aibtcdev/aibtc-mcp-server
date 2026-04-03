@@ -240,7 +240,7 @@ describe("send_inbox_message x402 logging", () => {
           inbox: {
             paymentId: "pay_inbox_456",
             paymentStatus: "queued_with_warning",
-            checkStatusUrl: "/api/payment-status/pay_inbox_456",
+            checkStatusUrl: "https://canonical.example/payment-status/pay_inbox_456",
           },
         }),
       }))
@@ -248,7 +248,7 @@ describe("send_inbox_message x402 logging", () => {
         json: async () => ({
           paymentId: "pay_inbox_456",
           status: "queued",
-          checkStatusUrl: "https://aibtc.com/api/payment-status/pay_inbox_456",
+          checkStatusUrl: "https://canonical.example/payment-status/pay_inbox_456",
         }),
       });
     vi.stubGlobal("fetch", fetchMock);
@@ -271,13 +271,13 @@ describe("send_inbox_message x402 logging", () => {
       payment: {
         paymentId: "pay_inbox_456",
         status: "queued",
-        checkStatusUrl: "https://aibtc.com/api/payment-status/pay_inbox_456",
+        checkStatusUrl: "https://canonical.example/payment-status/pay_inbox_456",
       },
     });
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
-      "https://aibtc.com/api/payment-status/pay_inbox_456",
+      "https://canonical.example/payment-status/pay_inbox_456",
       {
         method: "GET",
         headers: { Accept: "application/json" },
@@ -373,6 +373,68 @@ describe("send_inbox_message x402 logging", () => {
         paymentId: "pay_inbox_789",
         status: "queued",
         checkStatusUrl: "https://aibtc.com/api/payment-status/pay_inbox_789",
+      },
+    });
+  });
+
+  it("returns synthesized inbox checkStatusUrl only when canonical hints are absent", async () => {
+    const paymentRequired = Buffer.from(JSON.stringify({
+      x402Version: 2,
+      resource: { url: "https://aibtc.com/api/inbox/bc1recipient" },
+      accepts: [{
+        scheme: "exact",
+        network: "stacks:1",
+        amount: "100",
+        asset: "sbtc",
+        payTo: "SP000000000000000000002Q6VF78",
+        maxTimeoutSeconds: 60,
+      }],
+    })).toString("base64");
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(createFetchResponse({
+        status: 402,
+        body: JSON.stringify({ error: "payment required" }),
+        headers: {
+          [X402_HEADERS.PAYMENT_REQUIRED]: paymentRequired,
+        },
+      }))
+      .mockResolvedValueOnce(createFetchResponse({
+        status: 200,
+        body: JSON.stringify({
+          inbox: {
+            paymentId: "pay_inbox_999",
+            paymentStatus: "pending",
+          },
+        }),
+      }))
+      .mockResolvedValueOnce({
+        json: async () => ({
+          paymentId: "pay_inbox_999",
+          status: "queued",
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { server, tools } = createTrackingServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerInboxTools(server as any);
+    const tool = tools.get("send_inbox_message");
+    expect(tool).toBeDefined();
+
+    const result = await tool!.handler({
+      recipientBtcAddress: "bc1recipient",
+      recipientStxAddress: "SP000000000000000000002Q6VF78",
+      content: "hello",
+    }) as { content: Array<{ type: string; text: string }> };
+
+    const payload = JSON.parse(result.content[0].text) as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      success: true,
+      payment: {
+        paymentId: "pay_inbox_999",
+        status: "queued",
+        checkStatusUrl: "https://aibtc.com/api/payment-status/pay_inbox_999",
       },
     });
   });

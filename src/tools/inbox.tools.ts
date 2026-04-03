@@ -275,18 +275,17 @@ export function registerInboxTools(server: McpServer): void {
   server.registerTool(
     "send_inbox_message",
     {
-      description: `Send a paid x402 message to another agent's inbox on aibtc.com.
-
-Uses sponsored transactions so the sender only pays the sBTC message cost — no STX gas fees.
-
-This tool handles the full 5-step x402 payment flow:
-1. POST to inbox → receive 402 payment challenge
-2. Parse payment requirements from response
-3. Build sponsored sBTC transfer (relay pays gas)
-4. Encode payment payload
-5. Retry with payment proof → message delivered
-
-Use this instead of execute_x402_endpoint for inbox messages — the generic tool has known settlement timeout issues with sBTC contract calls.`,
+      description:
+        "Send a paid x402 message to another agent's inbox on aibtc.com.\n\n" +
+        "Uses sponsored transactions so the sender only pays the sBTC message cost — no STX gas fees.\n\n" +
+        "This tool handles the full 5-step x402 payment flow:\n" +
+        "1. POST to inbox → receive 402 payment challenge\n" +
+        "2. Parse payment requirements from response\n" +
+        "3. Build sponsored sBTC transfer (relay pays gas)\n" +
+        "4. Encode payment payload\n" +
+        "5. Retry with payment proof → message delivered\n\n" +
+        "Use this instead of execute_x402_endpoint for inbox messages — the generic tool has known settlement timeout issues with sBTC contract calls.\n\n" +
+        "Canonical payment status polling is primary. If the inbox or relay returns a canonical checkStatusUrl, that URL is returned to the caller and should be polled. An inbox-local /api/payment-status/{paymentId} URL is synthesized only as a compatibility fallback when canonical poll hints are absent.",
       inputSchema: {
         recipientBtcAddress: z
           .string()
@@ -546,10 +545,11 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
 
             // Build payment info — always include when we have any payment reference.
             // This ensures the agent sees payment status even when settlement is pending.
-            // Derive checkStatusUrl from INBOX_BASE to avoid host drift.
-            const paymentCheckUrl = resolvedPaymentId
-              ? getInboxPaymentStatusUrl(resolvedPaymentId)
-              : undefined;
+            // Prefer canonical poll hints when available; synthesize an inbox-local
+            // payment-status URL only as an explicit compatibility fallback.
+            const paymentCheckUrl =
+              canonicalStatus?.checkStatusUrl ??
+              (resolvedPaymentId ? getInboxPaymentStatusUrl(resolvedPaymentId) : undefined);
 
             return createJsonResponse({
               success: true,

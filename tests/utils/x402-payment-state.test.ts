@@ -197,6 +197,28 @@ describe("resolveCanonicalPaymentStatus", () => {
     expect(status?.paymentId).toBe("pay_header");
     expect(status?.status).toBe("replaced");
   });
+
+  it("does not synthesize inbox-specific fallback polling for generic endpoints", async () => {
+    const fetchImpl = vi.fn();
+    const onPoll = vi.fn();
+
+    const status = await resolveCanonicalPaymentStatus({
+      payload: {
+        paymentId: "pay_generic",
+        paymentStatus: "pending",
+      },
+      fetchImpl: fetchImpl as typeof fetch,
+      onPoll,
+    });
+
+    expect(status).toMatchObject({
+      paymentId: "pay_generic",
+      status: "queued",
+    });
+    expect(status?.checkStatusUrl).toBeUndefined();
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(onPoll).not.toHaveBeenCalled();
+  });
 });
 
 describe("extractPaymentIdFromPaymentSignature", () => {
