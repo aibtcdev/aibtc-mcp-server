@@ -214,14 +214,14 @@ Note: ALEX DEX is only available on mainnet.`,
   );
 
   // ==========================================================================
-  // Zest Protocol v2 Tools
+  // Zest Protocol Tools (v0-4-market + v0-market-vault)
   // ==========================================================================
 
   // List available assets
   server.registerTool(
     "zest_list_assets",
     {
-      description: `List all supported assets on Zest Protocol v2.
+      description: `List all supported assets on Zest Protocol (v0-4-market).
 
 Returns the list of assets that can be supplied, borrowed, or used as collateral.
 Each asset includes its symbol, name, and contract ID.
@@ -245,7 +245,7 @@ Note: Zest Protocol is only available on mainnet.`,
 
         return createJsonResponse({
           network: NETWORK,
-          version: "v2",
+          version: "v0-4-market",
           assetCount: assets.length,
           assets: assets.map((a) => ({
             symbol: a.symbol,
@@ -265,7 +265,7 @@ Note: Zest Protocol is only available on mainnet.`,
   server.registerTool(
     "zest_get_position",
     {
-      description: `Get user's lending position on Zest Protocol v2.
+      description: `Get user's lending position on Zest Protocol (v0-4-market).
 
 Returns collateral, debt, health factor, and LTV data across all assets.
 The position query returns USD-denominated totals.
@@ -304,7 +304,7 @@ Note: Zest Protocol is only available on mainnet.`,
 
         return createJsonResponse({
           network: NETWORK,
-          version: "v2",
+          version: "v0-4-market",
           address: userAddress,
           position,
         });
@@ -318,7 +318,7 @@ Note: Zest Protocol is only available on mainnet.`,
   server.registerTool(
     "zest_supply",
     {
-      description: `Supply assets to Zest Protocol v2.
+      description: `Supply assets to Zest Protocol (v0-4-market).
 
 Deposits assets and adds them as collateral in one atomic operation.
 The supplied assets earn yield AND provide borrowing power.
@@ -369,7 +369,7 @@ Note: Zest Protocol is only available on mainnet.`,
   server.registerTool(
     "zest_withdraw",
     {
-      description: `Withdraw assets from Zest Protocol v2.
+      description: `Withdraw assets from Zest Protocol (v0-4-market).
 
 Removes collateral and redeems for underlying assets in one atomic operation.
 You can use the asset symbol (e.g., 'sBTC', 'USDC') or full contract ID.
@@ -413,7 +413,7 @@ Note: Amount is in zToken shares. Zest Protocol is only available on mainnet.`,
   server.registerTool(
     "zest_borrow",
     {
-      description: `Borrow assets from Zest Protocol v2.
+      description: `Borrow assets from Zest Protocol (v0-4-market).
 
 Borrows assets against your supplied collateral.
 Ensure you have sufficient collateral to maintain a healthy LTV.
@@ -507,7 +507,7 @@ Mainnet only.`,
   server.registerTool(
     "zest_repay",
     {
-      description: `Repay borrowed assets to Zest Protocol v2.
+      description: `Repay borrowed assets to Zest Protocol (v0-4-market).
 
 Repays borrowed assets plus accrued interest.
 You can use the asset symbol (e.g., 'USDC', 'sBTC') or full contract ID.

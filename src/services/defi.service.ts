@@ -379,7 +379,7 @@ export class ZestProtocolService {
   }
 
   /**
-   * Get all supported assets from Zest Protocol v2
+   * Get all supported assets from Zest Protocol (v0-4-market)
    */
   async getAssets(): Promise<ZestAsset[]> {
     this.ensureMainnet();
@@ -404,7 +404,7 @@ export class ZestProtocolService {
   }
 
   /**
-   * Get user's full position on Zest v2 via the data helper contract.
+   * Get user's full position on Zest via the protocol-data helper contract.
    * Returns collateral, debt, health factor, and LTV data in a single call.
    */
   async getUserPosition(
@@ -575,7 +575,7 @@ export class ZestProtocolService {
   }
 
   /**
-   * Supply assets to Zest v2 via market's supply-collateral-add.
+   * Supply assets to Zest Protocol via market's supply-collateral-add.
    * Atomically deposits into vault and adds zTokens as collateral.
    * This earns yield AND provides borrowing power.
    *
@@ -630,7 +630,7 @@ export class ZestProtocolService {
   }
 
   /**
-   * Add existing zTokens as collateral on Zest v2.
+   * Add existing zTokens as collateral on Zest Protocol.
    * Use this when you deposited directly to a vault (via depositToVault)
    * and need to register those zTokens as collateral for borrowing.
    *
@@ -677,7 +677,7 @@ export class ZestProtocolService {
   }
 
   /**
-   * Withdraw assets from Zest v2 via market's collateral-remove-redeem.
+   * Withdraw assets from Zest Protocol via market's collateral-remove-redeem.
    * Atomically removes zToken collateral and redeems for underlying.
    *
    * Token flow (3 ft-transfers):

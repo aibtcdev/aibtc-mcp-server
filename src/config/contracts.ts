@@ -26,7 +26,7 @@ export const MAINNET_CONTRACTS = {
 
   // Zest Protocol v2
   ZEST_MARKET: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-4-market",
-  ZEST_DATA: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-1-data",
+  ZEST_DATA: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.protocol-data", // read-only helper for v0-4-market positions
   ZEST_MARKET_VAULT: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-market-vault",
   ZEST_VAULT_STX: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-vault-stx",
   ZEST_VAULT_SBTC: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-vault-sbtc",
@@ -51,7 +51,7 @@ export interface ZestAssetConfig {
   /** FT asset name for the underlying (e.g. "sbtc-token" from sbtc-token::sbtc-token). null for wSTX which uses native STX transfers. */
   tokenAssetName: string | null;
   vault: string;
-  assetId: number; // v2 asset index from v0-1-data: STX=0, zSTX=1, sBTC=2, zsBTC=3, stSTX=4, etc. Evens=underlying, odds=zTokens
+  assetId: number; // asset index from protocol-data: STX=0, zSTX=1, sBTC=2, zsBTC=3, stSTX=4, etc. Evens=underlying, odds=zTokens
   decimals: number;
   symbol: string;
   name: string;
