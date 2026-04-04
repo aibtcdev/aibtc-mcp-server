@@ -812,7 +812,7 @@ Fields:
           const retry = classifyRetryableError(finalRes.status, parsed);
 
           if (retry.retryable && attempt < MAX_ATTEMPTS - 1) {
-            console.warn(
+            console.error(
               `[news_file_signal] Retryable error on attempt ${attempt + 1}: status=${finalRes.status} relaySide=${retry.relaySideConflict} body=${responseData}`
             );
             nextRetryDelayMs = retry.delayMs;
@@ -833,11 +833,7 @@ Fields:
           );
         }
 
-        // Dead code: the loop always exits via return (success) or throw (failure above).
-        // This path is only reached if MAX_ATTEMPTS is 0, which is not a valid config.
-        throw new Error(
-          `Signal filing failed after ${MAX_ATTEMPTS} attempts. Last error: ${lastError}`
-        );
+
       } catch (error) {
         return createErrorResponse(error);
       }
