@@ -60,8 +60,9 @@ describe("isRelayHealthy", () => {
         status: "ok",
         nonce: {
           circuitBreakerOpen: true,
-          poolStatus: "critical",
-          effectiveCapacity: 1,
+          poolStatus: "ok",
+          effectiveCapacity: 20,
+          conflictsDetected: 0,
         },
       }),
     });
@@ -77,12 +78,62 @@ describe("isRelayHealthy", () => {
         nonce: {
           circuitBreakerOpen: false,
           poolStatus: "critical",
-          effectiveCapacity: 3,
+          effectiveCapacity: 20,
+          conflictsDetected: 0,
         },
       }),
     });
 
     expect(await isRelayHealthy("mainnet")).toBe(false);
+  });
+
+  it("returns false when effective capacity is below threshold", async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: "ok",
+        nonce: {
+          circuitBreakerOpen: false,
+          poolStatus: "ok",
+          effectiveCapacity: 3,
+          conflictsDetected: 0,
+        },
+      }),
+    });
+
+    expect(await isRelayHealthy("mainnet")).toBe(false);
+  });
+
+  it("returns false when conflicts detected exceed threshold", async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: "ok",
+        nonce: {
+          circuitBreakerOpen: false,
+          poolStatus: "ok",
+          effectiveCapacity: 20,
+          conflictsDetected: 47,
+        },
+      }),
+    });
+
+    expect(await isRelayHealthy("mainnet")).toBe(false);
+  });
+
+  it("ignores missing capacity and conflict fields (older relays)", async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: "ok",
+        nonce: {
+          circuitBreakerOpen: false,
+          poolStatus: "ok",
+        },
+      }),
+    });
+
+    expect(await isRelayHealthy("mainnet")).toBe(true);
   });
 
   it("returns true when pool state is healthy", async () => {

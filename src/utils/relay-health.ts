@@ -79,7 +79,12 @@ export async function isRelayHealthy(network: Network): Promise<boolean> {
 
     const data = await res.json() as {
       status?: string;
-      nonce?: { circuitBreakerOpen?: boolean; poolStatus?: string };
+      nonce?: {
+        circuitBreakerOpen?: boolean;
+        poolStatus?: string;
+        effectiveCapacity?: number;
+        conflictsDetected?: number;
+      };
     };
 
     if (data.status !== "ok") return false;
@@ -88,6 +93,8 @@ export async function isRelayHealthy(network: Network): Promise<boolean> {
     if (data.nonce) {
       if (data.nonce.circuitBreakerOpen) return false;
       if (data.nonce.poolStatus === "critical") return false;
+      if (data.nonce.effectiveCapacity !== undefined && data.nonce.effectiveCapacity < 5) return false;
+      if (data.nonce.conflictsDetected !== undefined && data.nonce.conflictsDetected > 10) return false;
     }
 
     return true;
@@ -163,11 +170,12 @@ export async function checkRelayHealth(network: Network): Promise<RelayHealthSta
       if (poolState.poolStatus === "critical") {
         issues.push("Relay nonce pool is critical");
       }
-      if (poolState.effectiveCapacity < 5) {
-        issues.push(`Relay effective capacity degraded (${poolState.effectiveCapacity}/${poolState.poolAvailable + poolState.poolReserved || 20})`);
+      if (n.effectiveCapacity !== undefined && n.effectiveCapacity < 5) {
+        const total = poolState.poolAvailable + poolState.poolReserved;
+        issues.push(`Relay effective capacity degraded (${n.effectiveCapacity}/${total})`);
       }
-      if (poolState.conflictsDetected > 10) {
-        issues.push(`Relay has ${poolState.conflictsDetected} nonce conflicts`);
+      if (n.conflictsDetected !== undefined && n.conflictsDetected > 10) {
+        issues.push(`Relay has ${n.conflictsDetected} nonce conflicts`);
       }
     }
 
