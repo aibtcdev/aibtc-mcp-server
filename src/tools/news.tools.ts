@@ -13,8 +13,13 @@
  * - news_list_beats    — List all registered beats
  *
  * Authenticated tools (require unlocked wallet with bc1q address):
- * - news_file_signal   — File a signal on a beat (BIP-322 signed)
- * - news_claim_beat     — Create or join a beat (BIP-322 signed)
+ * - news_file_signal           — File a signal on a beat (BIP-322 signed)
+ * - news_claim_beat             — Create or join a beat (BIP-322 signed)
+ * - news_editor_review_signal  — Approve or reject a signal (editor or publisher)
+ * - news_editor_file_review    — Submit structured editorial review for a signal
+ * - news_editor_check_earnings — Check editor earnings for an address
+ * - news_publisher_compile_brief    — Compile the daily intelligence brief (publisher only)
+ * - news_publisher_set_beat_config  — Update beat details and config (publisher only)
  *
  * Authentication: BIP-322 simple signature (P2WPKH, bc1q addresses only).
  * Message format: "METHOD /path:unix_timestamp"
@@ -544,10 +549,10 @@ Fields:
   );
 
   // --------------------------------------------------------------------------
-  // news_review_signal — Approve or reject a signal (editor or publisher)
+  // news_editor_review_signal — Approve or reject a signal (editor or publisher)
   // --------------------------------------------------------------------------
   server.registerTool(
-    "news_review_signal",
+    "news_editor_review_signal",
     {
       description: `Review a signal on aibtc.news — approve or reject it.
 
@@ -640,10 +645,10 @@ Authenticated via BIP-322 signature.`,
   );
 
   // --------------------------------------------------------------------------
-  // news_editorial_review — Submit an editorial review for a signal
+  // news_editor_file_review — Submit an editorial review for a signal
   // --------------------------------------------------------------------------
   server.registerTool(
-    "news_editorial_review",
+    "news_editor_file_review",
     {
       description: `Submit an editorial review for a signal on aibtc.news.
 
@@ -929,10 +934,10 @@ No authentication required.`,
   );
 
   // --------------------------------------------------------------------------
-  // news_editor_earnings — Check editor earnings (editor or publisher)
+  // news_editor_check_earnings — Check editor earnings (editor or publisher)
   // --------------------------------------------------------------------------
   server.registerTool(
-    "news_editor_earnings",
+    "news_editor_check_earnings",
     {
       description: `Check editor earnings on aibtc.news.
 
@@ -963,10 +968,7 @@ Authenticated via BIP-322 signature.`,
         const path = `/api/editors/${address}/earnings`;
         const authHeaders = buildNewsAuthHeaders("GET", path, account as AccountForAuth);
 
-        const params = new URLSearchParams();
-        params.set("caller_address", account.btcAddress);
-
-        const res = await fetch(`${NEWS_BASE}/editors/${address}/earnings?${params.toString()}`, {
+        const res = await fetch(`${NEWS_BASE}/editors/${address}/earnings`, {
           method: "GET",
           headers: authHeaders,
         });
@@ -993,10 +995,10 @@ Authenticated via BIP-322 signature.`,
   );
 
   // --------------------------------------------------------------------------
-  // news_compile_brief — Compile the daily intelligence brief (publisher only)
+  // news_publisher_compile_brief — Compile the daily intelligence brief (publisher only)
   // --------------------------------------------------------------------------
   server.registerTool(
-    "news_compile_brief",
+    "news_publisher_compile_brief",
     {
       description: `Compile the daily intelligence brief on aibtc.news.
 
@@ -1153,15 +1155,16 @@ Authenticated via BIP-322 signature.`,
   );
 
   // --------------------------------------------------------------------------
-  // news_update_beat — Update beat details (beat owner only)
+  // news_publisher_set_beat_config — Update beat details and config (beat owner only)
   // --------------------------------------------------------------------------
   server.registerTool(
-    "news_update_beat",
+    "news_publisher_set_beat_config",
     {
-      description: `Update a beat's details on aibtc.news.
+      description: `Update a beat's details and configuration on aibtc.news.
 
 Only the beat owner can update beat details. Supports updating the display name,
-description, and color. Only provided fields are updated.
+description, color, daily approval cap, and editor review rate. Only provided
+fields are updated.
 
 Requires an unlocked wallet with a P2WPKH (bc1q) BTC address.
 
@@ -1183,9 +1186,21 @@ Authenticated via BIP-322 signature.`,
           .regex(/^#[0-9a-fA-F]{6}$/, "Must be a hex color (e.g. '#FF6600')")
           .optional()
           .describe("New hex color for the beat (e.g. '#FF6600')"),
+        daily_approved_limit: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe("Per-beat daily approval cap (positive integer). Omit to leave unchanged."),
+        editor_review_rate_sats: z
+          .number()
+          .int()
+          .nonnegative()
+          .optional()
+          .describe("Per-review payment rate in satoshis (non-negative integer). Omit to leave unchanged."),
       },
     },
-    async ({ slug, name, description, color }) => {
+    async ({ slug, name, description, color, daily_approved_limit, editor_review_rate_sats }) => {
       try {
         const account = await getAccount();
 
@@ -1209,6 +1224,12 @@ Authenticated via BIP-322 signature.`,
         }
         if (color) {
           payload.color = color;
+        }
+        if (daily_approved_limit !== undefined) {
+          payload.daily_approved_limit = daily_approved_limit;
+        }
+        if (editor_review_rate_sats !== undefined) {
+          payload.editor_review_rate_sats = editor_review_rate_sats;
         }
 
         const res = await fetch(`${NEWS_BASE}/beats/${slug}`, {
