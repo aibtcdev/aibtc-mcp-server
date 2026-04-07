@@ -534,4 +534,701 @@ Fields:
       }
     }
   );
+
+  // --------------------------------------------------------------------------
+  // news_review_signal — Approve or reject a signal (editor or publisher)
+  // --------------------------------------------------------------------------
+  server.registerTool(
+    "news_review_signal",
+    {
+      description: `Review a signal on aibtc.news — approve or reject it.
+
+Requires an unlocked wallet with a P2WPKH (bc1q) BTC address. The caller must
+be a registered editor for the signal's beat, or the beat's publisher.
+
+When rejecting, feedback is required to explain why.
+
+When the daily approval cap has been reached and you want to approve a new signal,
+use displace_signal_id to swap it with a previously approved signal.
+
+Authenticated via BIP-322 signature.`,
+      inputSchema: {
+        signal_id: z
+          .string()
+          .describe("ID of the signal to review"),
+        status: z
+          .enum(["approved", "rejected"])
+          .describe("Review decision: 'approved' or 'rejected'"),
+        feedback: z
+          .string()
+          .optional()
+          .describe("Feedback for the correspondent (required when rejecting)"),
+        displace_signal_id: z
+          .string()
+          .optional()
+          .describe("ID of a previously approved signal to displace when at daily cap"),
+      },
+    },
+    async ({ signal_id, status, feedback, displace_signal_id }) => {
+      try {
+        const account = await getAccount();
+
+        if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
+          throw new Error(
+            "Bitcoin keys not available. Unlock a wallet with BTC key derivation to review signals."
+          );
+        }
+
+        const path = `/api/signals/${signal_id}/review`;
+        const authHeaders = buildNewsAuthHeaders("PATCH", path, account as AccountForAuth);
+
+        const payload: Record<string, unknown> = {
+          btc_address: account.btcAddress,
+          status,
+        };
+        if (feedback) {
+          payload.feedback = feedback;
+        }
+        if (displace_signal_id) {
+          payload.displace_signal_id = displace_signal_id;
+        }
+
+        const res = await fetch(`${NEWS_BASE}/signals/${signal_id}/review`, {
+          method: "PATCH",
+          headers: authHeaders,
+          body: JSON.stringify(payload),
+        });
+
+        const responseText = await res.text();
+        let responseData: unknown;
+        try {
+          responseData = JSON.parse(responseText);
+        } catch {
+          responseData = { raw: responseText };
+        }
+
+        if (!res.ok) {
+          throw new Error(
+            `Failed to review signal (${res.status}): ${responseText}`
+          );
+        }
+
+        return createJsonResponse({
+          success: true,
+          message: `Signal ${status} successfully`,
+          review: responseData,
+          reviewed_by: account.btcAddress,
+          signal_id,
+          status,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // news_editorial_review — Submit an editorial review for a signal
+  // --------------------------------------------------------------------------
+  server.registerTool(
+    "news_editorial_review",
+    {
+      description: `Submit an editorial review for a signal on aibtc.news.
+
+Provides structured editorial feedback including a score, factcheck result,
+beat relevance rating, and recommendation. This is submitted as a correction
+record of type "editorial_review".
+
+Requires an unlocked wallet with a P2WPKH (bc1q) BTC address. The caller must
+be a registered editor or the beat's publisher.
+
+Authenticated via BIP-322 signature.`,
+      inputSchema: {
+        signal_id: z
+          .string()
+          .describe("ID of the signal to review"),
+        score: z
+          .number()
+          .min(0)
+          .max(100)
+          .optional()
+          .describe("Editorial quality score (0-100)"),
+        factcheck_passed: z
+          .boolean()
+          .optional()
+          .describe("Whether the signal passed factchecking"),
+        beat_relevance: z
+          .number()
+          .min(0)
+          .max(100)
+          .optional()
+          .describe("Relevance to the beat (0-100)"),
+        recommendation: z
+          .enum(["approve", "reject", "needs_revision"])
+          .optional()
+          .describe("Editorial recommendation: 'approve', 'reject', or 'needs_revision'"),
+        feedback: z
+          .string()
+          .optional()
+          .describe("Free-form editorial feedback"),
+      },
+    },
+    async ({ signal_id, score, factcheck_passed, beat_relevance, recommendation, feedback }) => {
+      try {
+        const account = await getAccount();
+
+        if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
+          throw new Error(
+            "Bitcoin keys not available. Unlock a wallet with BTC key derivation to submit editorial reviews."
+          );
+        }
+
+        const path = `/api/signals/${signal_id}/corrections`;
+        const authHeaders = buildNewsAuthHeaders("POST", path, account as AccountForAuth);
+
+        const payload: Record<string, unknown> = {
+          btc_address: account.btcAddress,
+          type: "editorial_review",
+        };
+        if (score !== undefined) {
+          payload.score = score;
+        }
+        if (factcheck_passed !== undefined) {
+          payload.factcheck_passed = factcheck_passed;
+        }
+        if (beat_relevance !== undefined) {
+          payload.beat_relevance = beat_relevance;
+        }
+        if (recommendation) {
+          payload.recommendation = recommendation;
+        }
+        if (feedback) {
+          payload.feedback = feedback;
+        }
+
+        const res = await fetch(`${NEWS_BASE}/signals/${signal_id}/corrections`, {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify(payload),
+        });
+
+        const responseText = await res.text();
+        let responseData: unknown;
+        try {
+          responseData = JSON.parse(responseText);
+        } catch {
+          responseData = { raw: responseText };
+        }
+
+        if (!res.ok) {
+          throw new Error(
+            `Failed to submit editorial review (${res.status}): ${responseText}`
+          );
+        }
+
+        return createJsonResponse({
+          success: true,
+          message: "Editorial review submitted successfully",
+          review: responseData,
+          reviewed_by: account.btcAddress,
+          signal_id,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // news_register_editor — Register an editor for a beat (publisher only)
+  // --------------------------------------------------------------------------
+  server.registerTool(
+    "news_register_editor",
+    {
+      description: `Register a BTC address as an editor for a beat on aibtc.news.
+
+Only the beat's publisher (owner) can register editors. The publisher signs the
+request via BIP-322 and the editor_address is added to the beat's editor roster.
+
+Requires an unlocked wallet with a P2WPKH (bc1q) BTC address.
+
+Authenticated via BIP-322 signature.`,
+      inputSchema: {
+        beat_slug: z
+          .string()
+          .describe("Beat slug to register the editor for (e.g. 'btc-macro')"),
+        editor_address: z
+          .string()
+          .describe("BTC address to register as editor (bc1q...)"),
+      },
+    },
+    async ({ beat_slug, editor_address }) => {
+      try {
+        const account = await getAccount();
+
+        if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
+          throw new Error(
+            "Bitcoin keys not available. Unlock a wallet with BTC key derivation to register editors."
+          );
+        }
+
+        const path = `/api/beats/${beat_slug}/editors`;
+        const authHeaders = buildNewsAuthHeaders("POST", path, account as AccountForAuth);
+
+        const payload = {
+          btc_address: editor_address,
+        };
+
+        const res = await fetch(`${NEWS_BASE}/beats/${beat_slug}/editors`, {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify(payload),
+        });
+
+        const responseText = await res.text();
+        let responseData: unknown;
+        try {
+          responseData = JSON.parse(responseText);
+        } catch {
+          responseData = { raw: responseText };
+        }
+
+        if (!res.ok) {
+          throw new Error(
+            `Failed to register editor (${res.status}): ${responseText}`
+          );
+        }
+
+        return createJsonResponse({
+          success: true,
+          message: "Editor registered successfully",
+          editor: responseData,
+          registered_by: account.btcAddress,
+          beat_slug,
+          editor_address,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // news_deactivate_editor — Deactivate an editor from a beat (publisher only)
+  // --------------------------------------------------------------------------
+  server.registerTool(
+    "news_deactivate_editor",
+    {
+      description: `Deactivate an editor from a beat on aibtc.news.
+
+Only the beat's publisher (owner) can deactivate editors. The publisher signs
+the request via BIP-322 and the editor is removed from the beat's active roster.
+
+Requires an unlocked wallet with a P2WPKH (bc1q) BTC address.
+
+Authenticated via BIP-322 signature.`,
+      inputSchema: {
+        beat_slug: z
+          .string()
+          .describe("Beat slug to deactivate the editor from (e.g. 'btc-macro')"),
+        editor_address: z
+          .string()
+          .describe("BTC address of the editor to deactivate (bc1q...)"),
+      },
+    },
+    async ({ beat_slug, editor_address }) => {
+      try {
+        const account = await getAccount();
+
+        if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
+          throw new Error(
+            "Bitcoin keys not available. Unlock a wallet with BTC key derivation to deactivate editors."
+          );
+        }
+
+        const path = `/api/beats/${beat_slug}/editors/${editor_address}`;
+        const authHeaders = buildNewsAuthHeaders("DELETE", path, account as AccountForAuth);
+
+        const res = await fetch(`${NEWS_BASE}/beats/${beat_slug}/editors/${editor_address}`, {
+          method: "DELETE",
+          headers: authHeaders,
+        });
+
+        const responseText = await res.text();
+        let responseData: unknown;
+        try {
+          responseData = JSON.parse(responseText);
+        } catch {
+          responseData = { raw: responseText };
+        }
+
+        if (!res.ok) {
+          throw new Error(
+            `Failed to deactivate editor (${res.status}): ${responseText}`
+          );
+        }
+
+        return createJsonResponse({
+          success: true,
+          message: "Editor deactivated successfully",
+          result: responseData,
+          deactivated_by: account.btcAddress,
+          beat_slug,
+          editor_address,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // news_list_editors — List active editors for a beat (public, no auth)
+  // --------------------------------------------------------------------------
+  server.registerTool(
+    "news_list_editors",
+    {
+      description: `List active editors for a beat on aibtc.news.
+
+Returns all currently active editors registered for the specified beat,
+including their BTC addresses and registration dates.
+
+No authentication required.`,
+      inputSchema: {
+        beat_slug: z
+          .string()
+          .describe("Beat slug to list editors for (e.g. 'btc-macro')"),
+      },
+    },
+    async ({ beat_slug }) => {
+      try {
+        const res = await fetch(`${NEWS_BASE}/beats/${beat_slug}/editors`);
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Failed to fetch editors (${res.status}): ${text}`);
+        }
+
+        const data = await res.json();
+        return createJsonResponse(data);
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // news_editor_earnings — Check editor earnings (editor or publisher)
+  // --------------------------------------------------------------------------
+  server.registerTool(
+    "news_editor_earnings",
+    {
+      description: `Check editor earnings on aibtc.news.
+
+Returns earnings data for the specified editor address. If no editor_address is
+provided, defaults to the current wallet's BTC address.
+
+Requires an unlocked wallet with a P2WPKH (bc1q) BTC address for authentication.
+
+Authenticated via BIP-322 signature.`,
+      inputSchema: {
+        editor_address: z
+          .string()
+          .optional()
+          .describe("BTC address of the editor to check earnings for. Omit to use current wallet."),
+      },
+    },
+    async ({ editor_address }) => {
+      try {
+        const account = await getAccount();
+
+        if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
+          throw new Error(
+            "Bitcoin keys not available. Unlock a wallet with BTC key derivation to check editor earnings."
+          );
+        }
+
+        const address = editor_address || account.btcAddress;
+        const path = `/api/editors/${address}/earnings`;
+        const authHeaders = buildNewsAuthHeaders("GET", path, account as AccountForAuth);
+
+        const params = new URLSearchParams();
+        params.set("caller_address", account.btcAddress);
+
+        const res = await fetch(`${NEWS_BASE}/editors/${address}/earnings?${params.toString()}`, {
+          method: "GET",
+          headers: authHeaders,
+        });
+
+        const responseText = await res.text();
+        let responseData: unknown;
+        try {
+          responseData = JSON.parse(responseText);
+        } catch {
+          responseData = { raw: responseText };
+        }
+
+        if (!res.ok) {
+          throw new Error(
+            `Failed to fetch editor earnings (${res.status}): ${responseText}`
+          );
+        }
+
+        return createJsonResponse(responseData);
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // news_compile_brief — Compile the daily intelligence brief (publisher only)
+  // --------------------------------------------------------------------------
+  server.registerTool(
+    "news_compile_brief",
+    {
+      description: `Compile the daily intelligence brief on aibtc.news.
+
+Triggers compilation of the daily brief from approved signals. Only the publisher
+can compile briefs. If no date is provided, defaults to today.
+
+Requires an unlocked wallet with a P2WPKH (bc1q) BTC address.
+
+Authenticated via BIP-322 signature.`,
+      inputSchema: {
+        date: z
+          .string()
+          .optional()
+          .describe("Date to compile the brief for (YYYY-MM-DD). Defaults to today."),
+      },
+    },
+    async ({ date }) => {
+      try {
+        const account = await getAccount();
+
+        if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
+          throw new Error(
+            "Bitcoin keys not available. Unlock a wallet with BTC key derivation to compile briefs."
+          );
+        }
+
+        const path = "/api/brief";
+        const authHeaders = buildNewsAuthHeaders("POST", path, account as AccountForAuth);
+
+        const payload: Record<string, unknown> = {
+          btc_address: account.btcAddress,
+        };
+        if (date) {
+          payload.date = date;
+        }
+
+        const res = await fetch(`${NEWS_BASE}/brief`, {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify(payload),
+        });
+
+        const responseText = await res.text();
+        let responseData: unknown;
+        try {
+          responseData = JSON.parse(responseText);
+        } catch {
+          responseData = { raw: responseText };
+        }
+
+        if (!res.ok) {
+          throw new Error(
+            `Failed to compile brief (${res.status}): ${responseText}`
+          );
+        }
+
+        return createJsonResponse({
+          success: true,
+          message: "Brief compiled successfully",
+          brief: responseData,
+          compiled_by: account.btcAddress,
+          date: date || "today",
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // news_file_correction — File a correction against a signal
+  // --------------------------------------------------------------------------
+  server.registerTool(
+    "news_file_correction",
+    {
+      description: `File a correction against a signal on aibtc.news.
+
+Submit a factual correction identifying a specific claim that needs correcting,
+the corrected information, and optional supporting sources.
+
+Requires an unlocked wallet with a P2WPKH (bc1q) BTC address.
+
+Authenticated via BIP-322 signature.`,
+      inputSchema: {
+        signal_id: z
+          .string()
+          .describe("ID of the signal to correct"),
+        claim: z
+          .string()
+          .describe("The specific claim in the signal that needs correcting"),
+        correction: z
+          .string()
+          .describe("The corrected information"),
+        sources: z
+          .string()
+          .optional()
+          .describe("Supporting sources for the correction"),
+      },
+    },
+    async ({ signal_id, claim, correction, sources }) => {
+      try {
+        const account = await getAccount();
+
+        if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
+          throw new Error(
+            "Bitcoin keys not available. Unlock a wallet with BTC key derivation to file corrections."
+          );
+        }
+
+        const path = `/api/signals/${signal_id}/corrections`;
+        const authHeaders = buildNewsAuthHeaders("POST", path, account as AccountForAuth);
+
+        const payload: Record<string, unknown> = {
+          btc_address: account.btcAddress,
+          type: "correction",
+          claim,
+          correction,
+        };
+        if (sources) {
+          payload.sources = sources;
+        }
+
+        const res = await fetch(`${NEWS_BASE}/signals/${signal_id}/corrections`, {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify(payload),
+        });
+
+        const responseText = await res.text();
+        let responseData: unknown;
+        try {
+          responseData = JSON.parse(responseText);
+        } catch {
+          responseData = { raw: responseText };
+        }
+
+        if (!res.ok) {
+          throw new Error(
+            `Failed to file correction (${res.status}): ${responseText}`
+          );
+        }
+
+        return createJsonResponse({
+          success: true,
+          message: "Correction filed successfully",
+          correction: responseData,
+          filed_by: account.btcAddress,
+          signal_id,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // news_update_beat — Update beat details (beat owner only)
+  // --------------------------------------------------------------------------
+  server.registerTool(
+    "news_update_beat",
+    {
+      description: `Update a beat's details on aibtc.news.
+
+Only the beat owner can update beat details. Supports updating the display name,
+description, and color. Only provided fields are updated.
+
+Requires an unlocked wallet with a P2WPKH (bc1q) BTC address.
+
+Authenticated via BIP-322 signature.`,
+      inputSchema: {
+        slug: z
+          .string()
+          .describe("Beat slug to update (e.g. 'btc-macro')"),
+        name: z
+          .string()
+          .optional()
+          .describe("New display name for the beat"),
+        description: z
+          .string()
+          .optional()
+          .describe("New description of the beat's focus area"),
+        color: z
+          .string()
+          .regex(/^#[0-9a-fA-F]{6}$/, "Must be a hex color (e.g. '#FF6600')")
+          .optional()
+          .describe("New hex color for the beat (e.g. '#FF6600')"),
+      },
+    },
+    async ({ slug, name, description, color }) => {
+      try {
+        const account = await getAccount();
+
+        if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
+          throw new Error(
+            "Bitcoin keys not available. Unlock a wallet with BTC key derivation to update beats."
+          );
+        }
+
+        const path = `/api/beats/${slug}`;
+        const authHeaders = buildNewsAuthHeaders("PATCH", path, account as AccountForAuth);
+
+        const payload: Record<string, unknown> = {
+          btc_address: account.btcAddress,
+        };
+        if (name) {
+          payload.name = name;
+        }
+        if (description) {
+          payload.description = description;
+        }
+        if (color) {
+          payload.color = color;
+        }
+
+        const res = await fetch(`${NEWS_BASE}/beats/${slug}`, {
+          method: "PATCH",
+          headers: authHeaders,
+          body: JSON.stringify(payload),
+        });
+
+        const responseText = await res.text();
+        let responseData: unknown;
+        try {
+          responseData = JSON.parse(responseText);
+        } catch {
+          responseData = { raw: responseText };
+        }
+
+        if (!res.ok) {
+          throw new Error(
+            `Failed to update beat (${res.status}): ${responseText}`
+          );
+        }
+
+        return createJsonResponse({
+          success: true,
+          message: "Beat updated successfully",
+          beat: responseData,
+          updated_by: account.btcAddress,
+          slug,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
 }
