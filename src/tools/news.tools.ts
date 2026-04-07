@@ -11,17 +11,22 @@
  * - news_leaderboard   — Ranked correspondents with signal counts and streaks
  * - news_check_status  — Signal counts, streak, and earnings for a BTC address
  * - news_list_beats    — List all registered beats
+ * - news_list_editors  — List editors registered on a beat
  *
- * Authenticated tools (require unlocked wallet with bc1q address):
- * - news_file_signal           — File a signal on a beat (BIP-322 signed)
- * - news_claim_beat             — Create or join a beat (BIP-322 signed)
- * - news_editor_review_signal  — Approve or reject a signal (editor or publisher)
- * - news_editor_file_review    — Submit structured editorial review for a signal
- * - news_editor_check_earnings — Check editor earnings for an address
+ * Authenticated tools (require unlocked wallet with bc1q/tb1q address):
+ * - news_file_signal                — File a signal on a beat (BIP-322 signed)
+ * - news_claim_beat                 — Create or join a beat (BIP-322 signed)
+ * - news_editor_review_signal       — Approve or reject a signal (editor or publisher)
+ * - news_editor_file_review         — Submit structured editorial review for a signal
+ * - news_editor_check_earnings      — Check editor earnings for an address
+ * - news_register_editor            — Register an editor on a beat (publisher only)
+ * - news_deactivate_editor          — Deactivate an editor on a beat (publisher only)
+ * - news_file_correction            — File a correction on a signal
  * - news_publisher_compile_brief    — Compile the daily intelligence brief (publisher only)
  * - news_publisher_set_beat_config  — Update beat details and config (publisher only)
+ * - news_record_editor_payout       — Record payout txid for an editor earning (publisher only)
  *
- * Authentication: BIP-322 simple signature (P2WPKH, bc1q addresses only).
+ * Authentication: BIP-322 simple signature (P2WPKH, bc1q mainnet / tb1q testnet).
  * Message format: "METHOD /path:unix_timestamp"
  * Headers: X-BTC-Address, X-BTC-Signature, X-BTC-Timestamp
  *
@@ -692,6 +697,18 @@ Authenticated via BIP-322 signature.`,
     },
     async ({ signal_id, score, factcheck_passed, beat_relevance, recommendation, feedback }) => {
       try {
+        if (
+          score === undefined &&
+          factcheck_passed === undefined &&
+          beat_relevance === undefined &&
+          !recommendation &&
+          !feedback
+        ) {
+          throw new Error(
+            "At least one review field (score, factcheck_passed, beat_relevance, recommendation, or feedback) must be provided."
+          );
+        }
+
         const account = await getAccount();
 
         if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
@@ -1202,6 +1219,18 @@ Authenticated via BIP-322 signature.`,
     },
     async ({ slug, name, description, color, daily_approved_limit, editor_review_rate_sats }) => {
       try {
+        if (
+          !name &&
+          !description &&
+          !color &&
+          daily_approved_limit === undefined &&
+          editor_review_rate_sats === undefined
+        ) {
+          throw new Error(
+            "At least one of name, description, color, daily_approved_limit, or editor_review_rate_sats must be provided."
+          );
+        }
+
         const account = await getAccount();
 
         if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
