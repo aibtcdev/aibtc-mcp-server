@@ -104,10 +104,13 @@ export function registerNewsTools(server: McpServer): void {
 
 Supports optional filters:
 - beat: filter by beat slug (e.g. "btc-macro", "dao-watch")
+- status: filter by signal status (e.g. "submitted", "approved", "rejected")
 - agent: filter by BTC address of the correspondent
 - tag: filter by tag slug
 - since: ISO timestamp — only return signals newer than this
 - limit: max results (default 50, max 200)
+
+Tip: editors can use beat + status="submitted" to see their review queue.
 
 No authentication required.`,
       inputSchema: {
@@ -115,6 +118,10 @@ No authentication required.`,
           .string()
           .optional()
           .describe("Filter by beat slug (e.g. 'btc-macro', 'dao-watch')"),
+        status: z
+          .enum(["submitted", "approved", "replaced", "rejected", "brief_included"])
+          .optional()
+          .describe("Filter by signal status (e.g. 'submitted' for pending review)"),
         agent: z
           .string()
           .optional()
@@ -135,10 +142,11 @@ No authentication required.`,
           .describe("Max results (default 50, max 200)"),
       },
     },
-    async ({ beat, agent, tag, since, limit }) => {
+    async ({ beat, status, agent, tag, since, limit }) => {
       try {
         const params = new URLSearchParams();
         if (beat) params.set("beat", beat);
+        if (status) params.set("status", status);
         if (agent) params.set("agent", agent);
         if (tag) params.set("tag", tag);
         if (since) params.set("since", since);
@@ -577,6 +585,10 @@ Authenticated via BIP-322 signature.`,
           throw new Error(
             "Bitcoin keys not available. Unlock a wallet with BTC key derivation to review signals."
           );
+        }
+
+        if (status === "rejected" && !feedback) {
+          throw new Error("feedback is required when rejecting a signal");
         }
 
         const path = `/api/signals/${signal_id}/review`;
@@ -1225,6 +1237,85 @@ Authenticated via BIP-322 signature.`,
           beat: responseData,
           updated_by: account.btcAddress,
           slug,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // news_record_editor_payout — Record payout txid on an editor earning (publisher only)
+  // --------------------------------------------------------------------------
+  server.registerTool(
+    "news_record_editor_payout",
+    {
+      description: `Record a payout transaction ID on an editor earning on aibtc.news.
+
+Only the publisher can record payouts. This marks an editor earning as paid by
+associating a Bitcoin transaction ID with the earning record.
+
+Requires an unlocked wallet with a P2WPKH (bc1q) BTC address.
+
+Authenticated via BIP-322 signature.`,
+      inputSchema: {
+        editor_address: z
+          .string()
+          .describe("BTC address of the editor whose earning to update (bc1q...)"),
+        earning_id: z
+          .string()
+          .describe("ID of the editor earning to record the payout for"),
+        payout_txid: z
+          .string()
+          .min(1)
+          .describe("Bitcoin transaction ID of the payout"),
+      },
+    },
+    async ({ editor_address, earning_id, payout_txid }) => {
+      try {
+        const account = await getAccount();
+
+        if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
+          throw new Error(
+            "Bitcoin keys not available. Unlock a wallet with BTC key derivation to record editor payouts."
+          );
+        }
+
+        const path = `/api/editors/${editor_address}/earnings/${earning_id}`;
+        const authHeaders = buildNewsAuthHeaders("PATCH", path, account as AccountForAuth);
+
+        const payload = {
+          payout_txid,
+        };
+
+        const res = await fetch(`${NEWS_BASE}/editors/${editor_address}/earnings/${earning_id}`, {
+          method: "PATCH",
+          headers: authHeaders,
+          body: JSON.stringify(payload),
+        });
+
+        const responseText = await res.text();
+        let responseData: unknown;
+        try {
+          responseData = JSON.parse(responseText);
+        } catch {
+          responseData = { raw: responseText };
+        }
+
+        if (!res.ok) {
+          throw new Error(
+            `Failed to record editor payout (${res.status}): ${responseText}`
+          );
+        }
+
+        return createJsonResponse({
+          success: true,
+          message: "Editor payout recorded successfully",
+          earning: responseData,
+          recorded_by: account.btcAddress,
+          editor_address,
+          earning_id,
+          payout_txid,
         });
       } catch (error) {
         return createErrorResponse(error);
