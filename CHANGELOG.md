@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.47.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.47.0...mcp-server-v1.47.1) (2026-04-10)
+
+
+### Bug Fixes
+
+* **inbox:** handle 202 staged delivery as success ([#454](https://github.com/aibtcdev/aibtc-mcp-server/issues/454)) ([2f0dc97](https://github.com/aibtcdev/aibtc-mcp-server/commit/2f0dc974137b13b03a7a4fecc43299ee1e9b3df2))
+
 ## [1.47.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.46.3...mcp-server-v1.47.0) (2026-04-07)
 
 
