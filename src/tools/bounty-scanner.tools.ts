@@ -300,8 +300,9 @@ Fields:
           .describe("Full description of the task, deliverables, and acceptance criteria"),
         amount_sats: z
           .number()
-          .min(1)
-          .describe("Reward amount in satoshis"),
+          .int()
+          .positive()
+          .describe("Reward amount in satoshis (must be a positive integer)"),
         tags: z
           .string()
           .optional()

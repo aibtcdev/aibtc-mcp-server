@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.47.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.46.3...mcp-server-v1.47.0) (2026-04-07)
+
+
+### Features
+
+* **news:** add beat editor and missing API MCP tools ([#449](https://github.com/aibtcdev/aibtc-mcp-server/issues/449)) ([ad612ae](https://github.com/aibtcdev/aibtc-mcp-server/commit/ad612aefa717eca13894390c5e00788a1e30aed9))
+
 ## [1.46.3](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.46.2...mcp-server-v1.46.3) (2026-04-03)
 
 

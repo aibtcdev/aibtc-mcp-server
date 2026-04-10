@@ -328,6 +328,7 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   bounty_status: "bounty-scanner",
   bounty_my_claims: "bounty-scanner",
   bounty_stats: "bounty-scanner",
+  bounty_create: "bounty-scanner",
 
   // runes skill — Bitcoin-native fungible token protocol
   runes_list_etchings: "runes",
@@ -348,6 +349,16 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   news_leaderboard: "aibtc-news",
   news_list_beats: "aibtc-news",
   news_list_signals: "aibtc-news",
+  news_editor_review_signal: "aibtc-news",
+  news_editor_file_review: "aibtc-news",
+  news_editor_check_earnings: "aibtc-news",
+  news_publisher_compile_brief: "aibtc-news",
+  news_publisher_set_beat_config: "aibtc-news",
+  news_register_editor: "aibtc-news",
+  news_deactivate_editor: "aibtc-news",
+  news_list_editors: "aibtc-news",
+  news_file_correction: "aibtc-news",
+  news_record_editor_payout: "aibtc-news",
 
   // nostr skill — Nostr protocol social network
   nostr_get_profile: "nostr",
