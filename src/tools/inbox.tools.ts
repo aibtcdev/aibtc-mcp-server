@@ -495,7 +495,7 @@ export function registerInboxTools(server: McpServer): void {
             parsed = { raw: responseData };
           }
 
-          if (finalRes.status === 201 || finalRes.status === 200) {
+          if (finalRes.status === 200 || finalRes.status === 201 || finalRes.status === 202) {
             // Extract payment response header for txid
             const settlement = decodePaymentResponse(
               finalRes.headers.get(X402_HEADERS.PAYMENT_RESPONSE)
