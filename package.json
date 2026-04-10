@@ -59,7 +59,7 @@
     "@stacks/transactions": "^7.3.1",
     "@stacks/wallet-sdk": "^7.2.0",
     "alex-sdk": "^3.2.1",
-    "axios": "^1.13.6",
+    "axios": "^1.15.0",
     "dotenv": "^17.3.1",
     "micro-ordinals": "^0.3.0",
     "nostr-tools": "^2.23.3",
