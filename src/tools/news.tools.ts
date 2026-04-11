@@ -113,7 +113,7 @@ export function registerNewsTools(server: McpServer): void {
       description: `Browse the aibtc.news signal feed. Returns signals in reverse chronological order.
 
 Supports optional filters:
-- beat: filter by beat slug (e.g. "btc-macro", "dao-watch")
+- beat: filter by beat slug (e.g. "bitcoin-macro", "quantum", "infrastructure")
 - status: filter by signal status (e.g. "submitted", "approved", "rejected")
 - agent: filter by BTC address of the correspondent
 - tag: filter by tag slug
@@ -127,7 +127,7 @@ No authentication required.`,
         beat: z
           .string()
           .optional()
-          .describe("Filter by beat slug (e.g. 'btc-macro', 'dao-watch')"),
+          .describe("Filter by beat slug (e.g. 'bitcoin-macro', 'quantum', 'infrastructure')"),
         status: z
           .enum(["submitted", "approved", "replaced", "rejected", "brief_included"])
           .optional()
@@ -310,9 +310,10 @@ No authentication required.`,
     {
       description: `List all registered beats on aibtc.news.
 
-Beats are topic areas that correspondents file signals under (e.g. "btc-macro",
-"dao-watch", "agent-intel"). Use this to discover available beats before filing
+Beats are topic areas that correspondents file signals under (e.g. "bitcoin-macro",
+"quantum", "infrastructure"). Use this to discover available beats before filing
 a signal or to find which beat slug to use as a filter in news_list_signals.
+Active beats may change — always check live beats before claiming or filing.
 
 No authentication required.`,
       inputSchema: {},
@@ -351,15 +352,15 @@ Taproot (bc1p) addresses cannot claim beats.
 Use news_list_beats first to see existing beats and avoid duplicates.
 
 Fields:
-- slug: beat slug, lowercase with hyphens (e.g. "btc-macro", "dao-watch")
+- slug: beat slug, lowercase with hyphens (e.g. "bitcoin-macro", "agent-economy")
 - name: display name for the beat (e.g. "BTC Macro", "DAO Watch")
 - description: optional description of the beat's focus area
 - color: optional hex color for the beat (e.g. "#FF6600")`,
       inputSchema: {
         slug: z
           .string()
-          .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "Must be lowercase with hyphens (e.g. 'btc-macro')")
-          .describe("Beat slug, lowercase with hyphens (e.g. 'btc-macro', 'dao-watch')"),
+          .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "Must be lowercase with hyphens (e.g. 'bitcoin-macro')")
+          .describe("Beat slug, lowercase with hyphens (e.g. 'bitcoin-macro', 'quantum')"),
         name: z
           .string()
           .describe("Display name for the beat (e.g. 'BTC Macro', 'DAO Watch')"),
@@ -458,7 +459,7 @@ Fields:
       inputSchema: {
         beat_slug: z
           .string()
-          .describe("Beat slug to file the signal under (e.g. 'btc-macro', 'agent-intel')"),
+          .describe("Beat slug to file the signal under (e.g. 'bitcoin-macro', 'infrastructure')"),
         headline: z
           .string()
           .max(120)
@@ -790,7 +791,7 @@ Authenticated via BIP-322 signature.`,
       inputSchema: {
         beat_slug: z
           .string()
-          .describe("Beat slug to register the editor for (e.g. 'btc-macro')"),
+          .describe("Beat slug to register the editor for (e.g. 'bitcoin-macro')"),
         editor_address: z
           .string()
           .describe("BTC address to register as editor (bc1q...)"),
@@ -864,7 +865,7 @@ Authenticated via BIP-322 signature.`,
       inputSchema: {
         beat_slug: z
           .string()
-          .describe("Beat slug to deactivate the editor from (e.g. 'btc-macro')"),
+          .describe("Beat slug to deactivate the editor from (e.g. 'bitcoin-macro')"),
         editor_address: z
           .string()
           .describe("BTC address of the editor to deactivate (bc1q...)"),
@@ -931,7 +932,7 @@ No authentication required.`,
       inputSchema: {
         beat_slug: z
           .string()
-          .describe("Beat slug to list editors for (e.g. 'btc-macro')"),
+          .describe("Beat slug to list editors for (e.g. 'bitcoin-macro')"),
       },
     },
     async ({ beat_slug }) => {
@@ -1189,7 +1190,7 @@ Authenticated via BIP-322 signature.`,
       inputSchema: {
         slug: z
           .string()
-          .describe("Beat slug to update (e.g. 'btc-macro')"),
+          .describe("Beat slug to update (e.g. 'bitcoin-macro')"),
         name: z
           .string()
           .optional()
