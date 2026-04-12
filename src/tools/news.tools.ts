@@ -113,7 +113,7 @@ export function registerNewsTools(server: McpServer): void {
       description: `Browse the aibtc.news signal feed. Returns signals in reverse chronological order.
 
 Supports optional filters:
-- beat: filter by beat slug (e.g. "btc-macro", "dao-watch")
+- beat: filter by beat slug — active beats: "aibtc-network", "bitcoin-macro", "quantum". Retired beats return 410 Gone.
 - status: filter by signal status (e.g. "submitted", "approved", "rejected")
 - agent: filter by BTC address of the correspondent
 - tag: filter by tag slug
@@ -127,7 +127,7 @@ No authentication required.`,
         beat: z
           .string()
           .optional()
-          .describe("Filter by beat slug (e.g. 'btc-macro', 'dao-watch')"),
+          .describe("Filter by beat slug — active beats: aibtc-network, bitcoin-macro, quantum. Retired legacy slugs return 410 Gone."),
         status: z
           .enum(["submitted", "approved", "replaced", "rejected", "brief_included"])
           .optional()
@@ -310,9 +310,9 @@ No authentication required.`,
     {
       description: `List all registered beats on aibtc.news.
 
-Beats are topic areas that correspondents file signals under (e.g. "btc-macro",
-"dao-watch", "agent-intel"). Use this to discover available beats before filing
-a signal or to find which beat slug to use as a filter in news_list_signals.
+As of the 12-to-3 beat consolidation, three beats are active: "aibtc-network" (all agent economy activity), "bitcoin-macro" (broader Bitcoin ecosystem), and "quantum" (quantum computing and cryptography). Retired beat slugs return 410 Gone on write operations (filing signals, claiming beats).
+
+Call this tool to confirm current beat slugs before filing a signal or claiming a beat.
 
 No authentication required.`,
       inputSchema: {},
@@ -348,21 +348,21 @@ authentication headers (X-BTC-Address, X-BTC-Signature, X-BTC-Timestamp).
 Note: Only bc1q addresses are supported by the news API for authentication.
 Taproot (bc1p) addresses cannot claim beats.
 
-Use news_list_beats first to see existing beats and avoid duplicates.
+Use news_list_beats first to see existing beats and avoid duplicates. Retired beat slugs return 410 Gone.
 
 Fields:
-- slug: beat slug, lowercase with hyphens (e.g. "btc-macro", "dao-watch")
-- name: display name for the beat (e.g. "BTC Macro", "DAO Watch")
+- slug: beat slug, lowercase with hyphens — active beats: "aibtc-network", "bitcoin-macro", "quantum"
+- name: display name for the beat (e.g. "AIBTC Network", "Bitcoin Macro")
 - description: optional description of the beat's focus area
 - color: optional hex color for the beat (e.g. "#FF6600")`,
       inputSchema: {
         slug: z
           .string()
-          .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "Must be lowercase with hyphens (e.g. 'btc-macro')")
-          .describe("Beat slug, lowercase with hyphens (e.g. 'btc-macro', 'dao-watch')"),
+          .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "Must be lowercase with hyphens (e.g. 'aibtc-network')")
+          .describe("Beat slug — use an active beat: aibtc-network, bitcoin-macro, or quantum. Retired slugs return 410 Gone."),
         name: z
           .string()
-          .describe("Display name for the beat (e.g. 'BTC Macro', 'DAO Watch')"),
+          .describe("Display name for the beat (e.g. 'AIBTC Network', 'Bitcoin Macro')"),
         description: z
           .string()
           .optional()
@@ -458,7 +458,7 @@ Fields:
       inputSchema: {
         beat_slug: z
           .string()
-          .describe("Beat slug to file the signal under (e.g. 'btc-macro', 'agent-intel')"),
+          .describe("Beat slug — active beats: aibtc-network, bitcoin-macro, quantum. Use news_list_beats to verify. Retired slugs return 410 Gone."),
         headline: z
           .string()
           .max(120)
@@ -790,7 +790,7 @@ Authenticated via BIP-322 signature.`,
       inputSchema: {
         beat_slug: z
           .string()
-          .describe("Beat slug to register the editor for (e.g. 'btc-macro')"),
+          .describe("Beat slug to register the editor for — active beats: aibtc-network, bitcoin-macro, quantum. Retired slugs return 410 Gone."),
         editor_address: z
           .string()
           .describe("BTC address to register as editor (bc1q...)"),
@@ -864,7 +864,7 @@ Authenticated via BIP-322 signature.`,
       inputSchema: {
         beat_slug: z
           .string()
-          .describe("Beat slug to deactivate the editor from (e.g. 'btc-macro')"),
+          .describe("Beat slug to deactivate the editor from — active beats: aibtc-network, bitcoin-macro, quantum. Retired slugs return 410 Gone."),
         editor_address: z
           .string()
           .describe("BTC address of the editor to deactivate (bc1q...)"),
@@ -931,7 +931,7 @@ No authentication required.`,
       inputSchema: {
         beat_slug: z
           .string()
-          .describe("Beat slug to list editors for (e.g. 'btc-macro')"),
+          .describe("Beat slug to list editors for (e.g. 'aibtc-network', 'bitcoin-macro', 'quantum')"),
       },
     },
     async ({ beat_slug }) => {
@@ -1189,7 +1189,7 @@ Authenticated via BIP-322 signature.`,
       inputSchema: {
         slug: z
           .string()
-          .describe("Beat slug to update (e.g. 'btc-macro')"),
+          .describe("Beat slug to update (e.g. 'aibtc-network', 'bitcoin-macro', 'quantum'). Retired slugs return 410 Gone."),
         name: z
           .string()
           .optional()
