@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.47.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.47.1...mcp-server-v1.47.2) (2026-04-13)
+
+
+### Bug Fixes
+
+* **news-tools:** update beat slug examples for 12-to-3 consolidation (closes [#457](https://github.com/aibtcdev/aibtc-mcp-server/issues/457)) ([#463](https://github.com/aibtcdev/aibtc-mcp-server/issues/463)) ([eb28f6c](https://github.com/aibtcdev/aibtc-mcp-server/commit/eb28f6c24d65791157ffe1bce49e78fc5bac88bb))
+
 ## [1.47.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.47.0...mcp-server-v1.47.1) (2026-04-10)
 
 
