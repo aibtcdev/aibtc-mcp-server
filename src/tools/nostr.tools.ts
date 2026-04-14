@@ -411,6 +411,13 @@ export function registerNostrTools(server: McpServer): void {
         name: z.string().optional().describe("Display name."),
         about: z.string().optional().describe("Bio / about text."),
         picture: z.string().url().optional().describe("Profile picture URL."),
+        banner: z
+          .string()
+          .url()
+          .optional()
+          .describe(
+            "Header/cover image URL. Displayed above the profile picture in most Nostr clients (Primal, Snort, Damus)."
+          ),
         website: z.string().url().optional().describe("Website URL."),
         nip05: z
           .string()
@@ -424,7 +431,7 @@ export function registerNostrTools(server: McpServer): void {
           ),
       },
     },
-    async ({ name, about, picture, website, nip05, relays }) => {
+    async ({ name, about, picture, banner, website, nip05, relays }) => {
       try {
         const { sk, pubkey } = deriveNostrKeys();
         const targetRelays = relays && relays.length > 0 ? relays : DEFAULT_RELAYS;
@@ -451,6 +458,7 @@ export function registerNostrTools(server: McpServer): void {
         if (name !== undefined) updates.name = name;
         if (about !== undefined) updates.about = about;
         if (picture !== undefined) updates.picture = picture;
+        if (banner !== undefined) updates.banner = banner;
         if (website !== undefined) updates.website = website;
         if (nip05 !== undefined) updates.nip05 = nip05;
 
