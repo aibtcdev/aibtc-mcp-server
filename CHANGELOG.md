@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.48.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.47.2...mcp-server-v1.48.0) (2026-04-16)
+
+
+### Features
+
+* **nostr:** add banner field to nostr_set_profile ([#468](https://github.com/aibtcdev/aibtc-mcp-server/issues/468)) ([010a649](https://github.com/aibtcdev/aibtc-mcp-server/commit/010a6495546aec7e36a8a511dc42c5beb9655894))
+
+
+### Bug Fixes
+
+* **deps:** upgrade axios to 1.15.0 (CVE-2025-62718) ([#459](https://github.com/aibtcdev/aibtc-mcp-server/issues/459)) ([0c528b5](https://github.com/aibtcdev/aibtc-mcp-server/commit/0c528b5cfc15cc0550c90af15f6a49ffca8d3015))
+
 ## [1.47.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.47.1...mcp-server-v1.47.2) (2026-04-13)
 
 
