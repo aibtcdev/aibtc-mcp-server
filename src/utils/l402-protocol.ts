@@ -52,14 +52,24 @@ export function parseL402Challenge(
 }
 
 /**
+ * Escape regex special characters so a caller-provided key can be safely
+ * interpolated into a RegExp. Keeps the helper defensive even though today's
+ * callers only pass hardcoded literals.
+ */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
  * Extract a quoted or unquoted param value from an RFC-7235-style header body.
  */
 function extractParam(body: string, key: string): string | null {
+  const escapedKey = escapeRegExp(key);
   // Quoted value: key="..."
-  const quoted = new RegExp(`${key}\\s*=\\s*"([^"]+)"`, "i").exec(body);
+  const quoted = new RegExp(`${escapedKey}\\s*=\\s*"([^"]+)"`, "i").exec(body);
   if (quoted) return quoted[1];
   // Unquoted value: key=value[,\s]
-  const unquoted = new RegExp(`${key}\\s*=\\s*([^,\\s]+)`, "i").exec(body);
+  const unquoted = new RegExp(`${escapedKey}\\s*=\\s*([^,\\s]+)`, "i").exec(body);
   if (unquoted) return unquoted[1];
   return null;
 }

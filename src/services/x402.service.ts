@@ -41,8 +41,21 @@ import {
   buildL402AuthHeader,
   getCachedL402Auth,
   cacheL402Auth,
+  invalidateL402Auth,
 } from "../utils/l402-protocol.js";
 import { getLightningManager } from "./lightning-manager.js";
+import bolt11 from "bolt11";
+
+/**
+ * Maximum Lightning invoice amount (in sats) the L402 interceptor will pay
+ * without user confirmation. Overridable via the L402_MAX_SATS_PER_INVOICE env
+ * var. Defaults to 10_000 sats (~$5 at $50k/BTC) — a malicious server can
+ * return a BOLT-11 invoice for an arbitrary amount, so this cap bounds the
+ * blast radius when the Lightning wallet is unlocked.
+ */
+const L402_MAX_SATS_PER_INVOICE = Number(
+  process.env.L402_MAX_SATS_PER_INVOICE ?? 10000
+);
 
 // Track payment attempts per client instance (auto-cleanup via WeakMap)
 const paymentAttempts: WeakMap<AxiosInstance, number> = new WeakMap();
@@ -50,9 +63,46 @@ const paymentAttempts: WeakMap<AxiosInstance, number> = new WeakMap();
 // Track 429 retry counts per client instance
 const rateLimitRetries: WeakMap<AxiosInstance, number> = new WeakMap();
 
-// Track L402 payment attempts per client instance (prevents retry loops when
-// the server returns 402 again after a paid preimage was submitted).
-const l402Attempts: WeakMap<AxiosInstance, number> = new WeakMap();
+// Track L402 payment attempts per {client, request URL} so a retry limit for
+// endpoint A doesn't bleed into endpoint B. A single WeakMap<AxiosInstance,
+// Map<string, number>> is sufficient because the per-instance map is garbage
+// collected with the axios client.
+const l402Attempts: WeakMap<AxiosInstance, Map<string, number>> = new WeakMap();
+
+/**
+ * Look up the per-URL L402 attempt count for a client instance.
+ */
+function getL402AttemptCount(instance: AxiosInstance, key: string): number {
+  return l402Attempts.get(instance)?.get(key) ?? 0;
+}
+
+/**
+ * Increment the per-URL L402 attempt count for a client instance.
+ */
+function incrementL402AttemptCount(
+  instance: AxiosInstance,
+  key: string
+): number {
+  let map = l402Attempts.get(instance);
+  if (!map) {
+    map = new Map();
+    l402Attempts.set(instance, map);
+  }
+  const next = (map.get(key) ?? 0) + 1;
+  map.set(key, next);
+  return next;
+}
+
+/**
+ * Clear the per-URL L402 attempt count for a client instance on successful
+ * response, so a later retry (e.g. from an expired cache entry) gets a fresh
+ * budget.
+ */
+function clearL402AttemptCount(instance: AxiosInstance, key: string): void {
+  const map = l402Attempts.get(instance);
+  if (!map) return;
+  map.delete(key);
+}
 
 /**
  * Error thrown when an x402 endpoint returns 429 Too Many Requests and all retries are exhausted.
@@ -260,7 +310,16 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
   //     Authorization header.
   //   - Otherwise, pass through (the x402 chain will reject if it can't pay).
   axiosInstance.interceptors.response.use(
-    (response) => response,
+    (response) => {
+      // Reset the per-URL L402 attempt counter on any success so the next
+      // unrelated 402 on the same client gets a full retry budget.
+      const method = (response.config?.method ?? "get").toUpperCase();
+      const requestUrl: string = response.config?.url ?? "";
+      if (requestUrl) {
+        clearL402AttemptCount(axiosInstance, `${method}:${requestUrl}`);
+      }
+      return response;
+    },
     async (error) => {
       if (error.response?.status !== 402) {
         return Promise.reject(error);
@@ -301,8 +360,13 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
         );
       }
 
-      // Guard against L402 retry loops.
-      const attempts = l402Attempts.get(axiosInstance) ?? 0;
+      const method = (error.config?.method ?? "get").toUpperCase();
+      const requestUrl: string = error.config?.url ?? "";
+      const attemptKey = `${method}:${requestUrl}`;
+
+      // Guard against L402 retry loops — counted per-URL so paying endpoint A
+      // doesn't poison endpoint B.
+      const attempts = getL402AttemptCount(axiosInstance, attemptKey);
       if (attempts >= 1) {
         return Promise.reject(
           new Error(
@@ -310,12 +374,11 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           )
         );
       }
-      l402Attempts.set(axiosInstance, attempts + 1);
+      incrementL402AttemptCount(axiosInstance, attemptKey);
 
-      const method = (error.config?.method ?? "get").toUpperCase();
-      const requestUrl: string = error.config?.url ?? "";
-
-      // Cache hit: reuse the macaroon+preimage without paying.
+      // Cache hit: reuse the macaroon+preimage without paying. If the server
+      // rejects the retry with another 402, the cached entry is stale — drop
+      // it so subsequent calls re-pay instead of looping on a dead macaroon.
       const cached = getCachedL402Auth(method, requestUrl);
       if (cached) {
         const originalRequest = error.config;
@@ -324,7 +387,44 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           cached.macaroon,
           cached.preimage
         );
-        return axiosInstance.request(originalRequest);
+        return axiosInstance.request(originalRequest).catch((retryErr) => {
+          if (retryErr?.response?.status === 402) {
+            invalidateL402Auth(method, requestUrl);
+          }
+          return Promise.reject(retryErr);
+        });
+      }
+
+      // Validate the invoice amount BEFORE paying. A malicious server can
+      // issue a BOLT-11 invoice for an arbitrary amount; Spark's maxFeeSats
+      // only caps routing fees, not the payable amount itself.
+      let decoded: ReturnType<typeof bolt11.decode>;
+      try {
+        decoded = bolt11.decode(challenge.invoice);
+      } catch (decodeErr) {
+        return Promise.reject(
+          new Error(
+            `L402 invoice could not be decoded: ${decodeErr instanceof Error ? decodeErr.message : String(decodeErr)}`
+          )
+        );
+      }
+
+      const amountSats = decoded.satoshis;
+      if (amountSats === null || amountSats === undefined || amountSats === 0) {
+        return Promise.reject(
+          new Error(
+            "L402 invoice has no amount; refusing to pay amountless invoices for safety."
+          )
+        );
+      }
+      if (amountSats > L402_MAX_SATS_PER_INVOICE) {
+        return Promise.reject(
+          new Error(
+            `L402 invoice amount (${amountSats} sats) exceeds the configured cap ` +
+              `of ${L402_MAX_SATS_PER_INVOICE} sats (L402_MAX_SATS_PER_INVOICE). ` +
+              `Refusing to pay.`
+          )
+        );
       }
 
       // Pay the Lightning invoice.
