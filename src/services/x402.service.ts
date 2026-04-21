@@ -44,7 +44,7 @@ import {
   invalidateL402Auth,
 } from "../utils/l402-protocol.js";
 import { getLightningManager } from "./lightning-manager.js";
-import bolt11 from "bolt11";
+import { decode as decodeBolt11 } from "light-bolt11-decoder";
 
 /**
  * Maximum Lightning invoice amount (in sats) the L402 interceptor will pay
@@ -404,9 +404,9 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
       // Validate the invoice amount BEFORE paying. A malicious server can
       // issue a BOLT-11 invoice for an arbitrary amount; Spark's maxFeeSats
       // only caps routing fees, not the payable amount itself.
-      let decoded: ReturnType<typeof bolt11.decode>;
+      let decoded: ReturnType<typeof decodeBolt11>;
       try {
-        decoded = bolt11.decode(challenge.invoice);
+        decoded = decodeBolt11(challenge.invoice);
       } catch (decodeErr) {
         return Promise.reject(
           new Error(
@@ -415,8 +415,18 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
         );
       }
 
-      const amountSats = decoded.satoshis;
-      if (amountSats === null || amountSats === undefined || amountSats === 0) {
+      // light-bolt11-decoder returns the amount in millisats as a string on
+      // the "amount" section. Amountless invoices have no amount section (or
+      // a zero/missing value). Convert to sats for the cap comparison.
+      const amountSection = decoded.sections.find(
+        (s): s is { name: "amount"; letters: string; value: string } =>
+          s.name === "amount"
+      );
+      const amountMsat = amountSection?.value
+        ? BigInt(amountSection.value)
+        : 0n;
+      const amountSats = Number(amountMsat / 1000n);
+      if (amountSats === 0) {
         return Promise.reject(
           new Error(
             "L402 invoice has no amount; refusing to pay amountless invoices for safety."
