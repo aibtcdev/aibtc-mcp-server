@@ -325,7 +325,25 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
         return Promise.reject(error);
       }
 
-      // Decide whether x402-stacks is a viable rail for this response.
+      // Check for an L402 challenge FIRST. If there isn't one, there is
+      // nothing for this interceptor to do — pass through to the x402
+      // chain without touching the wallet manager. This keeps tests that
+      // mock only the x402-stacks surface area from tripping over
+      // wallet-manager methods they didn't stub.
+      const wwwAuth =
+        error.response?.headers?.["www-authenticate"] ??
+        error.response?.headers?.["WWW-Authenticate"];
+      const challenge = parseL402Challenge(
+        typeof wwwAuth === "string" ? wwwAuth : null
+      );
+      if (!challenge) {
+        // No L402 header — nothing we can do, pass through.
+        return Promise.reject(error);
+      }
+
+      // We have an L402 challenge. Decide whether x402-stacks is a
+      // preferred rail for this response — only now do we need to touch
+      // the wallet manager.
       const x402HeaderValue = error.response?.headers?.[X402_HEADERS.PAYMENT_REQUIRED];
       const x402PaymentRequired = decodePaymentRequired(x402HeaderValue);
       const hasStacksOption = !!x402PaymentRequired?.accepts?.some(
@@ -335,18 +353,6 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
 
       if (hasStacksOption && stacksWalletUnlocked) {
         // Let the x402 interceptor chain handle it.
-        return Promise.reject(error);
-      }
-
-      // Try L402. The challenge header may be provided in several casings.
-      const wwwAuth =
-        error.response?.headers?.["www-authenticate"] ??
-        error.response?.headers?.["WWW-Authenticate"];
-      const challenge = parseL402Challenge(
-        typeof wwwAuth === "string" ? wwwAuth : null
-      );
-      if (!challenge) {
-        // No L402 header — nothing we can do, pass through.
         return Promise.reject(error);
       }
 
