@@ -25,6 +25,7 @@ import { registerYieldDashboardTools } from "./yield-dashboard.tools.js";
 import { registerPillarTools } from "./pillar.tools.js";
 import { registerPillarDirectTools } from "./pillar-direct.tools.js";
 import { registerBitcoinTools } from "./bitcoin.tools.js";
+import { registerLightningTools } from "./lightning.tools.js";
 import { registerMempoolTools } from "./mempool.tools.js";
 import { registerNostrTools } from "./nostr.tools.js";
 import { registerRelayDiagnosticTools } from "./relay-diagnostic.tools.js";
@@ -150,6 +151,9 @@ export function registerAllTools(server: McpServer): void {
 
   // Bitcoin L1 (read-only: balance, fees, UTXOs)
   registerBitcoinTools(server);
+
+  // Lightning Network (L402 auto-pay, Spark-backed wallet)
+  registerLightningTools(server);
 
   // Mempool Watch (read-only: mempool stats, tx status, address tx history)
   registerMempoolTools(server);

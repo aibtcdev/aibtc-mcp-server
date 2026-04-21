@@ -36,12 +36,23 @@ import {
   emitCanonicalPaymentPollLogs,
   emitPaymentLog,
 } from "../utils/x402-payment-logging.js";
+import {
+  parseL402Challenge,
+  buildL402AuthHeader,
+  getCachedL402Auth,
+  cacheL402Auth,
+} from "../utils/l402-protocol.js";
+import { getLightningManager } from "./lightning-manager.js";
 
 // Track payment attempts per client instance (auto-cleanup via WeakMap)
 const paymentAttempts: WeakMap<AxiosInstance, number> = new WeakMap();
 
 // Track 429 retry counts per client instance
 const rateLimitRetries: WeakMap<AxiosInstance, number> = new WeakMap();
+
+// Track L402 payment attempts per client instance (prevents retry loops when
+// the server returns 402 again after a paid preimage was submitted).
+const l402Attempts: WeakMap<AxiosInstance, number> = new WeakMap();
 
 /**
  * Error thrown when an x402 endpoint returns 429 Too Many Requests and all retries are exhausted.
@@ -238,6 +249,107 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
   };
 
   const axiosInstance = createBaseAxiosInstance(url);
+
+  // L402 rail interceptor (registered before the x402 chain so it can inspect
+  // the raw 402 response). Preference rule:
+  //   - If the response advertises a Stacks x402 payment-required header AND a
+  //     Stacks wallet is unlocked, pass through and let the x402 chain handle
+  //     it (x402-stacks is preferred).
+  //   - Otherwise, if the response advertises an L402 challenge AND an LN
+  //     wallet is unlocked, pay the invoice and retry with the L402
+  //     Authorization header.
+  //   - Otherwise, pass through (the x402 chain will reject if it can't pay).
+  axiosInstance.interceptors.response.use(
+    (response) => response,
+    async (error) => {
+      if (error.response?.status !== 402) {
+        return Promise.reject(error);
+      }
+
+      // Decide whether x402-stacks is a viable rail for this response.
+      const x402HeaderValue = error.response?.headers?.[X402_HEADERS.PAYMENT_REQUIRED];
+      const x402PaymentRequired = decodePaymentRequired(x402HeaderValue);
+      const hasStacksOption = !!x402PaymentRequired?.accepts?.some(
+        (opt) => opt.network?.startsWith("stacks:")
+      );
+      const stacksWalletUnlocked = getWalletManager().isUnlocked();
+
+      if (hasStacksOption && stacksWalletUnlocked) {
+        // Let the x402 interceptor chain handle it.
+        return Promise.reject(error);
+      }
+
+      // Try L402. The challenge header may be provided in several casings.
+      const wwwAuth =
+        error.response?.headers?.["www-authenticate"] ??
+        error.response?.headers?.["WWW-Authenticate"];
+      const challenge = parseL402Challenge(
+        typeof wwwAuth === "string" ? wwwAuth : null
+      );
+      if (!challenge) {
+        // No L402 header — nothing we can do, pass through.
+        return Promise.reject(error);
+      }
+
+      const lnProvider = getLightningManager().getProvider();
+      if (!lnProvider) {
+        return Promise.reject(
+          new Error(
+            "L402 payment required but Lightning wallet is not unlocked. " +
+              "Run lightning_unlock (or lightning_create) first."
+          )
+        );
+      }
+
+      // Guard against L402 retry loops.
+      const attempts = l402Attempts.get(axiosInstance) ?? 0;
+      if (attempts >= 1) {
+        return Promise.reject(
+          new Error(
+            "L402 retry limit exceeded (max 1 attempt). Server returned 402 again after preimage was submitted."
+          )
+        );
+      }
+      l402Attempts.set(axiosInstance, attempts + 1);
+
+      const method = (error.config?.method ?? "get").toUpperCase();
+      const requestUrl: string = error.config?.url ?? "";
+
+      // Cache hit: reuse the macaroon+preimage without paying.
+      const cached = getCachedL402Auth(method, requestUrl);
+      if (cached) {
+        const originalRequest = error.config;
+        originalRequest.headers = originalRequest.headers || {};
+        originalRequest.headers["Authorization"] = buildL402AuthHeader(
+          cached.macaroon,
+          cached.preimage
+        );
+        return axiosInstance.request(originalRequest);
+      }
+
+      // Pay the Lightning invoice.
+      let payment: { preimage: string; feesPaid: number };
+      try {
+        payment = await lnProvider.payInvoice(challenge.invoice);
+      } catch (payErr) {
+        return Promise.reject(
+          new Error(
+            `L402 payment failed: ${payErr instanceof Error ? payErr.message : String(payErr)}`
+          )
+        );
+      }
+
+      cacheL402Auth(method, requestUrl, challenge.macaroon, payment.preimage);
+
+      const originalRequest = error.config;
+      originalRequest.headers = originalRequest.headers || {};
+      originalRequest.headers["Authorization"] = buildL402AuthHeader(
+        challenge.macaroon,
+        payment.preimage
+      );
+      return axiosInstance.request(originalRequest);
+    }
+  );
 
   // Interceptor 1 (FIFO): max-1-payment-attempt guard.
   // On the first 402, increments the counter and re-rejects so Interceptor 2 can handle it.

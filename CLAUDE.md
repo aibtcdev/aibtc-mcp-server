@@ -214,6 +214,33 @@ Tools for Bitcoin L1 blockchain operations via mempool.space API:
 - `get_btc_transaction_status` - Get confirmation status and details for a Bitcoin transaction by txid
 - `get_btc_address_txs` - Get recent transaction history for a Bitcoin address (last 25 transactions)
 
+### Lightning Network (L402)
+
+Embedded, self-custodial Lightning wallet backed by the [Spark SDK](https://www.npmjs.com/package/@buildonspark/spark-sdk) (`@buildonspark/spark-sdk`). No API key required — auth is derived from the BIP39 identity key. Works alongside the existing x402-stacks rail: when an endpoint returns `HTTP 402 WWW-Authenticate: L402 macaroon="...", invoice="..."`, the interceptor pays the invoice via Spark and retries with `Authorization: L402 <macaroon>:<preimage>`. Macaroons are cached in-memory per `{method}:{url}` so repeat calls don't re-pay.
+
+**Rail preference:** if an endpoint advertises both x402-stacks and L402, the x402-stacks rail is preferred when a Stacks wallet is unlocked. Otherwise, the L402 rail is used if the Lightning wallet is unlocked.
+
+**Storage:** encrypted keystore at `~/.aibtc/lightning/keystore.json` (AES-256-GCM with scrypt KDF — same scheme as the Stacks wallet).
+
+**Tools:**
+- `lightning_create` - Create a new Lightning wallet with a fresh BIP39 mnemonic (shown once). Returns deposit address + mnemonic.
+- `lightning_import` - Import a Lightning wallet from an existing BIP39 mnemonic.
+- `lightning_unlock` - Unlock the Lightning wallet for the session. Required before paying / receiving / L402 auto-pay.
+- `lightning_lock` - Drop the in-memory Spark session.
+- `lightning_status` - Report locked/unlocked state, wallet id, balance, deposit address.
+- `lightning_fund_from_btc` - Send L1 BTC from the main wallet to the Spark deposit address. Reuses the same signing path as `transfer_btc` (cardinal UTXOs only on mainnet). Claim after on-chain confirmation is a manual follow-up step.
+- `lightning_pay_invoice` - Manually pay a BOLT-11 invoice.
+- `lightning_create_invoice` - Manually create a BOLT-11 invoice for receiving sats.
+
+**Example Usage:**
+| Request | Action |
+|---------|--------|
+| "Set up a Lightning wallet" | `lightning_create` |
+| "Unlock Lightning" | `lightning_unlock` |
+| "Fund Lightning with 100000 sats from my BTC" | `lightning_fund_from_btc` with amountSats=100000 |
+| "Pay this invoice: lnbc..." | `lightning_pay_invoice` with bolt11 |
+| "Create a Lightning invoice for 500 sats" | `lightning_create_invoice` with amountSats=500 |
+
 ### Direct Stacks Transactions
 - `transfer_stx` - Transfer STX tokens to a recipient (signs and broadcasts)
 - `call_contract` - Call a smart contract function (signs and broadcasts)
