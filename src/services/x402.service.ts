@@ -52,9 +52,28 @@ import { decode as decodeBolt11 } from "light-bolt11-decoder";
  * var. Defaults to 10_000 sats (~$5 at $50k/BTC) — a malicious server can
  * return a BOLT-11 invoice for an arbitrary amount, so this cap bounds the
  * blast radius when the Lightning wallet is unlocked.
+ *
+ * If the env var is set to a non-numeric, non-finite, or non-positive value,
+ * we log a warning to stderr and fall back to the default — `Number(undefined)`
+ * is NaN, and `amountSats > NaN` is always false, which would silently disable
+ * the cap and allow arbitrary-amount invoices through.
  */
-const L402_MAX_SATS_PER_INVOICE = Number(
-  process.env.L402_MAX_SATS_PER_INVOICE ?? 10000
+const DEFAULT_L402_MAX_SATS = 10000;
+function parseSatsCap(envName: string, fallback: number): number {
+  const raw = process.env[envName];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.error(
+      `[L402] Invalid ${envName}="${raw}", falling back to ${fallback}`
+    );
+    return fallback;
+  }
+  return parsed;
+}
+const L402_MAX_SATS_PER_INVOICE = parseSatsCap(
+  "L402_MAX_SATS_PER_INVOICE",
+  DEFAULT_L402_MAX_SATS
 );
 
 // Track payment attempts per client instance (auto-cleanup via WeakMap)
@@ -282,6 +301,45 @@ export interface CreateApiClientOptions {
 }
 
 /**
+ * Build a canonical absolute URL for a request so that the L402 attempt
+ * counter and macaroon cache are keyed by the actual endpoint, not the
+ * relative path. Without this, two `createApiClient(differentBaseURL)`
+ * instances both 402-ing on `/foo` would collide on the same cache entry.
+ *
+ * `URL` constructor would be cleaner but throws on inputs that aren't valid
+ * absolute URLs — paths like `/foo` are exactly the case we need to handle,
+ * so a forgiving string concat is the right shape here.
+ */
+function canonicalUrl(config: {
+  baseURL?: string;
+  url?: string;
+}): string {
+  const url = config.url ?? "";
+  const baseURL = config.baseURL ?? "";
+  if (!baseURL || /^https?:\/\//i.test(url)) {
+    return url;
+  }
+  if (baseURL.endsWith("/") && url.startsWith("/")) {
+    return baseURL + url.slice(1);
+  }
+  if (!baseURL.endsWith("/") && !url.startsWith("/")) {
+    return baseURL + "/" + url;
+  }
+  return baseURL + url;
+}
+
+/**
+ * Resolve the canonical request URL from an axios config, returning an empty
+ * string when the config or url is missing. Wrapper around `canonicalUrl`
+ * for the common axios-config shape.
+ */
+function canonicalRequestUrl(config: unknown): string {
+  if (!config || typeof config !== "object") return "";
+  const c = config as { baseURL?: string; url?: string };
+  return canonicalUrl({ baseURL: c.baseURL, url: c.url });
+}
+
+/**
  * Create an API client with x402 payment interceptor.
  * Creates a fresh client instance per call with max-1-payment-attempt guard.
  */
@@ -314,9 +372,9 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
       // Reset the per-URL L402 attempt counter on any success so the next
       // unrelated 402 on the same client gets a full retry budget.
       const method = (response.config?.method ?? "get").toUpperCase();
-      const requestUrl: string = response.config?.url ?? "";
-      if (requestUrl) {
-        clearL402AttemptCount(axiosInstance, `${method}:${requestUrl}`);
+      const canonical = canonicalRequestUrl(response.config);
+      if (canonical) {
+        clearL402AttemptCount(axiosInstance, `${method}:${canonical}`);
       }
       return response;
     },
@@ -367,8 +425,8 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
       }
 
       const method = (error.config?.method ?? "get").toUpperCase();
-      const requestUrl: string = error.config?.url ?? "";
-      const attemptKey = `${method}:${requestUrl}`;
+      const canonicalUrlKey = canonicalRequestUrl(error.config);
+      const attemptKey = `${method}:${canonicalUrlKey}`;
 
       // Guard against L402 retry loops — counted per-URL so paying endpoint A
       // doesn't poison endpoint B.
@@ -383,9 +441,12 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
       incrementL402AttemptCount(axiosInstance, attemptKey);
 
       // Cache hit: reuse the macaroon+preimage without paying. If the server
-      // rejects the retry with another 402, the cached entry is stale — drop
-      // it so subsequent calls re-pay instead of looping on a dead macaroon.
-      const cached = getCachedL402Auth(method, requestUrl);
+      // rejects the retry with 401 / 402 / 403, the cached entry is stale —
+      // drop it so subsequent calls re-pay instead of looping on a dead
+      // macaroon. Many servers signal stale credentials with non-402 status
+      // codes (401 Unauthorized for missing/expired auth, 403 Forbidden for
+      // caveat violations).
+      const cached = getCachedL402Auth(method, canonicalUrlKey);
       if (cached) {
         const originalRequest = error.config;
         originalRequest.headers = originalRequest.headers || {};
@@ -394,8 +455,9 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           cached.preimage
         );
         return axiosInstance.request(originalRequest).catch((retryErr) => {
-          if (retryErr?.response?.status === 402) {
-            invalidateL402Auth(method, requestUrl);
+          const status = retryErr?.response?.status;
+          if (status === 401 || status === 402 || status === 403) {
+            invalidateL402Auth(method, canonicalUrlKey);
           }
           return Promise.reject(retryErr);
         });
@@ -455,7 +517,12 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
         );
       }
 
-      cacheL402Auth(method, requestUrl, challenge.macaroon, payment.preimage);
+      cacheL402Auth(
+        method,
+        canonicalUrlKey,
+        challenge.macaroon,
+        payment.preimage
+      );
 
       const originalRequest = error.config;
       originalRequest.headers = originalRequest.headers || {};
@@ -464,13 +531,14 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
         payment.preimage
       );
       // Mirror the cache-hit path: if the freshly-paid retry is itself
-      // rejected with another 402 (e.g. the server rejected the preimage due
-      // to a macaroon caveat violation, IP binding, etc.), the just-cached
-      // entry is dead — drop it so subsequent calls re-pay instead of
-      // looping on a poisoned cache entry.
+      // rejected with 401 / 402 / 403 (e.g. the server rejected the preimage
+      // due to a macaroon caveat violation, IP binding, expired auth, etc.),
+      // the just-cached entry is dead — drop it so subsequent calls re-pay
+      // instead of looping on a poisoned cache entry.
       return axiosInstance.request(originalRequest).catch((retryErr) => {
-        if (retryErr?.response?.status === 402) {
-          invalidateL402Auth(method, requestUrl);
+        const status = retryErr?.response?.status;
+        if (status === 401 || status === 402 || status === 403) {
+          invalidateL402Auth(method, canonicalUrlKey);
         }
         return Promise.reject(retryErr);
       });

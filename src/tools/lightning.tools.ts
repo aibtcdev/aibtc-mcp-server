@@ -306,6 +306,49 @@ export function registerLightningTools(server: McpServer): void {
     }
   );
 
+  server.registerTool(
+    "lightning_claim_deposit",
+    {
+      description:
+        "Claim a confirmed BTC L1 deposit into the Spark Lightning wallet. " +
+        "Call this AFTER lightning_fund_from_btc and after the on-chain " +
+        "transaction has 3 confirmations. Fetches a signed quote from the " +
+        "SSP, submits the claim, and returns the credited sats + Spark " +
+        "transfer id. Requires an unlocked Lightning wallet.",
+      inputSchema: {
+        transactionId: z
+          .string()
+          .describe("Bitcoin txid of the deposit transaction"),
+        outputIndex: z
+          .number()
+          .int()
+          .nonnegative()
+          .optional()
+          .describe(
+            "Vout index of the deposit output (default: SSP auto-detects)"
+          ),
+      },
+    },
+    async ({ transactionId, outputIndex }) => {
+      try {
+        const manager = getLightningManager();
+        const provider = manager.getProvider();
+        if (!provider) {
+          throw new Error(
+            "Lightning wallet not unlocked. Run lightning_unlock first."
+          );
+        }
+        const result = await provider.claimDeposit(transactionId, outputIndex);
+        return createJsonResponse({
+          success: true,
+          ...result,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
   // --- Manual Lightning ops -------------------------------------------------
 
   server.registerTool(

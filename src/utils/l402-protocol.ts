@@ -62,12 +62,26 @@ function escapeRegExp(s: string): string {
 
 /**
  * Extract a quoted or unquoted param value from an RFC-7235-style header body.
+ *
+ * Supports double-quoted, single-quoted, and unquoted values to match the
+ * docstring claim and tolerate well-meaning servers that emit single quotes.
+ * RFC 7235 only mandates double quotes, but real-world implementations are
+ * forgiving here.
  */
 function extractParam(body: string, key: string): string | null {
   const escapedKey = escapeRegExp(key);
-  // Quoted value: key="..."
-  const quoted = new RegExp(`${escapedKey}\\s*=\\s*"([^"]+)"`, "i").exec(body);
-  if (quoted) return quoted[1];
+  // Double-quoted value: key="..."
+  const doubleQuoted = new RegExp(
+    `${escapedKey}\\s*=\\s*"([^"]+)"`,
+    "i"
+  ).exec(body);
+  if (doubleQuoted) return doubleQuoted[1];
+  // Single-quoted value: key='...'
+  const singleQuoted = new RegExp(
+    `${escapedKey}\\s*=\\s*'([^']+)'`,
+    "i"
+  ).exec(body);
+  if (singleQuoted) return singleQuoted[1];
   // Unquoted value: key=value[,\s]
   const unquoted = new RegExp(`${escapedKey}\\s*=\\s*([^,\\s]+)`, "i").exec(body);
   if (unquoted) return unquoted[1];

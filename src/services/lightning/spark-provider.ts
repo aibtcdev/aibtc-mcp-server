@@ -12,11 +12,23 @@ import type { LightningProvider } from "./provider.js";
 
 /**
  * Map aibtc Network to Spark SDK network type.
- * aibtc only supports mainnet/testnet; Spark ships MAINNET + REGTEST for
- * self-custodial use, so testnet is mapped to REGTEST per the PR spec.
+ *
+ * Spark publicly supports MAINNET and REGTEST. REGTEST is a Spark-internal
+ * regtest chain — its `bcrt1...` deposit addresses cannot interoperate with
+ * Bitcoin testnet's `tb1...` addresses, so silently mapping aibtc's testnet
+ * to Spark's REGTEST would break `lightning_fund_from_btc` (the L1 testnet
+ * tx is sent to a different chain than the deposit address it's funding).
+ *
+ * Until Spark ships a public Bitcoin-testnet environment, reject testnet at
+ * the boundary with a clear error rather than silently misbehaving.
  */
-function toSparkNetwork(network: Network): "MAINNET" | "REGTEST" {
-  return network === "mainnet" ? "MAINNET" : "REGTEST";
+function toSparkNetwork(network: Network): "MAINNET" {
+  if (network === "mainnet") return "MAINNET";
+  throw new Error(
+    "Lightning is currently only supported on mainnet. Spark does not have a public Bitcoin testnet " +
+      "environment, and Spark REGTEST cannot interoperate with Bitcoin testnet. " +
+      "Switch NETWORK=mainnet (uses real BTC) or wait for Spark testnet support."
+  );
 }
 
 /**

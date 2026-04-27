@@ -128,6 +128,12 @@ class LightningManager {
 
   /**
    * Store a mnemonic (shared logic for create/import).
+   *
+   * Initialize the Spark provider FIRST so connectivity / SDK validation
+   * failures don't leave behind an encrypted keystore that blocks future
+   * `lightning_create` / `lightning_import` calls (keystoreExists() short-
+   * circuits both paths). Only after the provider is up do we persist the
+   * keystore and establish the session.
    */
   private async storeWallet(
     name: string,
@@ -135,6 +141,11 @@ class LightningManager {
     password: string,
     network: Network
   ): Promise<{ walletId: string; provider: SparkLightningProvider }> {
+    // 1. Bring up the Spark provider — validates the mnemonic + connectivity.
+    //    If this throws, no keystore is written and the user can retry cleanly.
+    const provider = await SparkLightningProvider.initialize(mnemonic, network);
+
+    // 2. Persist the keystore now that we know the provider is functional.
     const encrypted = await encrypt(mnemonic, password);
     const walletId = generateWalletId();
 
@@ -148,8 +159,7 @@ class LightningManager {
     };
     await this.writeKeystore(keystore);
 
-    const provider = await SparkLightningProvider.initialize(mnemonic, network);
-
+    // 3. Establish the in-memory session.
     this.session = {
       walletId,
       name,

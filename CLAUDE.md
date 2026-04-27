@@ -218,9 +218,14 @@ Tools for Bitcoin L1 blockchain operations via mempool.space API:
 
 Embedded, self-custodial Lightning wallet backed by the [Spark SDK](https://www.npmjs.com/package/@buildonspark/spark-sdk) (`@buildonspark/spark-sdk`). No API key required — auth is derived from the BIP39 identity key. Works alongside the existing x402-stacks rail: when an endpoint returns `HTTP 402 WWW-Authenticate: L402 macaroon="...", invoice="..."`, the interceptor pays the invoice via Spark and retries with `Authorization: L402 <macaroon>:<preimage>`. Macaroons are cached in-memory per `{method}:{url}` so repeat calls don't re-pay.
 
+**Mainnet only for now.** Spark does not have a public Bitcoin testnet environment, and Spark REGTEST cannot interoperate with Bitcoin testnet (`tb1...` addresses), so all Lightning tools throw a clear error when `NETWORK=testnet`. Use `NETWORK=mainnet` (real BTC) or wait for Spark testnet support.
+
 **Rail preference:** if an endpoint advertises both x402-stacks and L402, the x402-stacks rail is preferred when a Stacks wallet is unlocked. Otherwise, the L402 rail is used if the Lightning wallet is unlocked.
 
 **Storage:** encrypted keystore at `~/.aibtc/lightning/keystore.json` (AES-256-GCM with scrypt KDF — same scheme as the Stacks wallet).
+
+**Configuration:**
+- `L402_MAX_SATS_PER_INVOICE` (optional, default `10000`): hard cap on the satoshi amount the L402 auto-pay interceptor will pay without prompting. Invalid (NaN, non-finite, ≤ 0) values fall back to the default with a warning logged to stderr.
 
 **Tools:**
 - `lightning_create` - Create a new Lightning wallet with a fresh BIP39 mnemonic (shown once). Returns deposit address + mnemonic.
@@ -228,7 +233,8 @@ Embedded, self-custodial Lightning wallet backed by the [Spark SDK](https://www.
 - `lightning_unlock` - Unlock the Lightning wallet for the session. Required before paying / receiving / L402 auto-pay.
 - `lightning_lock` - Drop the in-memory Spark session.
 - `lightning_status` - Report locked/unlocked state, wallet id, balance, deposit address.
-- `lightning_fund_from_btc` - Send L1 BTC from the main wallet to the Spark deposit address. Reuses the same signing path as `transfer_btc` (cardinal UTXOs only on mainnet). Claim after on-chain confirmation is a manual follow-up step.
+- `lightning_fund_from_btc` - Send L1 BTC from the main wallet to the Spark deposit address. Reuses the same signing path as `transfer_btc` (cardinal UTXOs only on mainnet).
+- `lightning_claim_deposit` - Claim a confirmed L1 deposit into the Spark Lightning wallet (after `lightning_fund_from_btc` confirms with 3+ blocks). Returns credited sats and Spark transfer id.
 - `lightning_pay_invoice` - Manually pay a BOLT-11 invoice.
 - `lightning_create_invoice` - Manually create a BOLT-11 invoice for receiving sats.
 
@@ -238,6 +244,7 @@ Embedded, self-custodial Lightning wallet backed by the [Spark SDK](https://www.
 | "Set up a Lightning wallet" | `lightning_create` |
 | "Unlock Lightning" | `lightning_unlock` |
 | "Fund Lightning with 100000 sats from my BTC" | `lightning_fund_from_btc` with amountSats=100000 |
+| "Claim my Lightning deposit" | `lightning_claim_deposit` with transactionId of the L1 funding tx |
 | "Pay this invoice: lnbc..." | `lightning_pay_invoice` with bolt11 |
 | "Create a Lightning invoice for 500 sats" | `lightning_create_invoice` with amountSats=500 |
 
