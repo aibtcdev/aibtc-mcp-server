@@ -242,47 +242,45 @@ export function registerStyxTools(server: McpServer): void {
         // Step 3: Filter ordinal/rune UTXOs to protect inscriptions and runes
         let safeUtxos = prepared.utxos;
         let ordinalsFiltered = false;
-        {
-          const indexer = new UnisatIndexer(NETWORK);
-          const cardinalUtxos = await indexer.getCardinalUtxos(resolvedBtcSender);
-          const cardinalSet = new Set(
-            cardinalUtxos.map((u) => `${u.txid}:${u.vout}`)
-          );
-          const filtered = prepared.utxos.filter((u) =>
-            cardinalSet.has(`${u.txid}:${u.vout}`)
-          );
-          if (filtered.length < prepared.utxos.length) {
-            const removed = prepared.utxos.length - filtered.length;
-            if (filtered.length === 0) {
-              throw new Error(
-                `All ${removed} UTXO(s) selected by Styx contain inscriptions. ` +
-                  "Cannot deposit without risking inscription loss."
-              );
-            }
-            // Recompute change after removing ordinal inputs
-            const originalTotal = prepared.utxos.reduce((sum, u) => sum + u.value, 0);
-            const filteredTotal = filtered.reduce((sum, u) => sum + u.value, 0);
-            const originalFee =
-              originalTotal - prepared.amountInSatoshis - prepared.changeAmount;
-            if (originalFee < 0) {
-              throw new Error(
-                "Invalid Styx transaction preparation: negative implied fee."
-              );
-            }
-            const requiredTotal = prepared.amountInSatoshis + originalFee;
-            if (filteredTotal < requiredTotal) {
-              throw new Error(
-                `After removing ${removed} ordinal UTXO(s), remaining cardinal balance ` +
-                  `(${filteredTotal} sats) is insufficient for deposit (${amountSats} sats) ` +
-                  `and fee (${originalFee} sats).`
-              );
-            }
-            prepared.changeAmount =
-              filteredTotal - prepared.amountInSatoshis - originalFee;
-            ordinalsFiltered = true;
+        const indexer = new UnisatIndexer(NETWORK);
+        const cardinalUtxos = await indexer.getCardinalUtxos(resolvedBtcSender);
+        const cardinalSet = new Set(
+          cardinalUtxos.map((u) => `${u.txid}:${u.vout}`)
+        );
+        const filtered = prepared.utxos.filter((u) =>
+          cardinalSet.has(`${u.txid}:${u.vout}`)
+        );
+        if (filtered.length < prepared.utxos.length) {
+          const removed = prepared.utxos.length - filtered.length;
+          if (filtered.length === 0) {
+            throw new Error(
+              `All ${removed} UTXO(s) selected by Styx carry inscriptions or runes. ` +
+                "Cannot deposit without risking inscription or rune loss."
+            );
           }
-          safeUtxos = filtered;
+          // Recompute change after removing ordinal/rune inputs
+          const originalTotal = prepared.utxos.reduce((sum, u) => sum + u.value, 0);
+          const filteredTotal = filtered.reduce((sum, u) => sum + u.value, 0);
+          const originalFee =
+            originalTotal - prepared.amountInSatoshis - prepared.changeAmount;
+          if (originalFee < 0) {
+            throw new Error(
+              "Invalid Styx transaction preparation: negative implied fee."
+            );
+          }
+          const requiredTotal = prepared.amountInSatoshis + originalFee;
+          if (filteredTotal < requiredTotal) {
+            throw new Error(
+              `After removing ${removed} inscription/rune UTXO(s), remaining cardinal balance ` +
+                `(${filteredTotal} sats) is insufficient for deposit (${amountSats} sats) ` +
+                `and fee (${originalFee} sats).`
+            );
+          }
+          prepared.changeAmount =
+            filteredTotal - prepared.amountInSatoshis - originalFee;
+          ordinalsFiltered = true;
         }
+        safeUtxos = filtered;
 
         // Step 4: Build PSBT locally with @scure/btc-signer
         const btcNetwork = getBtcNetwork(NETWORK);

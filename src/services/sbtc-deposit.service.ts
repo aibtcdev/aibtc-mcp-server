@@ -282,9 +282,9 @@ export class SbtcDepositService {
       if (utxos.length === 0) {
         const errorMsg = includeOrdinals
           ? `No UTXOs found for address ${bitcoinAddress}`
-          : `No cardinal (non-inscription) UTXOs available for deposit. ` +
-            `You may have ordinal UTXOs (containing inscriptions). ` +
-            `Use includeOrdinals=true to override ordinal safety (WARNING: may destroy inscriptions).`;
+          : `No cardinal UTXOs available for deposit. ` +
+            `Your remaining UTXOs may carry inscriptions or runes. ` +
+            `Use includeOrdinals=true to override safety (WARNING: may destroy inscriptions or runes).`;
         throw new Error(errorMsg);
       }
 

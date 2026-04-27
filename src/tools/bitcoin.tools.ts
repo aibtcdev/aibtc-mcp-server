@@ -310,8 +310,8 @@ export function registerBitcoinTools(server: McpServer): void {
           // Power user mode: use all UTXOs
           utxos = await api.getUtxos(account.btcAddress);
         } else {
-          // Safe mode: only use cardinal UTXOs (no inscriptions)
-          // On testnet, Hiro API is not available, so fall back to all UTXOs
+          // Safe mode: Unisat-filtered cardinal UTXOs only,
+          // excluding inscription-bearing and rune-bearing outputs.
           const indexer = new UnisatIndexer(NETWORK);
           utxos = await indexer.getCardinalUtxos(account.btcAddress);
         }
@@ -320,8 +320,8 @@ export function registerBitcoinTools(server: McpServer): void {
           const errorMsg = includeOrdinals
             ? `No UTXOs found for address ${account.btcAddress}`
             : `No cardinal UTXOs available for address ${account.btcAddress}. ` +
-              `You may have ordinal UTXOs (containing inscriptions). ` +
-              `Set includeOrdinals=true to spend them (WARNING: may destroy inscriptions).`;
+              `Your remaining UTXOs may carry inscriptions or runes. ` +
+              `Set includeOrdinals=true to spend them (WARNING: may destroy inscriptions or runes).`;
           throw new Error(errorMsg);
         }
 
