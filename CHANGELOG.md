@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.49.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.48.0...mcp-server-v1.49.0) (2026-04-27)
+
+
+### Features
+
+* **lightning:** add L402 payment rail via Spark SDK ([#474](https://github.com/aibtcdev/aibtc-mcp-server/issues/474)) ([336c8b5](https://github.com/aibtcdev/aibtc-mcp-server/commit/336c8b5568eab78c7813c9964fff7840deef9cb9))
+
 ## [1.48.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.47.2...mcp-server-v1.48.0) (2026-04-16)
 
 
