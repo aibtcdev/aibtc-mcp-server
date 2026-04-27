@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.49.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.49.0...mcp-server-v1.49.1) (2026-04-27)
+
+
+### Bug Fixes
+
+* **bitcoin:** replace deprecated Hiro Ordinals API with Unisat indexer ([#482](https://github.com/aibtcdev/aibtc-mcp-server/issues/482)) ([399be55](https://github.com/aibtcdev/aibtc-mcp-server/commit/399be553a409d1b2b646cdb188037529d0a899de))
+
 ## [1.49.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.48.0...mcp-server-v1.49.0) (2026-04-27)
 
 
