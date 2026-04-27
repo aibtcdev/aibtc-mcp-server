@@ -169,30 +169,31 @@ export class SparkLightningProvider implements LightningProvider {
 
   async claimDeposit(
     transactionId: string,
-    maxFeeSats: number,
     outputIndex?: number
   ): Promise<{ creditedSats: number; transferId: string }> {
-    // The SDK's ClaimStaticDepositOutput is exactly { transferId: string } —
-    // it does not include the credit amount. Fetch the SSP quote first to
-    // capture creditAmountSats, then perform the claim.
+    // Canonical Spark deposit-claim flow per docs.spark.money:
+    //   1. Fetch the SSP-signed quote (returns creditAmountSats + signature).
+    //   2. Submit the quote's signature with the claim.
+    //
+    // The SDK's ClaimStaticDepositOutput is exactly { transferId: string },
+    // so we keep the quote's creditAmountSats around to surface back to the
+    // caller — this also matches what the SSP actually committed to.
     const quote = await this.wallet.getClaimStaticDepositQuote(
       transactionId,
       outputIndex
     );
 
-    const result = await this.wallet.claimStaticDepositWithMaxFee({
+    const result = await this.wallet.claimStaticDeposit({
       transactionId,
-      maxFee: maxFeeSats,
+      creditAmountSats: quote.creditAmountSats,
+      sspSignature: quote.signature,
       outputIndex,
     });
 
-    // claimStaticDepositWithMaxFee returns null when the SSP quote charges
-    // more in fees than `maxFee` — i.e. the claim was aborted, not failed.
-    // Surface this as a clear error rather than a fake success.
     if (!result) {
       throw new Error(
-        `Claim aborted: SSP quote exceeded maxFee of ${maxFeeSats} sats ` +
-          `for transaction ${transactionId}. Retry with a higher maxFeeSats.`
+        `Claim failed: SSP returned no result for transaction ${transactionId}. ` +
+          `The deposit may not have enough confirmations yet (3 required) or has already been claimed.`
       );
     }
 

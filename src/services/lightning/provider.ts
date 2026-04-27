@@ -43,8 +43,15 @@ export interface LightningProvider {
   /**
    * Claim an on-chain deposit (credits the Lightning balance).
    *
+   * Implementations should follow the canonical Spark deposit flow:
+   *   1. Fetch a quote from the SSP (signed `creditAmountSats`).
+   *   2. Submit the quote's signature with the claim.
+   *
+   * The caller commits to whatever the SSP's signed quote charges in fees;
+   * callers that need a max-fee guard should fetch the quote separately and
+   * inspect it before invoking this method.
+   *
    * @param transactionId - Bitcoin transaction id sending BTC to the deposit address
-   * @param maxFeeSats - Maximum SSP fee the caller is willing to pay for the claim
    * @param outputIndex - Optional output index of the deposit (vout). Required when
    *                      the deposit is not at the default vout the SSP would auto-detect.
    * @returns Number of sats credited to the Lightning balance and the resulting
@@ -53,7 +60,6 @@ export interface LightningProvider {
    */
   claimDeposit(
     transactionId: string,
-    maxFeeSats: number,
     outputIndex?: number
   ): Promise<{ creditedSats: number; transferId: string }>;
 
