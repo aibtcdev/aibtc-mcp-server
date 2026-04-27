@@ -463,7 +463,17 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
         challenge.macaroon,
         payment.preimage
       );
-      return axiosInstance.request(originalRequest);
+      // Mirror the cache-hit path: if the freshly-paid retry is itself
+      // rejected with another 402 (e.g. the server rejected the preimage due
+      // to a macaroon caveat violation, IP binding, etc.), the just-cached
+      // entry is dead — drop it so subsequent calls re-pay instead of
+      // looping on a poisoned cache entry.
+      return axiosInstance.request(originalRequest).catch((retryErr) => {
+        if (retryErr?.response?.status === 402) {
+          invalidateL402Auth(method, requestUrl);
+        }
+        return Promise.reject(retryErr);
+      });
     }
   );
 

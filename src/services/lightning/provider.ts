@@ -45,12 +45,17 @@ export interface LightningProvider {
    *
    * @param transactionId - Bitcoin transaction id sending BTC to the deposit address
    * @param maxFeeSats - Maximum SSP fee the caller is willing to pay for the claim
-   * @returns Number of sats credited to the Lightning balance
+   * @param outputIndex - Optional output index of the deposit (vout). Required when
+   *                      the deposit is not at the default vout the SSP would auto-detect.
+   * @returns Number of sats credited to the Lightning balance and the resulting
+   *          Spark transfer id (so callers can correlate the claim with the
+   *          subsequent transfer).
    */
   claimDeposit(
     transactionId: string,
-    maxFeeSats: number
-  ): Promise<{ creditedSats: number }>;
+    maxFeeSats: number,
+    outputIndex?: number
+  ): Promise<{ creditedSats: number; transferId: string }>;
 
   /**
    * Optional: return a Lightning address (user@domain) the wallet can receive to.

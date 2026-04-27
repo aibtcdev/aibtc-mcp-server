@@ -25,6 +25,59 @@ function toSparkNetwork(network: Network): "MAINNET" | "REGTEST" {
  */
 const DEFAULT_MAX_FEE_SATS = 10;
 
+/**
+ * Spark's CurrencyAmount as exposed by the SDK type definitions:
+ *   { originalValue: number, originalUnit: CurrencyUnit }
+ *
+ * The CurrencyUnit enum values are string literals at runtime, so we compare
+ * against the literal strings without importing the enum (it is not part of
+ * the SDK's public exports).
+ */
+interface SparkCurrencyAmount {
+  originalValue: number;
+  originalUnit: string;
+}
+
+/**
+ * Convert a Spark `CurrencyAmount` to whole satoshis.
+ *
+ * Sub-satoshi units (MILLISATOSHI, NANOBITCOIN) are floored — the L402 / fee
+ * reporting surface deals in whole sats. Fiat units (USD, MXN, PHP, EUR) and
+ * the SDK's FUTURE_VALUE sentinel must never appear on a wallet operation; if
+ * they do, that is an SDK contract violation we want to surface rather than
+ * silently coerce.
+ */
+function currencyAmountToSats(amount: SparkCurrencyAmount): number {
+  const { originalValue: value, originalUnit: unit } = amount;
+  switch (unit) {
+    case "SATOSHI":
+      return value;
+    case "MILLISATOSHI":
+      return Math.floor(value / 1000);
+    case "BITCOIN":
+      return value * 100_000_000;
+    case "MILLIBITCOIN":
+      return value * 100_000;
+    case "MICROBITCOIN":
+      return value * 100;
+    case "NANOBITCOIN":
+      return Math.floor(value / 10);
+    case "USD":
+    case "MXN":
+    case "PHP":
+    case "EUR":
+    case "FUTURE_VALUE":
+      throw new Error(
+        `Spark returned a CurrencyAmount denominated in ${unit}; expected a Bitcoin unit. ` +
+          `This is an SDK contract violation for a wallet-operation amount.`
+      );
+    default:
+      throw new Error(
+        `Unknown Spark CurrencyUnit "${unit}"; refusing to coerce to sats.`
+      );
+  }
+}
+
 export class SparkLightningProvider implements LightningProvider {
   private constructor(
     private readonly wallet: SparkWallet,
@@ -64,7 +117,7 @@ export class SparkLightningProvider implements LightningProvider {
     // preimage and can't satisfy an L402 challenge.
     const sendRequest = result as {
       paymentPreimage?: string;
-      fee?: { originalValue?: number };
+      fee?: SparkCurrencyAmount;
     };
 
     if (!sendRequest.paymentPreimage) {
@@ -74,7 +127,13 @@ export class SparkLightningProvider implements LightningProvider {
       );
     }
 
-    const feesPaid = Number(sendRequest.fee?.originalValue ?? 0);
+    // LightningSendRequest.fee is a CurrencyAmount whose originalUnit can be
+    // any of {SATOSHI, MILLISATOSHI, BITCOIN, ...}. Reading originalValue
+    // blindly as sats mis-reports fees by orders of magnitude on non-SATOSHI
+    // units — pass through the helper so the unit is always honored.
+    const feesPaid = sendRequest.fee
+      ? currencyAmountToSats(sendRequest.fee)
+      : 0;
 
     return {
       preimage: sendRequest.paymentPreimage,
@@ -110,30 +169,37 @@ export class SparkLightningProvider implements LightningProvider {
 
   async claimDeposit(
     transactionId: string,
-    maxFeeSats: number
-  ): Promise<{ creditedSats: number }> {
+    maxFeeSats: number,
+    outputIndex?: number
+  ): Promise<{ creditedSats: number; transferId: string }> {
+    // The SDK's ClaimStaticDepositOutput is exactly { transferId: string } —
+    // it does not include the credit amount. Fetch the SSP quote first to
+    // capture creditAmountSats, then perform the claim.
+    const quote = await this.wallet.getClaimStaticDepositQuote(
+      transactionId,
+      outputIndex
+    );
+
     const result = await this.wallet.claimStaticDepositWithMaxFee({
       transactionId,
       maxFee: maxFeeSats,
+      outputIndex,
     });
 
+    // claimStaticDepositWithMaxFee returns null when the SSP quote charges
+    // more in fees than `maxFee` — i.e. the claim was aborted, not failed.
+    // Surface this as a clear error rather than a fake success.
     if (!result) {
       throw new Error(
-        `Claim deposit failed: SSP returned no quote for transaction ${transactionId} under max fee ${maxFeeSats} sats.`
+        `Claim aborted: SSP quote exceeded maxFee of ${maxFeeSats} sats ` +
+          `for transaction ${transactionId}. Retry with a higher maxFeeSats.`
       );
     }
 
-    // ClaimStaticDepositOutput exposes a credit amount via `creditAmountSats`
-    // (the SSP-confirmed amount). We cast narrowly since the SDK's type is
-    // internal-facing.
-    const credited = (result as { creditAmountSats?: number }).creditAmountSats;
-    if (typeof credited !== "number") {
-      throw new Error(
-        "Claim deposit succeeded but SSP response is missing creditAmountSats."
-      );
-    }
-
-    return { creditedSats: credited };
+    return {
+      creditedSats: quote.creditAmountSats,
+      transferId: result.transferId,
+    };
   }
 
   /**
