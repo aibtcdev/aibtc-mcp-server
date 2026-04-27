@@ -81,38 +81,3 @@ jobs:
           npm pkg set name="@aibtc/mcp-server"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Reset npm registry for ClawHub
-        if: ${{ !contains(needs.release-please.outputs.tag_name, '-') }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Publish to ClawHub
-        if: ${{ !contains(needs.release-please.outputs.tag_name, '-') }}
-        continue-on-error: true
-        run: |
-          VERSION="${{ needs.release-please.outputs.version }}"
-
-          # Authenticate with ClawHub
-          npx clawhub login --token "$CLAWHUB_API_TOKEN" --no-browser
-
-          # Get previous tag for changelog
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-
-          # Generate changelog for ClawHub
-          if [ -n "$PREV_TAG" ]; then
-            CHANGELOG=$(git log --pretty=format:"- %s" ${PREV_TAG}..HEAD | head -20)
-          else
-            CHANGELOG="Initial release"
-          fi
-
-          npx clawhub publish ./skill \
-            --slug aibtc-bitcoin-wallet \
-            --name "AIBTC Bitcoin Wallet" \
-            --version "$VERSION" \
-            --changelog "$CHANGELOG" \
-            --tags latest
-        env:
-          CLAWHUB_API_TOKEN: ${{ secrets.CLAWHUB_API_TOKEN }}
