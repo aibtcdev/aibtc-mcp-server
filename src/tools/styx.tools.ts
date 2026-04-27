@@ -35,7 +35,7 @@ import { NETWORK } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { getWalletManager } from "../services/wallet-manager.js";
 import { MempoolApi, getMempoolTxUrl } from "../services/mempool-api.js";
-import { OrdinalIndexer } from "../services/ordinal-indexer.js";
+import { UnisatIndexer } from "../services/unisat-indexer.js";
 import { getBtcNetwork } from "../transactions/bitcoin-builder.js";
 
 const FEE_PRIORITIES = ["low", "medium", "high"] as const;
@@ -239,11 +239,11 @@ export function registerStyxTools(server: McpServer): void {
           poolId: pool,
         });
 
-        // Step 3: Filter ordinal UTXOs on mainnet to protect inscriptions
+        // Step 3: Filter ordinal/rune UTXOs to protect inscriptions and runes
         let safeUtxos = prepared.utxos;
         let ordinalsFiltered = false;
-        if (NETWORK === "mainnet") {
-          const indexer = new OrdinalIndexer(NETWORK);
+        {
+          const indexer = new UnisatIndexer(NETWORK);
           const cardinalUtxos = await indexer.getCardinalUtxos(resolvedBtcSender);
           const cardinalSet = new Set(
             cardinalUtxos.map((u) => `${u.txid}:${u.vout}`)

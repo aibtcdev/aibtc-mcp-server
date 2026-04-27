@@ -18,7 +18,7 @@ import {
   type UTXO,
 } from "../services/mempool-api.js";
 import { buildAndSignBtcTransaction } from "../transactions/bitcoin-builder.js";
-import { OrdinalIndexer } from "../services/ordinal-indexer.js";
+import { UnisatIndexer } from "../services/unisat-indexer.js";
 import { NETWORK } from "../config/networks.js";
 
 export function registerLightningTools(server: McpServer): void {
@@ -231,17 +231,9 @@ export function registerLightningTools(server: McpServer): void {
 
         const api = new MempoolApi(NETWORK);
 
-        // Prefer cardinal UTXOs on mainnet so we don't burn inscriptions.
-        let utxos: UTXO[];
-        let testnetWarning = "";
-        if (NETWORK === "testnet") {
-          utxos = await api.getUtxos(account.btcAddress);
-          testnetWarning =
-            " Ordinal protection is not available on testnet. All UTXOs were used.";
-        } else {
-          const indexer = new OrdinalIndexer(NETWORK);
-          utxos = await indexer.getCardinalUtxos(account.btcAddress);
-        }
+        // Prefer cardinal UTXOs so we don't burn inscriptions or runes.
+        const indexer = new UnisatIndexer(NETWORK);
+        const utxos: UTXO[] = await indexer.getCardinalUtxos(account.btcAddress);
 
         if (utxos.length === 0) {
           throw new Error(
@@ -296,9 +288,6 @@ export function registerLightningTools(server: McpServer): void {
             "Once this transaction confirms on-chain, the deposit must be claimed " +
             "to credit the Lightning balance. Automatic claim is out of scope for this PR.",
         };
-        if (testnetWarning) {
-          response.warning = testnetWarning.trim();
-        }
         return createJsonResponse(response);
       } catch (error) {
         return createErrorResponse(error);

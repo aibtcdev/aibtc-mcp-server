@@ -324,4 +324,13 @@ export class UnisatIndexer {
     const classified = await this.classifyUtxos(address);
     return classified.cardinal;
   }
+
+  /**
+   * Get UTXOs that contain inscriptions or runes (do not spend).
+   * Returned in a stable order: inscription UTXOs first, then rune UTXOs.
+   */
+  async getOrdinalUtxos(address: string): Promise<UTXO[]> {
+    const classified = await this.classifyUtxos(address);
+    return [...classified.inscription, ...classified.rune];
+  }
 }

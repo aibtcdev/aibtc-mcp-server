@@ -23,7 +23,7 @@ import {
   type UTXO,
 } from "../services/mempool-api.js";
 import { buildAndSignBtcTransaction } from "../transactions/bitcoin-builder.js";
-import { OrdinalIndexer } from "../services/ordinal-indexer.js";
+import { UnisatIndexer } from "../services/unisat-indexer.js";
 
 /**
  * Get the Bitcoin address to use for queries.
@@ -305,7 +305,6 @@ export function registerBitcoinTools(server: McpServer): void {
 
         // Fetch UTXOs - use cardinal UTXOs by default for safety
         let utxos: UTXO[];
-        let testnetWarning = "";
 
         if (includeOrdinals) {
           // Power user mode: use all UTXOs
@@ -313,14 +312,8 @@ export function registerBitcoinTools(server: McpServer): void {
         } else {
           // Safe mode: only use cardinal UTXOs (no inscriptions)
           // On testnet, Hiro API is not available, so fall back to all UTXOs
-          if (NETWORK === "testnet") {
-            utxos = await api.getUtxos(account.btcAddress);
-            testnetWarning =
-              " Note: Ordinal protection is not available on testnet. All UTXOs were used.";
-          } else {
-            const indexer = new OrdinalIndexer(NETWORK);
-            utxos = await indexer.getCardinalUtxos(account.btcAddress);
-          }
+          const indexer = new UnisatIndexer(NETWORK);
+          utxos = await indexer.getCardinalUtxos(account.btcAddress);
         }
 
         if (utxos.length === 0) {
@@ -395,10 +388,6 @@ export function registerBitcoinTools(server: McpServer): void {
           network: NETWORK,
         };
 
-        if (testnetWarning) {
-          response.warning = testnetWarning.trim();
-        }
-
         return createJsonResponse(response);
       } catch (error) {
         return createErrorResponse(error);
@@ -411,10 +400,10 @@ export function registerBitcoinTools(server: McpServer): void {
     "get_cardinal_utxos",
     {
       description:
-        "Get cardinal UTXOs (safe to spend - no inscriptions). " +
-        "Cardinal UTXOs are regular Bitcoin outputs that do not contain ordinal inscriptions. " +
+        "Get cardinal UTXOs (safe to spend - no inscriptions or runes). " +
+        "Cardinal UTXOs are regular Bitcoin outputs that do not contain ordinal inscriptions or rune balances. " +
         "These UTXOs can be safely used for regular Bitcoin transfers and fees. " +
-        "Only available on mainnet (Hiro Ordinals API does not index testnet).",
+        "Backed by the Unisat indexer; set UNISAT_API_KEY to lift free-tier rate limits.",
       inputSchema: {
         address: z
           .string()
@@ -432,7 +421,7 @@ export function registerBitcoinTools(server: McpServer): void {
     async ({ address, confirmedOnly }) => {
       try {
         const btcAddress = await getBtcAddress(address);
-        const indexer = new OrdinalIndexer(NETWORK);
+        const indexer = new UnisatIndexer(NETWORK);
         let utxos = await indexer.getCardinalUtxos(btcAddress);
 
         if (confirmedOnly) {
@@ -448,11 +437,6 @@ export function registerBitcoinTools(server: McpServer): void {
           explorerUrl: getMempoolAddressUrl(btcAddress, NETWORK),
         };
 
-        if (NETWORK === "testnet") {
-          response.warning =
-            "Ordinal indexing not available on testnet. All UTXOs shown as cardinal.";
-        }
-
         return createJsonResponse(response);
       } catch (error) {
         return createErrorResponse(error);
@@ -465,10 +449,9 @@ export function registerBitcoinTools(server: McpServer): void {
     "get_ordinal_utxos",
     {
       description:
-        "Get ordinal UTXOs (contain inscriptions - do not spend). " +
-        "Ordinal UTXOs contain Bitcoin inscriptions and should not be spent in regular transfers. " +
-        "These UTXOs are valuable as they carry ordinal data (text, images, etc.). " +
-        "Only available on mainnet (Hiro Ordinals API does not index testnet).",
+        "Get ordinal UTXOs (contain inscriptions or runes - do not spend). " +
+        "Ordinal UTXOs carry inscriptions or rune balances and should not be spent in regular transfers. " +
+        "Backed by the Unisat indexer; set UNISAT_API_KEY to lift free-tier rate limits.",
       inputSchema: {
         address: z
           .string()
@@ -486,7 +469,7 @@ export function registerBitcoinTools(server: McpServer): void {
     async ({ address, confirmedOnly }) => {
       try {
         const btcAddress = await getBtcAddress(address);
-        const indexer = new OrdinalIndexer(NETWORK);
+        const indexer = new UnisatIndexer(NETWORK);
         let utxos = await indexer.getOrdinalUtxos(btcAddress);
 
         if (confirmedOnly) {
@@ -502,11 +485,6 @@ export function registerBitcoinTools(server: McpServer): void {
           explorerUrl: getMempoolAddressUrl(btcAddress, NETWORK),
         };
 
-        if (NETWORK === "testnet") {
-          response.warning =
-            "Ordinal indexing not available on testnet. No inscriptions can be detected.";
-        }
-
         return createJsonResponse(response);
       } catch (error) {
         return createErrorResponse(error);
@@ -521,7 +499,7 @@ export function registerBitcoinTools(server: McpServer): void {
       description:
         "Get all inscriptions owned by a Bitcoin address. " +
         "Returns inscription IDs, content types, and metadata. " +
-        "Only available on mainnet (Hiro Ordinals API does not index testnet).",
+        "Backed by the Unisat indexer; set UNISAT_API_KEY to lift free-tier rate limits.",
       inputSchema: {
         address: z
           .string()
@@ -534,23 +512,23 @@ export function registerBitcoinTools(server: McpServer): void {
     async ({ address }) => {
       try {
         const btcAddress = await getBtcAddress(address);
-        const indexer = new OrdinalIndexer(NETWORK);
+        const indexer = new UnisatIndexer(NETWORK);
         const inscriptions = await indexer.getInscriptionsForAddress(btcAddress);
 
         // Format inscriptions for response
         const formattedInscriptions = inscriptions.map((ins) => ({
-          id: ins.id,
-          number: ins.number,
-          contentType: ins.content_type,
-          contentLength: ins.content_length,
+          id: ins.inscriptionId,
+          number: ins.inscriptionNumber,
+          contentType: ins.contentType,
+          contentLength: ins.contentLength,
           output: ins.output,
           location: ins.location,
           offset: ins.offset,
+          owner: ins.address,
+          outputValue: ins.outputValue,
           genesis: {
-            txid: ins.genesis_tx_id,
-            blockHeight: ins.genesis_block_height,
-            blockHash: ins.genesis_block_hash,
-            timestamp: new Date(ins.genesis_timestamp).toISOString(),
+            txid: ins.genesisTransaction,
+            timestamp: new Date(ins.timestamp * 1000).toISOString(),
           },
         }));
 
@@ -561,7 +539,7 @@ export function registerBitcoinTools(server: McpServer): void {
           summary: {
             count: inscriptions.length,
             contentTypes: [
-              ...new Set(inscriptions.map((i) => i.content_type)),
+              ...new Set(inscriptions.map((i) => i.contentType)),
             ].sort(),
           },
           explorerUrl: getMempoolAddressUrl(btcAddress, NETWORK),
