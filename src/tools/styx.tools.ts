@@ -243,13 +243,11 @@ export function registerStyxTools(server: McpServer): void {
         let safeUtxos = prepared.utxos;
         let ordinalsFiltered = false;
         const indexer = new UnisatIndexer(NETWORK);
-        const cardinalUtxos = await indexer.getCardinalUtxos(resolvedBtcSender);
-        const cardinalSet = new Set(
-          cardinalUtxos.map((u) => `${u.txid}:${u.vout}`)
+        const classified = await indexer.classifyUtxosFromList(
+          resolvedBtcSender,
+          prepared.utxos
         );
-        const filtered = prepared.utxos.filter((u) =>
-          cardinalSet.has(`${u.txid}:${u.vout}`)
-        );
+        const filtered = classified.cardinal;
         if (filtered.length < prepared.utxos.length) {
           const removed = prepared.utxos.length - filtered.length;
           if (filtered.length === 0) {
@@ -481,3 +479,4 @@ export function registerStyxTools(server: McpServer): void {
     }
   );
 }
+
