@@ -318,6 +318,45 @@ export class UnisatIndexer {
   }
 
   /**
+   * Classify a pre-fetched UTXO list without re-fetching from mempool.space.
+   * Use when the caller already holds the full UTXO set (e.g. after a Styx
+   * prepareTransaction call) — saves one network round-trip.
+   */
+  async classifyUtxosFromList(
+    address: string,
+    utxos: UTXO[]
+  ): Promise<ClassifiedUtxos> {
+    const [inscriptions, runeUtxos] = await Promise.all([
+      this.getInscriptionsForAddress(address),
+      this.getAllRuneUtxos(address),
+    ]);
+
+    const inscriptionOutputs = new Set<string>(
+      inscriptions.map((ins) => ins.output)
+    );
+    const runeOutputs = new Set<string>(
+      runeUtxos.map((u) => `${u.txid}:${u.vout}`)
+    );
+
+    const cardinal: UTXO[] = [];
+    const inscription: UTXO[] = [];
+    const rune: UTXO[] = [];
+
+    for (const utxo of utxos) {
+      const outputRef = `${utxo.txid}:${utxo.vout}`;
+      if (inscriptionOutputs.has(outputRef)) {
+        inscription.push(utxo);
+      } else if (runeOutputs.has(outputRef)) {
+        rune.push(utxo);
+      } else {
+        cardinal.push(utxo);
+      }
+    }
+
+    return { cardinal, inscription, rune };
+  }
+
+  /**
    * Get cardinal UTXOs (safe to spend — no inscriptions or runes).
    */
   async getCardinalUtxos(address: string): Promise<UTXO[]> {
