@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.50.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.49.1...mcp-server-v1.50.0) (2026-04-30)
+
+
+### Features
+
+* **news:** add x402 payment flow to news_file_signal ([#426](https://github.com/aibtcdev/aibtc-mcp-server/issues/426)) ([8acaf69](https://github.com/aibtcdev/aibtc-mcp-server/commit/8acaf698070d1a100ec6b7eaf767e57172bd99d2))
+
+
+### Bug Fixes
+
+* **deps:** upgrade lodash to 4.18.1 to address CVE-2026-4800 ([#488](https://github.com/aibtcdev/aibtc-mcp-server/issues/488)) ([d551bfd](https://github.com/aibtcdev/aibtc-mcp-server/commit/d551bfd0e90c56b712642b9f49b987849e9d1ab4))
+* **deps:** upgrade path-to-regexp to ^8.4.0 (CVE-2026-4926) ([#490](https://github.com/aibtcdev/aibtc-mcp-server/issues/490)) ([1b927b7](https://github.com/aibtcdev/aibtc-mcp-server/commit/1b927b742963aa1917555197b061ac9da66bcf9e))
+
 ## [1.49.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.49.0...mcp-server-v1.49.1) (2026-04-27)
 
 
