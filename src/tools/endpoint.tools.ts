@@ -266,9 +266,9 @@ If you're looking to perform a direct blockchain action (transfer STX, call a co
 
 Supported sources:
 - x402.biwas.xyz (default): Use path like "/api/pools/trending"
-- x402.aibtc.com: Use apiUrl="https://x402.aibtc.com" with path like "/inference/openrouter/chat"
+- x402.aibtc.com (mainnet) / x402.aibtc.dev (testnet): Use apiUrl="https://x402.aibtc.com" with path like "/inference/openrouter/chat"
 - stx402.com: Use apiUrl="https://stx402.com" with path like "/ai/dad-joke"
-- aibtc.com: Use apiUrl="https://aibtc.com" with path like "/api/inbox/{address}"
+- aibtc.com (mainnet) / aibtc.dev (testnet): Use apiUrl="https://aibtc.com" with path like "/api/inbox/{address}"
 - Any x402-compatible URL: Use url parameter with full endpoint URL
 
 Use list_x402_endpoints to discover available endpoints.
@@ -472,9 +472,9 @@ After probing a paid endpoint, use execute_x402_endpoint to actually execute and
 
 Supported sources:
 - x402.biwas.xyz (default): Use path like "/api/pools/trending"
-- x402.aibtc.com: Use apiUrl="https://x402.aibtc.com" with path like "/inference/openrouter/chat"
+- x402.aibtc.com (mainnet) / x402.aibtc.dev (testnet): Use apiUrl="https://x402.aibtc.com" with path like "/inference/openrouter/chat"
 - stx402.com: Use apiUrl="https://stx402.com" with path like "/ai/dad-joke"
-- aibtc.com: Use apiUrl="https://aibtc.com" with path like "/api/inbox/{address}"
+- aibtc.com (mainnet) / aibtc.dev (testnet): Use apiUrl="https://aibtc.com" with path like "/api/inbox/{address}"
 - Any x402-compatible URL: Use url parameter with full endpoint URL`,
       inputSchema: {
         method: z
