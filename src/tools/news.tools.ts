@@ -833,7 +833,13 @@ Fields:
           );
         }
 
-
+        // Unreachable at runtime: the for-loop always exits via return (success)
+        // or throw (non-retryable failure or final retry exhausted). Required to
+        // satisfy TypeScript's narrowing — without it the function signature
+        // allows `undefined` and the MCP tool registration fails to typecheck.
+        throw new Error(
+          `Signal filing failed after ${MAX_ATTEMPTS} attempts. Last error: ${lastError}`
+        );
       } catch (error) {
         return createErrorResponse(error);
       }
