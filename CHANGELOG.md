@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.50.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.50.0...mcp-server-v1.50.1) (2026-04-30)
+
+
+### Bug Fixes
+
+* point Zest data helper to protocol-data for v0-4-market positions ([#446](https://github.com/aibtcdev/aibtc-mcp-server/issues/446)) ([f3447fe](https://github.com/aibtcdev/aibtc-mcp-server/commit/f3447fe1f494ae36cb9955ade03ad83dc013d167))
+* **relay:** health check reads pool state fields from /health ([#431](https://github.com/aibtcdev/aibtc-mcp-server/issues/431)) ([7731cb0](https://github.com/aibtcdev/aibtc-mcp-server/commit/7731cb0cac3fae1cd8f33420201555c35fbd99c9))
+
+
+### Performance Improvements
+
+* **unisat-indexer:** add classifyUtxosFromList to avoid double UTXO fetch on Styx deposits ([#486](https://github.com/aibtcdev/aibtc-mcp-server/issues/486)) ([bc68562](https://github.com/aibtcdev/aibtc-mcp-server/commit/bc68562cad6b382a2721cb26feec7da21c75c30b))
+
 ## [1.50.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.49.1...mcp-server-v1.50.0) (2026-04-30)
 
 
