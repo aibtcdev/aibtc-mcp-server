@@ -7,3 +7,4 @@ deprecation/
 .planning/
 .planning-archive*/
 fw-*.cjs
+.dev.vars

@@ -55,7 +55,7 @@ async function installToClaudeCode(): Promise<void> {
   const claudeConfigPath = path.join(os.homedir(), ".claude.json");
   const network = process.argv.includes("--testnet") ? "testnet" : "mainnet";
 
-  console.log("🔧 Installing flying-whale-mcp-server to Claude Code...\n");
+  console.log("🔧 Installing @aibtc/mcp-server to Claude Code...\n");
 
   const config = await readJsonConfig(claudeConfigPath) as { mcpServers?: Record<string, unknown> };
 
@@ -63,9 +63,9 @@ async function installToClaudeCode(): Promise<void> {
     config.mcpServers = {};
   }
 
-  config.mcpServers["flying-whale"] = {
+  config.mcpServers["aibtc"] = {
     command: "npx",
-    args: ["flying-whale-mcp-server@latest"],
+    args: ["@aibtc/mcp-server@latest"],
     env: {
       NETWORK: network,
     },
@@ -90,7 +90,7 @@ async function installToClaudeDesktop(): Promise<void> {
   const configPath = getClaudeDesktopConfigPath();
   const network = process.argv.includes("--testnet") ? "testnet" : "mainnet";
 
-  console.log("🔧 Installing flying-whale-mcp-server to Claude Desktop...\n");
+  console.log("🔧 Installing @aibtc/mcp-server to Claude Desktop...\n");
 
   const config = await readJsonConfig(configPath) as { mcpServers?: Record<string, unknown> };
 
@@ -98,9 +98,9 @@ async function installToClaudeDesktop(): Promise<void> {
     config.mcpServers = {};
   }
 
-  config.mcpServers["flying-whale"] = {
+  config.mcpServers["aibtc"] = {
     command: "npx",
-    args: ["-y", "flying-whale-mcp-server@latest"],
+    args: ["-y", "@aibtc/mcp-server@latest"],
     env: {
       NETWORK: network,
     },
@@ -161,7 +161,7 @@ else if (process.argv.includes("--install") || process.argv.includes("install"))
 } else {
   // Normal MCP server mode
   const server = new McpServer({
-    name: "flying-whale-mcp-server",
+    name: "@aibtc/mcp-server",
     version: packageJson.version,
   });
 
@@ -172,7 +172,7 @@ else if (process.argv.includes("--install") || process.argv.includes("install"))
     await initializeStorage();
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    console.error("flying-whale-mcp-server running on stdio");
+    console.error("@aibtc/mcp-server running on stdio");
     console.error(`Network: ${NETWORK}`);
     console.error(`API URL: ${API_URL}`);
   }

@@ -1,13 +1,12 @@
 {
-  "name": "flying-whale-mcp-server",
-  "version": "2.0.0",
-  "description": "Flying Whale v2.0 — Open Infrastructure Layer for all of humanity. 429 tools: Bitcoin L1, Stacks L2, sBTC, DeFi (ALEX, Zest, Bitflow, Styx), Ordinals, Runes, Nostr, ERC-8004 identity, x402 payments, AI scaffolding. MIT. No gates. Cosmic energy.",
-  "mcpName": "io.flyingwhale/mcp-server",
+  "name": "@aibtc/mcp-server",
+  "version": "1.50.1",
+  "description": "Bitcoin-native MCP server for AI agents: BTC/STX wallets, DeFi yield, sBTC peg, NFTs, and x402 payments.",
+  "mcpName": "io.github.aibtcdev/mcp-server",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "aibtc-mcp-server": "./dist/index.js",
-    "flying-whale-mcp-server": "./dist/index.js"
+    "aibtc-mcp-server": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -41,9 +40,9 @@
   "author": "aibtcdev",
   "repository": {
     "type": "git",
-    "url": "https://github.com/azagh72-creator/aibtc-mcp-server.git"
+    "url": "https://github.com/aibtcdev/aibtc-mcp-server.git"
   },
-  "homepage": "https://github.com/azagh72-creator/aibtc-mcp-server#readme",
+  "homepage": "https://github.com/aibtcdev/aibtc-mcp-server#readme",
   "license": "MIT",
   "dependencies": {
     "@aibtc/tx-schemas": "^0.7.0",

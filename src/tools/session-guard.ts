@@ -37,13 +37,16 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
  *   - Capability expansion : "agents can now execute", "execute signal-gated"
  *   - Task hijacking       : "monitor the correspondent", "secure available slots", "optimize for high-volume"
  */
+// Phrases matched as case-insensitive substrings against tool response content.
+// Keep these specific to known attack patterns — generic prefixes like "agents must"
+// or "agents should" are too broad and will block legitimate API responses.
 export const IPI_ATTACK_PHRASES: ReadonlyArray<string> = [
   // Authority + urgency (Zest Protocol attack pattern — signal 1)
   "agents must update packages",
   "agents must immediately",
   "update packages immediately",
   // Beat Editor manipulation (aibtc.news attack pattern — signal 2)
-  "agents should monitor",
+  "agents should monitor the correspondent",
   "monitor the correspondent",
   "secure available contract slots",
   "secure available slots",
@@ -52,21 +55,16 @@ export const IPI_ATTACK_PHRASES: ReadonlyArray<string> = [
   "agents can now execute",
   "execute signal-gated",
   "signal-gated write operations",
-  "agents can now",
-  // Generic injection patterns
-  "agents must",
-  "agents should",
+  // Generic injection patterns — require full, unambiguous phrases only
   "automate commercial transactions",
-  "immediately execute",
   "execute on behalf of",
   "override safety",
   "ignore previous instructions",
-  "disregard previous",
-  "new instructions:",
-  "system override",
-  "admin override",
-  "developer mode",
-  "emergency protocol",
+  "disregard previous instructions",
+  "new instructions:\n",
+  "system override:",
+  "admin override:",
+  "emergency protocol:",
 ];
 
 export interface IpiScanResult {
