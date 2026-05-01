@@ -163,64 +163,6 @@ const SOVEREIGNTY_STAMP = {
   _classifieds:    "Sovereign Classifieds v1.0 — pay-to-list x402 | 7-day | 2500 microSTX | no gatekeepers",
 } as const;
 
-// ============================================================================
-// WHALE Gate — on-chain balance verification
-// ============================================================================
-
-/**
- * Verify that callerAddress holds enough WHALE for the required tier.
- * Throws a descriptive error if verification fails.
- * No fallback — if the check fails, the call is blocked.
- */
-async function verifyWhaleAccess(callerAddress: string, tier: WhaleTier): Promise<void> {
-
-  const url = `${HIRO_API}/extended/v1/address/${callerAddress}/balances`;
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-  let whaleBalance = 0n;
-  try {
-    const res = await fetch(url, {
-      headers: { "Accept": "application/json", "X-Fw-Agent": "flying-whale-gate" },
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      throw new Error(`Hiro API balance check failed: ${res.status} ${res.statusText}`);
-    }
-    const data = await res.json() as {
-      fungible_tokens?: Record<string, { balance: string }>;
-    };
-    const rawBalance = data.fungible_tokens?.[WHALE_FT_KEY]?.balance ?? "0";
-    whaleBalance = BigInt(rawBalance);
-  } finally {
-    clearTimeout(timer);
-  }
-
-  const threshold = WHALE_THRESHOLDS[tier];
-  if (whaleBalance < threshold) {
-    const held = (Number(whaleBalance) / Math.pow(10, WHALE_DECIMALS)).toLocaleString("en-US", { maximumFractionDigits: 2 });
-    const required = (Number(threshold) / Math.pow(10, WHALE_DECIMALS)).toLocaleString("en-US");
-    // Approximate USD at ~$0.002/WHALE (recalibrate with: flying_whale_get_whale_price)
-    const pricePerWhale = 0.002;
-    const requiredNum = Number(threshold) / Math.pow(10, WHALE_DECIMALS);
-    const requiredUsd = (requiredNum * pricePerWhale).toFixed(2);
-    const shortfall = Number(threshold - whaleBalance) / Math.pow(10, WHALE_DECIMALS);
-    const shortfallUsd = (shortfall * pricePerWhale).toFixed(2);
-    throw new Error(
-      `WHALE Gate — Access Denied\n\n` +
-      `Tier required : ${tier.toUpperCase()} — ${required} WHALE (~$${requiredUsd} USD)\n` +
-      `Address       : ${callerAddress}\n` +
-      `You hold      : ${held} WHALE\n` +
-      `Shortfall     : ${shortfall.toLocaleString("en-US")} WHALE (~$${shortfallUsd} USD)\n\n` +
-      `Tier pricing  : Scout $2.20 | Agent $22 | Elite $220 (1K/10K/100K WHALE at ~$0.002/WHALE)\n` +
-      `Buy WHALE     : https://app.bitflow.finance — WHALE/wSTX Pool #42\n` +
-      `Gate contract : SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW.whale-gate-v1\n` +
-      `Licensing     : github.com/azagh72-creator — institutional/commercial access requires agreement\n` +
-      `No WHALE = No Access. No exceptions.`
-    );
-  }
-}
 
 // ============================================================================
 // Helpers
@@ -357,7 +299,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, category, search, sort, limit }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "scout");
         const data = await marketplaceFetch("/api/skills", callerAddress, {
           category, search, sort, limit,
         });
@@ -390,7 +331,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, skillId }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "scout");
         const data = await marketplaceFetch(
           `/api/skills/${encodeURIComponent(skillId)}`,
           callerAddress
@@ -417,7 +357,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "scout");
         const data = await marketplaceFetch("/api/categories", callerAddress);
         return createJsonResponse(data);
       } catch (error) {
@@ -445,7 +384,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "scout");
         const data = await marketplaceFetch("/api/stats", callerAddress);
         return createJsonResponse(data);
       } catch (error) {
@@ -480,7 +418,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, status, category }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "scout");
         const data = await marketplaceFetch("/api/bounties", callerAddress, {
           status, category,
         });
@@ -511,7 +448,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, bountyId }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "scout");
         const data = await marketplaceFetch(
           `/api/bounties/${encodeURIComponent(bountyId)}`,
           callerAddress
@@ -555,7 +491,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, market, side, limit }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
         const data = await marketplaceFetch("/api/orderbook", callerAddress, {
           market, side, limit,
         });
@@ -592,7 +527,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, limit }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
         const data = await marketplaceFetch("/api/intelligence/recent", callerAddress, {
           limit,
         });
@@ -622,7 +556,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, asset = "both" }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "scout");
         const path = asset === "both" ? "/api/regime" : `/api/regime/${asset}`;
         const data = await marketplaceFetch(path, callerAddress);
         return createJsonResponse({ ...data as object, _sovereignty: SOVEREIGNTY_STAMP });
@@ -652,7 +585,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, contractId }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
         const data = await marketplaceFetch(`/api/risk-score/${encodeURIComponent(contractId)}`, callerAddress);
         return createJsonResponse({ ...data as object, _sovereignty: SOVEREIGNTY_STAMP });
       } catch (error) {
@@ -681,7 +613,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, address }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
         const data = await marketplaceFetch(`/api/risk-address/${address}`, callerAddress);
         return createJsonResponse({ ...data as object, _sovereignty: SOVEREIGNTY_STAMP });
       } catch (error) {
@@ -705,7 +636,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "scout");
         const WHALE_CONTRACT = "SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW.whale-v3";
         const POOL_CONTRACT  = "SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW.xyk-pool-whale-wstx-v-1-3";
         const CORE_CONTRACT  = "SM1793C4R5PZ4NS4VQ4WMP7SKKYVH8JZEWSZ9HCCR.xyk-core-v-1-2";
@@ -862,7 +792,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, query, chain }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "scout");
         // Query whale-registry-v2 on-chain via Hiro read-only API
         const REGISTRY_CONTRACT = "SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW";
         const REGISTRY_NAME = "whale-registry-v2";
@@ -950,7 +879,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "scout");
 
         const RELAYS = [
           { name: "hiro-mainnet",  url: "https://api.hiro.so" },
@@ -1042,7 +970,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, addresses }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
 
         const results = await Promise.allSettled(
           addresses.map(async addr => {
@@ -1134,7 +1061,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, contractId }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
 
         const res = await fetch(
           `${HIRO_API}/extended/v1/contract/${encodeURIComponent(contractId)}`,
@@ -1238,7 +1164,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, senderAddress, contractId, functionName, estimatedFeeUstx = 10_000, transferAmountUstx = 0 }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
 
         const [accountRes, feeRes, contractRes] = await Promise.allSettled([
           fetch(`${HIRO_API}/v2/accounts/${senderAddress}?proof=0`, {
@@ -1337,7 +1262,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, targetAddress, depth = 2 }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "elite");
 
         // Fetch recent transactions + STX transfers for the target
         const [txRes, stxTransferRes] = await Promise.all([
@@ -1469,7 +1393,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, poolContract, lpHolderAddress }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "elite");
 
         // Default: WHALE/wSTX pool on Bitflow (xyk-core pool registry)
         const XYK_CORE = "SM1793C4R5PZ4NS4VQ4WMP7SKKYVH8JZEWSZ9HCCR";
@@ -1574,7 +1497,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, query }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "scout");
 
         // ── Resolve query type ──────────────────────────────────────────────
         const isStxAddress  = /^S[PM][A-Z0-9]{38,}$/.test(query);
@@ -1725,7 +1647,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, targetAddress }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "scout");
 
         const [balRes, txRes, accountRes] = await Promise.allSettled([
           fetch(`${HIRO_API}/extended/v1/address/${targetAddress}/balances`, {
@@ -1878,7 +1799,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, targetAddress, lookbackTxCount = 50 }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
 
         const [txRes, accountRes] = await Promise.allSettled([
           fetch(
@@ -2101,7 +2021,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, tokenIn, tokenOut, amount }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "scout");
 
         const url = `${EXEC_URL}/api/route/quote?token_in=${encodeURIComponent(tokenIn)}&token_out=${encodeURIComponent(tokenOut)}&amount=${encodeURIComponent(amount)}`;
         const res = await fetch(url, {
@@ -2176,7 +2095,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, tokenIn, tokenOut, amountIn, minAmountOut, dark = false }) => {
       try {
-        await verifyWhaleAccess(callerAddress, dark ? "elite" : "agent");
 
         // ── Pact Gate (Layer 5) — behavioral check before any execution ──────
         const execProfile = recordToolCall(callerAddress, "flying_whale_execution_submit", dark ? "elite" : "agent");
@@ -2261,7 +2179,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, orderId, whaleAmount }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
 
         const res = await fetch(`${EXEC_URL}/api/order/${encodeURIComponent(orderId)}/boost`, {
           method:  "POST",
@@ -2310,7 +2227,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, orderId }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
 
         const res = await fetch(`${EXEC_URL}/api/order/${encodeURIComponent(orderId)}`, {
           method:  "DELETE",
@@ -2360,7 +2276,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, tokenIn, tokenOut }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "elite");
 
         const url = `${EXEC_URL}/api/book/depth?token_in=${encodeURIComponent(tokenIn)}&token_out=${encodeURIComponent(tokenOut)}`;
         const res = await fetch(url, {
@@ -2408,7 +2323,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "elite");
 
         const res = await fetch(`${EXEC_URL}/api/stats`, {
           headers: fwHeaders(callerAddress),
@@ -2981,7 +2895,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, pactId }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "scout");
         const raw = await pactCallRead("get-pact", [serializeCV(uintCV(pactId))]);
         if (!raw.okay) throw new Error(`Contract error: ${raw.cause ?? raw.result}`);
 
@@ -3021,7 +2934,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, pactId }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "scout");
 
         const [rawCheck, rawPact] = await Promise.all([
           pactCallRead("check-release", [serializeCV(uintCV(pactId))]),
@@ -3097,7 +3009,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, worker, amountStx, workHash, proofType, deadlineBlocks, verifier, chainTargetStx, expectedHash }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
 
         const tier        = PROOF_TIERS[proofType];
         const amountUstx  = Math.round(amountStx * 1_000_000);
@@ -3184,7 +3095,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, pactId, preimage }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
 
         const raw = await pactCallRead("get-pact", [serializeCV(uintCV(pactId))]);
         if (!raw.okay) throw new Error(`Pact not found`);
@@ -3239,7 +3149,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, pactId, valid }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
 
         const raw = await pactCallRead("get-pact", [serializeCV(uintCV(pactId))]);
         if (!raw.okay) throw new Error(`Pact not found`);
@@ -3293,7 +3202,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, pactId }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "scout");
 
         const raw = await pactCallRead("get-pact", [serializeCV(uintCV(pactId))]);
         if (!raw.okay) throw new Error(`Pact not found`);
@@ -3361,7 +3269,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, pactId }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "scout");
 
         const [rawPact, blockRes] = await Promise.all([
           pactCallRead("get-pact", [serializeCV(uintCV(pactId))]),
@@ -3428,7 +3335,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, pactId, favorWorker }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
 
         const raw = await pactCallRead("get-pact", [serializeCV(uintCV(pactId))]);
         if (!raw.okay) throw new Error(`Pact not found`);
@@ -3505,7 +3411,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, action, preimage, beneficiary, amountWei, deadlineTs, lockId }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
 
         const PACT_EVM_ADDR = "0x538D5a4266154F0Ca97891B75F5e71a90c651DDF";
         const ARB_RPC       = "https://arb1.arbitrum.io/rpc";
@@ -3873,7 +3778,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, pacts: pactsArg, deadlineBlocks }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
 
         const n = pactsArg.length;
         const fnName = n === 2 ? "create-program-2" : "create-program-3";
@@ -3939,7 +3843,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, programId, pactIndex, preimageHex }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
 
         const rawP = await progCallRead("get-program-pact", [
           serializeCV(uintCV(programId)),
@@ -3990,7 +3893,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, programId, pactIndex, valid }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
         return createJsonResponse({
           ready: true,
           programId, pactIndex, valid,
@@ -4065,7 +3967,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, programId }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
         const raw = await progCallRead("get-program", [serializeCV(uintCV(programId))]);
         const prog = raw.okay ? decodeProgram(raw.result) : null;
 
@@ -4106,7 +4007,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, programId, pactIndex, favorWorker }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
         return createJsonResponse({
           ready: true,
           programId, pactIndex, favorWorker,
@@ -4239,7 +4139,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, rewardStx, workHashHex, proofType, deadlineBlocks, verifier, chainTargetStx }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
         const feeBps    = { HASH: 100, ORACLE: 150, HYBRID: 200, CHAIN: 75 }[proofType]!;
         const proofId   = { HASH: 0, ORACLE: 1, HYBRID: 2, CHAIN: 3 }[proofType]!;
         const rewardUstx = Math.round(rewardStx * 1_000_000);
@@ -4283,7 +4182,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, listingId }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
         const raw = await mktCallRead("get-listing", [serializeCV(uintCV(listingId))]);
         const listing = raw.okay ? decodeListing(raw.result) : null;
 
@@ -4323,7 +4221,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, listingId, preimageHex }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
         const raw = await mktCallRead("get-listing", [serializeCV(uintCV(listingId))]);
         const listing = raw.okay ? decodeListing(raw.result) : null;
 
@@ -4365,7 +4262,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, listingId, valid }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
         return createJsonResponse({
           ready: true,
           listingId, valid,
@@ -4445,7 +4341,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, listingId }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
         const raw = await mktCallRead("get-listing", [serializeCV(uintCV(listingId))]);
         const listing = raw.okay ? decodeListing(raw.result) : null;
 
@@ -4484,7 +4379,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, listingId, favorClaimant }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
         const raw = await mktCallRead("get-listing", [serializeCV(uintCV(listingId))]);
         const listing = raw.okay ? decodeListing(raw.result) : null;
         if (listing && listing.statusName !== "DISPUTED")
@@ -4687,7 +4581,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, worker, amountStx, workHashHex, proofType, deadlineBlocks, verifier, chainTargetStx, whaleTarget }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
 
         const proofId = { HASH: 0, ORACLE: 1, HYBRID: 2, CHAIN: 3, SOVEREIGN: 4 }[proofType]!;
         const feeBps  = { HASH: 100, ORACLE: 150, HYBRID: 200, CHAIN: 75, SOVEREIGN: 50 }[proofType]!;
@@ -4829,7 +4722,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, pactId, preimageHex }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
         return createJsonResponse({
           ready: true,
           pactId,
@@ -4866,7 +4758,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, pactId, valid }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
         return createJsonResponse({
           ready: true,
           pactId, valid,
@@ -4934,7 +4825,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, pactId }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
         const raw = await sovCallRead("get-pact", [serializeCV(uintCV(pactId))]);
         const pact = raw.okay ? decodeSovPact(raw.result) : null;
 
@@ -4972,7 +4862,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, pactId, favorWorker }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
         const raw = await sovCallRead("get-pact", [serializeCV(uintCV(pactId))]);
         const pact = raw.okay ? decodeSovPact(raw.result) : null;
         if (pact && pact.stateName !== "DISPUTED")
@@ -5024,7 +4913,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, action, proposalId, tier, newBps, support }) => {
       try {
-        await verifyWhaleAccess(callerAddress, "agent");
 
         if (action === "fees") {
           const rawFees = await sovCallRead("get-fees", []);
@@ -5219,7 +5107,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     }) => {
       try {
 
-        await verifyWhaleAccess(callerAddress, "scout");
         const params = new URLSearchParams();
         if (category) params.set("category", category);
         if (limit) params.set("limit", String(limit));
@@ -5248,7 +5135,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     async ({ callerAddress, classified_id }: { callerAddress: string; classified_id: string }) => {
       try {
 
-        await verifyWhaleAccess(callerAddress, "scout");
         const res = await fetch(`${OPS_URL}/classifieds/${classified_id}`, { signal: AbortSignal.timeout(TIMEOUT_MS) });
         if (!res.ok) return createErrorResponse(new Error(`Classified not found: ${classified_id}`));
         const data = await res.json();
@@ -5290,7 +5176,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     }) => {
       try {
 
-        await verifyWhaleAccess(callerAddress, "agent");
         const res = await fetch(`${OPS_URL}/classifieds`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -5319,7 +5204,6 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     async ({ callerAddress }: { callerAddress: string }) => {
       try {
 
-        await verifyWhaleAccess(callerAddress, "scout");
         const res = await fetch(`${OPS_URL}/classifieds/stats`, { signal: AbortSignal.timeout(TIMEOUT_MS) });
         const data = await res.json();
         return createJsonResponse({ ...data, ...SOVEREIGNTY_STAMP });
