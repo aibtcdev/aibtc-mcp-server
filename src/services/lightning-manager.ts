@@ -64,6 +64,26 @@ export interface LightningImportResult {
   lightningAddress: string | null;
 }
 
+/**
+ * Outcome of attempting to derive a Lightning wallet from the main wallet's
+ * mnemonic during wallet_create / wallet_import.
+ *
+ * `setup` carries the addresses when a Lightning wallet was created;
+ * `skipped` explains why we didn't (existing keystore, unsupported network).
+ */
+export type LightningUnifiedSetupResult =
+  | {
+      kind: "setup";
+      walletId: string;
+      depositAddress: string;
+      lightningAddress: string | null;
+    }
+  | {
+      kind: "skipped";
+      reason: "existing-lightning-wallet" | "network-unsupported";
+      message: string;
+    };
+
 export interface LightningUnlockResult {
   walletId: string;
   balanceSats: number;
@@ -199,6 +219,68 @@ class LightningManager {
     return {
       walletId,
       mnemonic,
+      depositAddress,
+      lightningAddress,
+    };
+  }
+
+  /**
+   * Derive a Lightning wallet from the main wallet's mnemonic during
+   * wallet_create / wallet_import, so users only have to back up one
+   * mnemonic.
+   *
+   * Skips (returns kind:"skipped") when:
+   *   - a Lightning keystore already exists — never clobber an existing wallet
+   *   - network is not mainnet — Spark currently only supports mainnet, see
+   *     toSparkNetwork() in spark-provider.ts
+   *
+   * Throws on unexpected failures (e.g. Spark connectivity) so callers can
+   * surface the error to the user — the main wallet creation has already
+   * succeeded by the time we get here, so callers should treat throws as
+   * non-fatal warnings rather than propagating them.
+   */
+  async setupFromMainMnemonic(
+    mnemonic: string,
+    password: string,
+    name: string,
+    network: Network
+  ): Promise<LightningUnifiedSetupResult> {
+    if (network !== "mainnet") {
+      return {
+        kind: "skipped",
+        reason: "network-unsupported",
+        message:
+          "Lightning is currently only supported on mainnet (Spark has no public Bitcoin testnet).",
+      };
+    }
+
+    if (await this.keystoreExists()) {
+      return {
+        kind: "skipped",
+        reason: "existing-lightning-wallet",
+        message:
+          "An existing Lightning wallet was found at ~/.aibtc/lightning/keystore.json — leaving it untouched.",
+      };
+    }
+
+    const normalized = mnemonic.trim().toLowerCase();
+    if (!validateMnemonic(normalized, wordlist)) {
+      throw new InvalidMnemonicError();
+    }
+
+    const { walletId, provider } = await this.storeWallet(
+      name,
+      normalized,
+      password,
+      network
+    );
+
+    const depositAddress = await provider.getDepositAddress();
+    const lightningAddress = await this.safeLightningAddress(provider);
+
+    return {
+      kind: "setup",
+      walletId,
       depositAddress,
       lightningAddress,
     };

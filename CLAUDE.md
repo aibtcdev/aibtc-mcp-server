@@ -169,8 +169,8 @@ The `--desktop` flag auto-detects your OS and writes to the correct Claude Deskt
 - `get_stx_balance` - Get STX balance for any address
 
 ### Wallet Management
-- `wallet_create` - Generate a new wallet with BIP39 mnemonic (encrypted locally)
-- `wallet_import` - Import an existing wallet from mnemonic
+- `wallet_create` - Generate a new wallet with BIP39 mnemonic (encrypted locally). Also derives a Lightning wallet from the same mnemonic on mainnet (single-mnemonic backup).
+- `wallet_import` - Import an existing wallet from mnemonic. Also derives a Lightning wallet from the same mnemonic on mainnet.
 - `wallet_unlock` - Unlock a wallet for transactions (requires password)
 - `wallet_lock` - Lock the wallet (clear from memory)
 - `wallet_list` - List all available wallets
@@ -178,6 +178,16 @@ The `--desktop` flag auto-detects your OS and writes to the correct Claude Deskt
 - `wallet_delete` - Permanently delete a wallet
 - `wallet_export` - Export mnemonic (with security warning)
 - `wallet_status` - Get current wallet/session status
+
+**Unified mnemonic for Lightning (mainnet):**
+
+On mainnet, `wallet_create` and `wallet_import` automatically derive a Spark-backed Lightning wallet from the *same* mnemonic and persist it to `~/.aibtc/lightning/keystore.json`. Users only need to back up one phrase — the Stacks L2, Bitcoin L1 (SegWit + Taproot), and Lightning wallets all derive from it. The Lightning deposit address is included in the response so the wallet is immediately usable for L402 challenges and `lightning_fund_from_btc`.
+
+The unified setup is skipped (with a message) when:
+- Network is testnet — Spark currently has no public Bitcoin testnet environment
+- A Lightning keystore already exists — never clobbered to protect users with pre-existing Lightning wallets created via `lightning_create` / `lightning_import`
+
+**Trade-off:** A leaked mnemonic now exposes both the main wallet and the Lightning wallet. This is the standard concentrated-risk profile of a single-seed wallet design — users who want air-gapped separation can still use `lightning_create` / `lightning_import` independently to maintain two mnemonics.
 
 ### Bitcoin L1 Transactions
 

@@ -2,7 +2,70 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { getWalletManager } from "../services/wallet-manager.js";
+import {
+  getLightningManager,
+  type LightningUnifiedSetupResult,
+} from "../services/lightning-manager.js";
 import { NETWORK, API_URL } from "../config/networks.js";
+import type { Network } from "../config/networks.js";
+
+/**
+ * Try to derive a Lightning wallet from the main wallet's mnemonic during
+ * wallet_create / wallet_import.
+ *
+ * Returns a payload to merge into the response body. Failures here must NOT
+ * fail the main wallet flow — the Stacks/BTC wallet has already been
+ * persisted by the time we get here, so we render Lightning issues as a
+ * warning instead.
+ */
+async function tryUnifiedLightningSetup(
+  mnemonic: string,
+  password: string,
+  name: string,
+  network: Network
+): Promise<{
+  result: LightningUnifiedSetupResult | null;
+  warning?: string;
+}> {
+  try {
+    const result = await getLightningManager().setupFromMainMnemonic(
+      mnemonic,
+      password,
+      name,
+      network
+    );
+    return { result };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      result: null,
+      warning: `Lightning setup skipped due to error: ${message}`,
+    };
+  }
+}
+
+function renderLightningSection(
+  setup: LightningUnifiedSetupResult | null,
+  warning?: string
+): Record<string, unknown> {
+  if (!setup) {
+    return {
+      "Lightning (BTC L2)": warning ?? "Lightning setup not attempted.",
+    };
+  }
+  if (setup.kind === "skipped") {
+    return { "Lightning (BTC L2)": setup.message };
+  }
+  return {
+    "Lightning (BTC L2)": {
+      "Deposit Address": `${setup.depositAddress} (fund Lightning from L1 BTC)`,
+      ...(setup.lightningAddress
+        ? { "Lightning Address": setup.lightningAddress }
+        : {}),
+      "Note": "Derived from the same mnemonic — one backup covers all wallets.",
+    },
+  };
+}
 
 /**
  * Register wallet management tools
@@ -34,10 +97,19 @@ IMPORTANT: Save the mnemonic securely - it will only be shown once!`,
         const walletManager = getWalletManager();
         const result = await walletManager.createWallet(name, password, network);
 
+        const resolvedNetwork = network || NETWORK;
+        const { result: lightningSetup, warning: lightningWarning } =
+          await tryUnifiedLightningSetup(
+            result.mnemonic,
+            password,
+            name,
+            resolvedNetwork
+          );
+
         return createJsonResponse({
           success: true,
           message:
-            "Wallet created successfully! Bitcoin L1 (SegWit + Taproot) and Stacks L2 addresses ready.",
+            "Wallet created successfully! Bitcoin L1 (SegWit + Taproot), Stacks L2, and Lightning addresses ready.",
           walletId: result.walletId,
           "Bitcoin (L1)": {
             "Native SegWit": `${result.btcAddress} (send/receive BTC)`,
@@ -47,12 +119,14 @@ IMPORTANT: Save the mnemonic securely - it will only be shown once!`,
             "Address": result.address,
             "Tip": "Register a BNS name for on-chain identity",
           },
-          network: network || NETWORK,
+          ...renderLightningSection(lightningSetup, lightningWarning),
+          network: resolvedNetwork,
           "---": "",
           mnemonic: result.mnemonic,
           warning:
             "CRITICAL: Save this mnemonic phrase securely! It will NOT be shown again. " +
-            "This is the only way to recover the wallet if the password is forgotten.",
+            "This is the only way to recover the wallet if the password is forgotten. " +
+            "Note: Lightning is derived from the same mnemonic — a single leaked mnemonic exposes all wallets.",
         });
       } catch (error) {
         return createErrorResponse(error);
@@ -91,9 +165,19 @@ The wallet is encrypted locally and stored in ~/.aibtc/.`,
           network
         );
 
+        const resolvedNetwork = network || NETWORK;
+        const { result: lightningSetup, warning: lightningWarning } =
+          await tryUnifiedLightningSetup(
+            mnemonic,
+            password,
+            name,
+            resolvedNetwork
+          );
+
         return createJsonResponse({
           success: true,
-          message: "Wallet imported successfully! Bitcoin L1 (SegWit + Taproot) and Stacks L2 addresses ready.",
+          message:
+            "Wallet imported successfully! Bitcoin L1 (SegWit + Taproot), Stacks L2, and Lightning addresses ready.",
           walletId: result.walletId,
           "Bitcoin (L1)": {
             "Native SegWit": `${result.btcAddress} (send/receive BTC)`,
@@ -103,7 +187,8 @@ The wallet is encrypted locally and stored in ~/.aibtc/.`,
             "Address": result.address,
             "Tip": "Register a BNS name for on-chain identity",
           },
-          network: network || NETWORK,
+          ...renderLightningSection(lightningSetup, lightningWarning),
+          network: resolvedNetwork,
         });
       } catch (error) {
         return createErrorResponse(error);
