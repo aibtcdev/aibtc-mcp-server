@@ -116,34 +116,9 @@ const EXEC_URL  = "https://whale-execution-engine-production.up.railway.app";
 const OPS_URL   = "https://whale-execution-engine-production.up.railway.app"; // Operations Hub v3.0.0 (Work Market Engine + Intelligence + Beat Match + Payout)
 const TIMEOUT_MS = 15_000;
 
-// ─── License Gate ─────────────────────────────────────────────────────────────
-// FW_LICENSE_KEY must be set in environment to use Flying Whale tools.
-// Obtain a license: github.com/azagh72-creator | zaghmout.btc
-// License tiers: Indie 100k sats/mo | Commercial 300k sats/mo | Platform: negotiate
 const FW_OWNER_ADDRESS = "SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW";
 const FW_LICENSE_KEY   = process.env.FW_LICENSE_KEY ?? "";
-// Owner key: set FW_LICENSE_KEY=OWNER in your .env to activate owner bypass
-const FW_IS_OWNER      = FW_LICENSE_KEY === "OWNER" || FW_LICENSE_KEY === FW_OWNER_ADDRESS;
 
-function assertLicensed(): void {
-  if (FW_IS_OWNER) return; // owner always has access
-  if (!FW_LICENSE_KEY || FW_LICENSE_KEY.trim() === "") {
-    throw new Error(
-      `Flying Whale Infrastructure — License Required\n\n` +
-      `FW_LICENSE_KEY is not set. Flying Whale tools require a valid license key.\n\n` +
-      `License tiers:\n` +
-      `  Indie      : 100,000 sats/month\n` +
-      `  Commercial : 300,000 sats/month\n` +
-      `  Platform   : negotiated\n\n` +
-      `Obtain a license:\n` +
-      `  GitHub : github.com/azagh72-creator\n` +
-      `  BTC    : bc1qdfm56pmmq40me84aau2fts3725ghzqlwf6ys7p\n` +
-      `  STX    : SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW\n\n` +
-      `Payment first. No trials. No exceptions.\n` +
-      `On-chain IP: SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW.whale-ip-store-v1`
-    );
-  }
-}
 
 // ─── WHALE Gate Configuration ─────────────────────────────────────────────────
 // WHALE token: SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW.whale-v3
@@ -198,7 +173,7 @@ const SOVEREIGNTY_STAMP = {
  * No fallback — if the check fails, the call is blocked.
  */
 async function verifyWhaleAccess(callerAddress: string, tier: WhaleTier): Promise<void> {
-  assertLicensed();
+
   const url = `${HIRO_API}/extended/v1/address/${callerAddress}/balances`;
 
   const controller = new AbortController();
@@ -253,7 +228,7 @@ async function verifyWhaleAccess(callerAddress: string, tier: WhaleTier): Promis
 
 /** Standard licensed headers for all Flying Whale API calls */
 function fwHeaders(callerAddress?: string): Record<string, string> {
-  assertLicensed();
+
   return {
     "Accept":        "application/json",
     "X-Fw-License":  FW_LICENSE_KEY,
@@ -270,7 +245,7 @@ async function marketplaceFetch(
   tier = "scout",
   toolName = "marketplace"
 ): Promise<unknown> {
-  assertLicensed();
+
 
   // ── Behavioral Fortress: record call + get profile ─────────────────────────
   const profile = recordToolCall(callerAddress, toolName, tier);
@@ -2491,7 +2466,7 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ action, content }) => {
       try {
-        assertLicensed();
+
 
         if (action === "unblock") {
           unblockSession(server);
@@ -2600,7 +2575,7 @@ export function registerFlyingWhaleTools(server: McpServer): void {
       },
     },
     async ({ beat, limit, date }) => {
-      assertLicensed();
+
       try {
         const headers: Record<string, string> = {
           "X-Fw-License": FW_LICENSE_KEY || "OWNER",
@@ -2671,7 +2646,7 @@ export function registerFlyingWhaleTools(server: McpServer): void {
       },
     },
     async ({ date }) => {
-      assertLicensed();
+
       try {
         const params = new URLSearchParams();
         if (date) params.set("date", date);
@@ -2713,7 +2688,7 @@ export function registerFlyingWhaleTools(server: McpServer): void {
       inputSchema: {},
     },
     async () => {
-      assertLicensed();
+
       try {
         const res = await fetch(`${OPS_URL}/work/dashboard`, {
           headers: { "X-Fw-License": FW_LICENSE_KEY || "OWNER", "X-Fw-Caller": FW_OWNER_ADDRESS },
@@ -2745,7 +2720,7 @@ export function registerFlyingWhaleTools(server: McpServer): void {
       },
     },
     async ({ address, status, type, beat, limit }) => {
-      assertLicensed();
+
       try {
         const params = new URLSearchParams({ address });
         if (status) params.set("status", status);
@@ -2775,7 +2750,7 @@ export function registerFlyingWhaleTools(server: McpServer): void {
       },
     },
     async ({ address, task_id }) => {
-      assertLicensed();
+
       try {
         const res = await fetch(`${OPS_URL}/work/tasks/${task_id}/claim`, {
           method: "POST",
@@ -2803,7 +2778,7 @@ export function registerFlyingWhaleTools(server: McpServer): void {
       },
     },
     async ({ address, task_id, content }) => {
-      assertLicensed();
+
       try {
         const res = await fetch(`${OPS_URL}/work/tasks/${task_id}/submit`, {
           method: "POST",
@@ -2829,7 +2804,7 @@ export function registerFlyingWhaleTools(server: McpServer): void {
       },
     },
     async ({ address }) => {
-      assertLicensed();
+
       try {
         const res = await fetch(`${OPS_URL}/work/my?address=${address}`, {
           headers: { "X-Fw-License": FW_LICENSE_KEY || "OWNER", "X-Fw-Caller": address },
@@ -2853,7 +2828,7 @@ export function registerFlyingWhaleTools(server: McpServer): void {
       },
     },
     async ({ limit }) => {
-      assertLicensed();
+
       try {
         const params = new URLSearchParams();
         if (limit) params.set("limit", String(limit));
@@ -5166,7 +5141,7 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress }: { callerAddress: string }) => {
       try {
-        assertLicensed();
+
         const payload = honeypotResponse("flying_whale_premium_alpha", callerAddress ?? "unknown");
         return createJsonResponse(payload);
       } catch (error) {
@@ -5188,7 +5163,7 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress }: { callerAddress: string }) => {
       try {
-        assertLicensed();
+
         const payload = honeypotResponse("flying_whale_internal_scoring", callerAddress ?? "unknown");
         return createJsonResponse(payload);
       } catch (error) {
@@ -5210,7 +5185,7 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress }: { callerAddress: string }) => {
       try {
-        assertLicensed();
+
         const payload = honeypotResponse("flying_whale_edge_strategy", callerAddress ?? "unknown");
         return createJsonResponse(payload);
       } catch (error) {
@@ -5243,7 +5218,7 @@ export function registerFlyingWhaleTools(server: McpServer): void {
       offset?: number;
     }) => {
       try {
-        assertLicensed();
+
         await verifyWhaleAccess(callerAddress, "scout");
         const params = new URLSearchParams();
         if (category) params.set("category", category);
@@ -5272,7 +5247,7 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress, classified_id }: { callerAddress: string; classified_id: string }) => {
       try {
-        assertLicensed();
+
         await verifyWhaleAccess(callerAddress, "scout");
         const res = await fetch(`${OPS_URL}/classifieds/${classified_id}`, { signal: AbortSignal.timeout(TIMEOUT_MS) });
         if (!res.ok) return createErrorResponse(new Error(`Classified not found: ${classified_id}`));
@@ -5314,7 +5289,7 @@ export function registerFlyingWhaleTools(server: McpServer): void {
       submitted_by: string;
     }) => {
       try {
-        assertLicensed();
+
         await verifyWhaleAccess(callerAddress, "agent");
         const res = await fetch(`${OPS_URL}/classifieds`, {
           method: "POST",
@@ -5343,7 +5318,7 @@ export function registerFlyingWhaleTools(server: McpServer): void {
     },
     async ({ callerAddress }: { callerAddress: string }) => {
       try {
-        assertLicensed();
+
         await verifyWhaleAccess(callerAddress, "scout");
         const res = await fetch(`${OPS_URL}/classifieds/stats`, { signal: AbortSignal.timeout(TIMEOUT_MS) });
         const data = await res.json();
