@@ -45,6 +45,7 @@ import { registerBountyScannerTools } from "./bounty-scanner.tools.js";
 import { registerRunesTools } from "./runes.tools.js";
 import { registerInboxTools } from "./inbox.tools.js";
 import { registerArxivResearchTools } from "./arxiv-research.tools.js";
+import { registerOkxTools } from "./okx/index.js";
 import { getSkillForTool } from "./skill-mappings.js";
 
 /**
@@ -211,6 +212,9 @@ export function registerAllTools(server: McpServer): void {
 
   // arXiv Research (public arXiv Atom API — paper search and digest compilation)
   registerArxivResearchTools(server);
+
+  // OKX exchange (public market data — ticker, tickers, orderbook, candles)
+  registerOkxTools(server);
 
   restoreRegisterTool();
 }
