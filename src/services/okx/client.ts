@@ -14,12 +14,23 @@
 
 import type { OkxEnvelope } from "./types.js";
 import { OkxApiError } from "./types.js";
+import { buildOkxAuthHeaders, okxTimestamp, type OkxCredentials } from "./auth.js";
 
 const DEFAULT_BASE_URL = "https://www.okx.com";
+const DEFAULT_WEB3_BASE_URL = "https://web3.okx.com";
 
 export function getOkxBaseUrl(): string {
   const env = process.env.OKX_BASE_URL?.trim();
   return env && env.length > 0 ? env.replace(/\/$/, "") : DEFAULT_BASE_URL;
+}
+
+/**
+ * Base URL for WaaS endpoints (DEX aggregator + Wallet API). Configurable
+ * via OKX_WEB3_BASE_URL; defaults to https://web3.okx.com.
+ */
+export function getOkxWeb3BaseUrl(): string {
+  const env = process.env.OKX_WEB3_BASE_URL?.trim();
+  return env && env.length > 0 ? env.replace(/\/$/, "") : DEFAULT_WEB3_BASE_URL;
 }
 
 function buildQuery(params?: Record<string, string | number | undefined>): string {
@@ -33,16 +44,15 @@ function buildQuery(params?: Record<string, string | number | undefined>): strin
   return `?${search.toString()}`;
 }
 
-export async function okxGet<T>(
-  path: string,
-  params?: Record<string, string | number | undefined>
-): Promise<T[]> {
-  const url = `${getOkxBaseUrl()}${path}${buildQuery(params)}`;
-  const response = await fetch(url, {
-    method: "GET",
-    headers: { Accept: "application/json" },
-  });
+export interface OkxRequestOptions {
+  /**
+   * Override the base URL. Defaults to www.okx.com (CEX). Pass
+   * getOkxWeb3BaseUrl() for DEX/Wallet endpoints.
+   */
+  baseUrl?: string;
+}
 
+async function parseOkxResponse<T>(response: Response): Promise<T[]> {
   let body: OkxEnvelope<T>;
   try {
     body = (await response.json()) as OkxEnvelope<T>;
@@ -67,4 +77,44 @@ export async function okxGet<T>(
   }
 
   return body.data;
+}
+
+export async function okxGet<T>(
+  path: string,
+  params?: Record<string, string | number | undefined>,
+  opts: OkxRequestOptions = {}
+): Promise<T[]> {
+  const baseUrl = opts.baseUrl ?? getOkxBaseUrl();
+  const url = `${baseUrl}${path}${buildQuery(params)}`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  return parseOkxResponse<T>(response);
+}
+
+/**
+ * Signed GET request for OKX private endpoints (CEX trading, DEX aggregator,
+ * Wallet API). Builds the OK-ACCESS-* headers using the supplied credentials
+ * and the canonical pre-sign string (timestamp + method + path-with-query + body).
+ *
+ * For WaaS endpoints (DEX/Wallet), pass `opts.baseUrl: getOkxWeb3BaseUrl()`.
+ */
+export async function okxAuthGet<T>(
+  path: string,
+  params: Record<string, string | number | undefined> | undefined,
+  creds: OkxCredentials,
+  opts: OkxRequestOptions = {}
+): Promise<T[]> {
+  const baseUrl = opts.baseUrl ?? getOkxBaseUrl();
+  const query = buildQuery(params);
+  const requestPath = `${path}${query}`;
+  const url = `${baseUrl}${requestPath}`;
+  const timestamp = okxTimestamp();
+  const headers = {
+    Accept: "application/json",
+    ...buildOkxAuthHeaders(creds, timestamp, "GET", requestPath, ""),
+  };
+  const response = await fetch(url, { method: "GET", headers });
+  return parseOkxResponse<T>(response);
 }
