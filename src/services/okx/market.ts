@@ -35,7 +35,22 @@ export interface OkxOrderBook {
   ts: string;
 }
 
-export type OkxCandle = string[];
+/**
+ * A single candlestick row from /api/v5/market/candles.
+ * Positional tuple: [ts, open, high, low, close, vol, volCcy, volCcyQuote, confirm].
+ * Verified live (2026-05-02): always 9 elements, all stringified numbers/timestamps.
+ */
+export type OkxCandle = [
+  ts: string,
+  open: string,
+  high: string,
+  low: string,
+  close: string,
+  vol: string,
+  volCcy: string,
+  volCcyQuote: string,
+  confirm: string,
+];
 
 export async function getTicker(instId: string): Promise<OkxTicker | undefined> {
   const data = await okxGet<OkxTicker>("/api/v5/market/ticker", { instId });
