@@ -171,6 +171,81 @@ describe("getOkxCredentials", () => {
     await getOkxCredentials();
     expect(unlock).toHaveBeenCalledTimes(1);
   });
+
+  it("does not require project_id when requireProjectId=false", async () => {
+    vi.doMock("../../src/services/credentials.js", () => ({
+      default: {
+        unlock: vi.fn().mockResolvedValue(undefined),
+        isUnlocked: vi.fn().mockReturnValue(true),
+        get: vi.fn((_service: string, key: string) => {
+          if (key === "api_key") return "K";
+          if (key === "secret") return "S";
+          if (key === "passphrase") return "P";
+          return null;
+        }),
+      },
+    }));
+
+    const { getOkxCredentials } = await import("../../src/services/okx/auth.js");
+    const creds = await getOkxCredentials(false);
+    expect(creds).toEqual({
+      apiKey: "K",
+      secret: "S",
+      passphrase: "P",
+      projectId: undefined,
+    });
+  });
+
+  it("still returns project_id when set, even with requireProjectId=false", async () => {
+    vi.doMock("../../src/services/credentials.js", () => ({
+      default: {
+        unlock: vi.fn().mockResolvedValue(undefined),
+        isUnlocked: vi.fn().mockReturnValue(true),
+        get: vi.fn((_service: string, key: string) => {
+          if (key === "api_key") return "K";
+          if (key === "secret") return "S";
+          if (key === "passphrase") return "P";
+          if (key === "project_id") return "PROJ";
+          return null;
+        }),
+      },
+    }));
+
+    const { getOkxCredentials } = await import("../../src/services/okx/auth.js");
+    const creds = await getOkxCredentials(false);
+    expect(creds.projectId).toBe("PROJ");
+  });
+});
+
+describe("buildOkxAuthHeaders projectId handling", () => {
+  it("includes OK-ACCESS-PROJECT when projectId is set", async () => {
+    const { buildOkxAuthHeaders } = await import("../../src/services/okx/auth.js");
+    const headers = buildOkxAuthHeaders(
+      { apiKey: "k", secret: "s", passphrase: "p", projectId: "proj" },
+      "2026-05-02T00:00:00.000Z",
+      "GET",
+      "/api/v5/dex/aggregator/supported/chain",
+      ""
+    );
+    expect(headers["OK-ACCESS-PROJECT"]).toBe("proj");
+  });
+
+  it("omits OK-ACCESS-PROJECT when projectId is undefined", async () => {
+    const { buildOkxAuthHeaders } = await import("../../src/services/okx/auth.js");
+    const headers = buildOkxAuthHeaders(
+      { apiKey: "k", secret: "s", passphrase: "p" },
+      "2026-05-02T00:00:00.000Z",
+      "GET",
+      "/api/v5/account/balance?ccy=BTC",
+      ""
+    );
+    expect("OK-ACCESS-PROJECT" in headers).toBe(false);
+    // The other four headers must still be present
+    expect(headers["OK-ACCESS-KEY"]).toBe("k");
+    expect(headers["OK-ACCESS-SIGN"]).toMatch(/^[A-Za-z0-9+/]+=*$/);
+    expect(headers["OK-ACCESS-PASSPHRASE"]).toBe("p");
+    expect(headers["OK-ACCESS-TIMESTAMP"]).toBe("2026-05-02T00:00:00.000Z");
+  });
 });
 
 // --- okxAuthGet (signed client path) --------------------------------------

@@ -28,7 +28,12 @@ export interface OkxCredentials {
   apiKey: string;
   secret: string;
   passphrase: string;
-  projectId: string;
+  /**
+   * WaaS-only (DEX + Wallet API). Optional so future CEX-private
+   * callers can omit it — for those flows pass requireProjectId=false
+   * to getOkxCredentials.
+   */
+  projectId?: string;
 }
 
 export class OkxCredentialsMissingError extends Error {
@@ -72,10 +77,18 @@ export function okxTimestamp(now: Date = new Date()): string {
 }
 
 /**
- * Load all four OKX credentials, throwing OkxCredentialsMissingError listing
- * every key that's not set. Unlocks the credential store first if needed.
+ * Load OKX credentials, throwing OkxCredentialsMissingError listing every
+ * key that's not set. Unlocks the credential store first if needed.
+ *
+ * @param requireProjectId  When true (default), project_id is required and
+ *                          included in the returned credentials. WaaS
+ *                          endpoints (DEX + Wallet) need this. Pass false
+ *                          for CEX-private endpoints which don't use the
+ *                          OK-ACCESS-PROJECT header.
  */
-export async function getOkxCredentials(): Promise<OkxCredentials> {
+export async function getOkxCredentials(
+  requireProjectId = true
+): Promise<OkxCredentials> {
   if (!credentials.isUnlocked()) {
     await credentials.unlock();
   }
@@ -88,7 +101,7 @@ export async function getOkxCredentials(): Promise<OkxCredentials> {
   if (!apiKey) missing.push("api_key");
   if (!secret) missing.push("secret");
   if (!passphrase) missing.push("passphrase");
-  if (!projectId) missing.push("project_id");
+  if (requireProjectId && !projectId) missing.push("project_id");
 
   if (missing.length > 0) throw new OkxCredentialsMissingError(missing);
 
@@ -96,12 +109,14 @@ export async function getOkxCredentials(): Promise<OkxCredentials> {
     apiKey: apiKey as string,
     secret: secret as string,
     passphrase: passphrase as string,
-    projectId: projectId as string,
+    projectId: projectId ?? undefined,
   };
 }
 
 /**
- * Build the four OKX auth headers for a signed request.
+ * Build the OKX auth headers for a signed request. OK-ACCESS-PROJECT is
+ * only included when the credentials have a projectId — WaaS endpoints
+ * require it, CEX-private endpoints reject it (or simply ignore it).
  */
 export function buildOkxAuthHeaders(
   creds: OkxCredentials,
@@ -110,11 +125,14 @@ export function buildOkxAuthHeaders(
   requestPath: string,
   body = ""
 ): Record<string, string> {
-  return {
+  const headers: Record<string, string> = {
     "OK-ACCESS-KEY": creds.apiKey,
     "OK-ACCESS-SIGN": signOkxRequest(creds.secret, timestamp, method, requestPath, body),
     "OK-ACCESS-PASSPHRASE": creds.passphrase,
     "OK-ACCESS-TIMESTAMP": timestamp,
-    "OK-ACCESS-PROJECT": creds.projectId,
   };
+  if (creds.projectId) {
+    headers["OK-ACCESS-PROJECT"] = creds.projectId;
+  }
+  return headers;
 }
