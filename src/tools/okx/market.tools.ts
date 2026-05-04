@@ -59,7 +59,8 @@ export function registerOkxMarketTools(server: McpServer): void {
     "okx_market_tickers",
     {
       description:
-        "List tickers for all instruments of a given type (SPOT/MARGIN/SWAP/FUTURES/OPTION). " +
+        "List tickers for all instruments of a given type (SPOT/SWAP/FUTURES/OPTION). " +
+        "MARGIN is not supported on this endpoint (OKX returns 51000). " +
         "Public endpoint — no API key required.",
       inputSchema: {
         instType: z
