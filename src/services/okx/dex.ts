@@ -33,6 +33,11 @@ export interface OkxDexToken {
   [k: string]: unknown;
 }
 
+/**
+ * Param interfaces include `[k: string]: string | undefined` so they
+ * conform structurally to the okxAuthGet query-params type without a
+ * cast. The named keys are still documented and required where marked.
+ */
 export interface OkxDexQuoteParams {
   chainId: string;
   fromTokenAddress: string;
@@ -41,6 +46,7 @@ export interface OkxDexQuoteParams {
   amount: string;
   /** Optional decimal slippage, e.g. "0.05" for 5% */
   slippage?: string;
+  [k: string]: string | undefined;
 }
 
 export interface OkxDexSwapParams extends OkxDexQuoteParams {
@@ -56,6 +62,57 @@ export interface OkxDexApproveParams {
   tokenContractAddress: string;
   /** Approval amount in the smallest unit (typically max uint256) */
   approveAmount: string;
+  [k: string]: string | undefined;
+}
+
+/**
+ * Token sub-object included in quote and swap responses.
+ * Shape per OKX WaaS DEX docs (https://web3.okx.com/build/docs/waas/dex-swap).
+ */
+export interface OkxDexTokenInfo {
+  decimal: string;
+  tokenContractAddress: string;
+  tokenSymbol: string;
+  tokenUnitPrice?: string;
+  [k: string]: unknown;
+}
+
+/** Quote response — read-only, no tx returned. */
+export interface OkxDexQuoteResponse {
+  chainId: string;
+  dexRouterList: unknown[];
+  estimateGasFee: string;
+  fromToken: OkxDexTokenInfo;
+  toToken: OkxDexTokenInfo;
+  fromTokenAmount: string;
+  toTokenAmount: string;
+  [k: string]: unknown;
+}
+
+/**
+ * Swap response — extends quote with a `tx` object the caller must
+ * sign and broadcast separately. This service does NOT broadcast.
+ */
+export interface OkxDexSwapResponse extends OkxDexQuoteResponse {
+  tx: {
+    data: string;
+    from: string;
+    to: string;
+    value: string;
+    gas: string;
+    gasPrice: string;
+    minReceiveAmount: string;
+    [k: string]: unknown;
+  };
+}
+
+/** ERC-20 approval calldata response. */
+export interface OkxDexApproveResponse {
+  data: string;
+  dexContractAddress: string;
+  gasLimit: string;
+  gasPrice: string;
+  [k: string]: unknown;
 }
 
 export async function getDexSupportedChains(): Promise<OkxDexChain[]> {
@@ -82,11 +139,13 @@ export async function getDexAllTokens(chainId: string): Promise<OkxDexToken[]> {
  * Get an estimated swap output. Read-only — does not produce a tx.
  * Response includes router path, gas estimate, and toTokenAmount.
  */
-export async function getDexQuote(params: OkxDexQuoteParams): Promise<unknown[]> {
+export async function getDexQuote(
+  params: OkxDexQuoteParams
+): Promise<OkxDexQuoteResponse[]> {
   const creds = await getOkxCredentials();
-  return okxAuthGet<unknown>(
+  return okxAuthGet<OkxDexQuoteResponse>(
     "/api/v5/dex/aggregator/quote",
-    params as unknown as Record<string, string>,
+    params,
     creds,
     { baseUrl: getOkxWeb3BaseUrl() }
   );
@@ -97,11 +156,13 @@ export async function getDexQuote(params: OkxDexQuoteParams): Promise<unknown[]>
  * contains `{ data, from, to, value, gas, gasPrice, minReceiveAmount }`
  * which the caller must sign + broadcast separately.
  */
-export async function getDexSwapTx(params: OkxDexSwapParams): Promise<unknown[]> {
+export async function getDexSwapTx(
+  params: OkxDexSwapParams
+): Promise<OkxDexSwapResponse[]> {
   const creds = await getOkxCredentials();
-  return okxAuthGet<unknown>(
+  return okxAuthGet<OkxDexSwapResponse>(
     "/api/v5/dex/aggregator/swap",
-    params as unknown as Record<string, string>,
+    params,
     creds,
     { baseUrl: getOkxWeb3BaseUrl() }
   );
@@ -111,11 +172,13 @@ export async function getDexSwapTx(params: OkxDexSwapParams): Promise<unknown[]>
  * Get the calldata required to approve an ERC-20 token for the OKX DEX
  * router. Only needed for ERC-20 swaps (not native ETH or BTC).
  */
-export async function getDexApproveTx(params: OkxDexApproveParams): Promise<unknown[]> {
+export async function getDexApproveTx(
+  params: OkxDexApproveParams
+): Promise<OkxDexApproveResponse[]> {
   const creds = await getOkxCredentials();
-  return okxAuthGet<unknown>(
+  return okxAuthGet<OkxDexApproveResponse>(
     "/api/v5/dex/aggregator/approve-transaction",
-    params as unknown as Record<string, string>,
+    params,
     creds,
     { baseUrl: getOkxWeb3BaseUrl() }
   );

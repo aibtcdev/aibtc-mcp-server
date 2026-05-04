@@ -37,6 +37,10 @@ export type {
   OkxDexQuoteParams,
   OkxDexSwapParams,
   OkxDexApproveParams,
+  OkxDexTokenInfo,
+  OkxDexQuoteResponse,
+  OkxDexSwapResponse,
+  OkxDexApproveResponse,
 } from "./dex.js";
 
 export {
