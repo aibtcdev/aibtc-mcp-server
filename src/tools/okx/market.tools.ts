@@ -131,7 +131,13 @@ export function registerOkxMarketTools(server: McpServer): void {
           .max(300)
           .optional()
           .default(100)
-          .describe("Number of candles (1-300, default 100)"),
+          .describe(
+            "Number of candles (1-300, default 100). Verified live: " +
+              "1-300 returns the requested count exactly with no truncation; " +
+              "values above 300 silently cap to 300 server-side, so the Zod " +
+              "max(300) here mirrors the actual server cap rather than the " +
+              "older 100-bar limit some docs pages still cite."
+          ),
         after: z
           .string()
           .optional()
