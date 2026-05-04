@@ -38,9 +38,15 @@ export type OkxTickersInstType = "SPOT" | "SWAP" | "FUTURES" | "OPTION";
  * Lowercase `m` = minutes, uppercase `M` = months — case is significant.
  * Note: 8H, 6M, and 1Y are NOT accepted on this endpoint (returns 51000).
  * UTC-aligned variants are supported only for ≥6H bars.
+ *
+ * Single source of truth — the Zod enum in market.tools.ts derives from
+ * this const, so adding a bar updates both the type and the schema.
  */
-export type OkxCandleBar =
-  | "1m" | "3m" | "5m" | "15m" | "30m"
-  | "1H" | "2H" | "4H" | "6H" | "12H"
-  | "1D" | "2D" | "3D" | "1W" | "1M" | "3M"
-  | "6Hutc" | "12Hutc" | "1Dutc" | "1Wutc" | "1Mutc" | "3Mutc";
+export const OKX_CANDLE_BARS = [
+  "1m", "3m", "5m", "15m", "30m",
+  "1H", "2H", "4H", "6H", "12H",
+  "1D", "2D", "3D", "1W", "1M", "3M",
+  "6Hutc", "12Hutc", "1Dutc", "1Wutc", "1Mutc", "3Mutc",
+] as const;
+
+export type OkxCandleBar = (typeof OKX_CANDLE_BARS)[number];

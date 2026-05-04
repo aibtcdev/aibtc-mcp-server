@@ -14,19 +14,14 @@ import {
   getOrderBook,
   getTicker,
   getTickers,
+  OKX_CANDLE_BARS,
 } from "../../services/okx/index.js";
 
 // /api/v5/market/tickers does NOT accept MARGIN (verified live: returns 51000).
 const TICKERS_INSTRUMENT_TYPES = ["SPOT", "SWAP", "FUTURES", "OPTION"] as const;
 
-// Verified live (2026-05-02): 8H, 6M, 1Y are NOT accepted on /market/candles.
-// Lowercase m = minutes, uppercase M = months. UTC variants only for ≥6H bars.
-const CANDLE_BARS = [
-  "1m", "3m", "5m", "15m", "30m",
-  "1H", "2H", "4H", "6H", "12H",
-  "1D", "2D", "3D", "1W", "1M", "3M",
-  "6Hutc", "12Hutc", "1Dutc", "1Wutc", "1Mutc", "3Mutc",
-] as const;
+// Candle bars are sourced from the OKX_CANDLE_BARS const in services/okx/types.ts
+// — single source of truth; the OkxCandleBar type derives from the same array.
 
 export function registerOkxMarketTools(server: McpServer): void {
   server.registerTool(
@@ -125,7 +120,7 @@ export function registerOkxMarketTools(server: McpServer): void {
       inputSchema: {
         instId: z.string().describe("Instrument id, e.g. 'BTC-USDT'"),
         bar: z
-          .enum(CANDLE_BARS)
+          .enum(OKX_CANDLE_BARS)
           .optional()
           .default("1H")
           .describe("Candle interval (default '1H')"),

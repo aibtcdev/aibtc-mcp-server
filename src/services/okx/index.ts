@@ -1,4 +1,5 @@
 export * from "./types.js";
+export { OKX_CANDLE_BARS } from "./types.js";
 export {
   okxGet,
   okxAuthGet,
