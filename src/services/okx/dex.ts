@@ -17,8 +17,6 @@
 import { okxAuthGet, getOkxWeb3BaseUrl } from "./client.js";
 import { getOkxCredentials } from "./auth.js";
 
-const WAAS = { baseUrl: getOkxWeb3BaseUrl() };
-
 export interface OkxDexChain {
   chainId: string;
   chainName: string;
@@ -66,7 +64,7 @@ export async function getDexSupportedChains(): Promise<OkxDexChain[]> {
     "/api/v5/dex/aggregator/supported/chain",
     undefined,
     creds,
-    WAAS
+    { baseUrl: getOkxWeb3BaseUrl() }
   );
 }
 
@@ -76,7 +74,7 @@ export async function getDexAllTokens(chainId: string): Promise<OkxDexToken[]> {
     "/api/v5/dex/aggregator/all-tokens",
     { chainId },
     creds,
-    WAAS
+    { baseUrl: getOkxWeb3BaseUrl() }
   );
 }
 
@@ -90,7 +88,7 @@ export async function getDexQuote(params: OkxDexQuoteParams): Promise<unknown[]>
     "/api/v5/dex/aggregator/quote",
     params as unknown as Record<string, string>,
     creds,
-    WAAS
+    { baseUrl: getOkxWeb3BaseUrl() }
   );
 }
 
@@ -105,7 +103,7 @@ export async function getDexSwapTx(params: OkxDexSwapParams): Promise<unknown[]>
     "/api/v5/dex/aggregator/swap",
     params as unknown as Record<string, string>,
     creds,
-    WAAS
+    { baseUrl: getOkxWeb3BaseUrl() }
   );
 }
 
@@ -119,6 +117,6 @@ export async function getDexApproveTx(params: OkxDexApproveParams): Promise<unkn
     "/api/v5/dex/aggregator/approve-transaction",
     params as unknown as Record<string, string>,
     creds,
-    WAAS
+    { baseUrl: getOkxWeb3BaseUrl() }
   );
 }

@@ -18,8 +18,6 @@
 import { okxAuthGet, getOkxWeb3BaseUrl } from "./client.js";
 import { getOkxCredentials } from "./auth.js";
 
-const WAAS = { baseUrl: getOkxWeb3BaseUrl() };
-
 export interface OkxWalletChain {
   name: string;
   logoUrl?: string;
@@ -58,7 +56,7 @@ export async function getWalletSupportedChains(): Promise<OkxWalletChain[]> {
     "/api/v5/wallet/chain/supported-chains",
     undefined,
     creds,
-    WAAS
+    { baseUrl: getOkxWeb3BaseUrl() }
   );
 }
 
@@ -78,7 +76,7 @@ export async function getWalletTokenBalances(
     "/api/v5/wallet/asset/all-token-balances-by-address",
     { address, chains },
     creds,
-    WAAS
+    { baseUrl: getOkxWeb3BaseUrl() }
   );
 }
 
@@ -98,6 +96,6 @@ export async function getWalletUtxos(
     "/api/v5/wallet/utxo/utxos",
     { chainIndex, address },
     creds,
-    WAAS
+    { baseUrl: getOkxWeb3BaseUrl() }
   );
 }
