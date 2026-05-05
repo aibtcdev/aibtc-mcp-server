@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.51.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.50.1...mcp-server-v1.51.0) (2026-05-05)
+
+
+### Features
+
+* **bitflow:** enable Bitflow DEX tools for trading competition ([#500](https://github.com/aibtcdev/aibtc-mcp-server/issues/500)) ([a8ebe6d](https://github.com/aibtcdev/aibtc-mcp-server/commit/a8ebe6d96e82ac4aacff60d9c944f7ca83d6d186))
+* **wallet:** derive Lightning wallet from main mnemonic on create/import ([#496](https://github.com/aibtcdev/aibtc-mcp-server/issues/496)) ([d204620](https://github.com/aibtcdev/aibtc-mcp-server/commit/d2046206ede110ba3e3ba7d5c36edc38c445880c))
+
 ## [1.50.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.50.0...mcp-server-v1.50.1) (2026-04-30)
 
 
