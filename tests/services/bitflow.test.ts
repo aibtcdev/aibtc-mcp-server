@@ -175,7 +175,7 @@ describe("bitflow.service", () => {
       (service as any).sdk = null;
 
       await expect(service.getAvailableTokens()).rejects.toThrow(
-        "Bitflow SDK failed to initialize. Check BITFLOW_API_HOST / BITFLOW_READONLY_API_HOST configuration and server logs."
+        "Bitflow SDK failed to initialize. See server logs."
       );
     });
 
