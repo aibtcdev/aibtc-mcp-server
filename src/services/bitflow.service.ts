@@ -91,17 +91,8 @@ export interface BitflowToken {
 /**
  * Bitflow Service
  *
- * As of @bitflowlabs/core-sdk v2.4.2, all API keys are optional.
- * The SDK works out of the box with public rate limits (500 req/min per IP).
- *
- * Optional env vars for higher rate limits:
- *   - BITFLOW_API_KEY: Core API (tokens, quotes, routes)
- *   - BITFLOW_API_HOST: Override API host
- *   - BITFLOW_KEEPER_API_KEY: Keeper automation features
- *   - BITFLOW_KEEPER_API_HOST: Override Keeper API host
- *   - BITFLOW_READONLY_API_HOST: Override Stacks read-only node
- *
- * Request higher limits: help@bitflow.finance
+ * All Bitflow endpoints are public — no API key required.
+ * Public rate limit is 500 req/min per IP, which is per-agent (each MCP runs locally).
  */
 export class BitflowService {
   private sdk: BitflowSDK | null = null;
@@ -112,10 +103,6 @@ export class BitflowService {
     this.initializeSdk();
   }
 
-  /**
-   * Initialize the Bitflow SDK.
-   * API keys are optional — public endpoints work without them.
-   */
   private initializeSdk(): void {
     if (this.sdkInitialized) return;
     this.sdkInitialized = true;
@@ -125,12 +112,10 @@ export class BitflowService {
     try {
       this.sdk = new BitflowSDK({
         BITFLOW_API_HOST: config.apiHost,
-        ...(config.apiKey && { BITFLOW_API_KEY: config.apiKey }),
         READONLY_CALL_API_HOST: config.readOnlyCallApiHost,
         BITFLOW_PROVIDER_ADDRESS: "",
         READONLY_CALL_API_KEY: "",
-        KEEPER_API_HOST: config.keeperApiHost || "",
-        ...(config.keeperApiKey && { KEEPER_API_KEY: config.keeperApiKey }),
+        KEEPER_API_HOST: config.keeperApiHost,
       });
     } catch (error) {
       console.error("Failed to initialize Bitflow SDK:", error);
@@ -153,7 +138,7 @@ export class BitflowService {
   private ensureSdk(): BitflowSDK {
     if (!this.sdk) {
       throw new Error(
-        "Bitflow SDK failed to initialize. Check BITFLOW_API_HOST / BITFLOW_READONLY_API_HOST configuration and server logs."
+        "Bitflow SDK failed to initialize. See server logs."
       );
     }
     return this.sdk;
@@ -255,9 +240,8 @@ export class BitflowService {
     functionName: string,
     args: string[] = []
   ): Promise<any> {
-    const config = getBitflowConfig();
-    const host = config?.readOnlyCallApiHost || process.env.BITFLOW_READONLY_API_HOST || "https://node.bitflowapis.finance";
-    const url = `${host}/v2/contracts/call-read/${contractAddress}/${contractName}/${functionName}`;
+    const { readOnlyCallApiHost } = getBitflowConfig();
+    const url = `${readOnlyCallApiHost}/v2/contracts/call-read/${contractAddress}/${contractName}/${functionName}`;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);

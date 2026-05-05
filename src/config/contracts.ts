@@ -242,35 +242,34 @@ export const BITFLOW_CONTRACTS = {
  */
 export interface BitflowConfig {
   apiHost: string;
-  apiKey: string | undefined;
   readOnlyCallApiHost: string;
-  keeperApiHost?: string;
-  keeperApiKey?: string;
+  keeperApiHost: string;
 }
 
 /**
- * Get Bitflow configuration from environment.
- *
- * As of @bitflowlabs/core-sdk v2.4.2, API keys are fully optional.
- * All public endpoints (tokens, quotes, routes, swaps) are accessible
- * without a key at 500 req/min per IP. Keys only needed for higher limits.
- *
- * Optional env vars:
- * - BITFLOW_API_KEY: Core API key (higher rate limits)
- * - BITFLOW_API_HOST: Override default API host
- * - BITFLOW_KEEPER_API_KEY: Keeper automation features
- * - BITFLOW_KEEPER_API_HOST: Override Keeper API host
- * - BITFLOW_READONLY_API_HOST: Override Stacks read-only node (default: api.hiro.so)
+ * Bitflow public API base URL (also used for SDK calls — same gateway).
+ * All endpoints are publicly accessible; no API key required.
+ * Per docs: https://docs.bitflow.finance/bitflow-documentation/developers/bitflow-sdk
  */
-export function getBitflowConfig(): BitflowConfig {
-  const readOnlyCallApiHost = process.env.BITFLOW_READONLY_API_HOST || "https://api.hiro.so";
+export const BITFLOW_PUBLIC_API = "https://bitflow-sdk-api-gateway-7owjsmt8.uc.gateway.dev";
 
+/**
+ * Stacks read-only node used by the SDK to compute quotes (reads pool reserves).
+ * Per Bitflow SDK docs.
+ */
+export const BITFLOW_READONLY_HOST = "https://node.bitflowapis.finance";
+
+/**
+ * Keeper API host for automated swap orders.
+ * Per Bitflow SDK docs.
+ */
+export const BITFLOW_KEEPER_HOST = "https://bitflow-keeper-test-7owjsmt8.uc.gateway.dev";
+
+export function getBitflowConfig(): BitflowConfig {
   return {
-    apiHost: process.env.BITFLOW_API_HOST || "https://bitflowsdk-api-test-7owjsmt8.uk.gateway.dev",
-    apiKey: process.env.BITFLOW_API_KEY,
-    readOnlyCallApiHost,
-    keeperApiHost: process.env.BITFLOW_KEEPER_API_HOST || "https://bitflow-keeper-test-7owjsmt8.uc.gateway.dev",
-    keeperApiKey: process.env.BITFLOW_KEEPER_API_KEY,
+    apiHost: BITFLOW_PUBLIC_API,
+    readOnlyCallApiHost: BITFLOW_READONLY_HOST,
+    keeperApiHost: BITFLOW_KEEPER_HOST,
   };
 }
 
@@ -280,11 +279,6 @@ export function getBitflowConfig(): BitflowConfig {
 export function getBitflowContracts(network: Network) {
   return BITFLOW_CONTRACTS[network];
 }
-
-/**
- * Bitflow public API base URL (no API key required)
- */
-export const BITFLOW_PUBLIC_API = "https://bitflow-sdk-api-gateway-7owjsmt8.uc.gateway.dev";
 
 /**
  * Get ERC-8004 contract addresses for the network
