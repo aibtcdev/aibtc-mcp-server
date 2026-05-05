@@ -60,7 +60,7 @@
     "@stacks/transactions": "^7.3.1",
     "@stacks/wallet-sdk": "^7.2.0",
     "alex-sdk": "^3.2.1",
-    "axios": "^1.15.0",
+    "axios": "^1.15.2",
     "dotenv": "^17.3.1",
     "light-bolt11-decoder": "^3.2.0",
     "micro-ordinals": "^0.3.0",
