@@ -369,21 +369,28 @@ For aibtc.com inbox messages, use send_inbox_message instead — it uses sponsor
           recordTransaction(dedupKey, txid ?? `pending:${dedupKey}`);
         }
 
+        // Build the txid response fields per the behavior matrix:
+        //   payment attempted + observable txid → { txid: "0x..." }
+        //   payment attempted + unobservable     → { txid: null, txidNote: "..." }
+        //   no payment + observable txid         → { txid: "0x..." }
+        //   no payment + no txid                 → {}
+        const txidFields = paymentAttempted
+          ? {
+              txid,
+              ...(txid === null && {
+                txidNote:
+                  "Payment broadcast; real txid not yet observable in response. " +
+                  "Query get_account_transactions to discover the settled txid for verification or recovery.",
+              }),
+            }
+          : txid !== null
+            ? { txid }
+            : {};
+
         return createJsonResponse({
           endpoint: `${method} ${fullUrl}`,
           response: response.data,
-          ...(paymentAttempted
-            ? {
-                txid,
-                ...(txid === null && {
-                  txidNote:
-                    "Payment broadcast; real txid not yet observable in response. " +
-                    "Query get_account_transactions to discover the settled txid for verification or recovery.",
-                }),
-              }
-            : txid !== null
-              ? { txid }
-              : {}),
+          ...txidFields,
         });
       } catch (error) {
         const label = fullUrl || url || path || "unknown";
