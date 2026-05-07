@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.51.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.51.0...mcp-server-v1.51.1) (2026-05-07)
+
+
+### Bug Fixes
+
+* **bitflow:** point readonly host at api.hiro.so ([#505](https://github.com/aibtcdev/aibtc-mcp-server/issues/505)) ([1d8dc54](https://github.com/aibtcdev/aibtc-mcp-server/commit/1d8dc5473855c12d38aeffe185d8bdaadcc012a4))
+
 ## [1.51.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.50.1...mcp-server-v1.51.0) (2026-05-05)
 
 
