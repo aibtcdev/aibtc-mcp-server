@@ -255,9 +255,11 @@ export const BITFLOW_PUBLIC_API = "https://bitflow-sdk-api-gateway-7owjsmt8.uc.g
 
 /**
  * Stacks read-only node used by the SDK to compute quotes (reads pool reserves).
- * Per Bitflow SDK docs.
+ * Bitflow's own `node.bitflowapis.finance` was hanging on `POST /v2/contracts/call-read`,
+ * causing every quote to silently return null. Hiro's public node serves the same
+ * standard Stacks API and is reliable.
  */
-export const BITFLOW_READONLY_HOST = "https://node.bitflowapis.finance";
+export const BITFLOW_READONLY_HOST = "https://api.hiro.so";
 
 /**
  * Keeper API host for automated swap orders.
