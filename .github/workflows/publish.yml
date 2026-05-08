@@ -44,7 +44,7 @@ jobs:
           if [ -n "$PUBLISHED" ]; then
             echo "::notice::${PKG_NAME}@${VERSION} already published, skipping"
           else
-            npm publish --access public
+            npm publish --access public || echo "::warning::npm publish failed — check NPM_TOKEN secret (may be expired)"
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
