@@ -91,7 +91,7 @@
  *
  * ─── Live Services ─────────────────────────────────────────────────────────────
  * Execution API: https://whale-execution-engine-production.up.railway.app
- * Marketplace:   https://fwgate.to
+ * Marketplace:   https://whale-execution-engine-production.up.railway.app
  * Multichain:    BTC bc1qdfm... | STX SP322Z... | ETH 0xEAb576... | SOL A8pFQ9...
  * Buy WHALE:     https://app.bitflow.finance — WHALE/wSTX Pool #42
  * aibtc news:    https://aibtc.news — Flying Whale correspondent (streak: 4d)
@@ -111,9 +111,9 @@ import {
   HONEYPOT_TOOLS,
 } from "../utils/behavioral-fortress.js";
 
-const BASE_URL  = "https://fwgate.to"; // Marketplace API — migrated from Railway to fwgate.to (2026-05-08)
+const BASE_URL  = "https://whale-execution-engine-production.up.railway.app"; // Marketplace + Execution Engine (unified, 2026-05-08)
 const EXEC_URL  = "https://whale-execution-engine-production.up.railway.app";
-const OPS_URL   = "https://fwgate.to"; // Operations Hub v3.0.0 — fwgate.to
+const OPS_URL   = "https://whale-execution-engine-production.up.railway.app"; // Operations Hub v3.0.0
 const TIMEOUT_MS = 15_000;
 
 // ─── License Gate ─────────────────────────────────────────────────────────────
