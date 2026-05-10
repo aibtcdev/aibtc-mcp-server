@@ -137,8 +137,17 @@ async function runYieldHunter(): Promise<void> {
 // MAIN ROUTING
 // =============================================================================
 
+// Check for --http flag (sovereign HTTP transport mode)
+if (process.argv.includes("--http")) {
+  import("./transport/http.js")
+    .then(({ startHttpServer }) => startHttpServer())
+    .catch((error) => {
+      console.error("Fatal error (HTTP mode):", redactSensitive(String(error)));
+      process.exit(1);
+    });
+}
 // Check for yield-hunter command
-if (process.argv[2] === "yield-hunter") {
+else if (process.argv[2] === "yield-hunter") {
   runYieldHunter()
     .then(() => {
       // Don't exit - daemon runs until interrupted
