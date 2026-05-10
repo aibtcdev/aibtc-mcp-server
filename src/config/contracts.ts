@@ -244,6 +244,7 @@ export interface BitflowConfig {
   apiHost: string;
   readOnlyCallApiHost: string;
   keeperApiHost: string;
+  providerAddress: string;
 }
 
 /**
@@ -267,11 +268,20 @@ export const BITFLOW_READONLY_HOST = "https://api.hiro.so";
  */
 export const BITFLOW_KEEPER_HOST = "https://bitflow-keeper-test-7owjsmt8.uc.gateway.dev";
 
+/**
+ * AIBTC provider address tagged onto every Bitflow swap. The SDK injects this
+ * as the `provider` Clarity arg when the swap function signature accepts one,
+ * so on-chain attribution can distinguish AIBTC-routed trades for campaign
+ * scoring.
+ */
+export const BITFLOW_PROVIDER_ADDRESS = "SP1M8KHCJXB3SBRQRDBCG3J3859AA1CN0AWDHN17B";
+
 export function getBitflowConfig(): BitflowConfig {
   return {
     apiHost: BITFLOW_PUBLIC_API,
     readOnlyCallApiHost: BITFLOW_READONLY_HOST,
     keeperApiHost: BITFLOW_KEEPER_HOST,
+    providerAddress: BITFLOW_PROVIDER_ADDRESS,
   };
 }
 

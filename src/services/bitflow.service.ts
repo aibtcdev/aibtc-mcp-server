@@ -113,7 +113,7 @@ export class BitflowService {
       this.sdk = new BitflowSDK({
         BITFLOW_API_HOST: config.apiHost,
         READONLY_CALL_API_HOST: config.readOnlyCallApiHost,
-        BITFLOW_PROVIDER_ADDRESS: "",
+        BITFLOW_PROVIDER_ADDRESS: config.providerAddress,
         READONLY_CALL_API_KEY: "",
         KEEPER_API_HOST: config.keeperApiHost,
       });
