@@ -172,10 +172,39 @@ else if (process.argv.includes("--install") || process.argv.includes("install"))
     await initializeStorage();
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    console.error("flying-whale-mcp-server running on stdio");
-    console.error(`Network: ${NETWORK}`);
-    console.error(`API URL: ${API_URL}`);
+    console.error(`[flying-whale] v${packageJson.version} running on stdio`);
+    console.error(`[flying-whale] Network: ${NETWORK} | API: ${API_URL}`);
   }
+
+  // ─── Graceful Shutdown ─────────────────────────────────────────────────────
+  // Flush all persistent state before exit to prevent data loss on SIGINT/SIGTERM
+  async function gracefulShutdown(signal: string): Promise<void> {
+    console.error(`[flying-whale] ${signal} received — flushing state...`);
+    const flushTasks: Promise<void>[] = [];
+
+    // Flush IPI audit log if available
+    try {
+      const { flushIpiAuditLog } = await import("./tools/session-guard.js");
+      if (typeof flushIpiAuditLog === "function") {
+        flushTasks.push(flushIpiAuditLog());
+      }
+    } catch { /* module may not export this yet */ }
+
+    // Flush behavioral state if available (future enhancement)
+    // try {
+    //   const { flushBehaviorState } = await import("./utils/behavioral-fortress.js");
+    //   if (typeof flushBehaviorState === "function") {
+    //     flushTasks.push(flushBehaviorState());
+    //   }
+    // } catch { /* module may not export this yet */ }
+
+    await Promise.allSettled(flushTasks);
+    console.error("[flying-whale] State flushed. Exiting.");
+    process.exit(0);
+  }
+
+  process.on("SIGINT",  () => { gracefulShutdown("SIGINT").catch(() => process.exit(1)); });
+  process.on("SIGTERM", () => { gracefulShutdown("SIGTERM").catch(() => process.exit(1)); });
 
   main().catch((error) => {
     console.error("Fatal error:", redactSensitive(String(error)));

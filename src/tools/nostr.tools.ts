@@ -17,7 +17,13 @@ import type { Filter } from "nostr-tools/filter";
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_RELAYS = ["wss://relay.damus.io", "wss://nos.lol"];
+// 4 relays — redundancy ensures publishing succeeds even when 1-2 are down
+const DEFAULT_RELAYS = [
+  "wss://relay.damus.io",
+  "wss://nos.lol",
+  "wss://relay.nostr.band",
+  "wss://nostr.mom",
+];
 const WS_TIMEOUT_MS = 10_000;
 
 // ---------------------------------------------------------------------------

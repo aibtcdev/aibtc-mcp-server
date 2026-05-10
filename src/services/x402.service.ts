@@ -66,6 +66,40 @@ setInterval(() => {
   }
 }, 300000).unref();
 
+// ─── Dedup Cache Persistence ──────────────────────────────────────────────────
+// Persist dedup cache to ~/.aibtc/x402-dedup.json on every new entry.
+// On startup, load and prune entries older than 60s to prevent double-payments
+// across process restarts (which happen every Claude Code session start).
+import { promises as _fsPromises } from "fs";
+import { join as _pathJoin } from "path";
+import { homedir as _homedir } from "os";
+
+const _DEDUP_FILE = _pathJoin(_homedir(), ".aibtc", "x402-dedup.json");
+
+async function _loadDedupCache(): Promise<void> {
+  try {
+    const raw = await _fsPromises.readFile(_DEDUP_FILE, "utf8");
+    const entries = JSON.parse(raw) as Array<[string, { txid: string; timestamp: number }]>;
+    const now = Date.now();
+    for (const [key, value] of entries) {
+      if (now - value.timestamp < 60000) {
+        dedupCache.set(key, value);
+      }
+    }
+  } catch { /* file missing or corrupt — start fresh */ }
+}
+
+async function _persistDedupCache(): Promise<void> {
+  try {
+    await _fsPromises.mkdir(_pathJoin(_homedir(), ".aibtc"), { recursive: true });
+    const entries = Array.from(dedupCache.entries());
+    await _fsPromises.writeFile(_DEDUP_FILE, JSON.stringify(entries), "utf8");
+  } catch { /* non-fatal — dedup still works in-memory */ }
+}
+
+// Load on startup (fire-and-forget)
+_loadDedupCache().catch(() => {});
+
 /**
  * Safe JSON transform - parses string responses without throwing
  */
@@ -665,6 +699,8 @@ export function checkDedupCache(key: string): string | null {
  */
 export function recordTransaction(key: string, txid: string): void {
   dedupCache.set(key, { txid, timestamp: Date.now() });
+  // Persist async (fire-and-forget) to survive process restarts
+  _persistDedupCache().catch(() => {});
 }
 
 /**

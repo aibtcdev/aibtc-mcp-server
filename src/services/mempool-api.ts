@@ -401,3 +401,86 @@ export class MempoolApi {
 export function createMempoolApi(network: Network): MempoolApi {
   return new MempoolApi(network);
 }
+
+// ══════════════════════════════════════════════════════════════════════
+// Sovereign Bitcoin Provider
+// ══════════════════════════════════════════════════════════════════════
+//
+// "Don't trust, verify." — Satoshi Nakamoto
+//
+// getBitcoinProvider() returns the BEST available Bitcoin data source:
+//   1. Bitcoin Core (local/remote node) — SOVEREIGN, no external dependency
+//   2. mempool.space API               — FALLBACK, trusted third party
+//
+// Usage:
+//   const btc = getBitcoinProvider(network);
+//   const utxos = await btc.getUtxos(address);        // works on both
+//   const fees  = await btc.getFeeEstimates();         // works on both
+//   const txid  = await btc.broadcastTransaction(hex); // works on both
+//
+// To activate Bitcoin Core: set BTC_CORE_PASSWORD in .env
+// ══════════════════════════════════════════════════════════════════════
+
+export interface BitcoinProvider {
+  getUtxos(address: string):         Promise<UTXO[]>;
+  getFeeEstimates():                  Promise<FeeEstimates>;
+  getBalance(address: string):        Promise<{ confirmed: number; unconfirmed: number; total: number }>;
+  broadcastTransaction(hex: string):  Promise<string>;
+  getSource():                        "bitcoin-core" | "mempool.space";
+}
+
+/**
+ * MempoolApi adapter to match BitcoinProvider interface
+ */
+class MempoolProvider implements BitcoinProvider {
+  constructor(private readonly api: MempoolApi) {}
+
+  async getUtxos(address: string): Promise<UTXO[]> {
+    return this.api.getUtxos(address);
+  }
+
+  async getFeeEstimates(): Promise<FeeEstimates> {
+    return this.api.getFeeEstimates();
+  }
+
+  async getBalance(address: string): Promise<{ confirmed: number; unconfirmed: number; total: number }> {
+    const utxos = await this.api.getUtxos(address);
+    const confirmed   = utxos.filter(u => u.status.confirmed).reduce((s, u) => s + u.value, 0);
+    const unconfirmed = utxos.filter(u => !u.status.confirmed).reduce((s, u) => s + u.value, 0);
+    return { confirmed, unconfirmed, total: confirmed + unconfirmed };
+  }
+
+  async broadcastTransaction(hex: string): Promise<string> {
+    return this.api.broadcastTransaction(hex);
+  }
+
+  getSource(): "bitcoin-core" | "mempool.space" {
+    return "mempool.space";
+  }
+}
+
+/**
+ * Returns the best available Bitcoin provider.
+ * Uses Bitcoin Core if BTC_CORE_PASSWORD is set, otherwise mempool.space.
+ */
+export function getBitcoinProvider(network: Network): BitcoinProvider {
+  // Lazy import to avoid circular dependency
+  const corePasswordSet = !!(process.env.BTC_CORE_PASSWORD?.trim());
+
+  if (corePasswordSet) {
+    // Import Bitcoin Core client (dynamic to avoid loading when not needed)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getBitcoinCoreClient } = require("./bitcoin-core.js") as typeof import("./bitcoin-core.js");
+    const client = getBitcoinCoreClient(network);
+
+    return {
+      getUtxos:            (a) => client.getUtxos(a),
+      getFeeEstimates:     ()  => client.getFeeEstimates(),
+      getBalance:          (a) => client.getBalance(a),
+      broadcastTransaction:(h) => client.broadcastTransaction(h),
+      getSource:           ()  => "bitcoin-core",
+    };
+  }
+
+  return new MempoolProvider(new MempoolApi(network));
+}

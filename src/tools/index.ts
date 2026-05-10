@@ -16,8 +16,7 @@ import { registerQueryTools } from "./query.tools.js";
 import { registerReputationTools } from "./reputation.tools.js";
 import { registerEndpointTools } from "./endpoint.tools.js";
 import { registerDefiTools } from "./defi.tools.js";
-// TODO: Re-enable when Bitflow API key integration is complete
-// import { registerBitflowTools } from "./bitflow.tools.js";
+import { registerBitflowTools } from "./bitflow.tools.js";
 import { registerScaffoldTools } from "./scaffold.tools.js";
 import { registerOpenRouterTools } from "./openrouter.tools.js";
 import { registerYieldHunterTools } from "./yield-hunter.tools.js";
@@ -46,6 +45,7 @@ import { registerRunesTools } from "./runes.tools.js";
 import { registerInboxTools } from "./inbox.tools.js";
 import { registerArxivResearchTools } from "./arxiv-research.tools.js";
 import { registerFlyingWhaleTools } from "./flying-whale.tools.js";
+import { registerPsiTools } from "./psi.tools.js";
 import { registerChildInscriptionTools } from "./child-inscription.tools.js";
 import { registerErc8004Tools } from "./erc8004.tools.js";
 import { registerOrdinalsTools } from "./ordinals.tools.js";
@@ -137,8 +137,8 @@ export function registerAllTools(server: McpServer): void {
   // DeFi (ALEX DEX, Zest Protocol)
   registerDefiTools(server);
 
-  // Bitflow DEX (disabled until API key integration is complete)
-  // registerBitflowTools(server);
+  // Bitflow DEX (public read-only + authenticated swap when BITFLOW_API_KEY is set)
+  registerBitflowTools(server);
 
   // Styx BTC→sBTC conversion
   registerStyxTools(server);
@@ -242,6 +242,10 @@ export function registerAllTools(server: McpServer): void {
 
   // Settings (Hiro API key, Stacks API URL, server version)
   registerSettingsTools(server);
+
+  // Ψ Consensus Layer (Landauer · Nash · Cantillon⁻¹ · Gödel)
+  // The same mathematical foundations as Bitcoin — made explicit and measured
+  registerPsiTools(server);
 
   restoreRegisterTool();
 }

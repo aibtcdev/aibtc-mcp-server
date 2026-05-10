@@ -20,8 +20,13 @@ import {
   MempoolApi,
   getMempoolAddressUrl,
   getMempoolTxUrl,
+  getBitcoinProvider,
   type UTXO,
 } from "../services/mempool-api.js";
+import {
+  getBitcoinCoreClient,
+  isBitcoinCoreConfigured,
+} from "../services/bitcoin-core.js";
 import { buildAndSignBtcTransaction } from "../transactions/bitcoin-builder.js";
 import { OrdinalIndexer } from "../services/ordinal-indexer.js";
 
@@ -565,6 +570,67 @@ export function registerBitcoinTools(server: McpServer): void {
             ].sort(),
           },
           explorerUrl: getMempoolAddressUrl(btcAddress, NETWORK),
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ── Bitcoin Node Info ──────────────────────────────────────────────
+  // Shows whether system is using sovereign Bitcoin Core or mempool.space
+  server.registerTool(
+    "get_btc_node_info",
+    {
+      description:
+        "Show Bitcoin data source status. " +
+        "Returns whether you are using a sovereign Bitcoin Core node " +
+        "(set BTC_CORE_PASSWORD in .env) or mempool.space API (fallback). " +
+        "If Bitcoin Core is connected, shows sync status, peers, and chain info.",
+    },
+    async () => {
+      try {
+        const configured = isBitcoinCoreConfigured();
+
+        if (!configured) {
+          return createJsonResponse({
+            source:   "mempool.space",
+            sovereign: false,
+            message:
+              "Using mempool.space API (third-party). " +
+              "To activate sovereignty: set BTC_CORE_PASSWORD in .env and run Bitcoin Core locally. " +
+              "bitcoin.conf: server=1, prune=5500, rpcuser=bitcoin, rpcpassword=<password>",
+            setup: {
+              step1: "Download Bitcoin Core: https://bitcoincore.org",
+              step2: "Add to bitcoin.conf: server=1, prune=5500, rpcuser=bitcoin, rpcpassword=YOUR_PASSWORD",
+              step3: "Add to .env: BTC_CORE_PASSWORD=YOUR_PASSWORD",
+              step4: "Restart MCP server",
+              disk_required: "~10GB (pruned) or ~600GB (full node)",
+              cost: "$0 — open source, self-hosted",
+            },
+          });
+        }
+
+        // Bitcoin Core is configured — fetch node info
+        const client = getBitcoinCoreClient(NETWORK);
+        const info   = await client.getNodeInfo();
+
+        return createJsonResponse({
+          source:    "bitcoin-core",
+          sovereign: true,
+          network:   NETWORK,
+          node: {
+            version:  info.version,
+            chain:    info.chain,
+            blocks:   info.blocks,
+            peers:    info.peers,
+            synced:   info.synced,
+            syncPct:  info.syncPct,
+            pruned:   info.pruned,
+          },
+          message: info.synced
+            ? "✅ Bitcoin Core node is fully synced. You ARE the network. Don't trust, verify."
+            : `⏳ Syncing... ${info.syncPct}% complete. Wait for IBD to finish.`,
         });
       } catch (error) {
         return createErrorResponse(error);

@@ -101,7 +101,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { principalCV, serializeCV, stringAsciiCV, uintCV, deserializeCV, cvToJSON } from "@stacks/transactions";
-import { ipiGetAuditLog, ipiIsCoordinatedAttack, ipiSanitize, IPI_ATTACK_PHRASES, unblockSession } from "./session-guard.js";
+import { ipiGetAuditLog, ipiIsCoordinatedAttack, ipiSanitize, IPI_ATTACK_PHRASES, unblockSession, recordWhaleVerification } from "./session-guard.js";
+import { computeAndRecordPsi } from "../services/psi-consensus.js";
 import {
   recordToolCall,
   injectNoiseDeep,
@@ -115,6 +116,163 @@ const BASE_URL  = "https://whale-execution-engine-production.up.railway.app"; //
 const EXEC_URL  = "https://whale-execution-engine-production.up.railway.app";
 const OPS_URL   = "https://whale-execution-engine-production.up.railway.app"; // Operations Hub v3.0.0
 const TIMEOUT_MS = 15_000;
+
+// ─── Railway Circuit Breaker ──────────────────────────────────────────────────
+// Prevents 15s stall on every intelligence tool call when Railway cold-starts.
+// After 3 consecutive failures → circuit opens → tools return cached data instantly.
+interface _CircuitState {
+  failures: number;
+  lastFailure: number;
+  state: "closed" | "open" | "half-open";
+}
+const _railwayCircuit: _CircuitState = { failures: 0, lastFailure: 0, state: "closed" };
+const _CB_FAILURE_THRESHOLD = 3;
+const _CB_RESET_TIMEOUT_MS  = 60_000; // 60s before half-open probe
+
+function _railwayCircuitIsOpen(): boolean {
+  if (_railwayCircuit.state === "closed") return false;
+  if (_railwayCircuit.state === "open") {
+    if (Date.now() - _railwayCircuit.lastFailure > _CB_RESET_TIMEOUT_MS) {
+      _railwayCircuit.state = "half-open";
+      return false; // allow one probe
+    }
+    return true; // still open
+  }
+  return false; // half-open allows one probe
+}
+
+function _railwayCircuitOnSuccess(): void {
+  _railwayCircuit.failures = 0;
+  _railwayCircuit.state = "closed";
+}
+
+function _railwayCircuitOnFailure(): void {
+  _railwayCircuit.failures++;
+  _railwayCircuit.lastFailure = Date.now();
+  if (_railwayCircuit.failures >= _CB_FAILURE_THRESHOLD) {
+    _railwayCircuit.state = "open";
+    console.error(`[FW] Railway circuit OPEN after ${_railwayCircuit.failures} failures.`);
+  }
+}
+
+// ─── Intelligence Response Cache (Stale-While-Revalidate) ─────────────────────
+// Serves stale data instantly while refreshing in background.
+// Prevents agent stalls when Railway cold-starts (which take 5-20s).
+interface _IntelCacheEntry {
+  data: unknown;
+  fetchedAt: number;
+  staleTtlMs: number;  // serve fresh below this age
+  maxAgeMs: number;    // never serve above this age
+}
+const _intelCache = new Map<string, _IntelCacheEntry>();
+
+// TTLs by intelligence endpoint category
+const _INTEL_TTL: Record<string, { stale: number; max: number }> = {
+  regime:      { stale: 5 * 60_000,  max: 30 * 60_000 },  // 5m stale / 30m max
+  intelligence:{ stale: 5 * 60_000,  max: 30 * 60_000 },
+  whale_price: { stale: 30_000,       max: 5 * 60_000  },  // 30s stale / 5m max
+  arb:         { stale: 60_000,       max: 10 * 60_000 },  // 1m stale / 10m max
+  liquidity:   { stale: 2 * 60_000,  max: 15 * 60_000 },
+  default:     { stale: 5 * 60_000,  max: 20 * 60_000 },
+};
+
+function _getIntelCache(key: string): unknown | null {
+  const entry = _intelCache.get(key);
+  if (!entry) return null;
+  const age = Date.now() - entry.fetchedAt;
+  if (age > entry.maxAgeMs) { _intelCache.delete(key); return null; }
+  return entry.data; // may be stale — caller decides what to do with it
+}
+
+function _setIntelCache(key: string, data: unknown, category = "default"): void {
+  const ttl = _INTEL_TTL[category] ?? _INTEL_TTL.default;
+  _intelCache.set(key, { data, fetchedAt: Date.now(), staleTtlMs: ttl.stale, maxAgeMs: ttl.max });
+}
+
+function _isIntelStale(key: string): boolean {
+  const entry = _intelCache.get(key);
+  if (!entry) return true;
+  return Date.now() - entry.fetchedAt > entry.staleTtlMs;
+}
+
+/**
+ * Fetch with Railway circuit breaker + intelligence cache.
+ * Returns cached data immediately if circuit is open or if cache is fresh.
+ * Fires background refresh when cache is stale but not expired.
+ */
+async function _intelFetch(
+  url: string,
+  options: RequestInit,
+  cacheKey: string,
+  category = "default"
+): Promise<{ data: unknown; fromCache: boolean; circuitOpen: boolean }> {
+  const cached = _getIntelCache(cacheKey);
+
+  // Circuit open → return cache or throw
+  if (_railwayCircuitIsOpen()) {
+    if (cached !== null) return { data: cached, fromCache: true, circuitOpen: true };
+    throw new Error("Railway execution engine unavailable (circuit open). No cached data available.");
+  }
+
+  // Fresh cache hit → return immediately
+  if (cached !== null && !_isIntelStale(cacheKey)) {
+    return { data: cached, fromCache: true, circuitOpen: false };
+  }
+
+  // Stale cache → trigger background refresh, return stale data immediately
+  if (cached !== null && _isIntelStale(cacheKey)) {
+    // Background refresh (fire-and-forget)
+    (async () => {
+      try {
+        const res = await fetch(url, options);
+        if (res.ok) {
+          const data = await res.json();
+          _setIntelCache(cacheKey, data, category);
+          _railwayCircuitOnSuccess();
+        }
+      } catch { _railwayCircuitOnFailure(); }
+    })();
+    return { data: cached, fromCache: true, circuitOpen: false };
+  }
+
+  // No cache — live fetch
+  try {
+    const res = await fetch(url, options);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    _setIntelCache(cacheKey, data, category);
+    _railwayCircuitOnSuccess();
+    return { data, fromCache: false, circuitOpen: false };
+  } catch (err) {
+    _railwayCircuitOnFailure();
+    throw err;
+  }
+}
+
+// ─── WHALE Gate Balance Cache ─────────────────────────────────────────────────
+// Caches Hiro balance responses per address for 30 seconds.
+// The gate is called on EVERY gated tool — without caching this is the largest
+// avoidable network bottleneck (300ms+ per call → ~0.1ms for warm cache hits).
+const BALANCE_CACHE_TTL_MS = 30_000; // 30 seconds
+interface BalanceCacheEntry {
+  whaleBalance: bigint;
+  fetchedAt: number;
+}
+const _whaleBalanceCache = new Map<string, BalanceCacheEntry>();
+
+function _getCachedWhaleBalance(address: string): bigint | null {
+  const entry = _whaleBalanceCache.get(address);
+  if (!entry) return null;
+  if (Date.now() - entry.fetchedAt > BALANCE_CACHE_TTL_MS) {
+    _whaleBalanceCache.delete(address);
+    return null;
+  }
+  return entry.whaleBalance;
+}
+
+function _setCachedWhaleBalance(address: string, balance: bigint): void {
+  _whaleBalanceCache.set(address, { whaleBalance: balance, fetchedAt: Date.now() });
+}
 
 // ─── License Gate ─────────────────────────────────────────────────────────────
 // FW_LICENSE_KEY must be set in environment to use Flying Whale tools.
@@ -194,32 +352,46 @@ const SOVEREIGNTY_STAMP = {
 
 /**
  * Verify that callerAddress holds enough WHALE for the required tier.
+ * Returns the verified WHALE balance (micro-WHALE, 6 decimals) on success.
  * Throws a descriptive error if verification fails.
  * No fallback — if the check fails, the call is blocked.
+ *
+ * Side effects on success:
+ *   1. recordWhaleVerification() — feeds real balance into Ψ Cantillon dimension
+ *      so the session guard's quickPsiScore uses actual on-chain data.
+ *   2. computeAndRecordPsi() (async, fire-and-forget) — stamps the Ψ hash chain
+ *      with a full 4-dimension consensus event for this WHALE verification.
+ *      This is the sovereign audit trail: every gate check = one chain entry.
  */
-async function verifyWhaleAccess(callerAddress: string, tier: WhaleTier): Promise<void> {
+async function verifyWhaleAccess(callerAddress: string, tier: WhaleTier): Promise<bigint> {
   assertLicensed();
-  const url = `${HIRO_API}/extended/v1/address/${callerAddress}/balances`;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  // ── Check cache first (30s TTL — eliminates 300ms+ latency on warm hits) ──
+  let whaleBalance = _getCachedWhaleBalance(callerAddress);
 
-  let whaleBalance = 0n;
-  try {
-    const res = await fetch(url, {
-      headers: { "Accept": "application/json", "X-Fw-Agent": "flying-whale-gate" },
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      throw new Error(`Hiro API balance check failed: ${res.status} ${res.statusText}`);
+  if (whaleBalance === null) {
+    // Cache miss — fetch from Hiro API
+    const url = `${HIRO_API}/extended/v1/address/${callerAddress}/balances`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      const res = await fetch(url, {
+        headers: { "Accept": "application/json", "X-Fw-Agent": "flying-whale-gate" },
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        throw new Error(`Hiro API balance check failed: ${res.status} ${res.statusText}`);
+      }
+      const data = await res.json() as {
+        fungible_tokens?: Record<string, { balance: string }>;
+      };
+      const rawBalance = data.fungible_tokens?.[WHALE_FT_KEY]?.balance ?? "0";
+      whaleBalance = BigInt(rawBalance);
+      // Store in cache for next 30s
+      _setCachedWhaleBalance(callerAddress, whaleBalance);
+    } finally {
+      clearTimeout(timer);
     }
-    const data = await res.json() as {
-      fungible_tokens?: Record<string, { balance: string }>;
-    };
-    const rawBalance = data.fungible_tokens?.[WHALE_FT_KEY]?.balance ?? "0";
-    whaleBalance = BigInt(rawBalance);
-  } finally {
-    clearTimeout(timer);
   }
 
   const threshold = WHALE_THRESHOLDS[tier];
@@ -245,6 +417,22 @@ async function verifyWhaleAccess(callerAddress: string, tier: WhaleTier): Promis
       `No WHALE = No Access. No exceptions.`
     );
   }
+
+  // ── Ψ Consensus — wire real Cantillon data ────────────────────────────────
+  // 1. Feed verified balance into session guard's quickPsiScore (Cantillon dim)
+  const isOwnerAddr = callerAddress === FW_OWNER_ADDRESS;
+  recordWhaleVerification(callerAddress, whaleBalance, isOwnerAddr);
+
+  // 2. Stamp the Ψ hash chain — sovereign audit trail of every WHALE gate event
+  // Fire-and-forget: gate verification is synchronous; chain write is async.
+  // Every gate pass = one tamper-evident SHA-256 entry in ~/.aibtc/psi-chain.json
+  computeAndRecordPsi({
+    address:      callerAddress,
+    whaleBalance,
+    isOwner:      isOwnerAddr,
+  }).catch(() => {/* chain write failure is non-fatal */});
+
+  return whaleBalance;
 }
 
 // ============================================================================

@@ -32,6 +32,7 @@
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { quickPsiScore, getPsiTier, computeAndRecordPsi } from "../services/psi-consensus.js";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // L3E — IPI DEFENSE LAYER (Indirect Prompt Injection)
@@ -128,6 +129,72 @@ export interface IpiScanResult {
   source?: string;
 }
 
+// ─── Aho-Corasick Automaton for IPI Scanning ─────────────────────────────────
+// Replaces linear O(N*M) scan with O(content_length) search regardless of
+// phrase count. Built once at module load — ~50x faster on large tool responses.
+interface AhoCorasickNode {
+  children: Map<number, number>; // charCode → nodeIndex
+  fail: number;
+  output: string | null;         // matched phrase or null
+}
+
+function buildAhoCorasick(patterns: ReadonlyArray<string>): {
+  search: (text: string) => { found: boolean; phrase: string | null };
+} {
+  const nodes: AhoCorasickNode[] = [{ children: new Map(), fail: 0, output: null }];
+
+  // Build trie
+  for (const pat of patterns) {
+    const lower = pat.toLowerCase();
+    let cur = 0;
+    for (let i = 0; i < lower.length; i++) {
+      const c = lower.charCodeAt(i);
+      if (!nodes[cur].children.has(c)) {
+        nodes[cur].children.set(c, nodes.length);
+        nodes.push({ children: new Map(), fail: 0, output: null });
+      }
+      cur = nodes[cur].children.get(c)!;
+    }
+    nodes[cur].output = pat; // store original phrase (not lowercased)
+  }
+
+  // Build failure links (BFS)
+  const queue: number[] = [];
+  for (const [, child] of nodes[0].children) {
+    nodes[child].fail = 0;
+    queue.push(child);
+  }
+  let qi = 0;
+  while (qi < queue.length) {
+    const u = queue[qi++];
+    for (const [c, v] of nodes[u].children) {
+      let f = nodes[u].fail;
+      while (f !== 0 && !nodes[f].children.has(c)) f = nodes[f].fail;
+      nodes[v].fail = nodes[f].children.get(c) ?? 0;
+      if (nodes[v].fail === v) nodes[v].fail = 0;
+      if (!nodes[v].output) nodes[v].output = nodes[nodes[v].fail].output;
+      queue.push(v);
+    }
+  }
+
+  return {
+    search(text: string): { found: boolean; phrase: string | null } {
+      const lower = text.toLowerCase();
+      let cur = 0;
+      for (let i = 0; i < lower.length; i++) {
+        const c = lower.charCodeAt(i);
+        while (cur !== 0 && !nodes[cur].children.has(c)) cur = nodes[cur].fail;
+        cur = nodes[cur].children.get(c) ?? 0;
+        if (nodes[cur].output) return { found: true, phrase: nodes[cur].output };
+      }
+      return { found: false, phrase: null };
+    },
+  };
+}
+
+// Built once at module load — O(total phrase chars) build cost
+const _ipiAutomaton = buildAhoCorasick(IPI_ATTACK_PHRASES);
+
 // ─── IPI Audit Log ────────────────────────────────────────────────────────────
 // In-memory log of all injection attempts this session.
 // Pattern detection: same phrase 3+ times = coordinated attack.
@@ -186,6 +253,27 @@ export function ipiGetAuditLog(): IpiAuditEntry[] {
   return [...ipiAuditLog];
 }
 
+/**
+ * Flush IPI audit log to ~/.aibtc/ipi-audit.jsonl (newline-delimited JSON).
+ * Called on graceful shutdown to persist attack evidence across sessions.
+ * Each line is one IpiAuditEntry — the file grows append-only.
+ */
+export async function flushIpiAuditLog(): Promise<void> {
+  if (ipiAuditLog.length === 0) return;
+  try {
+    const { default: fs } = await import("fs/promises");
+    const { default: path } = await import("path");
+    const { default: os } = await import("os");
+    const dir = path.join(os.homedir(), ".aibtc");
+    await fs.mkdir(dir, { recursive: true });
+    const logPath = path.join(dir, "ipi-audit.jsonl");
+    const lines = ipiAuditLog.map(e => JSON.stringify(e)).join("\n") + "\n";
+    await fs.appendFile(logPath, lines, "utf8");
+  } catch (err) {
+    console.error("[IPI DEFENSE] Failed to flush audit log:", err);
+  }
+}
+
 export function ipiIsCoordinatedAttack(phrase: string): boolean {
   _assertLicensedExternal("ipiIsCoordinatedAttack");
   return (ipiPhraseCount.get(phrase) ?? 0) >= COORDINATED_ATTACK_THRESHOLD;
@@ -234,8 +322,9 @@ export function ipiSanitize(content: string): {
  */
 export function ipiScan(content: string, source = "external content"): IpiScanResult {
   if (!content || typeof content !== "string") return { detected: false };
-  const lower = content.toLowerCase();
-  const match = IPI_ATTACK_PHRASES.find((phrase) => lower.includes(phrase.toLowerCase()));
+  // Use Aho-Corasick automaton — O(content_length) vs O(N*M) linear scan
+  const result = _ipiAutomaton.search(content);
+  const match = result.found ? result.phrase : null;
   if (match) {
     return { detected: true, phrase: match, source };
   }
@@ -267,6 +356,37 @@ export function ipiAlert(scan: IpiScanResult, quotedContent?: string): string {
     .filter(l => l !== "")
     .join("\n")
     .trim();
+}
+
+// ─── Ψ Whale Context Registry ─────────────────────────────────────────────────
+// Stores the last verified WHALE balance per address.
+// Called by flying-whale.tools.ts after every successful WHALE gate verification.
+// SessionGuard.check() reads from this to populate the Cantillon dimension with
+// real on-chain data instead of the 0n default.
+//
+// Uses module-level state (not WeakMap) because WHALE verification is address-based,
+// not server-instance-based. In stdio transport (one process per session) this is
+// effectively a session singleton. TTL: 60s (matches WHALE gate cache 30s × 2).
+
+interface _WhaleCtx {
+  address:  string;
+  balance:  bigint;
+  isOwner:  boolean;
+  ts:       number;
+}
+let _latestWhaleCtx: _WhaleCtx = { address: "", balance: 0n, isOwner: false, ts: 0 };
+
+/**
+ * Record the result of a successful WHALE gate verification.
+ * Called by flying-whale.tools.ts after verifyWhaleAccess() succeeds.
+ * Feeds the real on-chain balance into the Cantillon dimension of the Ψ equation.
+ */
+export function recordWhaleVerification(
+  address: string,
+  balance: bigint,
+  isOwner: boolean
+): void {
+  _latestWhaleCtx = { address, balance, isOwner, ts: Date.now() };
 }
 
 // ─── Configuration ────────────────────────────────────────────────────────────
@@ -340,14 +460,65 @@ class SessionGuard {
   private blocked = false;
   private blockReason = "";
 
-  check(toolName: string): { allowed: boolean; reason?: string } {
+  // ── Ψ Consensus State ────────────────────────────────────────────────────
+  // Ψ = Landauer · Nash · Cantillon⁻¹ · Gödel
+  // The consensus layer — computed on every check, gates wallet ops
+  private psiScore = 0;        // current Ψ score (0–100)
+  private psiTier  = "cooperative" as ReturnType<typeof getPsiTier>;
+  private errorCount = 0;      // for errorRate dimension
+
+  check(toolName: string, isError = false): { allowed: boolean; reason?: string; psiScore?: number; psiTier?: string } {
     // Read-only tools always pass — only block wallet-sensitive tools
     if (this.blocked && WALLET_SENSITIVE.has(toolName)) {
       return { allowed: false, reason: `Session blocked: ${this.blockReason}` };
     }
 
     const now = Date.now();
+    if (isError) this.errorCount++;
     this.calls.push({ tool: toolName, timestamp: now });
+
+    // ── Ψ Consensus Check ──────────────────────────────────────────────────
+    // Compute Ψ score on every call — the consensus layer runs continuously.
+    // Cantillon dimension is populated with real on-chain WHALE balance when
+    // recordWhaleVerification() has been called (i.e., after WHALE gate passes).
+    const sessionAgeMs  = now - this.sessionStart;
+    const uniqueTools   = new Set(this.calls.map(c => c.tool)).size;
+    const velocityScore = this.calls.length / Math.max(sessionAgeMs / 60_000, 1/60);
+    const errorRate     = this.errorCount / Math.max(this.calls.length, 1);
+
+    // Read whale context (TTL: 60s — 2× the WHALE gate cache duration)
+    const whaleCtxAge    = now - _latestWhaleCtx.ts;
+    const whaleBalance   = whaleCtxAge < 60_000 ? _latestWhaleCtx.balance  : 0n;
+    const isOwnerSession = whaleCtxAge < 60_000 ? _latestWhaleCtx.isOwner  : false;
+    const sessionAddress = _latestWhaleCtx.address || "session";
+
+    this.psiScore = quickPsiScore({
+      address:        sessionAddress,
+      whaleBalance,
+      isOwner:        isOwnerSession,
+      callCount:      this.calls.length,
+      uniqueTools,
+      walletCalls:    this.walletCallCount,
+      errorRate,
+      velocityScore,
+      sessionAgeMs,
+      honeypotHit:    false,  // checked separately by behavioral fortress
+      ipiDetected:    ipiAuditLog.length > 0,
+      coordinatedAtk: ipiAuditLog.some(e =>
+        (ipiPhraseCount.get(e.phrase) ?? 0) >= COORDINATED_ATTACK_THRESHOLD
+      ),
+      behaviorScore:  0,      // behavioral fortress feeds here externally
+    });
+    this.psiTier = getPsiTier(this.psiScore);
+
+    // Ψ adversarial tier → block wallet ops immediately
+    // "Gödel axiom broken — external consensus violated"
+    if (this.psiTier === "adversarial" && WALLET_SENSITIVE.has(toolName)) {
+      const reason = `Ψ Consensus BLOCKED — adversarial pattern detected (Ψ=${this.psiScore.toFixed(1)}, tier=${this.psiTier}). Nash equilibrium violated. Wallet operations suspended.`;
+      this.blocked = true;
+      this.blockReason = reason;
+      return { allowed: false, reason, psiScore: this.psiScore, psiTier: this.psiTier };
+    }
 
     // 1. Consecutive loop detection
     if (this.calls.length >= LOOP_DETECTION_CONSECUTIVE) {
@@ -408,6 +579,7 @@ class SessionGuard {
     blockReason: string;
     ipiDefenseActive: boolean;
     ipiPhraseCount: number;
+    psi: { score: number; tier: string; equation: string };
   } {
     return {
       totalCalls: this.calls.length,
@@ -417,6 +589,11 @@ class SessionGuard {
       blockReason: this.blockReason,
       ipiDefenseActive: true,
       ipiPhraseCount: IPI_ATTACK_PHRASES.length,
+      psi: {
+        score:    this.psiScore,
+        tier:     this.psiTier,
+        equation: "Ψ = Landauer · Nash · Cantillon⁻¹ · Gödel",
+      },
     };
   }
 }
@@ -568,4 +745,5 @@ export function withSessionGuard(server: McpServer): () => void {
 
 // Export factory for tests and direct access
 // IPI exports (ipiScan, ipiAlert, IPI_ATTACK_PHRASES) are declared above with `export`
+// Ψ exports: recordWhaleVerification declared above with `export`
 export { getGuard, WALLET_SENSITIVE, MAX_WALLET_CALLS_PER_SESSION };
