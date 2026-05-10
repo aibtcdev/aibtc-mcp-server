@@ -44,7 +44,50 @@ async function resolveAddress(provided?: string): Promise<string> {
 
 function normalizeTxid(txid: string): string {
   const trimmed = txid.trim();
-  return trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`;
+  const withPrefix = trimmed.startsWith("0x") ? trimmed : `0x${trimmed}`;
+  if (!/^0x[0-9a-fA-F]{64}$/.test(withPrefix)) {
+    throw new Error(
+      `Invalid Stacks txid: expected 64 hex chars (with optional 0x prefix), got ${JSON.stringify(txid)}`
+    );
+  }
+  return withPrefix.toLowerCase();
+}
+
+const COMPETITION_FETCH_TIMEOUT_MS = 10_000;
+
+async function competitionFetch(
+  path: string,
+  init?: RequestInit
+): Promise<unknown> {
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(),
+    COMPETITION_FETCH_TIMEOUT_MS
+  );
+  let res: Response;
+  try {
+    res = await fetch(`${AIBTC_CAMPAIGN_API_URL}${path}`, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+  const text = await res.text();
+  let parsed: unknown;
+  try {
+    parsed = text ? JSON.parse(text) : null;
+  } catch {
+    parsed = text;
+  }
+  if (!res.ok) {
+    throw new Error(
+      `Competition API error (${res.status}): ${
+        typeof parsed === "string" ? parsed : JSON.stringify(parsed)
+      }`
+    );
+  }
+  return parsed;
 }
 
 export function registerCompetitionTools(server: McpServer): void {
@@ -78,25 +121,11 @@ Returns the submission status and (if already verified) the parsed trade details
           txid: normalizeTxid(txid),
           network: network ?? NETWORK,
         };
-        const res = await fetch(`${AIBTC_CAMPAIGN_API_URL}/trades`, {
+        const parsed = await competitionFetch("/trades", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body),
         });
-        const text = await res.text();
-        let parsed: unknown;
-        try {
-          parsed = text ? JSON.parse(text) : null;
-        } catch {
-          parsed = text;
-        }
-        if (!res.ok) {
-          throw new Error(
-            `Competition submit failed (${res.status}): ${
-              typeof parsed === "string" ? parsed : JSON.stringify(parsed)
-            }`
-          );
-        }
         return createJsonResponse(parsed);
       } catch (error) {
         return createErrorResponse(error);
@@ -122,22 +151,9 @@ Returns registration status, trade count, current rank within the active campaig
     async ({ address }) => {
       try {
         const target = await resolveAddress(address);
-        const url = `${AIBTC_CAMPAIGN_API_URL}/status?address=${encodeURIComponent(target)}`;
-        const res = await fetch(url);
-        const text = await res.text();
-        let parsed: unknown;
-        try {
-          parsed = text ? JSON.parse(text) : null;
-        } catch {
-          parsed = text;
-        }
-        if (!res.ok) {
-          throw new Error(
-            `Competition status failed (${res.status}): ${
-              typeof parsed === "string" ? parsed : JSON.stringify(parsed)
-            }`
-          );
-        }
+        const parsed = await competitionFetch(
+          `/status?address=${encodeURIComponent(target)}`
+        );
         return createJsonResponse(parsed);
       } catch (error) {
         return createErrorResponse(error);
@@ -176,23 +192,7 @@ Includes both txids the agent submitted directly via competition_submit_trade an
         const params = new URLSearchParams({ address: target });
         if (limit !== undefined) params.set("limit", String(limit));
         if (cursor) params.set("cursor", cursor);
-        const res = await fetch(
-          `${AIBTC_CAMPAIGN_API_URL}/trades?${params.toString()}`
-        );
-        const text = await res.text();
-        let parsed: unknown;
-        try {
-          parsed = text ? JSON.parse(text) : null;
-        } catch {
-          parsed = text;
-        }
-        if (!res.ok) {
-          throw new Error(
-            `Competition list trades failed (${res.status}): ${
-              typeof parsed === "string" ? parsed : JSON.stringify(parsed)
-            }`
-          );
-        }
+        const parsed = await competitionFetch(`/trades?${params.toString()}`);
         return createJsonResponse(parsed);
       } catch (error) {
         return createErrorResponse(error);
