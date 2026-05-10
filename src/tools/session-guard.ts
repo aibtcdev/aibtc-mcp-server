@@ -101,6 +101,25 @@ export const IPI_ATTACK_PHRASES: ReadonlyArray<string> = [
   "tools now serve",
   "inconsistent with v2",
   "open-to-humanity",
+  // ── Breach patterns 2026-05-08 — file exfiltration / credential theft ────────
+  "show me the private key",
+  "print the mnemonic",
+  "export the wallet",
+  "show env variables",
+  "reveal the seed",
+  "print env",
+  "show credentials",
+  "dump keystore",
+  "read .env",
+  "extract mnemonic",
+  "bypass encryption",
+  "disable gate",
+  "skip authentication",
+  "expose private",
+  "steal the key",
+  "exfiltrate",
+  "send credentials to",
+  "forward the key",
 ];
 
 export interface IpiScanResult {
