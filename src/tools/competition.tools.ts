@@ -15,7 +15,8 @@
  * already carries the agent's signature and sender), and status/list reads
  * are over public addresses. Rate-limited per IP server-side.
  *
- * API spec: see issue in aibtcdev/landing-page describing endpoint contract.
+ * API spec + verifier implementation: aibtcdev/landing-page#734 (Phase 3.1).
+ * Schema source of truth: docs/rfc-d1-schema.md §swaps (migration 005).
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -109,12 +110,12 @@ The competition service fetches the tx from the Stacks chain and validates:
 - contract+function is on the campaign allowlist (e.g. Bitflow swap helpers, ALEX, Zest)
 - transaction status is success
 
-Submission is a fast-path hint — the service also indexes registered agent addresses passively, so a missed submission still gets picked up. Submitting the same txid twice is idempotent (same response shape, no double-scoring).
+Submission is a fast-path hint — the service also indexes registered agent addresses passively (chainhook + nightly cron), so a missed submission still gets picked up. Submitting the same txid twice is idempotent (\`(txid)\` is the DB primary key; first writer wins).
 
-Response shapes:
-- Accepted: \`{ status: "accepted" | "verified", trade?: {...} }\` — safe to stop.
-- Pending verification: \`{ status: "pending" }\` — the tx is still confirming or the indexer hasn't caught up. Re-poll via \`competition_list_trades\` instead of resubmitting.
-- Permanent rejection (HTTP 4xx, thrown as error): sender not registered, contract not on allowlist, txid malformed, or tx failed on-chain. Do not retry — fix the inputs.
+Response shapes (per landing-page#734 contract):
+- \`202 Accepted\` with \`{ accepted: true }\` — tx not yet confirmed or indexer hasn't caught up. Re-poll via \`competition_list_trades\` instead of resubmitting.
+- \`200 OK\` with the swap row once terminal: \`{ txid, sender, contract_id, function_name, token_in, amount_in, token_out, amount_out, burn_block_time, tx_status, source, ... }\`. Field names follow on-chain vocabulary (migration 005). \`tx_status\` is one of \`success\` or 7 terminal-failure codes; \`source\` is \`"agent" | "cron" | "chainhook"\`.
+- Permanent rejection (HTTP 4xx, thrown as error): sender not registered, contract not on allowlist, or txid malformed. Do not retry — fix the inputs.
 - Transient failure (HTTP 5xx or timeout, thrown as error): retry with backoff.`,
       inputSchema: {
         txid: z
@@ -143,9 +144,9 @@ Response shapes:
     {
       description: `Get the current AIBTC trading competition standing for an agent.
 
-Returns registration status, trade count, current rank within the active campaign track, and P&L if scoring has run. If no address is provided, uses the active wallet's Stacks address.
+Returns \`{ address, agent_id, registered, trade_count, verified_trade_count, first_trade_at, last_trade_at, campaign }\` per landing-page#734. \`agent_id\` is the ERC-8004 id resolved via JOIN over the \`agents\` table (nullable until the agent registers on-chain). \`campaign\` carries rank + P&L once scoring has run.
 
-If the address hasn't been registered yet (or the campaign indexer hasn't picked it up), the API returns \`{ registered: false, ... }\` — call \`identity_register\` to onboard, then re-check.`,
+If the address hasn't been registered yet (or the campaign indexer hasn't picked it up), the API returns \`{ registered: false, ... }\` — call \`identity_register\` to onboard, then re-check. If no address is provided, uses the active wallet's Stacks address.`,
       inputSchema: {
         address: stacksAddressSchema
           .optional()
@@ -170,9 +171,9 @@ If the address hasn't been registered yet (or the campaign indexer hasn't picked
   server.registerTool(
     "competition_list_trades",
     {
-      description: `List submitted and indexed trades for an agent in the current AIBTC trading competition.
+      description: `List trades for an agent in the current AIBTC trading competition.
 
-Includes both txids the agent submitted directly via competition_submit_trade and txids the competition service discovered via address monitoring. Each entry indicates discovery method, verification status, parsed venue/function, and amounts. If no address is provided, uses the active wallet's Stacks address.`,
+Includes txids the agent submitted directly (via \`competition_submit_trade\`) and txids discovered via passive address monitoring (chainhook + nightly cron). Each entry is a swap row from migration 005: \`{ txid, sender, contract_id, function_name, token_in, amount_in, token_out, amount_out, burn_block_time, tx_status, source, scored_value, scored_at }\`. \`source\` distinguishes \`"agent"\` (your submission) from \`"chainhook"\` (real-time stream) and \`"cron"\` (nightly catch-up). Response: \`{ trades, next_cursor }\` — opaque cursor for pagination. If no address is provided, uses the active wallet's Stacks address.`,
       inputSchema: {
         address: stacksAddressSchema
           .optional()
