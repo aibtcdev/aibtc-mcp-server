@@ -6,6 +6,8 @@ import { sponsoredStxTransfer } from "../transactions/sponsor-builder.js";
 import { getExplorerTxUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse, resolveFee } from "../utils/index.js";
 import { sponsoredSchema } from "./schemas.js";
+import { checkAddressCompliance } from "./compliance.tools.js";
+import { recordOp } from "../services/ops-audit.js";
 
 export function registerTransferTools(server: McpServer): void {
   // Transfer STX
@@ -33,6 +35,17 @@ Example: To send 2 STX, use amount "2000000" (micro-STX).
       try {
         const account = await getAccount();
 
+        // فحص الامتثال القانوني قبل التحويل
+        const compliance = checkAddressCompliance(recipient);
+        if (!compliance.allowed) {
+          await recordOp({
+            type: "transfer_stx", from: account.address, to: recipient,
+            amount: `${BigInt(amount) / 1_000_000n} STX`, network: NETWORK,
+            result: "blocked", reason: compliance.reason,
+          });
+          return createErrorResponse(new Error(`محظور: ${compliance.reason}`));
+        }
+
         let result: TransferResult;
         if (sponsored) {
           // Sponsored: relay pays gas fees, so fee parameter is ignored
@@ -43,6 +56,13 @@ Example: To send 2 STX, use amount "2000000" (micro-STX).
         }
 
         const stxAmount = (BigInt(amount) / BigInt(1000000)).toString();
+
+        // تسجيل العملية في سجل التدقيق
+        await recordOp({
+          type: "transfer_stx", from: account.address, to: recipient,
+          amount: `${stxAmount} STX`, network: NETWORK,
+          result: "success", txid: result.txid,
+        });
 
         return createJsonResponse({
           success: true,

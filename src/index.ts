@@ -11,6 +11,7 @@ import { registerAllTools } from "./tools/index.js";
 import { NETWORK, API_URL } from "./config/index.js";
 import { redactSensitive } from "./utils/redact.js";
 import { initializeStorage } from "./utils/storage.js";
+import { computeUniversalState } from "./services/universal-bridge.js";
 
 const require = createRequire(import.meta.url);
 const packageJson = require("../package.json");
@@ -179,6 +180,8 @@ else if (process.argv.includes("--install") || process.argv.includes("install"))
 
   async function main() {
     await initializeStorage();
+    // الجسر الكوني يعمل عند الإقلاع — يتحقق من سلامة كل السلاسل
+    computeUniversalState().catch(() => { /* لا يوقف الإقلاع */ });
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error(`[flying-whale] v${packageJson.version} running on stdio`);

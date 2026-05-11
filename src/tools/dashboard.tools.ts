@@ -11,6 +11,7 @@ import { getStxBalance } from "../services/hiro-api.js";
 import { createMempoolApi } from "../services/mempool-api.js";
 import { viewSeedIdentity, getIdentityAuditLog, verifyIdentityAudit } from "../services/seed-identity.js";
 import { getUniversalSummary, verifyUniversalIntegrity } from "../services/universal-bridge.js";
+import { getOpsLog, verifyOpsIntegrity } from "../services/ops-audit.js";
 import { createJsonResponse } from "../utils/formatting.js";
 import { createErrorResponse } from "../utils/errors.js";
 import { NETWORK } from "../config/networks.js";
@@ -186,6 +187,46 @@ export function registerDashboardTools(server: McpServer): void {
             عملية:    e.operation,
             وقت:      new Date(e.timestamp).toISOString(),
             بصمة:     e.auditHash.slice(0, 16) + "...",
+          })),
+        });
+      } catch (err) {
+        return createErrorResponse(`${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  );
+
+  // ── سجل العمليات المالية ─────────────────────────────────────────────────
+  server.registerTool(
+    "my_ops",
+    {
+      description:
+        "سجل كل العمليات المالية — تحويلات STX وBTC وعقود. " +
+        "كل عملية موثقة بهاش لا يُزوَّر. لا شيء يحدث بدون علمك.",
+    },
+    async () => {
+      try {
+        const ops    = await getOpsLog(20);
+        const verify = await verifyOpsIntegrity();
+
+        if (ops.length === 0) {
+          return createJsonResponse({
+            status: "لا عمليات بعد",
+            ملاحظة: "كل تحويل STX أو BTC سيظهر هنا تلقائياً",
+          });
+        }
+
+        return createJsonResponse({
+          سلامة_السجل: verify.intact ? "✅ سليم" : `❌ ${verify.breach}`,
+          عدد_العمليات: verify.entries,
+          آخر_20_عملية: ops.map(e => ({
+            رقم:     e.index,
+            نوع:     e.type,
+            من:      e.from.slice(0, 12) + "...",
+            إلى:     e.to.slice(0, 12) + "...",
+            مبلغ:    e.amount,
+            نتيجة:   e.result === "success" ? "✅" : e.result === "blocked" ? "🚫" : "❌",
+            txid:    e.txid ? e.txid.slice(0, 16) + "..." : "—",
+            وقت:     new Date(e.timestamp).toISOString(),
           })),
         });
       } catch (err) {

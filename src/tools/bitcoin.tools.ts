@@ -16,6 +16,8 @@ import { z } from "zod";
 import { NETWORK } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { getWalletManager } from "../services/wallet-manager.js";
+import { checkAddressCompliance } from "./compliance.tools.js";
+import { recordOp } from "../services/ops-audit.js";
 import {
   MempoolApi,
   getMempoolAddressUrl,
@@ -289,6 +291,17 @@ export function registerBitcoinTools(server: McpServer): void {
     },
     async ({ recipient, amount, feeRate, includeOrdinals }) => {
       try {
+        // فحص الامتثال القانوني قبل التحويل
+        const compliance = checkAddressCompliance(recipient);
+        if (!compliance.allowed) {
+          await recordOp({
+            type: "transfer_btc", from: "wallet", to: recipient,
+            amount: `${amount} sat`, network: NETWORK,
+            result: "blocked", reason: compliance.reason,
+          });
+          return createErrorResponse(new Error(`محظور: ${compliance.reason}`));
+        }
+
         // Get wallet account (requires unlocked wallet)
         const walletManager = getWalletManager();
         const account = walletManager.getActiveAccount();
@@ -373,6 +386,17 @@ export function registerBitcoinTools(server: McpServer): void {
 
         // Broadcast the transaction
         const txid = await api.broadcastTransaction(txResult.txHex);
+
+        // تسجيل العملية في سجل التدقيق
+        await recordOp({
+          type: "transfer_btc",
+          from: account.btcAddress,
+          to: recipient,
+          amount: `${formatBtc(amount)}`,
+          network: NETWORK,
+          result: "success",
+          txid,
+        });
 
         const response: Record<string, unknown> = {
           success: true,
