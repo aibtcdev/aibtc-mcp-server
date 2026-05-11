@@ -77,10 +77,12 @@ describe("competition tools", () => {
     mockGetTransactionStatus.mockReset();
   });
 
-  it("submit_trade is idempotent: two calls with same txid return the same shape", async () => {
+  it("submit_trade is idempotent: two calls with same txid return the same result", async () => {
     const verifiedBody = {
-      status: "verified",
-      trade: { txid: VALID_TXID, venue: "bitflow" },
+      txid: VALID_TXID,
+      sender: "SP000000000000000000002Q6VF78",
+      tx_status: "success",
+      source: "agent",
     };
     fetchMock.mockImplementation(async () => jsonResponse(verifiedBody));
 
@@ -94,8 +96,8 @@ describe("competition tools", () => {
 
     expect(first.isError).toBeUndefined();
     expect(second.isError).toBeUndefined();
-    expect(first.content[0].text).toEqual(second.content[0].text);
-    expect(JSON.parse(first.content[0].text)).toEqual(verifiedBody);
+    expect(JSON.parse(first.content[0].text).result).toEqual(verifiedBody);
+    expect(JSON.parse(second.content[0].text).result).toEqual(verifiedBody);
 
     // Both calls hit POST /trades with the normalized txid in the body.
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -153,15 +155,54 @@ describe("competition tools", () => {
     expect(result.content[0].text.toLowerCase()).toContain("abort");
   });
 
-  it("gates submission when the tx is still pending on Stacks", async () => {
-    mockGetTransactionStatus.mockResolvedValue({ status: "pending" });
+  it("waits 30s and re-checks when the tx is pending, then submits once confirmed", async () => {
+    vi.useFakeTimers();
+    // First check: pending. After ~30s wait, second check: confirmed.
+    mockGetTransactionStatus
+      .mockResolvedValueOnce({ status: "pending" })
+      .mockResolvedValueOnce({ status: "success", block_height: 7929497 });
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({ txid: VALID_TXID, tx_status: "success", source: "agent" })
+    );
 
     const { server, tools } = createTrackingServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     registerCompetitionTools(server as any);
     const submit = tools.get("competition_submit_trade")!;
 
-    const result = await submit.handler({ txid: VALID_TXID });
+    const pending = submit.handler({ txid: VALID_TXID });
+    await vi.advanceTimersByTimeAsync(30_001);
+    const result = await pending;
+
+    expect(result.isError).toBeUndefined();
+    const body = JSON.parse(result.content[0].text);
+    expect(body.result).toMatchObject({ txid: VALID_TXID, tx_status: "success" });
+    expect(body.progress).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("status=pending"),
+        expect.stringContaining("waiting ~30s"),
+        expect.stringContaining("status=success"),
+        expect.stringContaining("Submitting"),
+      ])
+    );
+    expect(mockGetTransactionStatus).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives up after the 30s wait if tx is still pending", async () => {
+    vi.useFakeTimers();
+    mockGetTransactionStatus
+      .mockResolvedValueOnce({ status: "pending" })
+      .mockResolvedValueOnce({ status: "pending" });
+
+    const { server, tools } = createTrackingServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerCompetitionTools(server as any);
+    const submit = tools.get("competition_submit_trade")!;
+
+    const pending = submit.handler({ txid: VALID_TXID });
+    await vi.advanceTimersByTimeAsync(30_001);
+    const result = await pending;
 
     expect(result.isError).toBeUndefined();
     const body = JSON.parse(result.content[0].text);
@@ -170,7 +211,7 @@ describe("competition tools", () => {
       txid: VALID_TXID,
       tx_status: "pending",
     });
-    expect(body.message).toContain("pending");
+    expect(body.progress.length).toBeGreaterThanOrEqual(3);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -194,7 +235,7 @@ describe("competition tools", () => {
     const result = await submit.handler({ txid: VALID_TXID });
     expect(result.isError).toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(result.content[0].text).tx_status).toBe(
+    expect(JSON.parse(result.content[0].text).result.tx_status).toBe(
       "abort_by_post_condition"
     );
   });
