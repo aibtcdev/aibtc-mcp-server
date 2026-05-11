@@ -9,6 +9,8 @@ import {
   principalCV,
   noneCV,
   someCV,
+  listCV,
+  bufferCV,
 } from "@stacks/transactions";
 import { AlexSDK, Currency, type TokenInfo } from "alex-sdk";
 import { HiroApiService, getHiroApi } from "./hiro-api.js";
@@ -342,13 +344,58 @@ export class AlexDexService {
 // Zest Protocol v2 Service
 // ============================================================================
 
+// Feed IDs registered on-chain at SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-assets
+// (confirmed 2026-05-08 via v0-assets.status-multi reads — reconfirm if new assets are added)
+const ZEST_PYTH_FEED_IDS = [
+  "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43", // BTC/USD
+  "ec7a775f46379b5e943c3526b1c8d54cd49749176b0b98e02dde68d1bd335c17", // STX/USD
+  "eaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a", // USDC/USD
+] as const;
+
+// Zest v0.4 oracle-timestamp-fresh check allows 120s staleness; 10s broadcast margin
+const VAA_CACHE_TTL_MS = 110_000;
+
 export class ZestProtocolService {
   private hiro: HiroApiService;
   private contracts: ReturnType<typeof getZestContracts>;
+  private vaaCache: { value: ClarityValue; fetchedAt: number } | null = null;
 
   constructor(private network: Network) {
     this.hiro = getHiroApi(network);
     this.contracts = getZestContracts(network);
+  }
+
+  /**
+   * Fetch fresh signed Pyth VAAs for all 3 Zest-registered feeds (BTC/USD, STX/USD, USDC/USD).
+   *
+   * The contract expects (optional (list 3 (buff 8192))) where each element is a separate VAA.
+   * Hermes batches multiple feed IDs into one aggregate VAA by default, so we fetch each
+   * feed individually via Promise.all to get 3 discrete buffers.
+   *
+   * Caches for 110s (Zest max-staleness = 120s, 10s broadcast margin).
+   */
+  private async fetchZestPriceFeeds(): Promise<ClarityValue> {
+    const now = Date.now();
+    if (this.vaaCache && now - this.vaaCache.fetchedAt < VAA_CACHE_TTL_MS) {
+      return this.vaaCache.value;
+    }
+
+    const vaas = await Promise.all(
+      ZEST_PYTH_FEED_IDS.map(async (id) => {
+        const res = await fetch(
+          `https://hermes.pyth.network/v2/updates/price/latest?ids[]=${id}&encoding=hex`
+        );
+        if (!res.ok) throw new Error(`Hermes ${res.status} for feed ${id.slice(0, 8)}`);
+        const data = await res.json() as { binary: { data: string[] } };
+        const hex = data?.binary?.data?.[0];
+        if (!hex) throw new Error(`No VAA data returned for feed ${id.slice(0, 8)}`);
+        return bufferCV(Buffer.from(hex, "hex"));
+      })
+    );
+
+    const value = someCV(listCV(vaas));
+    this.vaaCache = { value, fetchedAt: now };
+    return value;
   }
 
   private ensureMainnet(): void {
@@ -654,9 +701,9 @@ export class ZestProtocolService {
     const [vaultAddr, vaultName] = parseContractIdTuple(assetConfig.vault);
 
     const functionArgs: ClarityValue[] = [
-      contractPrincipalCV(vaultAddr, vaultName),  // ft (zToken vault contract)
-      uintCV(amount),                              // amount of zTokens
-      noneCV(),                                    // price-feeds (use cached)
+      contractPrincipalCV(vaultAddr, vaultName),    // ft (zToken vault contract)
+      uintCV(amount),                                // amount of zTokens
+      await this.fetchZestPriceFeeds(),              // price-feeds: fresh Pyth VAAs for LTV validation
     ];
 
     // Post-condition: user sends zTokens to market-vault
@@ -705,11 +752,11 @@ export class ZestProtocolService {
     const expectedUnderlying = await this.getExpectedUnderlying(assetConfig, amount, account.address);
 
     const functionArgs: ClarityValue[] = [
-      contractPrincipalCV(vaultAddr, vaultName),  // ft (zToken / vault contract, NOT underlying)
-      uintCV(amount),                              // amount (zToken shares)
+      contractPrincipalCV(vaultAddr, vaultName),    // ft (zToken / vault contract, NOT underlying)
+      uintCV(amount),                                // amount (zToken shares)
       uintCV(expectedUnderlying > 0n ? (expectedUnderlying * 95n) / 100n : 0n),  // min-underlying (5% slippage tolerance)
-      noneCV(),                                    // receiver (none = tx-sender)
-      noneCV(),                                    // price-feeds (use cached)
+      noneCV(),                                      // receiver (none = tx-sender)
+      await this.fetchZestPriceFeeds(),              // price-feeds: fresh Pyth VAAs for LTV validation
     ];
 
     // Post-conditions (Deny mode requires ALL ft-transfers to be covered):
@@ -757,10 +804,10 @@ export class ZestProtocolService {
     const [assetAddr, assetName] = parseContractIdTuple(assetConfig.token);
 
     const functionArgs: ClarityValue[] = [
-      contractPrincipalCV(assetAddr, assetName),  // ft (token to borrow)
-      uintCV(amount),                              // amount
-      noneCV(),                                    // receiver (none = tx-sender)
-      noneCV(),                                    // price-feeds (use cached)
+      contractPrincipalCV(assetAddr, assetName),    // ft (token to borrow)
+      uintCV(amount),                                // amount
+      noneCV(),                                      // receiver (none = tx-sender)
+      await this.fetchZestPriceFeeds(),              // price-feeds: fresh Pyth VAAs required for LTV check
     ];
 
     // Post-condition: vault sends borrowed underlying to user
