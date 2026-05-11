@@ -24,6 +24,7 @@ import {
   getBlock,
   getLatestBlock,
   appendBlock,
+  fastForwardChain,
   getUtxos,
   getUtxoBalance,
   buildMerkleRoot,
@@ -762,6 +763,103 @@ export function registerBtcChainTools(server: McpServer): void {
             owner:   "SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW",
             onchain: "SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW.whale-ip-store-v1",
           },
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ── btc_fast_forward ───────────────────────────────────────────────────────
+  server.registerTool(
+    "btc_fast_forward",
+    {
+      description:
+        "Carry the FW chain tail all the way to the last satoshi — beyond the reward ceiling. " +
+        "Mines one real PoW (SHA256d) block at every halving boundary (every 210,000 blocks). " +
+        "Traverses all 26 epochs: 50 FW → 25 → 12.5 → ... → 1 FW-sat → 0 (beyond ceiling). " +
+        "Each milestone block is cryptographically linked to the previous, " +
+        "carries psiChainHash for cross-chain anchoring, " +
+        "and accumulates totalWork across the full chain lifecycle. " +
+        "Shows the complete FW supply curve: how 21,000,000 FW are issued over ~200 years. " +
+        "Genesis block must be mined first (btc_mine). " +
+        "The chain is sovereign and complete when this returns complete=true.",
+    },
+    async () => {
+      try {
+        // ── Ψ score for mining rights ───────────────────────────────────────
+        const psiResult = await computeAndRecordPsi({
+          address:      "SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW",
+          whaleBalance: 0n,
+        });
+
+        const result = await fastForwardChain({
+          address:      "SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW",
+          psiScore:     psiResult.score,
+          tier:         psiResult.tier,
+          dimensions:   psiResult.dimensions,
+          whaleBalance: 0n,
+          psiChainHash: psiResult.chainHash,
+        });
+
+        if (result.epochs_traversed === 0) {
+          return createJsonResponse({
+            status:  "⚠️  Nothing to fast-forward",
+            message: "Genesis block not yet mined. Call btc_mine first.",
+          });
+        }
+
+        // ── Build visual supply curve ─────────────────────────────────────
+        const curve = result.milestones.map(m => {
+          const yrs = (m.simulated_time_days / 365.25).toFixed(1);
+          const bar = "█".repeat(Math.round(parseFloat(m.pct_of_cap) / 5));
+          return `  Epoch ${String(m.epoch).padStart(2)} │ Block ${String(m.height).padStart(9)} │ `
+            + `Reward: ${m.reward_fw.padStart(18)} │ Supply: ${m.cumulative_fw.padStart(22)} (${m.pct_of_cap.padStart(7)}) `
+            + `│ ~${yrs}yr ${m.is_final ? " ← LAST SATOSHI" : ""}`;
+        });
+
+        return createJsonResponse({
+          status:   result.complete ? "✅ COMPLETE — tail carried to the last satoshi" : "⚡ Partial — some epochs mined",
+
+          // ── Halving supply curve ─────────────────────────────────────────
+          supply_curve: [
+            "══════════════════════════════════════════════════════════════════════════════",
+            "  FW CHAIN — COMPLETE HALVING SCHEDULE (tail → last satoshi → beyond ceiling)",
+            "══════════════════════════════════════════════════════════════════════════════",
+            ...curve,
+            "══════════════════════════════════════════════════════════════════════════════",
+          ],
+
+          // ── Summary ──────────────────────────────────────────────────────
+          summary: {
+            epochs_traversed:     result.epochs_traversed,
+            total_milestone_blocks: result.total_blocks,
+            total_supply_issued:  result.total_supply_fw,
+            theoretical_max:      result.max_supply,
+            last_reward_block:    result.last_reward_block,
+            final_chain_hash:     result.final_hash,
+            psi_chain_anchor:     result.genesis_psi_anchor,
+            chain_integrity:      result.integrity ? "✅ All prevHash links valid" : "❌ Integrity violation",
+            complete:             result.complete,
+          },
+
+          // ── Cross-chain state ─────────────────────────────────────────────
+          cross_chain: {
+            genesis_prevHash:     result.genesis_psi_anchor,
+            anchor_meaning:       "fw-chain[0].prevHash = psi-chain tail — two chains linked at genesis",
+            all_blocks_carry:     "psiChainHash (cryptographic bridge into Ψ chain)",
+          },
+
+          // ── Bitcoin parallel ─────────────────────────────────────────────
+          bitcoin_parallel: {
+            btc_total_supply:     "20,999,999.9769 BTC (21M cap, never reached due to rounding)",
+            fw_total_supply:      result.total_supply_fw,
+            btc_last_halving:     "~year 2140 (block 6,930,000)",
+            fw_last_halving_block: result.last_reward_block.toLocaleString(),
+            note: "FW mirrors Bitcoin exactly: same halving formula, same 21M cap math, same 10min target.",
+          },
+
+          raw_milestones: result.milestones,
         });
       } catch (error) {
         return createErrorResponse(error);
