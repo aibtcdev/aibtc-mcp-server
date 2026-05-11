@@ -4,6 +4,19 @@ import os from "os";
 import type { EncryptedData } from "./encryption.js";
 import type { Network } from "../config/networks.js";
 
+// UUID v4 format — the only acceptable walletId shape
+const WALLET_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Validate a walletId is a proper UUID v4.
+ * Throws if it contains path separators or other traversal sequences.
+ */
+function assertSafeWalletId(walletId: string): void {
+  if (!WALLET_ID_RE.test(walletId)) {
+    throw new Error(`Invalid walletId format: "${walletId.slice(0, 64)}"`);
+  }
+}
+
 /**
  * Storage directory location
  * Migrated from ~/.stx402/ to ~/.aibtc/ in v1.0.0
@@ -194,6 +207,7 @@ export async function writeAppConfig(config: AppConfig): Promise<void> {
  * Get keystore file path for a wallet
  */
 export function getKeystorePath(walletId: string): string {
+  assertSafeWalletId(walletId);
   return path.join(WALLETS_DIR, walletId, "keystore.json");
 }
 
@@ -213,6 +227,7 @@ export async function writeKeystore(
   walletId: string,
   keystore: KeystoreFile
 ): Promise<void> {
+  assertSafeWalletId(walletId);
   const walletDir = path.join(WALLETS_DIR, walletId);
   await fs.mkdir(walletDir, { recursive: true, mode: 0o700 });
 
@@ -228,6 +243,7 @@ export async function writeKeystore(
  * Delete a wallet directory and its contents
  */
 export async function deleteWalletStorage(walletId: string): Promise<void> {
+  assertSafeWalletId(walletId);
   const walletDir = path.join(WALLETS_DIR, walletId);
   await fs.rm(walletDir, { recursive: true, force: true });
 }

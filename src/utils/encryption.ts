@@ -115,24 +115,35 @@ export async function decrypt(
   }
 }
 
+// Minimum acceptable scrypt parameters (downgrade protection)
+const MIN_SCRYPT_PARAMS = {
+  N: 16384, // Must be at least 2^14 — prevents brute-force with weak stored params
+  r: 8,
+  p: 1,
+  keyLen: 32,
+};
+
 /**
- * Derive key with custom scrypt parameters (for stored data)
+ * Derive key with custom scrypt parameters (for stored data).
+ * Enforces minimum parameters to prevent downgrade attacks via tampered keystore files.
  */
 function deriveKeyWithParams(
   password: string,
   salt: Buffer,
   params: EncryptedData["scryptParams"]
 ): Promise<Buffer> {
+  // Enforce minimums — reject any stored params weaker than baseline
+  const N = Math.max(params.N, MIN_SCRYPT_PARAMS.N);
+  const r = Math.max(params.r, MIN_SCRYPT_PARAMS.r);
+  const p = Math.max(params.p, MIN_SCRYPT_PARAMS.p);
+  const keyLen = params.keyLen >= MIN_SCRYPT_PARAMS.keyLen ? params.keyLen : MIN_SCRYPT_PARAMS.keyLen;
+
   return new Promise((resolve, reject) => {
     crypto.scrypt(
       password,
       salt,
-      params.keyLen,
-      {
-        N: params.N,
-        r: params.r,
-        p: params.p,
-      },
+      keyLen,
+      { N, r, p },
       (err, derivedKey) => {
         if (err) {
           reject(err);
