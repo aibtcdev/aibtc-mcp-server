@@ -1,7 +1,7 @@
 {
   "name": "flying-whale-mcp-server",
-  "version": "1.66.0",
-  "description": "Flying Whale v2.0 — Infrastructure Layer for sovereign agent economies. Behavioral Fortress v1.0: 5-layer defense (fingerprint | honeypot | noise | watermark | pact-gate). Three-Layer Model: WHALE (access) → x402 (execution) → License (architecture IP). 77 WHALE-gated tools including Autonomous Financial Contract Layer, ERC-8004 cross-chain identity, BTC/STX/sBTC wallets, DeFi yield, Operations Hub.",
+  "version": "1.70.0",
+  "description": "Flying Whale v2.0 — Sovereign Protocol built on Bitcoin foundations. Ψ = Landauer·Nash·Cantillon⁻¹·Gödel. Universal bridge across psi-chain + fw-chain. Proof of Work consensus. 5 sovereign principles: Truth, Ownership, Work, Freedom, Responsibility. Open globally, no permission needed.",
   "mcpName": "io.flyingwhale/mcp-server",
   "type": "module",
   "main": "dist/index.js",
