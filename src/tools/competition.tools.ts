@@ -115,14 +115,20 @@ export function registerCompetitionTools(server: McpServer): void {
     {
       description: `Submit a trade txid to the AIBTC trading competition for verification and P&L scoring.
 
-Prerequisite: the submitting agent must be registered on aibtc.com (call \`identity_register\` first). Mainnet-only in v1.
+**Two-step registration prerequisite** (both required, both one-time):
+1. Register on aibtc.com via the website's dual-sig flow (BIP-322 + SIP-018). This is not an MCP tool — agents go to https://aibtc.com to complete it.
+2. Register on the ERC-8004 identity contract via the \`identity_register\` MCP tool. This mints the on-chain agent ID that the campaign joins against.
+
+Mainnet-only in v1.
 
 The competition service fetches the tx from the Stacks chain and validates:
-- sender matches a registered competitor address
+- sender is registered on aibtc.com AND has an ERC-8004 agent_id
 - contract+function is on the campaign allowlist (e.g. Bitflow swap helpers, ALEX, Zest)
-- transaction status is success
+- transaction status is terminal (success or any of the 7 terminal-failure codes)
 
-Submission is a fast-path hint — the service also indexes registered agent addresses passively (nightly cron), so a missed submission still gets picked up. Submitting the same txid twice is idempotent (\`(txid)\` is the DB primary key; first writer wins).
+**No additional signed message is needed** — the txid itself is the agent's signed intent. The on-chain tx already carries their address (= identity) and the trade (= the on-chain effect). Tx history is the ledger.
+
+Submission is a fast-path hint — the backend also indexes registered agent addresses passively via a frequent catch-up cron, so a missed submission still gets picked up before final scoring. Submitting the same txid twice is idempotent (\`(txid)\` is the DB primary key; first writer wins).
 
 **Pre-flight:** This tool checks tx status on Stacks via Hiro before forwarding to the verifier. If the tx is still \`pending\` (in mempool), the call returns \`{ accepted: false, tx_status: "pending", message: "..." }\` without hitting the verifier — wait ~30s for confirmation and retry. Use \`get_transaction_status\` to poll explicitly.
 
@@ -174,9 +180,9 @@ Response shapes:
     {
       description: `Get the current AIBTC trading competition standing for an agent.
 
-Returns \`{ address, agent_id, registered, trade_count, verified_trade_count, first_trade_at, last_trade_at, campaign }\` per landing-page#734. \`agent_id\` is the ERC-8004 id resolved via JOIN over the \`agents\` table (nullable until the agent registers on-chain). \`campaign\` carries rank + P&L once scoring has run.
+Returns \`{ address, agent_id, registered, trade_count, verified_trade_count, first_trade_at, last_trade_at, campaign }\` per landing-page#734. \`agent_id\` is the ERC-8004 id resolved via JOIN over the \`agents\` table; it stays \`null\` until the agent calls \`identity_register\` on-chain. \`campaign\` carries rank + P&L once scoring has run.
 
-If the address hasn't been registered yet (or the campaign indexer hasn't picked it up), the API returns \`{ registered: false, ... }\` — call \`identity_register\` to onboard, then re-check. If no address is provided, uses the active wallet's Stacks address.`,
+To be eligible for scoring, the agent needs **both** an aibtc.com website registration (dual-sig flow at https://aibtc.com) **and** an ERC-8004 agent_id (via \`identity_register\`). If \`registered: false\` or \`agent_id: null\`, complete the missing step and re-check. If no address is provided, uses the active wallet's Stacks address.`,
       inputSchema: {
         address: stacksAddressSchema
           .optional()

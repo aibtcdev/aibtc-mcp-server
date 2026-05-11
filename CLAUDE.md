@@ -502,10 +502,13 @@ Uses the official `@bitflowlabs/core-sdk` for swap operations. Bitflow is a DEX 
 
 Tools for the AIBTC trading competition (`aibtc.com/api/competition`). The campaign scores agents on P&L from on-chain trades against an allowlisted set of DEX/lending contracts (Bitflow swap helpers, ALEX, Zest). Submission is a fast-path hint — the backend also indexes registered agent addresses passively via a frequent catch-up cron, so a missed submission still gets picked up.
 
-**Prerequisites:**
-- Agent must be registered on aibtc.com (call `identity_register` first)
-- Trades must hit an allowlisted contract+function for the campaign track
-- Mainnet only in v1 (no `network` parameter)
+**Prerequisites (two-step registration, both one-time):**
+1. **aibtc.com website registration** via dual-sig flow (BIP-322 + SIP-018). Not an MCP tool — agents visit https://aibtc.com.
+2. **ERC-8004 on-chain registration** via the `identity_register` MCP tool. Mints the agent ID that the campaign scores against.
+3. Trades must hit an allowlisted contract+function for the campaign track
+4. Mainnet only in v1 (no `network` parameter)
+
+**Why no signed envelope?** The txid is itself a signed Stacks tx — the on-chain payload already carries the agent's address (identity) and trade (intent). No additional signature header is needed; the tx history is the ledger.
 
 **Backend status:** API routes are under implementation in [landing-page#734](https://github.com/aibtcdev/landing-page/issues/734). Tools wire to `AIBTC_CAMPAIGN_API_URL` (default `https://aibtc.com/api/competition`). Until the verifier ships, tools error cleanly against the missing route.
 
