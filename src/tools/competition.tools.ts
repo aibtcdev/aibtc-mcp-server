@@ -37,17 +37,6 @@ import { createErrorResponse } from "../utils/errors.js";
  */
 const PENDING_TX_STATUS = "pending";
 
-/**
- * Stacks blocks settle in ~30s. If the first check shows the tx still
- * pending, wait one block and re-check before giving up. One retry is
- * enough to cover the common "agent submits right after broadcast" case.
- */
-const CONFIRMATION_WAIT_MS = 30_000;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 const stacksAddressSchema = z
   .string()
   .regex(
@@ -135,11 +124,11 @@ The competition service fetches the tx from the Stacks chain and validates:
 
 Submission is a fast-path hint — the service also indexes registered agent addresses passively (nightly cron), so a missed submission still gets picked up. Submitting the same txid twice is idempotent (\`(txid)\` is the DB primary key; first writer wins).
 
-**Pre-flight + auto-wait:** This tool checks tx status on Stacks via Hiro. If the tx is still \`pending\` (in mempool), it waits one Stacks block (~30s) and re-checks once before either submitting or giving up. The response includes a \`progress\` array of human-readable steps describing what happened — **narrate these to the user verbatim** ("Tx confirmed at block X, submitting now…") so they see the flow in real time. Don't summarize \`progress\`; read it line by line as you process the response.
+**Pre-flight:** This tool checks tx status on Stacks via Hiro before forwarding to the verifier. If the tx is still \`pending\` (in mempool), the call returns \`{ accepted: false, tx_status: "pending", message: "..." }\` without hitting the verifier — wait ~30s for confirmation and retry. Use \`get_transaction_status\` to poll explicitly.
 
 Response shapes:
-- Confirmed + submitted (common case): \`{ progress: [...], result: <verifier response> }\` where \`result\` is the swap row \`{ txid, sender, contract_id, function_name, token_in, amount_in, token_out, amount_out, burn_block_time, tx_status, source, ... }\`. Field names follow on-chain vocabulary (migration 005). \`tx_status\` is one of \`success\` or 7 terminal-failure codes (verifier records terminal failures too); \`source\` is \`"agent" | "cron"\`.
-- Still pending after wait: \`{ accepted: false, txid, tx_status: "pending", progress: [...], message }\`. Tx hasn't confirmed in ~30s — retry the tool in a minute, or call \`get_transaction_status\` to poll manually.
+- \`{ accepted: false, txid, tx_status: "pending", message }\` (pre-flight gate): tx not yet confirmed. Retry after ~30s.
+- \`200 OK\` with the swap row once verified: \`{ txid, sender, contract_id, function_name, token_in, amount_in, token_out, amount_out, burn_block_time, tx_status, source, ... }\`. Field names follow on-chain vocabulary (migration 005). \`tx_status\` is one of \`success\` or 7 terminal-failure codes (verifier records terminal failures too); \`source\` is \`"agent" | "cron"\`.
 - Permanent rejection (HTTP 4xx, thrown as error): sender not registered, contract not on allowlist, or txid malformed. Do not retry — fix the inputs.
 - Transient failure (HTTP 5xx or timeout, thrown as error): retry with backoff.`,
       inputSchema: {
@@ -152,44 +141,28 @@ Response shapes:
     async ({ txid }) => {
       try {
         const normalized = normalizeTxid(txid);
-        const progress: string[] = [];
 
         // Pre-flight: confirm the tx is terminal on Stacks before forwarding
-        // to the verifier. Stacks blocks settle in ~30s, so if the first check
-        // shows pending we wait one block and re-check before giving up.
-        let txStatus = await getTransactionStatus(normalized, NETWORK);
-        progress.push(`Checked tx ${normalized}: status=${txStatus.status}`);
-
-        if (txStatus.status === PENDING_TX_STATUS) {
-          progress.push(
-            "Tx is still pending — waiting ~30s for the next Stacks block before re-checking."
-          );
-          await sleep(CONFIRMATION_WAIT_MS);
-          txStatus = await getTransactionStatus(normalized, NETWORK);
-          progress.push(`Re-checked after 30s: status=${txStatus.status}`);
-        }
-
+        // to the verifier. Stacks blocks settle in ~30s, so a "pending" status
+        // means the agent submitted too early — we tell them to wait and
+        // resubmit rather than burning a backend round-trip.
+        const txStatus = await getTransactionStatus(normalized, NETWORK);
         if (txStatus.status === PENDING_TX_STATUS) {
           return createJsonResponse({
             accepted: false,
             txid: normalized,
             tx_status: PENDING_TX_STATUS,
-            progress,
             message:
-              "Transaction is still pending after the 30s confirmation wait. Try again in a minute, or poll with get_transaction_status.",
+              "Transaction is still pending on Stacks. Wait ~30s for confirmation and resubmit. Use get_transaction_status to poll.",
           });
         }
 
-        progress.push(
-          `Tx confirmed (status=${txStatus.status}). Submitting txid to competition verifier now.`
-        );
         const parsed = await competitionFetch("/trades", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ txid: normalized }),
         });
-        progress.push("Verifier accepted the submission.");
-        return createJsonResponse({ progress, result: parsed });
+        return createJsonResponse(parsed);
       } catch (error) {
         return createErrorResponse(error);
       }
