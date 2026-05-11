@@ -215,7 +215,8 @@ const COORDINATED_ATTACK_THRESHOLD = 3;
 // Internal use (within session-guard.ts itself) is always allowed.
 const _FW_OWNER      = "SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW";
 const _FW_LICENSE_KEY = process.env.FW_LICENSE_KEY ?? "";
-const _FW_IS_OWNER    = _FW_LICENSE_KEY === "OWNER" || _FW_LICENSE_KEY === _FW_OWNER;
+// Owner: compare against STX address only — no magic bypass strings
+const _FW_IS_OWNER    = _FW_LICENSE_KEY === _FW_OWNER;
 
 function _assertLicensedExternal(fn: string): void {
   if (_FW_IS_OWNER) return;

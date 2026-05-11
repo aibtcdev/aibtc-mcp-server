@@ -280,8 +280,8 @@ function _setCachedWhaleBalance(address: string, balance: bigint): void {
 // License tiers: Indie 100k sats/mo | Commercial 300k sats/mo | Platform: negotiate
 const FW_OWNER_ADDRESS = "SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW";
 const FW_LICENSE_KEY   = process.env.FW_LICENSE_KEY ?? "";
-// Owner key: set FW_LICENSE_KEY=OWNER in your .env to activate owner bypass
-const FW_IS_OWNER      = FW_LICENSE_KEY === "OWNER" || FW_LICENSE_KEY === FW_OWNER_ADDRESS;
+// Owner: set FW_LICENSE_KEY to the owner's STX address (no magic strings)
+const FW_IS_OWNER      = FW_LICENSE_KEY === FW_OWNER_ADDRESS;
 
 function assertLicensed(): void {
   if (FW_IS_OWNER) return; // owner always has access

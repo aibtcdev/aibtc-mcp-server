@@ -381,8 +381,8 @@ async function _resolveAuth(req: Request): Promise<_AuthResult | { error: string
     const key = authHeader.slice(7).trim();
     if (!key) return { error: "Bearer token is empty.", status: 401 };
 
-    const isOwner = key === "OWNER" || key === FW_OWNER_ADDRESS;
-    if (!isOwner && !_VALID_KEYS.has(key)) {
+    // No magic "OWNER" string — only license keys in _VALID_KEYS are accepted
+    if (!_VALID_KEYS.has(key)) {
       return {
         error: "Invalid license key.\n" +
                "For keyless access: GET /mcp/challenge?address=SP... then sign the nonce.\n" +
@@ -391,8 +391,8 @@ async function _resolveAuth(req: Request): Promise<_AuthResult | { error: string
       };
     }
 
-    const address = isOwner ? FW_OWNER_ADDRESS : `bearer:${key.slice(0, 8)}`;
-    return { address, isOwner, authMode: isOwner ? "owner" : "bearer" };
+    const address = `bearer:${key.slice(0, 8)}`;
+    return { address, isOwner: false, authMode: "bearer" };
   }
 
   // ── No auth provided ───────────────────────────────────────────────────────
