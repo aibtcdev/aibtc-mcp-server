@@ -29,8 +29,42 @@ interface ParsedEndpointUrl {
 }
 
 /**
+ * Validate hostname is not a private/internal address (SSRF protection).
+ * Blocks loopback, link-local, private ranges, and cloud metadata endpoints.
+ */
+function assertPublicHostname(hostname: string): void {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, ""); // strip IPv6 brackets
+
+  // Reject loopback and wildcard
+  if (h === "localhost" || h === "0.0.0.0" || h === "::" || h === "::1") {
+    throw new Error(`SSRF blocked: private hostname "${hostname}"`);
+  }
+
+  // Reject numeric IPv4 in private ranges
+  const ipv4 = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4) {
+    const [, a, b] = ipv4.map(Number);
+    if (
+      a === 127 ||                      // 127.x.x.x loopback
+      a === 10 ||                       // 10.x.x.x private
+      (a === 172 && b >= 16 && b <= 31) || // 172.16-31.x.x private
+      (a === 192 && b === 168) ||       // 192.168.x.x private
+      (a === 169 && b === 254)          // 169.254.x.x link-local / cloud metadata
+    ) {
+      throw new Error(`SSRF blocked: private IP address "${hostname}"`);
+    }
+  }
+
+  // Reject IPv6 link-local and private (fe80::, fc00::, fd00::)
+  if (h.startsWith("fe80") || h.startsWith("fc") || h.startsWith("fd")) {
+    throw new Error(`SSRF blocked: private IPv6 address "${hostname}"`);
+  }
+}
+
+/**
  * Parse and validate endpoint URL from either a full URL or path+apiUrl combination.
  * Merges any query parameters from the URL into the provided params.
+ * Enforces HTTPS-only and SSRF protection against private/internal hosts.
  */
 function parseEndpointUrl(options: {
   url?: string;
@@ -46,6 +80,7 @@ function parseEndpointUrl(options: {
     if (parsed.protocol !== "https:") {
       throw new Error("Only HTTPS URLs are allowed for x402 endpoints");
     }
+    assertPublicHostname(parsed.hostname);
     if (parsed.search) {
       const urlParams = Object.fromEntries(parsed.searchParams);
       params = { ...urlParams, ...params };
@@ -61,6 +96,9 @@ function parseEndpointUrl(options: {
   if (path) {
     if (apiUrl && !apiUrl.startsWith("https://")) {
       throw new Error("Only HTTPS URLs are allowed for x402 endpoints");
+    }
+    if (apiUrl) {
+      assertPublicHostname(new URL(apiUrl).hostname);
     }
     const baseUrl = apiUrl || API_URL;
     return {
