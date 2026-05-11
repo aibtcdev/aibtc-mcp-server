@@ -107,6 +107,13 @@ export function registerBtcChainTools(server: McpServer): void {
             utxo_model:       "Unspent access outputs, spent by secp256k1 signature",
             script:           "OP_CHECKSIG · OP_WHALE_CHECK · OP_PSI_VERIFY",
           },
+          chain_linkage: {
+            fw_chain:   "~/.aibtc/fw-chain.json  — Bitcoin-complete blocks",
+            psi_chain:  "~/.aibtc/psi-chain.json — Ψ consensus entries",
+            genesis_anchor: "fw-chain[0].prevHash = psi-chain[last].hash",
+            per_block:      "fw-chain[N].psiChainHash = Ψ entry for that session",
+            bridge: "The two chains are cryptographically linked at genesis and at every block",
+          },
         });
       } catch (error) {
         return createErrorResponse(error);
@@ -194,6 +201,12 @@ export function registerBtcChainTools(server: McpServer): void {
             godel:     (block.dimensions.godel     * 100).toFixed(1) + "%",
           },
           halving: halvingInfo(block.height),
+          crossChain: {
+            psiChainHash: block.psiChainHash,
+            note: block.height === 0
+              ? "genesis: prevHash = psi-chain tail (Ψ chain anchor)"
+              : "psiChainHash = Ψ entry recorded this session",
+          },
         });
       } catch (error) {
         return createErrorResponse(error);
@@ -257,6 +270,7 @@ export function registerBtcChainTools(server: McpServer): void {
           dimensions:   psiResult.dimensions,
           whaleBalance,
           toolCalls:    calls,
+          psiChainHash: psiResult.chainHash, // cross-chain anchor
         });
 
         if (!block) {

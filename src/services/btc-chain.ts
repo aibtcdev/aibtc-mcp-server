@@ -39,6 +39,22 @@ import { join } from "path";
 import { homedir } from "os";
 import type { PsiDimensions } from "./psi-consensus.js";
 
+// ── Ψ chain file path (same as psi-consensus.ts) ─────────────────────────────
+const PSI_CHAIN_FILE = join(homedir(), ".aibtc", "psi-chain.json");
+
+/** Read the last hash from psi-chain.json (used as genesis anchor). */
+async function getLastPsiChainHash(): Promise<string> {
+  try {
+    const raw     = await fs.readFile(PSI_CHAIN_FILE, "utf8");
+    const entries = JSON.parse(raw) as Array<{ hash: string }>;
+    if (entries.length > 0) return entries[entries.length - 1].hash;
+  } catch { /* file missing or unreadable — use fallback */ }
+  // Fallback: hash of the FW_GENESIS_HASH constant itself (chain starts here)
+  return createHash("sha256")
+    .update("FlyingWhale:genesis:SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW")
+    .digest("hex");
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // Constants — identical to Bitcoin where applicable
 // ══════════════════════════════════════════════════════════════════════════════
@@ -161,6 +177,13 @@ export interface FWBlock {
   dimensions:   PsiDimensions;
   whaleBalance: string;   // bigint as string (JSON-safe)
   blockReward:  string;   // bigint as string — FW-satoshis issued to miner
+
+  // ── Cross-chain anchor ────────────────────────────────────────────────────
+  // Each FW block carries the Ψ chain entry hash recorded during this session.
+  // This creates a cryptographic bridge between the two chains:
+  //   fw-chain[N].psiChainHash  → points into psi-chain
+  //   fw-chain[0].prevHash      → = psi-chain last hash (genesis anchor)
+  psiChainHash: string;   // SHA-256 hash of the corresponding Ψ chain entry
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -864,13 +887,17 @@ export async function appendBlock(params: {
   dimensions:   PsiDimensions;
   whaleBalance: bigint;
   toolCalls:    Array<{ tool: string; result: "success" | "blocked" | "error"; psiImpact: number }>;
+  psiChainHash?: string;  // hash of the Ψ chain entry for this session (passed from caller)
 }): Promise<FWBlock | null> {
   const chain  = await loadChain();
   const height = chain.length;
 
   // ── Genesis block special case ─────────────────────────────────────────────
+  // Genesis prevHash = LAST HASH of psi-chain (not a hardcoded constant).
+  // This anchors the FW Bitcoin chain to the tail of the existing Ψ chain —
+  // the two chains are cryptographically linked at the genesis boundary.
   const prevHash = height === 0
-    ? FW_GENESIS_HASH
+    ? await getLastPsiChainHash()   // ← Ψ chain tail = FW genesis anchor
     : chain[chain.length - 1].hash;
 
   // ── Current nBits (with retargeting) ──────────────────────────────────────
@@ -942,6 +969,12 @@ export async function appendBlock(params: {
     dimensions:   params.dimensions,
     whaleBalance: params.whaleBalance.toString(),
     blockReward:  reward as unknown as string, // stored as string in JSON
+    // ── Cross-chain anchor ─────────────────────────────────────────────────
+    // psiChainHash = hash of the Ψ chain entry recorded during this session.
+    // This is the cryptographic bridge:
+    //   height 0: prevHash = psi-chain TAIL (genesis anchor)
+    //   height N: psiChainHash = psi-chain entry for this session
+    psiChainHash: params.psiChainHash ?? await getLastPsiChainHash(),
   };
 
   _chain.push(block);
