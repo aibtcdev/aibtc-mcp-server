@@ -49,6 +49,8 @@ import { registerPsiTools } from "./psi.tools.js";
 import { registerBtcChainTools } from "./btc-chain.tools.js";
 import { registerChildInscriptionTools } from "./child-inscription.tools.js";
 import { registerDashboardTools } from "./dashboard.tools.js";
+import { registerProtocolTools } from "./protocol.tools.js";
+import { registerComplianceTools } from "./compliance.tools.js";
 import { registerErc8004Tools } from "./erc8004.tools.js";
 import { registerOrdinalsTools } from "./ordinals.tools.js";
 import { registerPsbtTools } from "./psbt.tools.js";
@@ -96,6 +98,12 @@ export function registerAllTools(server: McpServer): void {
 
   // Dashboard — لوحة التحكم البسيطة (أول أداة للمستخدم العادي)
   registerDashboardTools(server);
+
+  // Protocol — بروتوكول المطورين (المرحلة 5)
+  registerProtocolTools(server);
+
+  // Compliance — الامتثال القانوني (المرحلة 6)
+  registerComplianceTools(server);
 
   // Wallet & Balance
   registerWalletTools(server);
