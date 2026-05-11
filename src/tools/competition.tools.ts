@@ -21,9 +21,21 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { AIBTC_CAMPAIGN_API_URL } from "../config/competition.js";
+import { NETWORK } from "../config/networks.js";
+import { getTransactionStatus } from "../services/hiro-api.js";
 import { getWalletManager } from "../services/wallet-manager.js";
 import { createJsonResponse } from "../utils/formatting.js";
 import { createErrorResponse } from "../utils/errors.js";
+
+/**
+ * Stacks tx_status values from Hiro's /extended/v1/tx endpoint.
+ * `pending` = in mempool, not confirmed. Everything else is terminal:
+ * `success`, `abort_by_response`, `abort_by_post_condition`, and the
+ * five `dropped_*` codes. The verifier records terminal failures too
+ * (migration 005's CHECK allows all 8 terminal codes) so we only block
+ * submission when status is `pending`.
+ */
+const PENDING_TX_STATUS = "pending";
 
 const stacksAddressSchema = z
   .string()
@@ -110,11 +122,13 @@ The competition service fetches the tx from the Stacks chain and validates:
 - contract+function is on the campaign allowlist (e.g. Bitflow swap helpers, ALEX, Zest)
 - transaction status is success
 
-Submission is a fast-path hint — the service also indexes registered agent addresses passively (chainhook + nightly cron), so a missed submission still gets picked up. Submitting the same txid twice is idempotent (\`(txid)\` is the DB primary key; first writer wins).
+Submission is a fast-path hint — the service also indexes registered agent addresses passively (nightly cron), so a missed submission still gets picked up. Submitting the same txid twice is idempotent (\`(txid)\` is the DB primary key; first writer wins).
 
-Response shapes (per landing-page#734 contract):
-- \`202 Accepted\` with \`{ accepted: true }\` — tx not yet confirmed or indexer hasn't caught up. Re-poll via \`competition_list_trades\` instead of resubmitting.
-- \`200 OK\` with the swap row once terminal: \`{ txid, sender, contract_id, function_name, token_in, amount_in, token_out, amount_out, burn_block_time, tx_status, source, ... }\`. Field names follow on-chain vocabulary (migration 005). \`tx_status\` is one of \`success\` or 7 terminal-failure codes; \`source\` is \`"agent" | "cron" | "chainhook"\`.
+**Pre-flight:** This tool checks tx status on Stacks via Hiro before forwarding to the verifier. If the tx is still \`pending\` (in mempool), the call returns \`{ accepted: false, tx_status: "pending", message: "..." }\` without hitting the verifier — wait ~30s for confirmation and retry. Use \`get_transaction_status\` to poll explicitly.
+
+Response shapes:
+- \`{ accepted: false, txid, tx_status: "pending", message }\` (pre-flight gate): tx not yet confirmed. Retry after ~30s.
+- \`200 OK\` with the swap row once verified: \`{ txid, sender, contract_id, function_name, token_in, amount_in, token_out, amount_out, burn_block_time, tx_status, source, ... }\`. Field names follow on-chain vocabulary (migration 005). \`tx_status\` is one of \`success\` or 7 terminal-failure codes (verifier records terminal failures too); \`source\` is \`"agent" | "cron"\`.
 - Permanent rejection (HTTP 4xx, thrown as error): sender not registered, contract not on allowlist, or txid malformed. Do not retry — fix the inputs.
 - Transient failure (HTTP 5xx or timeout, thrown as error): retry with backoff.`,
       inputSchema: {
@@ -126,11 +140,27 @@ Response shapes (per landing-page#734 contract):
     },
     async ({ txid }) => {
       try {
-        const body = { txid: normalizeTxid(txid) };
+        const normalized = normalizeTxid(txid);
+
+        // Pre-flight: confirm the tx is terminal on Stacks before forwarding
+        // to the verifier. Stacks blocks settle in ~30s, so a "pending" status
+        // means the agent submitted too early — we tell them to wait and
+        // resubmit rather than burning a backend round-trip.
+        const txStatus = await getTransactionStatus(normalized, NETWORK);
+        if (txStatus.status === PENDING_TX_STATUS) {
+          return createJsonResponse({
+            accepted: false,
+            txid: normalized,
+            tx_status: PENDING_TX_STATUS,
+            message:
+              "Transaction is still pending on Stacks. Wait ~30s for confirmation and resubmit. Use get_transaction_status to poll.",
+          });
+        }
+
         const parsed = await competitionFetch("/trades", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
+          body: JSON.stringify({ txid: normalized }),
         });
         return createJsonResponse(parsed);
       } catch (error) {

@@ -13,6 +13,11 @@ vi.mock("../../src/services/wallet-manager.js", () => ({
   }),
 }));
 
+const mockGetTransactionStatus = vi.fn();
+vi.mock("../../src/services/hiro-api.js", () => ({
+  getTransactionStatus: mockGetTransactionStatus,
+}));
+
 const { registerCompetitionTools } = await import(
   "../../src/tools/competition.tools.js"
 );
@@ -57,11 +62,19 @@ describe("competition tools", () => {
   beforeEach(() => {
     fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
+    // Default tx-status mock: tx is confirmed (success) so the pre-flight
+    // gate passes and submission proceeds. Tests that need pending semantics
+    // override this in-place.
+    mockGetTransactionStatus.mockResolvedValue({
+      status: "success",
+      block_height: 7929497,
+    });
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    mockGetTransactionStatus.mockReset();
   });
 
   it("submit_trade is idempotent: two calls with same txid return the same shape", async () => {
@@ -138,6 +151,52 @@ describe("competition tools", () => {
     expect(result.isError).toBe(true);
     expect(abortError).toBeDefined();
     expect(result.content[0].text.toLowerCase()).toContain("abort");
+  });
+
+  it("gates submission when the tx is still pending on Stacks", async () => {
+    mockGetTransactionStatus.mockResolvedValue({ status: "pending" });
+
+    const { server, tools } = createTrackingServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerCompetitionTools(server as any);
+    const submit = tools.get("competition_submit_trade")!;
+
+    const result = await submit.handler({ txid: VALID_TXID });
+
+    expect(result.isError).toBeUndefined();
+    const body = JSON.parse(result.content[0].text);
+    expect(body).toMatchObject({
+      accepted: false,
+      txid: VALID_TXID,
+      tx_status: "pending",
+    });
+    expect(body.message).toContain("pending");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("forwards terminal-failure txs to the verifier (backend records them)", async () => {
+    mockGetTransactionStatus.mockResolvedValue({
+      status: "abort_by_post_condition",
+    });
+    fetchMock.mockImplementation(async () =>
+      jsonResponse({
+        txid: VALID_TXID,
+        tx_status: "abort_by_post_condition",
+        source: "agent",
+      })
+    );
+
+    const { server, tools } = createTrackingServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerCompetitionTools(server as any);
+    const submit = tools.get("competition_submit_trade")!;
+
+    const result = await submit.handler({ txid: VALID_TXID });
+    expect(result.isError).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(result.content[0].text).tx_status).toBe(
+      "abort_by_post_condition"
+    );
   });
 
   it("rejects malformed txids before any network call", async () => {
