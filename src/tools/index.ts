@@ -48,6 +48,7 @@ import { registerFlyingWhaleTools } from "./flying-whale.tools.js";
 import { registerPsiTools } from "./psi.tools.js";
 import { registerBtcChainTools } from "./btc-chain.tools.js";
 import { registerChildInscriptionTools } from "./child-inscription.tools.js";
+import { registerDashboardTools } from "./dashboard.tools.js";
 import { registerErc8004Tools } from "./erc8004.tools.js";
 import { registerOrdinalsTools } from "./ordinals.tools.js";
 import { registerPsbtTools } from "./psbt.tools.js";
@@ -92,6 +93,9 @@ export function registerAllTools(server: McpServer): void {
   const restoreRegisterTool = withSkillMeta(server);
 
   void restoreSessionGuard; // cleanup available if needed
+
+  // Dashboard — لوحة التحكم البسيطة (أول أداة للمستخدم العادي)
+  registerDashboardTools(server);
 
   // Wallet & Balance
   registerWalletTools(server);
