@@ -46,6 +46,7 @@ import { registerInboxTools } from "./inbox.tools.js";
 import { registerArxivResearchTools } from "./arxiv-research.tools.js";
 import { registerFlyingWhaleTools } from "./flying-whale.tools.js";
 import { registerPsiTools } from "./psi.tools.js";
+import { registerBtcChainTools } from "./btc-chain.tools.js";
 import { registerChildInscriptionTools } from "./child-inscription.tools.js";
 import { registerErc8004Tools } from "./erc8004.tools.js";
 import { registerOrdinalsTools } from "./ordinals.tools.js";
@@ -246,6 +247,9 @@ export function registerAllTools(server: McpServer): void {
   // Ψ Consensus Layer (Landauer · Nash · Cantillon⁻¹ · Gödel)
   // The same mathematical foundations as Bitcoin — made explicit and measured
   registerPsiTools(server);
+
+  // Bitcoin-Complete Chain (SHA256d, Merkle, nBits, PoP, halving, UTXO, FW Script)
+  registerBtcChainTools(server);
 
   restoreRegisterTool();
 }
