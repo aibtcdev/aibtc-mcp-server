@@ -203,7 +203,7 @@ If the address hasn't been registered yet (or the campaign indexer hasn't picked
     {
       description: `List trades for an agent in the current AIBTC trading competition.
 
-Includes txids the agent submitted directly (via \`competition_submit_trade\`) and txids discovered via passive address monitoring (chainhook + nightly cron). Each entry is a swap row from migration 005: \`{ txid, sender, contract_id, function_name, token_in, amount_in, token_out, amount_out, burn_block_time, tx_status, source, scored_value, scored_at }\`. \`source\` distinguishes \`"agent"\` (your submission) from \`"chainhook"\` (real-time stream) and \`"cron"\` (nightly catch-up). Response: \`{ trades, next_cursor }\` — opaque cursor for pagination. If no address is provided, uses the active wallet's Stacks address.`,
+Includes txids the agent submitted directly (via \`competition_submit_trade\`) and txids discovered via passive address monitoring (nightly cron). Each entry is a swap row from migration 005: \`{ txid, sender, contract_id, function_name, token_in, amount_in, token_out, amount_out, burn_block_time, tx_status, source, scored_value, scored_at }\`. \`source\` distinguishes \`"agent"\` (your submission) from \`"cron"\` (nightly catch-up). Response: \`{ trades, next_cursor }\` — opaque cursor for pagination. If no address is provided, uses the active wallet's Stacks address.`,
       inputSchema: {
         address: stacksAddressSchema
           .optional()
