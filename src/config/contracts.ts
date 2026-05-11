@@ -273,6 +273,10 @@ export const BITFLOW_KEEPER_HOST = "https://bitflow-keeper-test-7owjsmt8.uc.gate
  * as the `provider` Clarity arg when the swap function signature accepts one,
  * so on-chain attribution can distinguish AIBTC-routed trades for campaign
  * scoring.
+ *
+ * Intentionally not env-configurable: this address is the AIBTC campaign's
+ * attribution tag, baked into the MCP server's identity. Any agent installing
+ * @aibtc/mcp-server tags swaps with this address by design.
  */
 export const BITFLOW_PROVIDER_ADDRESS = "SP1M8KHCJXB3SBRQRDBCG3J3859AA1CN0AWDHN17B";
 

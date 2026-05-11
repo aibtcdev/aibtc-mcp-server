@@ -20,10 +20,16 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { AIBTC_CAMPAIGN_API_URL } from "../config/competition.js";
-import { NETWORK } from "../config/networks.js";
 import { getWalletManager } from "../services/wallet-manager.js";
 import { createJsonResponse } from "../utils/formatting.js";
 import { createErrorResponse } from "../utils/errors.js";
+
+const stacksAddressSchema = z
+  .string()
+  .regex(
+    /^S[PTM][0-9A-HJKMNP-TV-Z]{38,40}$/,
+    "Expected a Stacks address (SP… mainnet, ST… testnet, SM… contract)"
+  );
 
 async function resolveAddress(provided?: string): Promise<string> {
   if (provided) return provided;
@@ -96,31 +102,30 @@ export function registerCompetitionTools(server: McpServer): void {
     {
       description: `Submit a trade txid to the AIBTC trading competition for verification and P&L scoring.
 
+Prerequisite: the submitting agent must be registered on aibtc.com (call \`identity_register\` first). Mainnet-only in v1.
+
 The competition service fetches the tx from the Stacks chain and validates:
 - sender matches a registered competitor address
 - contract+function is on the campaign allowlist (e.g. Bitflow swap helpers, ALEX, Zest)
 - transaction status is success
 
-Submission is a fast-path hint — the service also indexes registered agent addresses passively, so a missed submission still gets picked up. Submitting the same txid twice is idempotent.
+Submission is a fast-path hint — the service also indexes registered agent addresses passively, so a missed submission still gets picked up. Submitting the same txid twice is idempotent (same response shape, no double-scoring).
 
-Returns the submission status and (if already verified) the parsed trade details.`,
+Response shapes:
+- Accepted: \`{ status: "accepted" | "verified", trade?: {...} }\` — safe to stop.
+- Pending verification: \`{ status: "pending" }\` — the tx is still confirming or the indexer hasn't caught up. Re-poll via \`competition_list_trades\` instead of resubmitting.
+- Permanent rejection (HTTP 4xx, thrown as error): sender not registered, contract not on allowlist, txid malformed, or tx failed on-chain. Do not retry — fix the inputs.
+- Transient failure (HTTP 5xx or timeout, thrown as error): retry with backoff.`,
       inputSchema: {
         txid: z
           .string()
           .min(1)
           .describe("Stacks transaction id (with or without 0x prefix)"),
-        network: z
-          .enum(["mainnet", "testnet"])
-          .optional()
-          .describe("Network the tx is on. Defaults to the configured NETWORK."),
       },
     },
-    async ({ txid, network }) => {
+    async ({ txid }) => {
       try {
-        const body = {
-          txid: normalizeTxid(txid),
-          network: network ?? NETWORK,
-        };
+        const body = { txid: normalizeTxid(txid) };
         const parsed = await competitionFetch("/trades", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -138,10 +143,11 @@ Returns the submission status and (if already verified) the parsed trade details
     {
       description: `Get the current AIBTC trading competition standing for an agent.
 
-Returns registration status, trade count, current rank within the active campaign track, and P&L if scoring has run. If no address is provided, uses the active wallet's Stacks address.`,
+Returns registration status, trade count, current rank within the active campaign track, and P&L if scoring has run. If no address is provided, uses the active wallet's Stacks address.
+
+If the address hasn't been registered yet (or the campaign indexer hasn't picked it up), the API returns \`{ registered: false, ... }\` — call \`identity_register\` to onboard, then re-check.`,
       inputSchema: {
-        address: z
-          .string()
+        address: stacksAddressSchema
           .optional()
           .describe(
             "Stacks address of the agent. Defaults to the active wallet."
@@ -168,8 +174,7 @@ Returns registration status, trade count, current rank within the active campaig
 
 Includes both txids the agent submitted directly via competition_submit_trade and txids the competition service discovered via address monitoring. Each entry indicates discovery method, verification status, parsed venue/function, and amounts. If no address is provided, uses the active wallet's Stacks address.`,
       inputSchema: {
-        address: z
-          .string()
+        address: stacksAddressSchema
           .optional()
           .describe(
             "Stacks address of the agent. Defaults to the active wallet."
