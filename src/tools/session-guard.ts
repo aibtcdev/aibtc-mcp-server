@@ -415,18 +415,47 @@ const WALLET_SENSITIVE: Set<string> = new Set([
   "wallet_create",
   "wallet_import",
   "wallet_export",
-  // DeFi
+  // DeFi — ALEX
   "alex_swap",
+  // DeFi — Zest
   "zest_supply",
   "zest_borrow",
   "zest_withdraw",
   "zest_repay",
   "zest_enable_collateral",
+  // DeFi — Stacking
   "stack_stx",
   "extend_stacking",
+  "dual_stacking_enroll",
+  "dual_stacking_opt_out",
+  // DeFi — sBTC
   "sbtc_deposit",
   "sbtc_withdraw",
   "sbtc_transfer",
+  "sbtc_initiate_withdrawal",
+  // DeFi — Bitflow
+  "bitflow_swap",
+  // DeFi — JingSwap v1
+  "jingswap_deposit_stx",
+  "jingswap_deposit_sbtc",
+  "jingswap_settle",
+  "jingswap_settle_with_refresh",
+  "jingswap_cancel_stx",
+  "jingswap_cancel_sbtc",
+  // DeFi — JingSwap v2
+  "jingswap_v2_deposit_stx",
+  "jingswap_v2_deposit_sbtc",
+  "jingswap_v2_cancel_stx",
+  "jingswap_v2_cancel_sbtc",
+  "jingswap_v2_cancel_cycle",
+  "jingswap_v2_close_and_settle_with_refresh",
+  // DeFi — Styx
+  "styx_deposit",
+  // DeFi — StackSpot
+  "stackspot_join_pot",
+  "stackspot_start_pot",
+  "stackspot_claim_rewards",
+  // DeFi — Pillar
   "pillar_send",
   "pillar_fund",
   "pillar_boost",
@@ -434,6 +463,7 @@ const WALLET_SENSITIVE: Set<string> = new Set([
   "pillar_unwind",
   // x402 paid endpoints
   "execute_x402_endpoint",
+  "send_inbox_message",
   // Bitcoin
   "psbt_sign",
   "psbt_broadcast",
@@ -441,9 +471,13 @@ const WALLET_SENSITIVE: Set<string> = new Set([
   "ordinals_list_for_sale_submit",
   "ordinals_p2p_create_offer",
   "ordinals_p2p_psbt_swap",
+  "ordinals_p2p_counter",
+  "ordinals_p2p_transfer",
   "transfer_rune",
   "inscribe",
   "inscribe_reveal",
+  "inscribe_child",
+  "inscribe_child_reveal",
 ]);
 
 // ─── Session State ─────────────────────────────────────────────────────────────
