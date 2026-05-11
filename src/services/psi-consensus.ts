@@ -89,6 +89,26 @@ export type PsiTier =
   | "noncooperative"// 61–80: suspicious
   | "adversarial";  // 81–100: attacker
 
+/**
+ * Sovereign Layer — الطبقة الكونية السيادية
+ *
+ * الأسس الخمسة المدمجة في كل حلقة من السلسلة:
+ *   truth          — الحقيقة: هاش قابل للتحقق لكل ما حُسب
+ *   ownership      — الملكية: هوية المالك الفعلية
+ *   work           — العمل: الجهد الحوسبي المُقاس (Landauer × 1000)
+ *   freedom        — الحرية: تأكيد غياب السيطرة المركزية
+ *   responsibility — المسؤولية: هاش الفعل + النتيجة + التوقيت
+ *   universalHash  — الرابط الكوني: SHA-256 يجمع كل الأسس معاً
+ */
+export interface SovereignLayer {
+  truth:          string;   // SHA-256(address + score + dimensions + timestamp)
+  ownership:      string;   // عنوان المالك — هويته الكونية
+  work:           number;   // Math.round(landauer × 1000) — جهد حقيقي قابل للقياس
+  freedom:        boolean;  // true = لا حاجز مركزي، false = مقيّد
+  responsibility: string;   // SHA-256(truth + tier + timestamp)
+  universalHash:  string;   // SHA-256(truth + responsibility + ownership + work + freedom)
+}
+
 export interface PsiChainEntry {
   index:     number;
   hash:      string;
@@ -98,6 +118,7 @@ export interface PsiChainEntry {
   tier:      PsiTier;
   timestamp: number;
   dimensions: PsiDimensions;
+  sovereign?: SovereignLayer; // الطبقة الكونية — مضافة، لا تُكسر أي بيانات قديمة
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -330,6 +351,44 @@ export function getPsiVerdict(tier: PsiTier, dims: PsiDimensions): string {
 const PSI_CHAIN_FILE = join(homedir(), ".aibtc", "psi-chain.json");
 const PSI_GENESIS_HASH = "000000000000000000000000000000000000000000000000000000000000GENESIS";
 
+// ══════════════════════════════════════════════════════════════════════════════
+// Sovereign Layer Calculator — الطبقة الكونية السيادية
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * يحسب الطبقة الكونية السيادية لكل حلقة في السلسلة.
+ * الأسس الخمسة: الحقيقة، الملكية، العمل، الحرية، المسؤولية.
+ * لا تُعدَّل بيانات موجودة — تُضاف فقط.
+ */
+function computeSovereignLayer(
+  address: string,
+  score: number,
+  tier: PsiTier,
+  timestamp: number,
+  dimensions: PsiDimensions
+): SovereignLayer {
+  const h = createHash("sha256");
+
+  const truth = h
+    .update(`${address}:${score}:${dimensions.landauer}:${dimensions.nash}:${dimensions.cantillon}:${dimensions.godel}:${timestamp}`)
+    .digest("hex");
+
+  const responsibility = createHash("sha256")
+    .update(`${truth}:${tier}:${timestamp}`)
+    .digest("hex");
+
+  const work = Math.round(dimensions.landauer * 1000);
+
+  // الحرية: الحلقة حرة إذا لم تكن في تير الخصومة أو عدم التعاون
+  const freedom = tier !== "adversarial" && tier !== "noncooperative";
+
+  const universalHash = createHash("sha256")
+    .update(`${truth}:${responsibility}:${address}:${work}:${freedom ? "1" : "0"}`)
+    .digest("hex");
+
+  return { truth, ownership: address, work, freedom, responsibility, universalHash };
+}
+
 let _chainCache: PsiChainEntry[] = [];
 let _chainLoaded = false;
 
@@ -353,11 +412,21 @@ async function appendToChain(entry: Omit<PsiChainEntry, "index" | "hash" | "prev
 
   const index = chain.length;
 
-  // Compute entry hash: SHA-256(index + prevHash + address + score + timestamp)
-  const hashInput = `${index}:${prevHash}:${entry.address}:${entry.score}:${entry.timestamp}`;
+  // الطبقة الكونية السيادية — تُحسب قبل الهاش لتكون جزءاً من البصمة
+  const sovereign = computeSovereignLayer(
+    entry.address,
+    entry.score,
+    entry.tier,
+    entry.timestamp,
+    entry.dimensions
+  );
+
+  // Compute entry hash: SHA-256(index + prevHash + address + score + timestamp + universalHash)
+  // universalHash مُضمَّن لتحصين الحلقة بالطبقة الكونية
+  const hashInput = `${index}:${prevHash}:${entry.address}:${entry.score}:${entry.timestamp}:${sovereign.universalHash}`;
   const hash = createHash("sha256").update(hashInput).digest("hex");
 
-  const full: PsiChainEntry = { index, hash, prevHash, ...entry };
+  const full: PsiChainEntry = { index, hash, prevHash, ...entry, sovereign };
   chain.push(full);
   _chainCache = chain;
 

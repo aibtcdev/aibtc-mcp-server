@@ -184,6 +184,11 @@ export interface FWBlock {
   //   fw-chain[N].psiChainHash  → points into psi-chain
   //   fw-chain[0].prevHash      → = psi-chain last hash (genesis anchor)
   psiChainHash: string;   // SHA-256 hash of the corresponding Ψ chain entry
+
+  // ── Sovereign Layer — الطبقة الكونية السيادية ─────────────────────────────
+  // الأسس الخمسة مُدمجة في كل بلوك:
+  //   sovereign.universalHash يربط هذا البلوك بالنظام الكوني الموحد
+  sovereign?: import("./psi-consensus.js").SovereignLayer;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
