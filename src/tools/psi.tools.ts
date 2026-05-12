@@ -25,6 +25,16 @@ import {
   getPsiTier,
   type PsiInput,
 } from "../services/psi-consensus.js";
+import {
+  WORLD_CURRENCIES,
+  getCurrency,
+  getCurrenciesByCategory,
+  getTopCurrencies,
+  getDistressedCurrencies,
+  searchCurrencies,
+  getDatabaseStats,
+  type CurrencyCategory,
+} from "../services/world-currencies.js";
 
 // Physical constants for display
 const K_B            = 1.380649e-23;
@@ -419,6 +429,151 @@ export function registerPsiTools(server: McpServer): void {
           quote:    "Satoshi built Bitcoin on these principles without naming them. We name them.",
         },
       });
+    }
+  );
+
+  // ── psi_currency_score ───────────────────────────────────────────────────
+  server.registerTool(
+    "psi_currency_score",
+    {
+      description:
+        "Get the Ψ (Psi) integrity score for any currency — fiat, crypto, CBDC, or commodity. " +
+        "Ψ = Landauer · Nash · Cantillon⁻¹ · Gödel — the four physical/mathematical principles " +
+        "that determine true monetary integrity. " +
+        "Score 0–100: Bitcoin scores 100 (perfect alignment). " +
+        "Distressed fiat scores near 0 (broken on all 4 dimensions). " +
+        "Covers 130+ world currencies: all major fiat, G20, MENA, Africa, Asia, " +
+        "Latin America, Europe, all major crypto, CBDCs, and commodity money.",
+      inputSchema: {
+        code: z.string().describe(
+          "Currency code — ISO 4217 for fiat (USD, EUR, SAR, LBP...) " +
+          "or ticker for crypto (BTC, ETH, STX, WHALE, sBTC...). Case-insensitive."
+        ),
+      },
+    },
+    async ({ code }) => {
+      try {
+        const currency = getCurrency(code);
+        if (!currency) {
+          const suggestions = searchCurrencies(code).slice(0, 5);
+          return createJsonResponse({
+            found: false,
+            code: code.toUpperCase(),
+            message: `Currency "${code}" not found in database.`,
+            suggestions: suggestions.map(c => ({ code: c.code, name: c.name, psi: c.psi })),
+            total_covered: WORLD_CURRENCIES.length,
+          });
+        }
+
+        return createJsonResponse({
+          found:    true,
+          code:     currency.code,
+          name:     currency.name,
+          category: currency.category,
+          country:  currency.country,
+          iso4217:  currency.iso4217,
+          psi:      currency.psi,
+          rank:     `#${currency.rank} of ${WORLD_CURRENCIES.length}`,
+          dimensions: {
+            landauer:  { score: currency.landauer,  label: "Energy cost of money creation" },
+            nash:      { score: currency.nash,       label: "Game theory equilibrium stability" },
+            cantillon: { score: currency.cantillon,  label: "Inverse monetary distance (equality)" },
+            godel:     { score: currency.godel,      label: "External axiom independence" },
+          },
+          verdict: currency.psi >= 80
+            ? "SOVEREIGN — physically anchored, self-enforcing"
+            : currency.psi >= 55
+            ? "STRONG — real scarcity, good institutional structure"
+            : currency.psi >= 35
+            ? "MODERATE — institutional backing, Cantillon exposed"
+            : currency.psi >= 15
+            ? "WEAK — arbitrary creation, trust-dependent"
+            : "DISTRESSED — broken equilibrium, monetary collapse risk",
+          formula: "Ψ = (Landauer × Nash × Cantillon⁻¹ × Gödel)^(1/4) × 100",
+          notes:   currency.notes,
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ── psi_all_currencies ───────────────────────────────────────────────────
+  server.registerTool(
+    "psi_all_currencies",
+    {
+      description:
+        "List world currencies ranked by Ψ integrity score. " +
+        "Filter by category (sovereign/crypto/cbdc/commodity/g7fiat/g20fiat/mena/africa/asia/latam/europe/distressed/defi) " +
+        "or get top N, bottom N, or search by name/code. " +
+        "Shows the complete global Ψ ranking of 130+ currencies.",
+      inputSchema: {
+        filter: z.enum([
+          "all", "top10", "top20", "bottom10", "distressed",
+          "sovereign", "crypto", "cbdc", "commodity", "special",
+          "g7fiat", "g20fiat", "mena", "africa", "asia", "latam", "europe", "defi",
+        ]).optional().describe("Filter type. Default: top20."),
+        search: z.string().optional().describe(
+          "Search by code, name, or country. Overrides filter."
+        ),
+        limit: z.number().min(1).max(200).optional().describe(
+          "Max results to return (default 20, max 200)."
+        ),
+      },
+    },
+    async ({ filter = "top20", search, limit = 20 }) => {
+      try {
+        const stats = getDatabaseStats();
+        let results = WORLD_CURRENCIES;
+
+        if (search) {
+          results = searchCurrencies(search);
+        } else if (filter === "distressed") {
+          results = getDistressedCurrencies(15);
+        } else if (filter === "top10") {
+          results = getTopCurrencies(10);
+        } else if (filter === "top20") {
+          results = getTopCurrencies(20);
+        } else if (filter === "bottom10") {
+          results = [...WORLD_CURRENCIES].reverse().slice(0, 10);
+        } else if (filter !== "all") {
+          results = getCurrenciesByCategory(filter as CurrencyCategory);
+        }
+
+        const paginated = results.slice(0, limit);
+
+        return createJsonResponse({
+          total_in_database: stats.total,
+          avg_psi:           stats.avgPsi,
+          highest:           { code: stats.highest.code, name: stats.highest.name, psi: stats.highest.psi },
+          lowest:            { code: stats.lowest.code,  name: stats.lowest.name,  psi: stats.lowest.psi  },
+          filter:            search ? `search:"${search}"` : filter,
+          returned:          paginated.length,
+          currencies:        paginated.map((c) => ({
+            rank:     c.rank,
+            code:     c.code,
+            name:     c.name,
+            category: c.category,
+            psi:      c.psi,
+            landauer: c.landauer,
+            nash:     c.nash,
+            cantillon:c.cantillon,
+            godel:    c.godel,
+            country:  c.country,
+          })),
+          by_category: stats.byCategory,
+          formula: "Ψ = (Landauer × Nash × Cantillon⁻¹ × Gödel)^(1/4) × 100",
+          interpretation: {
+            "80–100": "SOVEREIGN — physically anchored (Bitcoin, Gold)",
+            "55–79":  "STRONG — real scarcity (Monero, LTC, SGD, CHF, NOK)",
+            "35–54":  "MODERATE — institutional trust required (USD, EUR, ETH)",
+            "15–34":  "WEAK — arbitrary creation, Cantillon exposed (most fiat)",
+            "0–14":   "DISTRESSED — broken equilibrium (LBP, VES, ZWL, KPW)",
+          },
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
     }
   );
 }

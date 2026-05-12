@@ -731,8 +731,10 @@ export async function createUtxo(
   scriptType:  FWScriptType = "P2PKH",
 ): Promise<FWUTXO> {
   await loadUtxos();
-  // Use a simple hash160 placeholder (in prod: RIPEMD160(SHA256(pubkey)))
-  const hash160   = sha256d(address).slice(0, 40);
+  // hash160 = RIPEMD160(SHA256(address_bytes)) — Bitcoin's actual hash160
+  const { createHash } = await import("crypto");
+  const sha256Bytes = createHash("sha256").update(Buffer.from(address, "utf8")).digest();
+  const hash160 = createHash("ripemd160").update(sha256Bytes).digest("hex");
   const scriptPubKey = scriptType === "P2PKH" ? p2pkhScript(hash160) : sovereignGateScript(0n, 40);
   const utxo: FWUTXO = {
     txid, vout, address, scriptPubKey, value,
