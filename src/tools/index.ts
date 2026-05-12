@@ -48,6 +48,7 @@ import { registerFlyingWhaleTools } from "./flying-whale.tools.js";
 import { registerPsiTools } from "./psi.tools.js";
 import { registerBtcChainTools } from "./btc-chain.tools.js";
 import { registerComplianceTools } from "./compliance.tools.js";
+import { registerSovereignEconomyTools } from "./sovereign-economy.tools.js";
 import { registerChildInscriptionTools } from "./child-inscription.tools.js";
 import { registerErc8004Tools } from "./erc8004.tools.js";
 import { registerOrdinalsTools } from "./ordinals.tools.js";
@@ -256,6 +257,11 @@ export function registerAllTools(server: McpServer): void {
   // No brand, no name. Identified only by SHA-256("Ψ=Landauer·Nash·Cantillon⁻¹·Gödel")
   // Works on Bitcoin, Stacks, Ethereum, Solana, Lightning, and all chains.
   registerComplianceTools(server);
+
+  // Sovereign Economy — National Debt Liberation & Global Renaissance
+  // $307T global debt → 7-phase Bitcoin Standard transition → 30-year Renaissance projection
+  // x402 government APIs, BTC mining reserves, mathematical invariant: $14.6M/BTC if global base
+  registerSovereignEconomyTools(server);
 
   restoreRegisterTool();
 }
