@@ -56,6 +56,7 @@ import { registerErc8004Tools } from "./erc8004.tools.js";
 import { registerOrdinalsTools } from "./ordinals.tools.js";
 import { registerPsbtTools } from "./psbt.tools.js";
 import { registerSettingsTools } from "./settings.tools.js";
+import { registerCurrencyRenaissanceTools } from "./currency-renaissance.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 import { withSessionGuard } from "./session-guard.js";
 
@@ -274,6 +275,11 @@ export function registerAllTools(server: McpServer): void {
   // $307T global debt → 7-phase Bitcoin Standard transition → 30-year Renaissance projection
   // x402 government APIs, BTC mining reserves, mathematical invariant: $14.6M/BTC if global base
   registerSovereignEconomyTools(server);
+
+  // Currency Renaissance — Every Currency Strengthens Itself
+  // Ψ diagnosis per currency → specific Landauer/Nash/Cantillon/Gödel reforms
+  // Multi-currency x402: no forced sBTC — LBP pays LBP, JPY pays JPY
+  registerCurrencyRenaissanceTools(server);
 
   restoreRegisterTool();
 }
