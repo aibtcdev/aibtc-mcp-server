@@ -788,7 +788,7 @@ export async function getTransactionStatus(
 // BNS V2 API Service (for .btc names)
 // ============================================================================
 
-const BNSV2_API_URL = "https://api.bnsv2.com";
+const BNSV2_API_URL = process.env.BNS_API_URL ?? "https://api.bnsv2.com";
 
 export class BnsV2ApiService {
   private baseUrl: string;

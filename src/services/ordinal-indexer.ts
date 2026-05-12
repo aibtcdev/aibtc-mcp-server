@@ -93,7 +93,11 @@ export interface ClassifiedUtxos {
   ordinal: UTXO[];
 }
 
-const HIRO_ORDINALS_API_URL = "https://api.hiro.so/ordinals/v1";
+const HIRO_ORDINALS_API_URL =
+  process.env.ORDINALS_API_URL ??
+  (process.env.STACKS_API_URL
+    ? process.env.STACKS_API_URL.replace(/\/$/, "") + "/ordinals/v1"
+    : "https://api.hiro.so/ordinals/v1");
 
 /**
  * Ordinal Indexer Service

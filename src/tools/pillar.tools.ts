@@ -680,9 +680,13 @@ export function registerPillarTools(server: McpServer): void {
 
         const walletAddress = session.walletAddress;
 
-        // Fetch balances directly from Hiro API
+        // Fetch balances via configured Stacks node (sovereign-first)
+        const STACKS_API_BASE =
+          process.env.STACKS_API_URL ??
+          process.env.STACKS_NODE_URL ??
+          "https://api.hiro.so";
         const balanceRes = await fetch(
-          `https://api.hiro.so/extended/v1/address/${walletAddress}/balances`
+          `${STACKS_API_BASE}/extended/v1/address/${walletAddress}/balances`
         );
 
         let sbtcBalance = 0;
@@ -708,16 +712,34 @@ export function registerPillarTools(server: McpServer): void {
           }
         }
 
-        // Fetch BTC price for USD values
+        // Fetch BTC price for USD values — multi-source, no single point of failure
         let btcPrice = 0;
         try {
-          const priceRes = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd");
-          if (priceRes.ok) {
-            const priceData = await priceRes.json();
-            btcPrice = priceData.bitcoin?.usd || 0;
-          }
+          btcPrice = await Promise.any([
+            fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd", { signal: AbortSignal.timeout(5000) })
+              .then(r => r.ok ? r.json() : Promise.reject())
+              .then((d: { bitcoin?: { usd?: number } }) => {
+                const p = d.bitcoin?.usd;
+                if (!p) throw new Error("no price");
+                return p;
+              }),
+            fetch("https://api.coincap.io/v2/assets/bitcoin", { signal: AbortSignal.timeout(5000) })
+              .then(r => r.ok ? r.json() : Promise.reject())
+              .then((d: { data?: { priceUsd?: string } }) => {
+                const p = parseFloat(d.data?.priceUsd ?? "0");
+                if (!p) throw new Error("no price");
+                return p;
+              }),
+            fetch("https://min-api.cryptocompare.com/data/price?fsym=BTC&tsyms=USD", { signal: AbortSignal.timeout(5000) })
+              .then(r => r.ok ? r.json() : Promise.reject())
+              .then((d: { USD?: number }) => {
+                const p = d.USD;
+                if (!p) throw new Error("no price");
+                return p;
+              }),
+          ]);
         } catch {
-          // Price fetch failed, continue without USD values
+          // All price sources failed, continue without USD values
         }
 
         // Calculate display values

@@ -60,8 +60,11 @@ const POX_CONTRACT = "SP000000000000000000002Q6VF78";
 const POX_NAME = "pox-4";
 const POX_CONTRACT_ID = `${POX_CONTRACT}.${POX_NAME}`;
 
-// Mainnet Hiro API base URL (direct — not network-switched, this skill is mainnet-only)
-const MAINNET_HIRO_API = "https://api.hiro.so";
+// Mainnet Stacks API base URL — sovereign node first, Hiro as fallback
+const MAINNET_HIRO_API =
+  process.env.STACKS_API_URL ??
+  process.env.STACKS_NODE_URL ??
+  "https://api.hiro.so";
 
 // ============================================================================
 // Types

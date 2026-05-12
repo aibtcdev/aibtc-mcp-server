@@ -308,7 +308,10 @@ function assertLicensed(): void {
 // Fungible token ID in Hiro balance response format
 const WHALE_FT_KEY = "SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW.whale-v3::whale";
 const WHALE_DECIMALS = 6;
-const HIRO_API = "https://api.hiro.so";
+const HIRO_API =
+  process.env.STACKS_API_URL ??
+  process.env.STACKS_NODE_URL ??
+  "https://api.hiro.so";
 
 // Access tier thresholds (in micro-WHALE, 6 decimals)
 // Updated 2026-04-13: thresholds raised — commercial use requires licensing agreement
@@ -1166,9 +1169,15 @@ export function registerFlyingWhaleTools(server: McpServer): void {
         await verifyWhaleAccess(callerAddress, "scout");
 
         const RELAYS = [
-          { name: "hiro-mainnet",  url: "https://api.hiro.so" },
-          { name: "stacks-co",     url: "https://stacks-node-api.mainnet.stacks.co" },
-          { name: "nodeyez",       url: "https://api.mainnet.hiro.so" },
+          {
+            name: "sovereign-node",
+            url:
+              process.env.STACKS_API_URL ??
+              process.env.STACKS_NODE_URL ??
+              "https://api.hiro.so",
+          },
+          { name: "stacks-co", url: "https://stacks-node-api.mainnet.stacks.co" },
+          { name: "hiro-backup", url: "https://api.mainnet.hiro.so" },
         ];
 
         const results = await Promise.allSettled(
@@ -1847,7 +1856,8 @@ export function registerFlyingWhaleTools(server: McpServer): void {
         let bnsResolved: unknown = null;
         if (isBnsName) {
           try {
-            const bnsRes = await fetch(`https://api.bnsv2.com/names/${encodeURIComponent(query)}`, {
+            const BNS_BASE = process.env.BNS_API_URL ?? "https://api.bnsv2.com";
+            const bnsRes = await fetch(`${BNS_BASE}/names/${encodeURIComponent(query)}`, {
               signal: AbortSignal.timeout(TIMEOUT_MS),
             }).then(r => r.json());
             bnsResolved = bnsRes;
