@@ -376,6 +376,9 @@ let _cachedStacksApiUrl: string | null | undefined = undefined; // undefined = n
  * Returns empty string if no custom URL is stored.
  */
 export async function getStacksApiUrl(): Promise<string> {
+  // Env vars always take precedence over stored config
+  const envUrl = process.env.STACKS_API_URL ?? process.env.STACKS_NODE_URL;
+  if (envUrl) return envUrl;
   if (_cachedStacksApiUrl !== undefined) return _cachedStacksApiUrl || "";
   const config = await readAppConfig();
   _cachedStacksApiUrl = config.stacksApiUrl || null;

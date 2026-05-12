@@ -12,9 +12,17 @@ export function getStacksNetwork(network: Network): StacksNetworkName {
 }
 
 export function getApiBaseUrl(network: Network): string {
-  return network === "mainnet"
-    ? "https://api.mainnet.hiro.so"
-    : "https://api.testnet.hiro.so";
+  if (network === "mainnet") {
+    return (
+      process.env.STACKS_API_URL ??
+      process.env.STACKS_NODE_URL ??
+      "https://api.mainnet.hiro.so"
+    );
+  }
+  return (
+    process.env.STACKS_TESTNET_API_URL ??
+    "https://api.testnet.hiro.so"
+  );
 }
 
 export const EXPLORER_URL = "https://explorer.hiro.so";
