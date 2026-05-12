@@ -426,11 +426,12 @@ export interface BitcoinProvider {
   getFeeEstimates():                  Promise<FeeEstimates>;
   getBalance(address: string):        Promise<{ confirmed: number; unconfirmed: number; total: number }>;
   broadcastTransaction(hex: string):  Promise<string>;
-  getSource():                        "bitcoin-core" | "mempool.space";
+  getTxHex(txid: string):             Promise<string>;
+  getSource():                        "bitcoin-core" | "electrum" | "mempool.space";
 }
 
 /**
- * MempoolApi adapter to match BitcoinProvider interface
+ * mempool.space adapter — last-resort fallback
  */
 class MempoolProvider implements BitcoinProvider {
   constructor(private readonly api: MempoolApi) {}
@@ -454,21 +455,27 @@ class MempoolProvider implements BitcoinProvider {
     return this.api.broadcastTransaction(hex);
   }
 
-  getSource(): "bitcoin-core" | "mempool.space" {
+  async getTxHex(txid: string): Promise<string> {
+    return this.api.getTxHex(txid);
+  }
+
+  getSource(): "bitcoin-core" | "electrum" | "mempool.space" {
     return "mempool.space";
   }
 }
 
 /**
- * Returns the best available Bitcoin provider.
- * Uses Bitcoin Core if BTC_CORE_PASSWORD is set, otherwise mempool.space.
+ * Sovereign Bitcoin provider chain — priority order:
+ *   1. Bitcoin Core  (BTC_CORE_PASSWORD set)         — you ARE the network
+ *   2. Electrum P2P  (ELECTRUM_HOST or public server) — peer network, no HTTP
+ *   3. mempool.space (USE_MEMPOOL_API=true or last resort) — trusted third party
+ *
+ * "Don't trust, verify." — Satoshi Nakamoto
  */
 export function getBitcoinProvider(network: Network): BitcoinProvider {
-  // Lazy import to avoid circular dependency
   const corePasswordSet = !!(process.env.BTC_CORE_PASSWORD?.trim());
 
   if (corePasswordSet) {
-    // Import Bitcoin Core client (dynamic to avoid loading when not needed)
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { getBitcoinCoreClient } = require("./bitcoin-core.js") as typeof import("./bitcoin-core.js");
     const client = getBitcoinCoreClient(network);
@@ -478,7 +485,29 @@ export function getBitcoinProvider(network: Network): BitcoinProvider {
       getFeeEstimates:     ()  => client.getFeeEstimates(),
       getBalance:          (a) => client.getBalance(a),
       broadcastTransaction:(h) => client.broadcastTransaction(h),
+      getTxHex:            (t) => client.getTxHex(t),
       getSource:           ()  => "bitcoin-core",
+    };
+  }
+
+  // Electrum: pure P2P, no HTTP, no central server required
+  const electrumAvailable = !!(
+    process.env.ELECTRUM_HOST ||
+    process.env.ELECTRUM_PORT
+  );
+
+  if (electrumAvailable) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getElectrumClient } = require("./electrum-client.js") as typeof import("./electrum-client.js");
+    const client = getElectrumClient(network);
+
+    return {
+      getUtxos:            (a) => client.getUtxos(a),
+      getFeeEstimates:     ()  => client.getFeeEstimates(),
+      getBalance:          (a) => client.getBalance(a),
+      broadcastTransaction:(h) => client.broadcast(h),
+      getTxHex:            (t) => client.getTxHex(t),
+      getSource:           ()  => "electrum",
     };
   }
 

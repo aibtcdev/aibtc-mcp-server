@@ -27,6 +27,7 @@ import {
   getBitcoinCoreClient,
   isBitcoinCoreConfigured,
 } from "../services/bitcoin-core.js";
+import { getElectrumClient } from "../services/electrum-client.js";
 import { buildAndSignBtcTransaction } from "../transactions/bitcoin-builder.js";
 import { OrdinalIndexer } from "../services/ordinal-indexer.js";
 
@@ -577,60 +578,101 @@ export function registerBitcoinTools(server: McpServer): void {
     }
   );
 
-  // ── Bitcoin Node Info ──────────────────────────────────────────────
-  // Shows whether system is using sovereign Bitcoin Core or mempool.space
+  // ── Bitcoin Sovereign Chain Status ────────────────────────────────
   server.registerTool(
     "get_btc_node_info",
     {
       description:
-        "Show Bitcoin data source status. " +
-        "Returns whether you are using a sovereign Bitcoin Core node " +
-        "(set BTC_CORE_PASSWORD in .env) or mempool.space API (fallback). " +
-        "If Bitcoin Core is connected, shows sync status, peers, and chain info.",
+        "Show Bitcoin sovereign data source status. " +
+        "Reports the active tier: Bitcoin Core (full sovereignty) → " +
+        "Electrum P2P (peer network) → mempool.space (last resort). " +
+        "If Bitcoin Core is connected, shows sync status, peers, and chain info. " +
+        "If Electrum is active, shows connected server and tip height.",
     },
     async () => {
       try {
-        const configured = isBitcoinCoreConfigured();
+        const coreConfigured     = isBitcoinCoreConfigured();
+        const electrumConfigured = !!(process.env.ELECTRUM_HOST || process.env.ELECTRUM_PORT);
 
-        if (!configured) {
+        // ── Tier 1: Bitcoin Core ──────────────────────────────────────
+        if (coreConfigured) {
+          const client = getBitcoinCoreClient(NETWORK);
+          const info   = await client.getNodeInfo();
+
           return createJsonResponse({
-            source:   "mempool.space",
-            sovereign: false,
-            message:
-              "Using mempool.space API (third-party). " +
-              "To activate sovereignty: set BTC_CORE_PASSWORD in .env and run Bitcoin Core locally. " +
-              "bitcoin.conf: server=1, prune=5500, rpcuser=bitcoin, rpcpassword=<password>",
-            setup: {
-              step1: "Download Bitcoin Core: https://bitcoincore.org",
-              step2: "Add to bitcoin.conf: server=1, prune=5500, rpcuser=bitcoin, rpcpassword=YOUR_PASSWORD",
-              step3: "Add to .env: BTC_CORE_PASSWORD=YOUR_PASSWORD",
-              step4: "Restart MCP server",
-              disk_required: "~10GB (pruned) or ~600GB (full node)",
-              cost: "$0 — open source, self-hosted",
+            source:    "bitcoin-core",
+            tier:      1,
+            sovereign: true,
+            network:   NETWORK,
+            node: {
+              version: info.version,
+              chain:   info.chain,
+              blocks:  info.blocks,
+              peers:   info.peers,
+              synced:  info.synced,
+              syncPct: info.syncPct,
+              pruned:  info.pruned,
             },
+            chain: {
+              tier2_electrum:  electrumConfigured ? "configured" : "not configured",
+              tier3_mempool:   "fallback (disabled when Core active)",
+            },
+            message: info.synced
+              ? "✅ Bitcoin Core — FULLY SOVEREIGN. You ARE the network. Don't trust, verify."
+              : `⏳ Bitcoin Core syncing... ${info.syncPct}% complete.`,
           });
         }
 
-        // Bitcoin Core is configured — fetch node info
-        const client = getBitcoinCoreClient(NETWORK);
-        const info   = await client.getNodeInfo();
+        // ── Tier 2: Electrum P2P ──────────────────────────────────────
+        if (electrumConfigured) {
+          const client = getElectrumClient(NETWORK);
+          await client.connect();
+          const tip    = await client.getTip();
 
+          return createJsonResponse({
+            source:    "electrum",
+            tier:      2,
+            sovereign: true,
+            network:   NETWORK,
+            electrum: {
+              host:    process.env.ELECTRUM_HOST ?? "electrum.blockstream.info",
+              port:    parseInt(process.env.ELECTRUM_PORT ?? "50002"),
+              tls:     process.env.ELECTRUM_USE_TLS !== "false",
+              tipHeight: tip.height,
+            },
+            chain: {
+              tier1_bitcoin_core: "not configured (set BTC_CORE_PASSWORD for full sovereignty)",
+              tier3_mempool:      "fallback (disabled when Electrum active)",
+            },
+            message:
+              "✅ Electrum P2P — peer network active. Pure Bitcoin protocol, no HTTP API.",
+            upgrade:
+              "To achieve full sovereignty: set BTC_CORE_HOST + BTC_CORE_PASSWORD in .env",
+          });
+        }
+
+        // ── Tier 3: mempool.space ─────────────────────────────────────
         return createJsonResponse({
-          source:    "bitcoin-core",
-          sovereign: true,
+          source:    "mempool.space",
+          tier:      3,
+          sovereign: false,
           network:   NETWORK,
-          node: {
-            version:  info.version,
-            chain:    info.chain,
-            blocks:   info.blocks,
-            peers:    info.peers,
-            synced:   info.synced,
-            syncPct:  info.syncPct,
-            pruned:   info.pruned,
+          chain: {
+            tier1_bitcoin_core:
+              "INACTIVE — set BTC_CORE_HOST + BTC_CORE_PASSWORD in .env",
+            tier2_electrum:
+              "INACTIVE — set ELECTRUM_HOST in .env (or leave blank for public Electrum servers)",
+            tier3_mempool:
+              "ACTIVE — trusted third party (Blockstream)",
           },
-          message: info.synced
-            ? "✅ Bitcoin Core node is fully synced. You ARE the network. Don't trust, verify."
-            : `⏳ Syncing... ${info.syncPct}% complete. Wait for IBD to finish.`,
+          message:
+            "⚠️  Using mempool.space (third party). Sovereignty not active.",
+          upgrade: {
+            electrum_quick:
+              "Add ELECTRUM_HOST=electrum.blockstream.info to .env → immediate P2P sovereignty",
+            bitcoin_core_full:
+              "Run Bitcoin Core with BTC_CORE_PASSWORD → maximum sovereignty (you ARE the network)",
+          },
         });
       } catch (error) {
         return createErrorResponse(error);

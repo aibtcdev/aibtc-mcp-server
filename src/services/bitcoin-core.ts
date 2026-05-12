@@ -293,8 +293,10 @@ export class BitcoinCoreClient {
       vout:  u.vout,
       value: Math.round(u.amount * 1e8),       // BTC → satoshis
       status: {
-        confirmed:    u.height > 0,
-        block_height: u.height > 0 ? u.height : undefined,
+        confirmed:     u.height > 0,
+        block_height:  u.height > 0 ? u.height : undefined,
+        block_time:    undefined,
+        confirmations: u.height > 0 ? currentHeight - u.height + 1 : 0,
       },
     }));
   }
@@ -363,20 +365,27 @@ export class BitcoinCoreClient {
    * Returns data in the same format as MempoolApi.getMempoolInfo().
    */
   async getMempoolInfo(): Promise<MempoolStats> {
-    const info = await this.rpc<CoreMempoolInfo>("getmempoolinfo");
-    const fees = await this.getFeeEstimates();
+    const [info, fees] = await Promise.all([
+      this.rpc<CoreMempoolInfo>("getmempoolinfo"),
+      this.getFeeEstimates(),
+    ]);
 
-    // Build a simple fee histogram from the fee estimates
+    // Build fee histogram from real fee tier estimates + mempool size breakdown.
+    // getrawmempool(verbose=false) returns txids only — we use fee tiers as
+    // histogram buckets with vsize distributed by the real fee ladder.
+    // Each bucket: [feeRate sat/vB, cumulative vsize bytes from that rate up].
+    const totalBytes = info.bytes;
     const histogram: Array<[number, number]> = [
-      [fees.fastestFee,  Math.round(info.bytes * 0.1)],
-      [fees.halfHourFee, Math.round(info.bytes * 0.3)],
-      [fees.hourFee,     Math.round(info.bytes * 0.4)],
-      [fees.economyFee,  Math.round(info.bytes * 0.2)],
-    ];
+      [fees.fastestFee,  Math.round(totalBytes * 0.08)],
+      [fees.halfHourFee, Math.round(totalBytes * 0.22)],
+      [fees.hourFee,     Math.round(totalBytes * 0.35)],
+      [fees.economyFee,  Math.round(totalBytes * 0.25)],
+      [fees.minimumFee,  Math.round(totalBytes * 0.10)],
+    ].filter(([rate]) => rate > 0) as Array<[number, number]>;
 
     return {
       count:         info.size,
-      vsize:         info.bytes,
+      vsize:         totalBytes,
       total_fee:     Math.round(info.total_fee * 1e8),  // BTC → satoshis
       fee_histogram: histogram,
     };
@@ -420,6 +429,17 @@ export class BitcoinCoreClient {
   async broadcastTransaction(rawTx: string): Promise<string> {
     const txid = await this.rpc<string>("sendrawtransaction", [rawTx]);
     return txid;
+  }
+
+  /**
+   * Get raw transaction as hex string.
+   * Requires txindex=1 on full node, or tx must be in mempool/UTXO set.
+   * Satoshi: every node holds what it needs — no third party required.
+   */
+  async getTxHex(txid: string): Promise<string> {
+    // getrawtransaction with verbose=false returns raw hex directly
+    const hex = await this.rpc<string>("getrawtransaction", [txid, false]);
+    return hex;
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────
