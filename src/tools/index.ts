@@ -50,6 +50,7 @@ import { registerBtcChainTools } from "./btc-chain.tools.js";
 import { registerComplianceTools } from "./compliance.tools.js";
 import { registerSovereignEconomyTools } from "./sovereign-economy.tools.js";
 import { registerPsiOracleTools } from "./psi-oracle.tools.js";
+import { registerGrandUnifiedTools } from "./grand-unified.tools.js";
 import { registerChildInscriptionTools } from "./child-inscription.tools.js";
 import { registerErc8004Tools } from "./erc8004.tools.js";
 import { registerOrdinalsTools } from "./ordinals.tools.js";
@@ -258,6 +259,10 @@ export function registerAllTools(server: McpServer): void {
   // No brand, no name. Identified only by SHA-256("Ψ=Landauer·Nash·Cantillon⁻¹·Gödel")
   // Works on Bitcoin, Stacks, Ethereum, Solana, Lightning, and all chains.
   registerComplianceTools(server);
+
+  // Ψ Grand Unified System — complete architecture: constitution, adversarial matrix,
+  // risk registry, reform catalog, monetary bridge, stability mechanisms, reactions balance
+  registerGrandUnifiedTools(server);
 
   // Ψ Universal Oracle — single unified call across all 8 layers
   // psi_oracle: address+chain+jurisdiction → full intelligence in one response
