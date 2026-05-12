@@ -57,6 +57,7 @@ import { registerOrdinalsTools } from "./ordinals.tools.js";
 import { registerPsbtTools } from "./psbt.tools.js";
 import { registerSettingsTools } from "./settings.tools.js";
 import { registerCurrencyRenaissanceTools } from "./currency-renaissance.tools.js";
+import { registerZeroHarmTools } from "./zero-harm.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 import { withSessionGuard } from "./session-guard.js";
 
@@ -280,6 +281,11 @@ export function registerAllTools(server: McpServer): void {
   // Ψ diagnosis per currency → specific Landauer/Nash/Cantillon/Gödel reforms
   // Multi-currency x402: no forced sBTC — LBP pays LBP, JPY pays JPY
   registerCurrencyRenaissanceTools(server);
+
+  // Zero Harm Protocol — صفر أضرار على المدنيين والحكومات
+  // 10 civilian rights × 10 government rights × 4 sector guarantees × 10 circuit breakers
+  // Technical | Monetary | Security | Legal — complete zero-harm coverage
+  registerZeroHarmTools(server);
 
   restoreRegisterTool();
 }
