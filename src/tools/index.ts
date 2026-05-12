@@ -47,6 +47,7 @@ import { registerArxivResearchTools } from "./arxiv-research.tools.js";
 import { registerFlyingWhaleTools } from "./flying-whale.tools.js";
 import { registerPsiTools } from "./psi.tools.js";
 import { registerBtcChainTools } from "./btc-chain.tools.js";
+import { registerComplianceTools } from "./compliance.tools.js";
 import { registerChildInscriptionTools } from "./child-inscription.tools.js";
 import { registerErc8004Tools } from "./erc8004.tools.js";
 import { registerOrdinalsTools } from "./ordinals.tools.js";
@@ -250,6 +251,11 @@ export function registerAllTools(server: McpServer): void {
 
   // Bitcoin-Complete Chain (SHA256d, Merkle, nBits, PoP, halving, UTXO, FW Script)
   registerBtcChainTools(server);
+
+  // Universal Ψ Compliance Protocol — SHA-256 anchored, chain-agnostic
+  // No brand, no name. Identified only by SHA-256("Ψ=Landauer·Nash·Cantillon⁻¹·Gödel")
+  // Works on Bitcoin, Stacks, Ethereum, Solana, Lightning, and all chains.
+  registerComplianceTools(server);
 
   restoreRegisterTool();
 }
