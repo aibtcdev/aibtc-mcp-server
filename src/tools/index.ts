@@ -49,6 +49,7 @@ import { registerPsiTools } from "./psi.tools.js";
 import { registerBtcChainTools } from "./btc-chain.tools.js";
 import { registerComplianceTools } from "./compliance.tools.js";
 import { registerSovereignEconomyTools } from "./sovereign-economy.tools.js";
+import { registerPsiOracleTools } from "./psi-oracle.tools.js";
 import { registerChildInscriptionTools } from "./child-inscription.tools.js";
 import { registerErc8004Tools } from "./erc8004.tools.js";
 import { registerOrdinalsTools } from "./ordinals.tools.js";
@@ -257,6 +258,12 @@ export function registerAllTools(server: McpServer): void {
   // No brand, no name. Identified only by SHA-256("Ψ=Landauer·Nash·Cantillon⁻¹·Gödel")
   // Works on Bitcoin, Stacks, Ethereum, Solana, Lightning, and all chains.
   registerComplianceTools(server);
+
+  // Ψ Universal Oracle — single unified call across all 8 layers
+  // psi_oracle: address+chain+jurisdiction → full intelligence in one response
+  // psi_nation: country code → debt + currency + law + roadmap + invariant
+  // psi_system_state: live health of all 8 layers + global stats
+  registerPsiOracleTools(server);
 
   // Sovereign Economy — National Debt Liberation & Global Renaissance
   // $307T global debt → 7-phase Bitcoin Standard transition → 30-year Renaissance projection
