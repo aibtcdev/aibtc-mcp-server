@@ -51,6 +51,14 @@ interface RpcConfig {
   password: string;
 }
 
+if (!process.env.BITCOIN_RPC_PASSWORD) {
+  console.warn(
+    "[BITCOIN RPC] WARNING: BITCOIN_RPC_PASSWORD not set. " +
+    "Using insecure default 'aibtc2026'. " +
+    "Set BITCOIN_RPC_PASSWORD in your environment before connecting to Bitcoin Core."
+  );
+}
+
 const DEFAULT_RPC: RpcConfig = {
   host:     "127.0.0.1",
   port:     8332,

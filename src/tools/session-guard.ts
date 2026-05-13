@@ -822,6 +822,40 @@ export function withSessionGuard(server: McpServer): () => void {
         }
       }
 
+      // ── Hash Chain integrity guard — blocks wallet tools if chain is tampered ─
+      // Verifies the full session chain BEFORE any wallet-sensitive operation.
+      // Rules 2 (chain continuity) and 7 (double-spend) are critical: a violation
+      // means the session history was forged or replayed — block immediately.
+      if (WALLET_SENSITIVE.has(name)) {
+        try {
+          const chain = getChain(server);
+          if (chain.length > 0) {
+            const verification = chain.verify();
+            if (!verification.valid) {
+              const critical = verification.violations.filter(v => v.rule === 2 || v.rule === 7);
+              if (critical.length > 0) {
+                return {
+                  content: [{
+                    type: "text",
+                    text: [
+                      "🔒 HASH CHAIN INTEGRITY VIOLATION",
+                      "",
+                      `Wallet operation "${name}" BLOCKED — session chain has been tampered.`,
+                      "",
+                      "Violations:",
+                      ...critical.map(v => `  Rule ${v.rule} (${v.rule_name}): ${v.detail}`),
+                      "",
+                      "Wallet operations are suspended. Start a new session to reset the chain.",
+                    ].join("\n"),
+                  }],
+                  isError: true,
+                };
+              }
+            }
+          }
+        } catch { /* chain not yet initialised — allow first call */ }
+      }
+
       // Execute the tool handler
       const _t0 = Date.now();
       const result = await handler(...args);
@@ -832,7 +866,7 @@ export function withSessionGuard(server: McpServer): () => void {
 
       // ── Bitcoin hash chain: log every call as a block ─────────────────────
       // Runs after execution so output_hash covers the actual result.
-      // Violations are logged to stderr but never block the response.
+      // Violations are logged to stderr (chain guard above handles pre-exec blocking).
       try {
         const chain = getChain(server);
         const { block, violations } = chain.addBlock(name, args[0] ?? {}, result);

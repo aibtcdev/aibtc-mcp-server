@@ -187,6 +187,13 @@ else if (process.argv.includes("--install") || process.argv.includes("install"))
     await server.connect(transport);
     console.error(`[aibtc-protocol] v${packageJson.version} running on stdio`);
     console.error(`[aibtc-protocol] Network: ${NETWORK} | API: ${API_URL}`);
+    if (process.env.CLIENT_MNEMONIC) {
+      console.error(
+        "[SECURITY] WARNING: CLIENT_MNEMONIC is set as an environment variable. " +
+        "The 24-word seed phrase is visible in process memory and system logs. " +
+        "Use managed wallets (wallet_create / wallet_import) with encrypted keystores instead."
+      );
+    }
   }
 
   // ─── Graceful Shutdown ─────────────────────────────────────────────────────
