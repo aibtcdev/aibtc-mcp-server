@@ -35,7 +35,41 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { quickPsiScore, getPsiTier, computeAndRecordPsi } from "../services/psi-consensus.js";
 import { getChain } from "../services/security/tool-hash-chain.js";
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+// L4 — PROTECTED FILE GUARD
+// Immutable file list — modification forbidden for ALL callers including Claude.
+// Owner: SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW (zaghmout.btc)
+// ══════════════════════════════════════════════════════════════════════════════
+
+const PROTECTED_PATH_PATTERNS: ReadonlyArray<RegExp> = [
+  /claude\.md$/i,
+  /\.clar$/i,
+  /license-fw\.md$/i,
+  /security\.md$/i,
+  /[/\\]tools[/\\]session-guard\.ts$/i,
+  /[/\\]security[/\\]system-hardening\.ts$/i,
+  /[/\\]security[/\\]tool-hash-chain\.ts$/i,
+  /[/\\]security[/\\]zk-commitment\.ts$/i,
+  /protected-manifest\.json$/i,
+  /protect-hook\.sh$/i,
+  /ipi-attack-phrases/i,
+];
+
+const WRITE_TOOLS: ReadonlySet<string> = new Set([
+  "Edit", "Write", "NotebookEdit",
+]);
+
+function _isProtectedFile(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, "/");
+  return PROTECTED_PATH_PATTERNS.some(pat => pat.test(normalized));
+}
+
+function _isWriteTool(toolName: string): boolean {
+  return WRITE_TOOLS.has(toolName);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// L3E — IPI DEFENSE LAYER (Indirect Prompt Injection)
 // L3E — IPI DEFENSE LAYER (Indirect Prompt Injection)
 // Policy: terms-of-use.md §12 — IPI Defense Policy v1.0
 // On-chain evidence: whale-signal-registry-v1 (3 registered attack patterns)
@@ -759,6 +793,38 @@ export function withSessionGuard(server: McpServer): () => void {
               };
             }
           }
+        }
+      }
+
+      // ── L4: Protected file guard ──────────────────────────────────────────
+      // Blocks any tool from writing to immutable files.
+      // Applies even if tool is not an "Edit" tool — defense in depth.
+      // Owner: SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW (zaghmout.btc)
+      if (inputArg && typeof inputArg === "object") {
+        const fp: string = (inputArg as Record<string, unknown>).file_path as string ?? "";
+        if (fp && _isProtectedFile(fp) && _isWriteTool(name)) {
+          return {
+            content: [{
+              type: "text",
+              text: [
+                `🔒 FLYING WHALE PROTECTION — L4 Protected File Guard`,
+                ``,
+                `Tool     : ${name}`,
+                `File     : ${fp}`,
+                ``,
+                `This file is IMMUTABLE — modification is forbidden.`,
+                `Protected files: CLAUDE.md, *.clar, LICENSE-FW.md, SECURITY.md,`,
+                `  session-guard.ts, system-hardening.ts, tool-hash-chain.ts,`,
+                `  zk-commitment.ts, protected-manifest.json, protect-hook.sh`,
+                ``,
+                `Owner: SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW (zaghmout.btc)`,
+                `Policy: Flying Whale Proprietary License v3.0 — Agreement-First`,
+                ``,
+                `No exceptions — applies to Claude, humans, and scripts equally.`,
+              ].join("\n"),
+            }],
+            isError: true,
+          };
         }
       }
 
