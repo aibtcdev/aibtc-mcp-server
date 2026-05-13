@@ -65,6 +65,7 @@ import { registerTeneroTools }              from "./tenero.tools.js";
 import { registerPsiTools }                 from "./psi.tools.js";
 import { registerPsiOracleTools }           from "./psi-oracle.tools.js";
 import { registerNashGossipTools }          from "./nash-gossip.tools.js";
+import { registerNashIdealMoneyTools }      from "./nash-ideal-money.tools.js";
 import { registerUnifiedEngineTools }       from "./unified-engine.tools.js";
 import { registerGrandUnifiedTools }        from "./grand-unified.tools.js";
 import { registerNeuroSovereignTools }      from "./neuro-sovereign.tools.js";
@@ -97,6 +98,7 @@ import { registerFlyingWhaleTools }         from "./flying-whale.tools.js";
 import { registerProsperityTools }          from "./prosperity.tools.js";
 import { registerSovereignCommonsTools }    from "./sovereign-commons.tools.js";
 import { registerPolicyTools }              from "./policy.tools.js";
+import { registerPerfectScoreTools }        from "./perfect-score.tools.js";
 
 // ── L7 · Bridge ──────────────────────────────────────────────────────────────
 import { registerStyxTools }                from "./styx.tools.js";
@@ -210,6 +212,7 @@ export function registerAllTools(server: McpServer): void {
   registerPsiTools(server);
   registerPsiOracleTools(server);
   registerNashGossipTools(server);
+  registerNashIdealMoneyTools(server);
   registerUnifiedEngineTools(server);
   registerGrandUnifiedTools(server);
   registerNeuroSovereignTools(server);
@@ -233,6 +236,7 @@ export function registerAllTools(server: McpServer): void {
   registerProsperityTools(server);
   registerSovereignCommonsTools(server);
   registerPolicyTools(server);
+  registerPerfectScoreTools(server);
 
   // L5 — x402 Endpoints
   registerEndpointTools(server);
