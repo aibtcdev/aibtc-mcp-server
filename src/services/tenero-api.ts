@@ -10,8 +10,23 @@
 
 const TENERO_BASE = "https://api.tenero.io";
 
-async function fetchTenero(path: string): Promise<unknown> {
-  const response = await fetch(`${TENERO_BASE}${path}`);
+export interface TeneroFetchOptions {
+  /**
+   * Abort signal for caller-controlled cancellation/timeouts. Tenero has
+   * been observed to stall 15-30s on tokens that haven't traded recently;
+   * callers that fan out parallel lookups should bound each call with
+   * `AbortSignal.timeout(...)`.
+   */
+  signal?: AbortSignal;
+}
+
+async function fetchTenero(
+  path: string,
+  options?: TeneroFetchOptions
+): Promise<unknown> {
+  const response = await fetch(`${TENERO_BASE}${path}`, {
+    signal: options?.signal,
+  });
   if (!response.ok) {
     const text = await response.text().catch(() => "Unknown error");
     throw new Error(`Tenero API error ${response.status}: ${text}`);
@@ -28,12 +43,14 @@ async function fetchTenero(path: string): Promise<unknown> {
  * Get token details including metadata, price, and volume.
  * @param contractId - Token contract address (e.g. SP102V8P0F7JX67ARQ77WEA3D3CFB5XW39REDT0AM.token-alex)
  * @param chain - Chain to query (default: stacks)
+ * @param options - Optional fetch controls (e.g. `signal` for timeouts).
  */
 export async function getTokenInfo(
   contractId: string,
-  chain = "stacks"
+  chain = "stacks",
+  options?: TeneroFetchOptions
 ): Promise<unknown> {
-  return fetchTenero(`/v1/${chain}/tokens/${contractId}`);
+  return fetchTenero(`/v1/${chain}/tokens/${contractId}`, options);
 }
 
 /**

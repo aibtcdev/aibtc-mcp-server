@@ -73,7 +73,6 @@ function normalizeTxid(txid: string): string {
   return withPrefix.toLowerCase();
 }
 
-
 const COMPETITION_FETCH_TIMEOUT_MS = 10_000;
 
 /**
@@ -84,6 +83,25 @@ const COMPETITION_FETCH_TIMEOUT_MS = 10_000;
  */
 const PNL_MAX_TRADE_PAGES = 10;
 const PNL_TRADES_PAGE_SIZE = 200;
+
+/**
+ * Per-token Tenero timeout. Field reports (from operators running this on
+ * an ~80-calls/day sensor cycle) include 15-30s stalls on tokens that
+ * haven't traded recently — without a bound the whole `competition_status`
+ * call would block until Node's default socket timeout. 10s matches the
+ * competition-API budget so a slow leg is treated the same as a slow
+ * status fetch.
+ */
+const TENERO_TOKEN_TIMEOUT_MS = 10_000;
+
+/**
+ * Max concurrent Tenero requests when resolving distinct token prices.
+ * Agents with many distinct tokens (30+) would otherwise fire that many
+ * simultaneous calls and risk saturating Tenero's unauthenticated rate
+ * limit. 10 keeps total wall time bounded while staying well clear of
+ * the rate-limit ceiling.
+ */
+const TENERO_RESOLVE_CONCURRENCY = 10;
 
 /**
  * Synthetic token id the indexer uses for native STX (no `::asset` form on
@@ -296,10 +314,41 @@ async function collectAllTrades(
 }
 
 /**
+ * Run `worker` over `items` with at most `limit` calls in flight at once.
+ * A tiny worker-pool — N runners share a cursor and pull the next item
+ * when their previous one resolves. Preserves input order in the output
+ * array. We use this instead of a chunked `Promise.all` so a single slow
+ * Tenero leg doesn't block other tokens behind it.
+ */
+async function withConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let cursor = 0;
+  const runners = Array.from(
+    { length: Math.min(Math.max(limit, 1), items.length) },
+    async () => {
+      while (true) {
+        const i = cursor++;
+        if (i >= items.length) return;
+        out[i] = await worker(items[i], i);
+      }
+    }
+  );
+  await Promise.all(runners);
+  return out;
+}
+
+/**
  * Resolve prices for every distinct token id referenced in `swaps` by
- * calling Tenero `/v1/stacks/tokens/{address}` once per token in parallel.
+ * calling Tenero `/v1/stacks/tokens/{address}` once per token. Bounded
+ * concurrency (`TENERO_RESOLVE_CONCURRENCY`) plus a per-call timeout
+ * (`TENERO_TOKEN_TIMEOUT_MS`) so an agent with many distinct tokens or a
+ * slow Tenero leg can't stall the whole status call.
  *
- * Tokens Tenero doesn't price (404, unknown, or no published price) stay
+ * Tokens Tenero doesn't price (404, timeout, no published price) stay
  * absent from the returned Map — `computeCampaignStats` treats absence as
  * "unpriced" and excludes the swap from the totals. The literal `"unknown"`
  * parser sentinel is filtered out up front; it's never a real token.
@@ -320,18 +369,23 @@ async function resolveTokenPricesViaTenero(
   const prices = new Map<string, TokenPriceForPnl>();
   if (distinct.size === 0) return prices;
 
-  const entries = await Promise.all(
-    Array.from(distinct).map(async (id) => {
+  const ids = Array.from(distinct);
+  const entries = await withConcurrency(
+    ids,
+    TENERO_RESOLVE_CONCURRENCY,
+    async (id) => {
       try {
-        const data = await getTokenInfo(id);
+        const data = await getTokenInfo(id, "stacks", {
+          signal: AbortSignal.timeout(TENERO_TOKEN_TIMEOUT_MS),
+        });
         return [id, parseTeneroPrice(data)] as const;
       } catch {
-        // Tenero 404 / network blip → leave unpriced; the swap will be
-        // bucketed into `unpriced_trade_count` and surfaced via
+        // Tenero 404 / network blip / timeout → leave unpriced; the swap
+        // will be bucketed into `unpriced_trade_count` and surfaced via
         // `unpriced_tokens` so the caller knows what's missing.
         return [id, null] as const;
       }
-    })
+    }
   );
   for (const [id, p] of entries) {
     if (p) prices.set(id, p);
@@ -409,6 +463,8 @@ Response shapes:
     "competition_status",
     {
       description: `Get the current AIBTC trading competition standing for an agent, with mark-to-current P&L computed locally.
+
+**Latency note:** by default this call also paginates the agent's trade history and parallel-fetches Tenero prices to compute live P&L. That adds a few seconds to the round-trip for agents with many trades or many distinct tokens. Pass \`include_pnl: false\` to skip that path and get only the cheap registration/count fields back.
 
 Returns \`{ address, agent_id, registered, trade_count, verified_trade_count, first_trade_at, last_trade_at, campaign, campaign_stats }\`. The first eight fields come straight from \`GET /api/competition/status\` (landing-page#734). \`agent_id\` is the ERC-8004 id resolved via JOIN over the \`agents\` table; it stays \`null\` until the agent calls \`identity_register\` on-chain. \`campaign\` carries rank + P&L once backend scoring has run.
 
