@@ -343,10 +343,16 @@ export const SECURITY_AUDIT: SecurityCheck[] = [
 
   // Session security
   { id:"SEC-08", system:"Session", check:"Session guard prevents MCPTox wallet drain",
-    status:"PASS", finding:"withSessionGuard wraps all tools — read-only exempt from cap",
+    status:"PASS", finding:"withSessionGuard wraps all tools — read-only exempt from wallet cap",
+    remediation:null, severity:"info" },
+  { id:"SEC-08b", system:"Session", check:"IPI scan covers tool inputs (not just outputs)",
+    status:"PASS", finding:"All string-valued tool inputs scanned before handler executes — injection in args blocked",
+    remediation:null, severity:"info" },
+  { id:"SEC-08c", system:"Session", check:"Open Ψ/sovereign tools rate-limited (50/session)",
+    status:"PASS", finding:"SOVEREIGN_TOOLS set — 50 calls/session max prevents API scraping",
     remediation:null, severity:"info" },
   { id:"SEC-09", system:"Session", check:"Session limits enforced",
-    status:"PASS", finding:"10/75 session limits active — prevents denial-of-wallet attacks",
+    status:"PASS", finding:"10 wallet / 50 sovereign / 75 total — layered session budget protection",
     remediation:null, severity:"info" },
 
   // Cryptographic integrity

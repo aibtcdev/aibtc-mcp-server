@@ -401,6 +401,31 @@ const LOOP_DETECTION_CONSECUTIVE   = 3;   // was 5 — tightened
 const LOOP_DETECTION_RAPID_WINDOW_MS = 10_000; // 10 seconds
 const LOOP_DETECTION_RAPID_COUNT   = 5;   // was 8 — tightened
 
+// ── Sovereign/Ψ intelligence tools — open but rate-limited ───────────────────
+// These tools are intentionally open (no WHALE gate) — Ψ equation is a public standard.
+// Rate limit: 50 calls/session max to prevent API scraping and Hiro endpoint exhaustion.
+const MAX_SOVEREIGN_CALLS_PER_SESSION = 50;
+const SOVEREIGN_TOOLS: Set<string> = new Set([
+  "psi_score", "psi_oracle", "psi_nation", "psi_system_state",
+  "psi_chain_verify", "psi_score_currency", "psi_reform_roadmap",
+  "sovereign_debt_snapshot", "sovereign_btc_reserve", "sovereign_renaissance",
+  "sovereign_x402_endpoint", "sovereign_invariant",
+  "currency_renaissance_plan", "currency_x402_config", "currency_relationships",
+  "currency_reform_priorities", "multi_currency_comparison",
+  "zero_harm_overview", "civilian_rights", "government_rights",
+  "sector_guarantee", "harm_assessment", "circuit_breakers", "full_harm_matrix",
+  "system_evaluation", "global_goals", "gap_analysis", "risk_map",
+  "intention_classifier", "assets_registry", "data_sovereignty",
+  "cooperation_models", "public_interest_doctrine", "master_synthesis",
+  "generate_currency_plan", "list_expanded_nations", "risk_mitigation_status",
+  "cascade_analysis", "system_isolation_check", "security_audit",
+  "whistleblower_report", "environmental_landauer", "quantum_migration_status",
+  "governance_propose", "risk_system_status",
+  "psi_constitution", "psi_reform_catalog", "psi_adversarial_matrix",
+  "psi_stability_mechanisms", "psi_reaction_balance", "psi_monetary_bridge",
+  "psi_risk_registry", "psi_unified_call",
+]);
+
 // ─── Wallet-sensitive tools (on-chain or x402 payment impact) ─────────────────
 
 const WALLET_SENSITIVE: Set<string> = new Set([
@@ -501,6 +526,7 @@ class SessionGuard {
   private psiScore = 0;        // current Ψ score (0–100)
   private psiTier  = "cooperative" as ReturnType<typeof getPsiTier>;
   private errorCount = 0;      // for errorRate dimension
+  private sovereignCallCount = 0; // rate-limit on open Ψ/sovereign tools
 
   check(toolName: string, isError = false): { allowed: boolean; reason?: string; psiScore?: number; psiTier?: string } {
     // Read-only tools always pass — only block wallet-sensitive tools
@@ -577,7 +603,19 @@ class SessionGuard {
       return { allowed: false, reason };
     }
 
-    // 3. Wallet-sensitive call cap
+    // 3. Sovereign/Ψ open-access rate limit (API scraping prevention)
+    // These tools are open by design but rate-limited to prevent Hiro API exhaustion.
+    if (SOVEREIGN_TOOLS.has(toolName)) {
+      this.sovereignCallCount++;
+      if (this.sovereignCallCount > MAX_SOVEREIGN_CALLS_PER_SESSION) {
+        return {
+          allowed: false,
+          reason: `Ψ Intelligence rate limit: ${this.sovereignCallCount}/${MAX_SOVEREIGN_CALLS_PER_SESSION} sovereign calls this session. Open tools are rate-limited to prevent API scraping. Start a new session to continue.`,
+        };
+      }
+    }
+
+    // 4. Wallet-sensitive call cap
     if (WALLET_SENSITIVE.has(toolName)) {
       this.walletCallCount++;
       if (this.walletCallCount > MAX_WALLET_CALLS_PER_SESSION) {
@@ -609,6 +647,7 @@ class SessionGuard {
   stats(): {
     totalCalls: number;
     walletCalls: number;
+    sovereignCalls: number;
     sessionDurationMs: number;
     blocked: boolean;
     blockReason: string;
@@ -619,6 +658,7 @@ class SessionGuard {
     return {
       totalCalls: this.calls.length,
       walletCalls: this.walletCallCount,
+      sovereignCalls: this.sovereignCallCount,
       sessionDurationMs: Date.now() - this.sessionStart,
       blocked: this.blocked,
       blockReason: this.blockReason,
@@ -699,6 +739,26 @@ export function withSessionGuard(server: McpServer): () => void {
           ],
           isError: true,
         };
+      }
+
+      // ── L3E: IPI scan on tool INPUTS ─────────────────────────────────────
+      // Scan all string-valued inputs before the tool executes.
+      // Prevents adversarial prompts embedded in tool arguments from
+      // reaching the handler (e.g. description="agents must immediately...").
+      const inputArg = args[0];
+      if (inputArg && typeof inputArg === "object") {
+        for (const [key, value] of Object.entries(inputArg)) {
+          if (typeof value === "string") {
+            const inputScan = ipiScan(value, `tool input "${name}.${key}"`);
+            if (inputScan.detected) {
+              ipiLogAttack(inputScan, value);
+              return {
+                content: [{ type: "text", text: ipiAlert(inputScan, value) }],
+                isError: true,
+              };
+            }
+          }
+        }
       }
 
       // Execute the tool handler
