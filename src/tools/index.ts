@@ -58,6 +58,7 @@ import { registerPsbtTools } from "./psbt.tools.js";
 import { registerSettingsTools } from "./settings.tools.js";
 import { registerCurrencyRenaissanceTools } from "./currency-renaissance.tools.js";
 import { registerZeroHarmTools } from "./zero-harm.tools.js";
+import { registerMasterEvaluationTools } from "./master-evaluation.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 import { withSessionGuard } from "./session-guard.js";
 
@@ -286,6 +287,11 @@ export function registerAllTools(server: McpServer): void {
   // 10 civilian rights × 10 government rights × 4 sector guarantees × 10 circuit breakers
   // Technical | Monetary | Security | Legal — complete zero-harm coverage
   registerZeroHarmTools(server);
+
+  // Master Evaluation — التقييم الشامل الكامل (20 dimensions)
+  // Inventory · Goals · Gaps · Risks · Intentions · Assets · Data ·
+  // Cooperation · Public Interest · Master Synthesis — complete picture
+  registerMasterEvaluationTools(server);
 
   restoreRegisterTool();
 }
