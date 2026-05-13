@@ -1,34 +1,20 @@
 /**
- * session-guard.ts — MCPTox Attack Protection Layer
+ * session-guard.ts — MCPTox Attack Protection
  *
- * COPYRIGHT 2026 Flying Whale — zaghmout.btc | ERC-8004 #54 | ALL RIGHTS RESERVED
- * Flying Whale Proprietary License v2.0 — Agreement-First Policy
- * Owner: SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW
- * On-chain IP: SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW.whale-ip-store-v1
- * Enforcement: SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW.whale-signal-registry-v1
- *
- * Multi-Layer Sovereignty Stack v2.0.0 — Layer 3: Policy VM (Attack Defense)
- * Sovereign Agent OS — 8-Layer Bitcoin AI Infrastructure on Stacks mainnet
+ * aibtc-protocol — open, MIT, built on Bitcoin.
  *
  * Defends against MCPTox-class attacks (arxiv March 2026, adversa.ai March 2026):
- * - Cyclic overthinking loops induced by malicious tool servers (142x token amplification)
- * - Denial-of-Wallet: repeated on-chain transactions before hard caps trigger
- * - Sequential tool call explosions draining x402 API budgets
- * - Indirect prompt injection via trusted content channels
+ * - Cyclic overthinking loops (142x token amplification)
+ * - Denial-of-Wallet: repeated on-chain transactions draining wallet budgets
+ * - Sequential tool call explosions
+ * - Indirect prompt injection via external content channels
  *
- * Defense Layers (Policy VM — L3 of Sovereignty Stack):
- *   L3A. Static rules: blocklist, admin overrides
- *   L3B. Hard cap on wallet-sensitive calls per session (default: 20)
+ * Defense layers:
+ *   L3B. Hard cap on wallet-sensitive calls per session
  *   L3C. Loop detection: same tool N times consecutively = abort
- *   L3D. Rapid-fire detection: N calls/10s to same tool = Denial-of-Wallet block
- *   L3E. IPI scanning: detect indirect prompt injection in tool results / external content
- *
- * IPI Defense Policy v1.0 — terms-of-use.md §12 — Effective 2026-04-07
- * Zero-tolerance against embedded instructions in external content (news, APIs, web pages).
- * Known attack phrases catalogued from registered on-chain signals in whale-signal-registry-v1.
- * ANY match → STOP → QUOTE → ASK owner → WAIT for confirmation → LOG on-chain.
- *
- * No WHALE = No Access. Buy: https://app.bitflow.finance — WHALE/wSTX Pool #42
+ *   L3D. Rapid-fire detection: N calls/10s = block
+ *   L3E. IPI scanning: indirect prompt injection in tool results
+ *   L4.  Protected file guard: immutable core files
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -819,18 +805,14 @@ export function withSessionGuard(server: McpServer): () => void {
             content: [{
               type: "text",
               text: [
-                `🔒 FLYING WHALE PROTECTION — L4 Protected File Guard`,
+                `🔒 AIBTC PROTOCOL — L4 Protected File Guard`,
                 ``,
-                `Tool     : ${name}`,
-                `File     : ${fp}`,
+                `Tool : ${name}`,
+                `File : ${fp}`,
                 ``,
                 `This file is IMMUTABLE — modification is forbidden.`,
-                `Protected files: CLAUDE.md, *.clar, LICENSE-FW.md, SECURITY.md,`,
-                `  session-guard.ts, system-hardening.ts, tool-hash-chain.ts,`,
+                `Protected: CLAUDE.md, *.clar, session-guard.ts, tool-hash-chain.ts,`,
                 `  zk-commitment.ts, protected-manifest.json, protect-hook.sh`,
-                ``,
-                `Owner: SP322ZK4VXT3KGDT9YQANN9R28SCT02MZ97Y24BRW (zaghmout.btc)`,
-                `Policy: Flying Whale Proprietary License v3.0 — Agreement-First`,
                 ``,
                 `No exceptions — applies to Claude, humans, and scripts equally.`,
               ].join("\n"),
