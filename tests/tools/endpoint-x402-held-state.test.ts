@@ -347,4 +347,90 @@ describe("execute_x402_endpoint 202 + paymentId held-state visibility (issue #48
     expect(parsed.payment!.nextStep!).toContain("nonce_health");
     expect(mockResolveCanonicalPaymentStatus).toHaveBeenCalledTimes(2);
   });
+
+  it("surfaces 'still-held' for non-terminal status with non-sender-nonce terminalReason (e.g. queue_unavailable)", async () => {
+    // Widened pollOutcome classification per arc review on #518: any non-terminal
+    // status + populated terminalReason means the relay knows it's stuck and has
+    // a reason — caller should treat as held, not still-pending.
+    const body202 = {
+      classifiedId: "cls_005",
+      paymentId: "pay_queue_unavail",
+      paymentStatus: "pending",
+      status: "queued",
+      checkStatusUrl: "https://x402-relay.aibtc.com/payment/pay_queue_unavail",
+    };
+    const request = vi.fn().mockResolvedValue({
+      status: 202,
+      data: body202,
+      headers: {},
+      config: { headers: {} },
+    });
+    mockCreateApiClient.mockResolvedValue({ request });
+
+    const heldStatus: HttpPaymentStatusResponse = {
+      paymentId: "pay_queue_unavail",
+      status: "queued",
+      terminalReason: "queue_unavailable",
+      checkStatusUrl: body202.checkStatusUrl,
+    };
+    mockResolveCanonicalPaymentStatus.mockResolvedValue(heldStatus);
+
+    const { server, tools } = createTrackingServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerEndpointTools(server as any);
+    const tool = tools.get("execute_x402_endpoint")!;
+
+    const promise = tool.handler({
+      method: "POST",
+      url: "https://aibtc.news/api/classifieds",
+      autoApprove: true,
+    });
+    await flushPollBackoffs();
+    const parsed = parseToolResponse(await promise);
+
+    expect(parsed.payment).toBeDefined();
+    expect(parsed.payment!.pollOutcome).toBe("still-held");
+    expect(parsed.payment!.status).toBe("queued");
+    expect(parsed.payment!.terminalReason).toBe("queue_unavailable");
+  });
+
+  it("rejects checkStatusUrl pointing at an untrusted origin (SSRF guard)", async () => {
+    // SSRF guard per arc review on #518: a malicious endpoint could return a
+    // `checkStatusUrl` pointing at an internal host (or any host of its choice).
+    // We only accept checkStatusUrl when its origin matches the endpoint's own
+    // origin OR the canonical x402 sponsor relay. Untrusted origin → no polling,
+    // no payment block, the 202 body is returned verbatim.
+    const body202 = {
+      classifiedId: "cls_006",
+      paymentId: "pay_untrusted_url",
+      paymentStatus: "pending",
+      status: "queued",
+      checkStatusUrl: "http://internal-host.local:8080/payment/pay_untrusted_url",
+    };
+    const request = vi.fn().mockResolvedValue({
+      status: 202,
+      data: body202,
+      headers: {},
+      config: { headers: {} },
+    });
+    mockCreateApiClient.mockResolvedValue({ request });
+
+    const { server, tools } = createTrackingServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerEndpointTools(server as any);
+    const tool = tools.get("execute_x402_endpoint")!;
+
+    const promise = tool.handler({
+      method: "POST",
+      url: "https://aibtc.news/api/classifieds",
+      autoApprove: true,
+    });
+    await flushPollBackoffs();
+    const parsed = parseToolResponse(await promise);
+
+    // 202 body returned verbatim, no payment block, no polling invoked.
+    expect(parsed.response).toEqual(body202);
+    expect(parsed.payment).toBeUndefined();
+    expect(mockResolveCanonicalPaymentStatus).not.toHaveBeenCalled();
+  });
 });

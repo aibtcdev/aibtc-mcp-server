@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { createApiClient, API_URL, probeEndpoint, formatPaymentAmount, type ProbeResult, checkSufficientBalance, generateDedupKey, checkDedupCache, recordTransaction, NETWORK } from "../services/x402.service.js";
+import { getSponsorRelayUrl } from "../config/sponsor.js";
 import {
   ALL_ENDPOINTS,
   searchEndpoints,
@@ -207,6 +208,33 @@ const SENDER_NONCE_REASONS = new Set([
   "sender_nonce_duplicate",
 ]);
 
+/**
+ * SSRF guard for the `checkStatusUrl` returned in a 202 success-path response
+ * body. The URL comes from third-party data — without this check, a malicious
+ * endpoint could trick us into polling internal hosts (or any host of its
+ * choice) via the `resolveCanonicalPaymentStatus` helper.
+ *
+ * Accept the URL when its origin is either:
+ *   (a) the called endpoint's own origin (co-located relay), OR
+ *   (b) the canonical x402 sponsor relay for the current network
+ *       (`getSponsorRelayUrl(NETWORK)` — `https://x402-relay.aibtc.com` on
+ *       mainnet, `https://x402-relay.aibtc.dev` on testnet) — this is the
+ *       typical production case where the relay is a separate aibtc-owned host.
+ *
+ * Reject anything else (different unrelated hosts, internal IPs, attacker-
+ * controlled hosts, etc.).
+ */
+function isTrustedCheckStatusUrl(checkStatusUrl: string, endpointBaseUrl: string): boolean {
+  try {
+    const checkOrigin = new URL(checkStatusUrl).origin;
+    const endpointOrigin = new URL(endpointBaseUrl).origin;
+    const relayOrigin = new URL(getSponsorRelayUrl(NETWORK)).origin;
+    return checkOrigin === endpointOrigin || checkOrigin === relayOrigin;
+  } catch {
+    return false;
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -289,7 +317,7 @@ async function pollHeldStateForSuccessPath(options: {
 
   const polledAt = new Date().toISOString();
 
-  if (pollError !== undefined) {
+  if (pollError !== undefined || !lastStatus) {
     return {
       paymentId: options.paymentId,
       checkStatusUrl: options.checkStatusUrl,
@@ -299,20 +327,17 @@ async function pollHeldStateForSuccessPath(options: {
     };
   }
 
-  if (!lastStatus) {
-    return {
-      paymentId: options.paymentId,
-      checkStatusUrl: options.checkStatusUrl,
-      polledAt,
-      pollOutcome: "fallback",
-      pollCount,
-    };
-  }
-
+  // pollOutcome semantics:
+  //   "terminal"       — `status` is in TERMINAL_STATUSES (confirmed/failed/replaced/not_found)
+  //   "still-held"     — non-terminal `status`, BUT relay populated a `terminalReason`
+  //                      (sender-nonce family, queue_unavailable, sponsor_failure, etc.) —
+  //                      i.e. relay knows it's stuck and has a reason
+  //   "still-pending"  — non-terminal `status`, no `terminalReason` — genuinely in-flight
+  //                      without any held-state signal
   let pollOutcome: SuccessPathPaymentBlock["pollOutcome"];
   if (TERMINAL_STATUSES.has(lastStatus.status)) {
     pollOutcome = "terminal";
-  } else if (lastStatus.terminalReason && SENDER_NONCE_REASONS.has(lastStatus.terminalReason)) {
+  } else if (lastStatus.terminalReason) {
     pollOutcome = "still-held";
   } else {
     pollOutcome = "still-pending";
@@ -547,8 +572,15 @@ For aibtc.com inbox messages, use send_inbox_message instead — it uses sponsor
           | undefined;
         const sniffedPaymentId =
           typeof responseBody?.paymentId === "string" ? responseBody.paymentId : undefined;
+        // SSRF guard: the `checkStatusUrl` comes from a third-party response body.
+        // Only accept it when it points at the endpoint's own origin or the canonical
+        // x402 sponsor relay (see `isTrustedCheckStatusUrl` JSDoc). A malicious
+        // endpoint could otherwise trick us into polling internal hosts.
         const sniffedCheckStatusUrl =
-          typeof responseBody?.checkStatusUrl === "string" ? responseBody.checkStatusUrl : undefined;
+          typeof responseBody?.checkStatusUrl === "string" &&
+          isTrustedCheckStatusUrl(responseBody.checkStatusUrl, parsed.baseUrl)
+            ? responseBody.checkStatusUrl
+            : undefined;
         let paymentBlock: SuccessPathPaymentBlock | undefined;
         if (response.status === 202 && sniffedPaymentId && sniffedCheckStatusUrl) {
           paymentBlock = await pollHeldStateForSuccessPath({
