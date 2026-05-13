@@ -95,6 +95,7 @@ import { registerFlyingWhaleTools }         from "./flying-whale.tools.js";
 
 // ── L5 · Prosperity Equation ──────────────────────────────────────────────────
 import { registerProsperityTools }          from "./prosperity.tools.js";
+import { registerSovereignCommonsTools }    from "./sovereign-commons.tools.js";
 
 // ── L7 · Bridge ──────────────────────────────────────────────────────────────
 import { registerStyxTools }                from "./styx.tools.js";
@@ -227,8 +228,9 @@ export function registerAllTools(server: McpServer): void {
   registerArxivResearchTools(server);
   registerNewsTools(server);
 
-  // L5 — Prosperity Equation
+  // L5 — Prosperity Equation + Sovereign Commons
   registerProsperityTools(server);
+  registerSovereignCommonsTools(server);
 
   // L5 — x402 Endpoints
   registerEndpointTools(server);
