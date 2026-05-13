@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.53.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.52.0...mcp-server-v1.53.0) (2026-05-13)
+
+
+### Features
+
+* **competition:** compute mark-to-current P&L inside competition_status ([#519](https://github.com/aibtcdev/aibtc-mcp-server/issues/519)) ([63603b2](https://github.com/aibtcdev/aibtc-mcp-server/commit/63603b220bcbd08ef2628a2af08078ebb0e1b0a3))
+
 ## [1.52.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.51.1...mcp-server-v1.52.0) (2026-05-13)
 
 
