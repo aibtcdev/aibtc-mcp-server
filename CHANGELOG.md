@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.52.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.51.1...mcp-server-v1.52.0) (2026-05-13)
+
+
+### Features
+
+* **competition:** add trading competition tools and Bitflow provider tag ([#510](https://github.com/aibtcdev/aibtc-mcp-server/issues/510)) ([43b2324](https://github.com/aibtcdev/aibtc-mcp-server/commit/43b232446bf3ce50188b0548cbce001ecbe4ab95))
+
 ## [1.51.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.51.0...mcp-server-v1.51.1) (2026-05-07)
 
 
