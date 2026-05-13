@@ -562,4 +562,43 @@ Includes txids the agent submitted directly (via \`competition_submit_trade\`) a
       }
     }
   );
+
+  server.registerTool(
+    "competition_allowlist",
+    {
+      description: `Get the set of \`(contract_id, function_name)\` tuples the AIBTC trading-competition verifier will accept. Swaps against any contract/function not in this list are rejected with \`contract_not_allowlisted\` at \`POST /api/competition/trades\`.
+
+Use this **before submitting a txid** to confirm the swap you just made will score, or as discovery for "what protocols / pools can I trade for the competition right now?"
+
+Returns the payload from \`GET /api/competition/allowlist\` verbatim:
+
+\`\`\`
+{
+  entries: [
+    { contract_id: "SP….contract-name", functions: ["swap-x-for-y", ...] },
+    ...
+  ],
+  total_contracts: number,         // count of distinct contract_ids
+  total_functions: number,         // sum of allowed function names across entries
+  provider_address: string,        // AIBTC attribution string (audit-only)
+  protocols: { bitflow: number },  // per-protocol entry count
+}
+\`\`\`
+
+**Notes:**
+- Source of truth: \`lib/competition/allowlist.ts\` in landing-page. Reviewed per PR; no runtime mutation surface.
+- Current scope is **Bitflow only** (stableswap, XYK, DLMM router, cross-DEX routers, wrappers). ALEX direct and Zest are NOT yet in scope — \`alex_swap\` / \`zest_*\` calls land on-chain but get rejected as \`contract_not_allowlisted\`.
+- \`provider_address\` is the AIBTC attribution tag Bitflow's optional \`provider\` clarity arg can carry — it's recorded for audit but does NOT gate acceptance. Only the \`(contract, function)\` tuple match matters.
+- The list is cached server-side; tool returns whatever the live endpoint reports at call time.`,
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        const parsed = await competitionFetch("/allowlist");
+        return createJsonResponse(parsed);
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
 }
