@@ -16,7 +16,10 @@ import {
   extractTxidFromPaymentSignature,
   pollTransactionConfirmation,
 } from "../utils/x402-recovery.js";
-import { formatCanonicalPaymentStatus } from "../utils/x402-payment-state.js";
+import {
+  formatCanonicalPaymentStatus,
+  resolveCanonicalPaymentStatus,
+} from "../utils/x402-payment-state.js";
 import { emitPaymentLog } from "../utils/x402-payment-logging.js";
 
 const ALL_SOURCES = "x402.biwas.xyz, x402.aibtc.com, stx402.com, aibtc.com";
@@ -154,6 +157,180 @@ function formatProbeResponse(
     },
     callWith: buildCallWith(callWithOptions),
   });
+}
+
+/**
+ * Caller-facing structured payment block surfaced when a paid x402 endpoint
+ * returns 202 with a `paymentId` + `checkStatusUrl` in the body.
+ *
+ * Field names follow the canonical `HttpPaymentStatusResponse` schema from
+ * `@aibtc/tx-schemas/http` rather than the ad-hoc shape (`relayState`,
+ * `holdReason`, etc.) shown in some relay reference payloads — the canonical
+ * schema is the only contract enforced across MCP tooling, so we stick to it.
+ *
+ * The `held` semantics from the original #487 report map to:
+ *   - canonical `status` = "queued" | "broadcasting" | "mempool" (still in-flight)
+ *   - canonical `terminalReason` = "sender_nonce_gap" / "sender_nonce_stale"
+ *     / "sender_nonce_duplicate" / "sender_hand_expired" (the "why is it held"
+ *     signal, populated when the relay decides it is terminal)
+ *
+ * NOTE FOR FUTURE REFACTOR (post-Gap-2 merge): once Gap 2 lands a shared
+ * `payment` block helper in `x402.service.ts`, this inline helper should be
+ * extracted alongside it. Both code paths (success-with-202 and 4xx-after-payment)
+ * benefit from a single shared shape.
+ */
+interface SuccessPathPaymentBlock {
+  paymentId: string;
+  checkStatusUrl: string;
+  polledAt: string;
+  pollOutcome: "terminal" | "still-held" | "still-pending" | "fallback";
+  status?: HttpPaymentStatusResponse["status"];
+  terminalReason?: NonNullable<HttpPaymentStatusResponse["terminalReason"]>;
+  txid?: string;
+  pollCount: number;
+  nextStep?: string;
+}
+
+const HELD_POLL_BACKOFFS_MS = [2_000, 5_000, 13_000];
+const HELD_POLL_TOTAL_BUDGET_MS = 30_000;
+
+const TERMINAL_STATUSES = new Set<HttpPaymentStatusResponse["status"]>([
+  "confirmed",
+  "failed",
+  "replaced",
+  "not_found",
+]);
+
+const SENDER_NONCE_REASONS = new Set([
+  "sender_nonce_stale",
+  "sender_nonce_gap",
+  "sender_nonce_duplicate",
+]);
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function deriveNextStep(
+  status: HttpPaymentStatusResponse | null,
+  paymentId: string
+): string | undefined {
+  if (!status) {
+    return undefined;
+  }
+
+  const reason = status.terminalReason;
+
+  if (status.status === "confirmed") {
+    return undefined;
+  }
+
+  if (reason && SENDER_NONCE_REASONS.has(reason)) {
+    return `Held on sender-nonce reason (${reason}). Run nonce_health to confirm chain-side state, then check_relay_health to verify the relay can refresh; if both green at the relay-reported hand expiry, file a relay bug citing paymentId ${paymentId}.`;
+  }
+
+  if (reason === "sender_hand_expired" || reason === "expired") {
+    return `Relay hand expired (${reason}). Payment ${paymentId} will not settle; restart the operation with a fresh payment if still desired.`;
+  }
+
+  if (reason === "queue_unavailable" || reason === "sponsor_failure" || reason === "internal_error") {
+    return `Relay-side issue (${reason}) — bounded retry only if route allows; otherwise file a relay bug citing paymentId ${paymentId}.`;
+  }
+
+  if (status.status === "failed" || status.status === "not_found" || status.status === "replaced") {
+    return `Payment ${paymentId} reached terminal status ${status.status}${reason ? ` (${reason})` : ""}. Do not retry under the same paymentId.`;
+  }
+
+  // Still in-flight (queued / broadcasting / mempool) after our polling budget.
+  return `Payment ${paymentId} is still ${status.status} after auto-poll budget exhausted. Continue polling ${status.checkStatusUrl ?? "the checkStatusUrl"} until terminal; if it remains non-terminal beyond the relay-reported hand expiry, run nonce_health and check_relay_health.`;
+}
+
+/**
+ * Poll `checkStatusUrl` for an in-flight 202+paymentId response and produce a
+ * caller-facing summary. Bounded by 3 polls and a 30s total budget, with
+ * exponential backoff (2s, 5s, 13s) between attempts. Returns a "fallback"
+ * outcome on any unrecoverable poll error rather than throwing — the original
+ * 202 body is still surfaced to the caller, just without held-state detail.
+ */
+async function pollHeldStateForSuccessPath(options: {
+  paymentId: string;
+  checkStatusUrl: string;
+  baseUrl: string;
+  fetchImpl?: typeof fetch;
+}): Promise<SuccessPathPaymentBlock> {
+  const startedAt = Date.now();
+  let lastStatus: HttpPaymentStatusResponse | null = null;
+  let pollCount = 0;
+  let pollError: unknown = undefined;
+
+  for (let i = 0; i < HELD_POLL_BACKOFFS_MS.length; i++) {
+    if (Date.now() - startedAt + HELD_POLL_BACKOFFS_MS[i] > HELD_POLL_TOTAL_BUDGET_MS) {
+      break;
+    }
+    await sleep(HELD_POLL_BACKOFFS_MS[i]);
+
+    pollCount++;
+    try {
+      const polled = await resolveCanonicalPaymentStatus({
+        paymentId: options.paymentId,
+        fallbackCheckStatusUrl: options.checkStatusUrl,
+        baseUrl: options.baseUrl,
+        fetchImpl: options.fetchImpl,
+      });
+      lastStatus = polled;
+      if (polled && TERMINAL_STATUSES.has(polled.status)) {
+        break;
+      }
+    } catch (err) {
+      pollError = err;
+      break;
+    }
+  }
+
+  const polledAt = new Date().toISOString();
+
+  if (pollError !== undefined) {
+    return {
+      paymentId: options.paymentId,
+      checkStatusUrl: options.checkStatusUrl,
+      polledAt,
+      pollOutcome: "fallback",
+      pollCount,
+    };
+  }
+
+  if (!lastStatus) {
+    return {
+      paymentId: options.paymentId,
+      checkStatusUrl: options.checkStatusUrl,
+      polledAt,
+      pollOutcome: "fallback",
+      pollCount,
+    };
+  }
+
+  let pollOutcome: SuccessPathPaymentBlock["pollOutcome"];
+  if (TERMINAL_STATUSES.has(lastStatus.status)) {
+    pollOutcome = "terminal";
+  } else if (lastStatus.terminalReason && SENDER_NONCE_REASONS.has(lastStatus.terminalReason)) {
+    pollOutcome = "still-held";
+  } else {
+    pollOutcome = "still-pending";
+  }
+
+  const nextStep = deriveNextStep(lastStatus, options.paymentId);
+
+  return {
+    paymentId: options.paymentId,
+    checkStatusUrl: options.checkStatusUrl,
+    polledAt,
+    pollOutcome,
+    status: lastStatus.status,
+    ...(lastStatus.terminalReason ? { terminalReason: lastStatus.terminalReason } : {}),
+    ...(lastStatus.txid ? { txid: lastStatus.txid } : {}),
+    pollCount,
+    ...(nextStep ? { nextStep } : {}),
+  };
 }
 
 export function registerEndpointTools(server: McpServer): void {
@@ -360,10 +537,32 @@ For aibtc.com inbox messages, use send_inbox_message instead — it uses sponsor
           recordTransaction(dedupKey, txid);
         }
 
+        // Gap 3 (issue #487): when the upstream returns 202 with a paymentId +
+        // checkStatusUrl, poll the relay's canonical status briefly so the
+        // caller sees held-state / terminal-reason detail rather than the
+        // ambiguous "queued" + "pending" body. Failures here are non-fatal —
+        // we always return the original response, optionally enriched.
+        const responseBody = response.data as
+          | { paymentId?: unknown; checkStatusUrl?: unknown }
+          | undefined;
+        const sniffedPaymentId =
+          typeof responseBody?.paymentId === "string" ? responseBody.paymentId : undefined;
+        const sniffedCheckStatusUrl =
+          typeof responseBody?.checkStatusUrl === "string" ? responseBody.checkStatusUrl : undefined;
+        let paymentBlock: SuccessPathPaymentBlock | undefined;
+        if (response.status === 202 && sniffedPaymentId && sniffedCheckStatusUrl) {
+          paymentBlock = await pollHeldStateForSuccessPath({
+            paymentId: sniffedPaymentId,
+            checkStatusUrl: sniffedCheckStatusUrl,
+            baseUrl: parsed.baseUrl,
+          });
+        }
+
         return createJsonResponse({
           endpoint: `${method} ${fullUrl}`,
           response: response.data,
           ...(txid && { txid }),
+          ...(paymentBlock && { payment: paymentBlock }),
         });
       } catch (error) {
         const label = fullUrl || url || path || "unknown";
