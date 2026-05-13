@@ -59,6 +59,7 @@ import { registerSettingsTools } from "./settings.tools.js";
 import { registerCurrencyRenaissanceTools } from "./currency-renaissance.tools.js";
 import { registerZeroHarmTools } from "./zero-harm.tools.js";
 import { registerMasterEvaluationTools } from "./master-evaluation.tools.js";
+import { registerGapResolverTools } from "./gap-resolver.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 import { withSessionGuard } from "./session-guard.js";
 
@@ -292,6 +293,11 @@ export function registerAllTools(server: McpServer): void {
   // Inventory · Goals · Gaps · Risks · Intentions · Assets · Data ·
   // Cooperation · Public Interest · Master Synthesis — complete picture
   registerMasterEvaluationTools(server);
+
+  // Gap Resolver + Security Hardening — حل الفجوات وأعلى مستوى أمان
+  // 80+ currencies · 13-risk cascade system · 25-check security audit ·
+  // CR-11 whistleblower · quantum migration · environmental Landauer · governance
+  registerGapResolverTools(server);
 
   restoreRegisterTool();
 }
