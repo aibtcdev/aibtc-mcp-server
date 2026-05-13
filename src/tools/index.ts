@@ -1,36 +1,44 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-// ── Bitcoin Core ──────────────────────────────────────────────────────────────
-import { registerBitcoinTools }         from "./bitcoin.tools.js";
-import { registerMempoolTools }         from "./mempool.tools.js";
-import { registerBtcChainTools }        from "./btc-chain.tools.js";
-import { registerPsbtTools }            from "./psbt.tools.js";
-import { registerTaprootMultisigTools } from "./taproot-multisig.tools.js";
-import { registerOrdinalsTools }        from "./ordinals.tools.js";
-import { registerOrdinalsP2PTools }     from "./ordinals-p2p.tools.js";
+// ── Layer 1 · Bitcoin (L1) ────────────────────────────────────────────────────
+import { registerBitcoinTools }             from "./bitcoin.tools.js";
+import { registerMempoolTools }             from "./mempool.tools.js";
+import { registerBtcChainTools }            from "./btc-chain.tools.js";
+import { registerPsbtTools }                from "./psbt.tools.js";
+import { registerTaprootMultisigTools }     from "./taproot-multisig.tools.js";
+import { registerOrdinalsTools }            from "./ordinals.tools.js";
+import { registerOrdinalsP2PTools }         from "./ordinals-p2p.tools.js";
 import { registerOrdinalsMarketplaceTools } from "./ordinals-marketplace.tools.js";
-import { registerRunesTools }           from "./runes.tools.js";
-import { registerChildInscriptionTools } from "./child-inscription.tools.js";
-import { registerSigningTools }         from "./signing.tools.js";
+import { registerRunesTools }               from "./runes.tools.js";
+import { registerChildInscriptionTools }    from "./child-inscription.tools.js";
+import { registerSigningTools }             from "./signing.tools.js";
 
-// ── Wallet ────────────────────────────────────────────────────────────────────
+// ── Layer 2 · Wallet & Keys ───────────────────────────────────────────────────
 import { registerWalletTools }          from "./wallet.tools.js";
 import { registerWalletManagementTools } from "./wallet-management.tools.js";
 import { registerTransferTools }        from "./transfer.tools.js";
 import { registerSettingsTools }        from "./settings.tools.js";
 
-// ── Stacks (Bitcoin L2) ───────────────────────────────────────────────────────
-import { registerContractTools }        from "./contract.tools.js";
-import { registerSbtcTools }            from "./sbtc.tools.js";
-import { registerQueryTools }           from "./query.tools.js";
-import { registerBnsTools }             from "./bns.tools.js";
-import { registerNostrTools }           from "./nostr.tools.js";
-import { registerNonceTools }           from "./nonce.tools.js";
+// ── Layer 3 · Stacks (Bitcoin L2) ────────────────────────────────────────────
+import { registerContractTools }  from "./contract.tools.js";
+import { registerSbtcTools }      from "./sbtc.tools.js";
+import { registerQueryTools }     from "./query.tools.js";
+import { registerBnsTools }       from "./bns.tools.js";
+import { registerNostrTools }     from "./nostr.tools.js";
+import { registerNonceTools }     from "./nonce.tools.js";
+
+// ── Layer 4 · Networks (Multi-chain read) ─────────────────────────────────────
+import { registerNetworksTools }  from "./networks.tools.js";
+
+// ── Layer 5 · Assets (Universal prices) ──────────────────────────────────────
+import { registerAssetsTools }    from "./assets.tools.js";
+
+// ── Layer 6 · Bridge ─────────────────────────────────────────────────────────
+import { registerStyxTools }      from "./styx.tools.js";
 
 // ── Infrastructure ────────────────────────────────────────────────────────────
-import { registerStyxTools }            from "./styx.tools.js";
-import { getSkillForTool }              from "./skill-mappings.js";
-import { withSessionGuard }             from "./session-guard.js";
+import { getSkillForTool }   from "./skill-mappings.js";
+import { withSessionGuard }  from "./session-guard.js";
 
 /**
  * Injects _meta.skill from TOOL_SKILL_MAP when a mapping exists.
@@ -59,10 +67,15 @@ function withSkillMeta(server: McpServer): () => void {
 }
 
 /**
- * Register all tools — Bitcoin protocol only.
+ * 7-Layer Architecture — aibtc-protocol
  *
- * Foundation: SHA256 + Bitcoin Core
- * Everything passes through the hash chain (session-guard).
+ * L1  Bitcoin       btc_*, mempool_*, psbt_*, ordinals_*, runes_*, signing_*
+ * L2  Wallet        wallet_*, transfer_*, settings_*
+ * L3  Stacks        contract_*, sbtc_*, query_*, bns_*, nostr_*, nonce_*
+ * L4  Networks      network_status, network_balance, network_multi_balance
+ * L5  Assets        asset_price, asset_batch, asset_convert, asset_market, asset_crypto, asset_forex, asset_stock
+ * L6  Bridge        styx_*
+ * L7  Protocol      SHA256 chain + session guard (implicit, wraps all layers)
  */
 export function registerAllTools(server: McpServer): void {
   const restoreSessionGuard = withSessionGuard(server);
@@ -70,7 +83,7 @@ export function registerAllTools(server: McpServer): void {
 
   void restoreSessionGuard;
 
-  // ── Bitcoin Core (L1) ──────────────────────────────────────────────────────
+  // L1 — Bitcoin Core
   registerBitcoinTools(server);
   registerMempoolTools(server);
   registerBtcChainTools(server);
@@ -83,13 +96,13 @@ export function registerAllTools(server: McpServer): void {
   registerChildInscriptionTools(server);
   registerSigningTools(server);
 
-  // ── Wallet & Transfers ─────────────────────────────────────────────────────
+  // L2 — Wallet & Keys
   registerWalletTools(server);
   registerWalletManagementTools(server);
   registerTransferTools(server);
   registerSettingsTools(server);
 
-  // ── Stacks — Bitcoin L2 ────────────────────────────────────────────────────
+  // L3 — Stacks (Bitcoin L2)
   registerContractTools(server);
   registerSbtcTools(server);
   registerQueryTools(server);
@@ -97,7 +110,13 @@ export function registerAllTools(server: McpServer): void {
   registerNostrTools(server);
   registerNonceTools(server);
 
-  // ── BTC→sBTC bridge ───────────────────────────────────────────────────────
+  // L4 — Networks (multi-chain read)
+  registerNetworksTools(server);
+
+  // L5 — Assets (crypto + fiat + stocks)
+  registerAssetsTools(server);
+
+  // L6 — Bridge (BTC ↔ sBTC)
   registerStyxTools(server);
 
   restoreRegisterTool();
