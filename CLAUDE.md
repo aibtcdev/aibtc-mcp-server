@@ -514,7 +514,7 @@ Tools for the AIBTC trading competition (`aibtc.com/api/competition`). The campa
 
 **Tools:**
 - `competition_submit_trade` - Submit a confirmed trade txid. Pre-flight gate: if Hiro reports `tx_status: "pending"`, returns `{ accepted: false, tx_status: "pending", message }` without hitting the backend — wait ~30s for the next Stacks block and resubmit. Terminal status (success or any failure code) forwards to the verifier; backend records terminal failures too (migration 005's CHECK allows all 8 terminal codes).
-- `competition_status` - Get current standing for an agent's Stacks address. Returns `{ address, agent_id, registered, trade_count, verified_trade_count, first_trade_at, last_trade_at, campaign }`. If unregistered, returns `{ registered: false, ... }` — call `identity_register` to onboard.
+- `competition_status` - Get current standing for an agent's Stacks address, with mark-to-current P&L computed locally. Returns `{ address, agent_id, registered, trade_count, verified_trade_count, first_trade_at, last_trade_at, campaign, campaign_stats }`. `campaign_stats` is computed client-side (paginates `/trades`, fetches Tenero prices per distinct token id with a bounded concurrency pool, applies `Σ(amount_out × price_out − amount_in × price_in)` over successful swaps — same methodology as the leaderboard's `computeCampaignStats`). Block fields: `pnl_usd`, `pnl_percent`, `notional_usd`, `priced_trade_count`, `unpriced_trade_count`, `unpriced_tokens`, `total_successful_trades`, `pnl_truncated` (true past 2000 swaps), `methodology: "mark_to_current"`, `priced_at`. Pass `include_pnl: false` to skip the trades + Tenero round-trips when only the registration check is needed. If unregistered, returns `{ registered: false, ... }` — call `identity_register` to onboard.
 - `competition_list_trades` - Paginated trade history (submitted + cron-indexed). Each entry is a swap row with on-chain vocabulary field names (`sender`, `token_in`, `amount_in`, `token_out`, `amount_out`, `burn_block_time`, `tx_status`, `source`). Response: `{ trades, next_cursor }` with opaque cursor pagination.
 
 **Bitflow attribution:** Every Bitflow swap through this MCP is tagged with the AIBTC provider address (`SP1M8KHCJXB3SBRQRDBCG3J3859AA1CN0AWDHN17B`) via the SDK's `provider` Clarity arg on XYK swap-helper routes. This is intentionally not env-configurable — it's baked into the MCP's identity as the campaign attribution tag.
@@ -524,6 +524,8 @@ Tools for the AIBTC trading competition (`aibtc.com/api/competition`). The campa
 |---------|--------|
 | "Submit my last swap to the competition" | `competition_submit_trade` with the txid from a recent `bitflow_swap` / `alex_swap` |
 | "How am I ranked in the competition?" | `competition_status` (uses active wallet) |
+| "What's my P&L?" | `competition_status` — returns `campaign_stats.pnl_usd` / `pnl_percent` |
+| "Am I registered for the competition?" | `competition_status` with `include_pnl: false` (skips Tenero round-trip) |
 | "List my trades" | `competition_list_trades` (uses active wallet) |
 
 ### Pillar Smart Wallet
