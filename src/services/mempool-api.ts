@@ -180,15 +180,8 @@ export class MempoolApi {
    * ```
    */
   async getUtxos(address: string): Promise<UTXO[]> {
-    const response = await fetch(`${this.baseUrl}/address/${address}/utxo`);
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "Unknown error");
-      throw new Error(
-        `Failed to fetch UTXOs for ${address}: ${response.status} ${response.statusText} - ${errorText}`
-      );
-    }
-
+    const response = await fetch(`${this.baseUrl}/address/${address}/utxo`, { signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) throw new Error(`Failed to fetch UTXOs: ${response.status}`);
     const utxos = await response.json();
     return utxos as UTXO[];
   }
@@ -207,15 +200,8 @@ export class MempoolApi {
    * ```
    */
   async getFeeEstimates(): Promise<FeeEstimates> {
-    const response = await fetch(`${this.baseUrl}/v1/fees/recommended`);
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "Unknown error");
-      throw new Error(
-        `Failed to fetch fee estimates: ${response.status} ${response.statusText} - ${errorText}`
-      );
-    }
-
+    const response = await fetch(`${this.baseUrl}/v1/fees/recommended`, { signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) throw new Error(`Failed to fetch fee estimates: ${response.status}`);
     const fees = await response.json();
     return fees as FeeEstimates;
   }
@@ -283,20 +269,11 @@ export class MempoolApi {
   async broadcastTransaction(txHex: string): Promise<string> {
     const response = await fetch(`${this.baseUrl}/tx`, {
       method: "POST",
-      headers: {
-        "Content-Type": "text/plain",
-      },
+      headers: { "Content-Type": "text/plain" },
       body: txHex,
+      signal: AbortSignal.timeout(15_000),
     });
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "Unknown error");
-      throw new Error(
-        `Failed to broadcast transaction: ${response.status} ${response.statusText} - ${errorText}`
-      );
-    }
-
-    // Response is the txid as plain text
+    if (!response.ok) throw new Error(`Failed to broadcast transaction: ${response.status}`);
     const txid = await response.text();
     return txid.trim();
   }
@@ -315,15 +292,8 @@ export class MempoolApi {
    * ```
    */
   async getTxHex(txid: string): Promise<string> {
-    const response = await fetch(`${this.baseUrl}/tx/${txid}/hex`);
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "Unknown error");
-      throw new Error(
-        `Failed to fetch transaction hex for ${txid}: ${response.status} ${response.statusText} - ${errorText}`
-      );
-    }
-
+    const response = await fetch(`${this.baseUrl}/tx/${txid}/hex`, { signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) throw new Error(`Failed to fetch tx hex: ${response.status}`);
     const txHex = await response.text();
     return txHex.trim();
   }
@@ -336,15 +306,8 @@ export class MempoolApi {
    * @throws Error if API request fails
    */
   async getTx(txid: string): Promise<MempoolTx> {
-    const response = await fetch(`${this.baseUrl}/tx/${txid}`);
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "Unknown error");
-      throw new Error(
-        `Failed to fetch transaction ${txid}: ${response.status} ${response.statusText} - ${errorText}`
-      );
-    }
-
+    const response = await fetch(`${this.baseUrl}/tx/${txid}`, { signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) throw new Error(`Failed to fetch tx: ${response.status}`);
     return response.json() as Promise<MempoolTx>;
   }
 
@@ -356,15 +319,8 @@ export class MempoolApi {
    * @throws Error if API request fails
    */
   async getAddressTxs(address: string): Promise<MempoolTx[]> {
-    const response = await fetch(`${this.baseUrl}/address/${address}/txs`);
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "Unknown error");
-      throw new Error(
-        `Failed to fetch transactions for ${address}: ${response.status} ${response.statusText} - ${errorText}`
-      );
-    }
-
+    const response = await fetch(`${this.baseUrl}/address/${address}/txs`, { signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) throw new Error(`Failed to fetch address txs: ${response.status}`);
     return response.json() as Promise<MempoolTx[]>;
   }
 
@@ -375,15 +331,8 @@ export class MempoolApi {
    * @throws Error if API request fails
    */
   async getMempoolStats(): Promise<MempoolStats> {
-    const response = await fetch(`${this.baseUrl}/mempool`);
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "Unknown error");
-      throw new Error(
-        `Failed to fetch mempool stats: ${response.status} ${response.statusText} - ${errorText}`
-      );
-    }
-
+    const response = await fetch(`${this.baseUrl}/mempool`, { signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) throw new Error(`Failed to fetch mempool stats: ${response.status}`);
     return response.json() as Promise<MempoolStats>;
   }
 

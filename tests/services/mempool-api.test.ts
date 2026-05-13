@@ -117,7 +117,8 @@ describe("mempool-api", () => {
         const utxos = await api.getUtxos(address);
 
         expect(fetch).toHaveBeenCalledWith(
-          `https://mempool.space/api/address/${address}/utxo`
+          `https://mempool.space/api/address/${address}/utxo`,
+          expect.objectContaining({ signal: expect.anything() })
         );
         expect(utxos).toEqual(mockUtxos);
         expect(utxos).toHaveLength(2);
@@ -156,7 +157,8 @@ describe("mempool-api", () => {
         const fees = await api.getFeeEstimates();
 
         expect(fetch).toHaveBeenCalledWith(
-          "https://mempool.space/api/v1/fees/recommended"
+          "https://mempool.space/api/v1/fees/recommended",
+          expect.objectContaining({ signal: expect.anything() })
         );
         expect(fees).toEqual(mockFees);
         expect(fees.fastestFee).toBe(50);
@@ -285,11 +287,9 @@ describe("mempool-api", () => {
         const txHex = "0100000001...";
         const txid = await api.broadcastTransaction(txHex);
 
-        expect(fetch).toHaveBeenCalledWith("https://mempool.space/api/tx", {
-          method: "POST",
-          headers: { "Content-Type": "text/plain" },
-          body: txHex,
-        });
+        expect(fetch).toHaveBeenCalledWith("https://mempool.space/api/tx",
+          expect.objectContaining({ method: "POST", body: txHex, signal: expect.anything() })
+        );
         expect(txid).toBe(mockTxid);
       });
 
@@ -330,7 +330,8 @@ describe("mempool-api", () => {
         await testnetApi.getUtxos("tb1q...");
 
         expect(fetch).toHaveBeenCalledWith(
-          expect.stringContaining("mempool.space/testnet/api")
+          expect.stringContaining("mempool.space/testnet/api"),
+          expect.objectContaining({ signal: expect.anything() })
         );
       });
     });
