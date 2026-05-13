@@ -35,6 +35,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { quickPsiScore, getPsiTier, computeAndRecordPsi } from "../services/psi-consensus.js";
 import { getChain } from "../services/security/tool-hash-chain.js";
 import { getEngine, updateWhaleContext } from "../services/unified-engine.js";
+import { recordToolCall, recordChainBlock } from "../dashboard/state.js";
 
 // ══════════════════════════════════════════════════════════════════════════════
 // L4 — PROTECTED FILE GUARD
@@ -775,7 +776,7 @@ export function withSessionGuard(server: McpServer): () => void {
       const guard = getGuard(server);
       const check = guard.check(name);
       if (!check.allowed) {
-        // Return error in MCP tool response format
+        try { recordToolCall(name, 0, true); } catch { /* non-fatal */ }
         return {
           content: [
             {
@@ -840,14 +841,21 @@ export function withSessionGuard(server: McpServer): () => void {
       }
 
       // Execute the tool handler
+      const _t0 = Date.now();
       const result = await handler(...args);
+      const _duration = Date.now() - _t0;
+
+      // ── Dashboard: record tool call ───────────────────────────────────────
+      try { recordToolCall(name, _duration, false); } catch { /* non-fatal */ }
 
       // ── Bitcoin hash chain: log every call as a block ─────────────────────
       // Runs after execution so output_hash covers the actual result.
       // Violations are logged to stderr but never block the response.
       try {
         const chain = getChain(server);
-        const { violations } = chain.addBlock(name, args[0] ?? {}, result);
+        const { block, violations } = chain.addBlock(name, args[0] ?? {}, result);
+        // ── Dashboard: record chain block ─────────────────────────────────
+        try { recordChainBlock(block.block_height, block.block_hash, name, _duration); } catch { /* non-fatal */ }
         if (violations.length > 0) {
           console.error(`[HASH CHAIN] Block violations for "${name}":`, violations.map(v => `Rule ${v.rule}: ${v.detail}`).join("; "));
         }

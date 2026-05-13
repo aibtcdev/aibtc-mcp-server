@@ -11,6 +11,7 @@ import { registerAllTools } from "./tools/index.js";
 import { NETWORK, API_URL } from "./config/index.js";
 import { redactSensitive } from "./utils/redact.js";
 import { initializeStorage } from "./utils/storage.js";
+import { startDashboard } from "./dashboard/server.js";
 
 const require = createRequire(import.meta.url);
 const packageJson = require("../package.json");
@@ -179,10 +180,13 @@ else if (process.argv.includes("--install") || process.argv.includes("install"))
 
   async function main() {
     await initializeStorage();
+    // Start SHA256 chain dashboard (non-blocking, port 4200)
+    try { startDashboard(); } catch { /* non-fatal — MCP still works */ }
+
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    console.error(`[flying-whale] v${packageJson.version} running on stdio`);
-    console.error(`[flying-whale] Network: ${NETWORK} | API: ${API_URL}`);
+    console.error(`[aibtc-protocol] v${packageJson.version} running on stdio`);
+    console.error(`[aibtc-protocol] Network: ${NETWORK} | API: ${API_URL}`);
   }
 
   // ─── Graceful Shutdown ─────────────────────────────────────────────────────

@@ -1,13 +1,12 @@
 {
-  "name": "flying-whale-mcp-server",
-  "version": "1.67.0",
-  "description": "Flying Whale v2.0 — Universal Ψ Protocol: SHA-256 anchored, chain-agnostic intelligence layer. Ψ = Landauer · Nash · Cantillon⁻¹ · Gödel. 8-layer sovereign stack: Ψ consensus | compliance envelope (15 chains) | OFAC+FATF sanctions | AML detection | 50-jurisdiction law | 150 world currencies | sovereign debt oracle ($307T, 18 nations) | Bitcoin Core→Electrum→mempool 3-tier chain. National debt liberation: 7-phase Bitcoin Standard transition. Global Renaissance: $307T debt → mathematical invariant $14.6M/BTC. Three-Layer Model: WHALE → x402 → License.",
-  "mcpName": "io.flyingwhale/mcp-server",
+  "name": "aibtc-mcp-server",
+  "version": "2.0.0",
+  "description": "aibtc-protocol — SHA256-anchored Bitcoin-native MCP server. All tools, all chains, all networks in one open protocol. Built on Bitcoin. Open source. No gates.",
+  "mcpName": "io.aibtc/mcp-server",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "aibtc-mcp-server": "./dist/index.js",
-    "flying-whale-mcp-server": "./dist/index.js"
+    "aibtc-mcp-server": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -15,7 +14,8 @@
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "dashboard": "tsx src/dashboard/server.ts"
   },
   "files": [
     "dist",
