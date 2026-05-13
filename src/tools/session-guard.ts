@@ -33,6 +33,7 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { quickPsiScore, getPsiTier, computeAndRecordPsi } from "../services/psi-consensus.js";
+import { getChain } from "../services/security/tool-hash-chain.js";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // L3E — IPI DEFENSE LAYER (Indirect Prompt Injection)
@@ -763,6 +764,19 @@ export function withSessionGuard(server: McpServer): () => void {
 
       // Execute the tool handler
       const result = await handler(...args);
+
+      // ── Bitcoin hash chain: log every call as a block ─────────────────────
+      // Runs after execution so output_hash covers the actual result.
+      // Violations are logged to stderr but never block the response.
+      try {
+        const chain = getChain(server);
+        const { violations } = chain.addBlock(name, args[0] ?? {}, result);
+        if (violations.length > 0) {
+          console.error(`[HASH CHAIN] Block violations for "${name}":`, violations.map(v => `Rule ${v.rule}: ${v.detail}`).join("; "));
+        }
+      } catch (chainErr) {
+        console.error("[HASH CHAIN] Block addition failed:", chainErr);
+      }
 
       // ── L3E: IPI scan on tool result content ──────────────────────────────
       // Scan the returned text for indirect prompt injection phrases.

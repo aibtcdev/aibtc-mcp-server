@@ -61,6 +61,7 @@ import { registerZeroHarmTools } from "./zero-harm.tools.js";
 import { registerMasterEvaluationTools } from "./master-evaluation.tools.js";
 import { registerGapResolverTools } from "./gap-resolver.tools.js";
 import { registerNeuroSovereignTools } from "./neuro-sovereign.tools.js";
+import { registerSecurityCoreTools } from "./security-core.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 import { withSessionGuard } from "./session-guard.js";
 
@@ -304,6 +305,10 @@ export function registerAllTools(server: McpServer): void {
   // 80+ currencies · 13-risk cascade system · 25-check security audit ·
   // CR-11 whistleblower · quantum migration · environmental Landauer · governance
   registerGapResolverTools(server);
+
+  // Security Core — Bitcoin-identical hash chain + real ZK + SMS/USSD gateway
+  // SEC-14 (tool hash chain) + SEC-15 (ZK commitment real) + SEC-21 (unbanked access)
+  registerSecurityCoreTools(server);
 
   restoreRegisterTool();
 }
