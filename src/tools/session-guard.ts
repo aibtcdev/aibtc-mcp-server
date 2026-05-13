@@ -34,6 +34,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { quickPsiScore, getPsiTier, computeAndRecordPsi } from "../services/psi-consensus.js";
 import { getChain } from "../services/security/tool-hash-chain.js";
+import { getEngine, updateWhaleContext } from "../services/unified-engine.js";
 
 // ══════════════════════════════════════════════════════════════════════════════
 // L4 — PROTECTED FILE GUARD
@@ -423,6 +424,16 @@ export function recordWhaleVerification(
   isOwner: boolean
 ): void {
   _latestWhaleCtx = { address, balance, isOwner, ts: Date.now() };
+  // Feed into unified engine — closes the WHALE → Cantillon → Ψ loop
+  updateWhaleContext({
+    address,
+    balance,
+    is_owner: isOwner,
+    tier: balance >= 100_000_000_000n ? "elite"
+        : balance >= 10_000_000_000n  ? "agent"
+        : balance >= 1_000_000_000n   ? "scout"
+        : "none",
+  });
 }
 
 // ─── Configuration ────────────────────────────────────────────────────────────
@@ -843,6 +854,23 @@ export function withSessionGuard(server: McpServer): () => void {
       } catch (chainErr) {
         console.error("[HASH CHAIN] Block addition failed:", chainErr);
       }
+
+      // ── Unified engine — fire tool_call event (non-blocking) ─────────────
+      // Triggers: Ψ update, sanctions screen (if address in args), ZK commit
+      // (if sensitive), chain sync, Nash gossip propagation.
+      // Intentionally async fire-and-forget — never delays tool response.
+      try {
+        const engine  = getEngine(server);
+        const address = (args[0] as Record<string, unknown> | undefined)?.address as string | undefined
+                     ?? (args[0] as Record<string, unknown> | undefined)?.caller_address as string | undefined;
+        engine.process({
+          type:      "tool_call",
+          source:    name,
+          payload:   { tool: name, result_ok: !result?.isError },
+          timestamp: Date.now(),
+          address,
+        }).catch(() => { /* fire-and-forget — silent failure */ });
+      } catch { /* unified engine errors never affect tool execution */ }
 
       // ── L3E: IPI scan on tool result content ──────────────────────────────
       // Scan the returned text for indirect prompt injection phrases.

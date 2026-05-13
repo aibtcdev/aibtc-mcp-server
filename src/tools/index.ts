@@ -63,6 +63,7 @@ import { registerGapResolverTools } from "./gap-resolver.tools.js";
 import { registerNeuroSovereignTools } from "./neuro-sovereign.tools.js";
 import { registerSecurityCoreTools } from "./security-core.tools.js";
 import { registerNashGossipTools } from "./nash-gossip.tools.js";
+import { registerUnifiedEngineTools } from "./unified-engine.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 import { withSessionGuard } from "./session-guard.js";
 
@@ -314,6 +315,10 @@ export function registerAllTools(server: McpServer): void {
   // Nash-Gossip Protocol — conflict-free parallel propagation
   // Non-geometric E-R topology · dominant strategy = propagate · O(log n) rounds
   registerNashGossipTools(server);
+
+  // Unified Engine — الدمج الكامل لكل الأنظمة في حلقة واحدة مغلقة
+  // WHALE→Ψ→Access | x402→Treasury→Buyback | Chain→Gossip | Risk→ZeroHarm | USSD→DeFi
+  registerUnifiedEngineTools(server);
 
   restoreRegisterTool();
 }
