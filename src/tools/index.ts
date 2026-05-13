@@ -66,6 +66,7 @@ import { registerPsiTools }                 from "./psi.tools.js";
 import { registerPsiOracleTools }           from "./psi-oracle.tools.js";
 import { registerNashGossipTools }          from "./nash-gossip.tools.js";
 import { registerNashIdealMoneyTools }      from "./nash-ideal-money.tools.js";
+import { registerNashSatoshiCompleteTools } from "./nash-satoshi-complete.tools.js";
 import { registerUnifiedEngineTools }       from "./unified-engine.tools.js";
 import { registerGrandUnifiedTools }        from "./grand-unified.tools.js";
 import { registerNeuroSovereignTools }      from "./neuro-sovereign.tools.js";
@@ -213,6 +214,7 @@ export function registerAllTools(server: McpServer): void {
   registerPsiOracleTools(server);
   registerNashGossipTools(server);
   registerNashIdealMoneyTools(server);
+  registerNashSatoshiCompleteTools(server);
   registerUnifiedEngineTools(server);
   registerGrandUnifiedTools(server);
   registerNeuroSovereignTools(server);
