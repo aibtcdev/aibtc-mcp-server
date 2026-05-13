@@ -1,6 +1,6 @@
 {
   "name": "aibtc-mcp-server",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "aibtc-protocol — SHA256-anchored Bitcoin-native MCP server. All tools, all chains, all networks in one open protocol. Built on Bitcoin. Open source. No gates.",
   "mcpName": "io.aibtc/mcp-server",
   "type": "module",
