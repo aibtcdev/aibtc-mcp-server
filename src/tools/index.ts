@@ -93,6 +93,9 @@ import { registerPillarTools }              from "./pillar.tools.js";
 import { registerPillarDirectTools }        from "./pillar-direct.tools.js";
 import { registerFlyingWhaleTools }         from "./flying-whale.tools.js";
 
+// ── L5 · Prosperity Equation ──────────────────────────────────────────────────
+import { registerProsperityTools }          from "./prosperity.tools.js";
+
 // ── L7 · Bridge ──────────────────────────────────────────────────────────────
 import { registerStyxTools }                from "./styx.tools.js";
 
@@ -223,6 +226,9 @@ export function registerAllTools(server: McpServer): void {
   registerOpenRouterTools(server);
   registerArxivResearchTools(server);
   registerNewsTools(server);
+
+  // L5 — Prosperity Equation
+  registerProsperityTools(server);
 
   // L5 — x402 Endpoints
   registerEndpointTools(server);
