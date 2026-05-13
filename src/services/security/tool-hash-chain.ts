@@ -379,3 +379,34 @@ export function getChain(server: object): ToolChain {
   }
   return chain;
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CHAIN PERSISTENCE — append session summary to ~/.aibtc/chain-audit.jsonl
+// Each line is one session: { session_nonce, block_count, chain_hash, timestamp }
+// Grows append-only — provides cross-session audit trail even though the in-memory
+// chain resets per session (by design — prevents unbounded memory growth).
+// ══════════════════════════════════════════════════════════════════════════════
+
+export async function flushChainAudit(server: object): Promise<void> {
+  const chain = chainRegistry.get(server);
+  if (!chain || chain.length === 0) return;
+  try {
+    const { promises: fs } = await import("fs");
+    const { join } = await import("path");
+    const { homedir } = await import("os");
+    const dir = join(homedir(), ".aibtc");
+    await fs.mkdir(dir, { recursive: true });
+    const verification = chain.verify();
+    const stats = chain.stats();
+    const entry = JSON.stringify({
+      session_nonce: stats.session_nonce,
+      block_count:   chain.length,
+      chain_valid:   verification.valid,
+      chain_hash:    verification.chain_hash,
+      merkle_root:   verification.merkle_root,
+      violations:    verification.violations.length,
+      timestamp_iso: new Date().toISOString(),
+    });
+    await fs.appendFile(join(dir, "chain-audit.jsonl"), entry + "\n", "utf8");
+  } catch { /* non-fatal — chain audit is best-effort */ }
+}

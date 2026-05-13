@@ -804,7 +804,7 @@ export function startDashboard(): void {
     if (req.url === "/api/state") {
       res.writeHead(200, {
         "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Origin": "http://localhost:4200",
       });
       res.end(JSON.stringify(getState()));
       return;

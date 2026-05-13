@@ -61,6 +61,9 @@ import { registerNetworksTools }            from "./networks.tools.js";
 import { registerAssetsTools }              from "./assets.tools.js";
 import { registerTeneroTools }              from "./tenero.tools.js";
 
+// ── L1 · Bitcoin Energy (Thermodynamic Foundation) ───────────────────────────
+import { registerBitcoinEnergyTools }       from "./bitcoin-energy.tools.js";
+
 // ── L5 · Mathematical Intelligence ───────────────────────────────────────────
 import { registerPsiTools }                 from "./psi.tools.js";
 import { registerPsiOracleTools }           from "./psi-oracle.tools.js";
@@ -147,6 +150,9 @@ export function registerAllTools(server: McpServer): void {
   const restoreRegisterTool = withSkillMeta(server);
 
   void restoreSessionGuard;
+
+  // L1 — Bitcoin Energy (thermodynamic foundation — registered first)
+  registerBitcoinEnergyTools(server);
 
   // L1 — Bitcoin Core
   registerBitcoinTools(server);

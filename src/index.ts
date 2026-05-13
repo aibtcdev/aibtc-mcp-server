@@ -210,6 +210,14 @@ else if (process.argv.includes("--install") || process.argv.includes("install"))
       }
     } catch { /* module may not export this yet */ }
 
+    // Flush hash-chain session summary to ~/.aibtc/chain-audit.jsonl
+    try {
+      const { flushChainAudit } = await import("./services/security/tool-hash-chain.js");
+      if (typeof flushChainAudit === "function") {
+        flushTasks.push(flushChainAudit(server));
+      }
+    } catch { /* non-fatal */ }
+
     // Flush behavioral state if available (future enhancement)
     // try {
     //   const { flushBehaviorState } = await import("./utils/behavioral-fortress.js");

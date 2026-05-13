@@ -163,7 +163,11 @@ npm run dev
     },
     async ({ outputDir, projectName, endpoints, recipientAddress, network, relayUrl }) => {
       try {
-        const projectPath = path.join(outputDir, projectName);
+        const resolvedOutput = path.resolve(outputDir);
+        const projectPath    = path.join(resolvedOutput, projectName);
+        if (!projectPath.startsWith(resolvedOutput + path.sep) && projectPath !== resolvedOutput) {
+          return { content: [{ type: "text" as const, text: `Path traversal blocked: "${projectPath}" is outside "${resolvedOutput}"` }], isError: true };
+        }
 
         const conflict = await checkProjectConflict(projectPath);
         if (conflict) return conflict;
@@ -310,7 +314,11 @@ npm run dev
       defaultModel,
     }) => {
       try {
-        const projectPath = path.join(outputDir, projectName);
+        const resolvedOutput = path.resolve(outputDir);
+        const projectPath    = path.join(resolvedOutput, projectName);
+        if (!projectPath.startsWith(resolvedOutput + path.sep) && projectPath !== resolvedOutput) {
+          return { content: [{ type: "text" as const, text: `Path traversal blocked: "${projectPath}" is outside "${resolvedOutput}"` }], isError: true };
+        }
 
         const conflict = await checkProjectConflict(projectPath);
         if (conflict) return conflict;
