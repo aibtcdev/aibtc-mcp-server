@@ -365,13 +365,11 @@ export const SECURITY_AUDIT: SecurityCheck[] = [
 
   // Compliance
   { id:"SEC-12", system:"Sanctions", check:"OFAC list current",
-    status:"WARN", finding:"OFAC list is static snapshot — not automatically updated",
-    remediation:"Implement scheduled OFAC list refresh (daily from ofac.treasury.gov)",
-    severity:"medium" },
-  { id:"SEC-13", system:"Sanctions", check:"EU sanctions list coverage",
-    status:"WARN", finding:"Only OFAC (US) covered. EU/UK sanctions lists not integrated",
-    remediation:"Add EU Consolidated Sanctions List + UK OFSI list integration",
-    severity:"medium" },
+    status:"PASS", finding:"OFAC live feed in sanctions-engine.ts — auto-refreshes every 24h from treasury.gov",
+    remediation:null, severity:"info" },
+  { id:"SEC-13", system:"Sanctions", check:"EU + UK sanctions list coverage",
+    status:"PASS", finding:"EU Consolidated Sanctions + UK OFSI both integrated in sanctions-engine.ts with 24h TTL",
+    remediation:null, severity:"info" },
 
   // Privacy
   { id:"SEC-14", system:"ZK-KYC", check:"No PII stored in protocol layer",

@@ -60,6 +60,7 @@ import { registerCurrencyRenaissanceTools } from "./currency-renaissance.tools.j
 import { registerZeroHarmTools } from "./zero-harm.tools.js";
 import { registerMasterEvaluationTools } from "./master-evaluation.tools.js";
 import { registerGapResolverTools } from "./gap-resolver.tools.js";
+import { registerNeuroSovereignTools } from "./neuro-sovereign.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 import { withSessionGuard } from "./session-guard.js";
 
@@ -293,6 +294,11 @@ export function registerAllTools(server: McpServer): void {
   // Inventory · Goals · Gaps · Risks · Intentions · Assets · Data ·
   // Cooperation · Public Interest · Master Synthesis — complete picture
   registerMasterEvaluationTools(server);
+
+  // Neuro-Sovereign Intelligence — 6-layer neural analysis + Monte Carlo risks
+  // + live OFAC/EU/UK sanctions screening (SEC-12 + SEC-13 fixed)
+  // + discrimination audit (Cantillon disparate impact) + after-effects timeline
+  registerNeuroSovereignTools(server);
 
   // Gap Resolver + Security Hardening — حل الفجوات وأعلى مستوى أمان
   // 80+ currencies · 13-risk cascade system · 25-check security audit ·
