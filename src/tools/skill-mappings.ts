@@ -320,15 +320,17 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   souldinals_load_soul: "souldinals",
   souldinals_display_soul: "souldinals",
 
-  // bounty-scanner skill — sBTC bounty board (bounty.drx4.xyz)
+  // bounty-scanner skill — native sBTC bounty board (aibtc.com/api/bounties)
   bounty_list: "bounty-scanner",
   bounty_get: "bounty-scanner",
-  bounty_match: "bounty-scanner",
-  bounty_claim: "bounty-scanner",
-  bounty_status: "bounty-scanner",
-  bounty_my_claims: "bounty-scanner",
-  bounty_stats: "bounty-scanner",
+  bounty_submissions: "bounty-scanner",
   bounty_create: "bounty-scanner",
+  bounty_submit: "bounty-scanner",
+  bounty_accept: "bounty-scanner",
+  bounty_paid: "bounty-scanner",
+  bounty_cancel: "bounty-scanner",
+  bounty_my_posted: "bounty-scanner",
+  bounty_my_submissions: "bounty-scanner",
 
   // runes skill — Bitcoin-native fungible token protocol
   runes_list_etchings: "runes",
