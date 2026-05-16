@@ -114,6 +114,40 @@ describe("tool registration smoke test", () => {
     }
   });
 
+  it("registers native AIBTC bounty tools", () => {
+    const { server, tools } = createTrackingServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerAllTools(server as any);
+
+    const bountyTools = [
+      "bounty_list_native",
+      "bounty_get_native",
+      "bounty_submissions_native",
+      "bounty_create_native",
+      "bounty_submit_native",
+      "bounty_accept_native",
+      "bounty_paid_native",
+      "bounty_cancel_native",
+      "bounty_my_posted",
+      "bounty_my_submissions",
+    ];
+
+    for (const name of bountyTools) {
+      expect(tools.has(name), `expected native bounty tool '${name}' to be registered`).toBe(true);
+    }
+  });
+
+  it("marks legacy drx4 bounty tools as deprecated", () => {
+    const { server, tools } = createTrackingServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerAllTools(server as any);
+
+    for (const name of ["bounty_list", "bounty_get", "bounty_claim", "bounty_create"]) {
+      const description = tools.get(name)?.description ?? "";
+      expect(description, `expected '${name}' to mention deprecation`).toContain("DEPRECATED");
+    }
+  });
+
   it("no two tools share the same name", () => {
     const names: string[] = [];
 
