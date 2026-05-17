@@ -41,6 +41,7 @@ import { registerIdentityTools } from "./identity.tools.js";
 import { registerCredentialsTools } from "./credentials.tools.js";
 import { registerSouldinalsTools } from "./souldinals.tools.js";
 import { registerBountyScannerTools } from "./bounty-scanner.tools.js";
+import { registerNativeBountyTools } from "./native-bounty.tools.js";
 import { registerRunesTools } from "./runes.tools.js";
 import { registerInboxTools } from "./inbox.tools.js";
 import { registerArxivResearchTools } from "./arxiv-research.tools.js";
@@ -200,8 +201,11 @@ export function registerAllTools(server: McpServer): void {
   // Souldinals (soul.md child inscriptions — inscribe, reveal, list, load, display traits)
   registerSouldinalsTools(server);
 
-  // Bounty Scanner (bounty.drx4.xyz — list, match, claim, status, my-claims)
+  // Bounty Scanner (bounty.drx4.xyz legacy — list, match, claim, status, my-claims)
   registerBountyScannerTools(server);
+
+  // Native AIBTC Bounties (aibtc.com/api/bounties — first-party bounty workflow)
+  registerNativeBountyTools(server);
 
   // Runes (Bitcoin-native fungible tokens — list, query, holders, activity, balances)
   registerRunesTools(server);

@@ -98,7 +98,7 @@ export function registerBountyScannerTools(server: McpServer): void {
   server.registerTool(
     "bounty_list",
     {
-      description: `List bounties on the bounty.drx4.xyz sBTC bounty board.
+      description: `[DEPRECATED — targets bounty.drx4.xyz, use bounty_*_native for aibtc.com] List bounties on the bounty.drx4.xyz sBTC bounty board.
 
 Returns bounties matching the given filters in reverse chronological order.
 
@@ -180,7 +180,7 @@ No authentication required.`,
   server.registerTool(
     "bounty_get",
     {
-      description: `Get full details for a single bounty on bounty.drx4.xyz.
+      description: `[DEPRECATED — targets bounty.drx4.xyz, use bounty_*_native for aibtc.com] Get full details for a single bounty on bounty.drx4.xyz.
 
 Returns the bounty description, reward amount, tags, status, all claims,
 submissions, payments, and available actions for the current agent.
@@ -214,7 +214,7 @@ No authentication required.`,
   server.registerTool(
     "bounty_match",
     {
-      description: `Score open bounties against an agent's capability profile.
+      description: `[DEPRECATED — targets bounty.drx4.xyz, use bounty_*_native for aibtc.com] Score open bounties against an agent's capability profile.
 
 Fetches all open bounties and ranks them by tag overlap with the provided
 capability_tags. Returns bounties sorted by match score (highest first),
@@ -278,7 +278,7 @@ No authentication required.`,
   server.registerTool(
     "bounty_create",
     {
-      description: `Create a new bounty on bounty.drx4.xyz.
+      description: `[DEPRECATED — targets bounty.drx4.xyz, use bounty_*_native for aibtc.com] Create a new bounty on bounty.drx4.xyz.
 
 Posts a new bounty to the sBTC bounty board. Requires an unlocked wallet with
 BTC keys and AIBTC level >= 1. The request is authenticated via BIP-322 signing.
@@ -377,7 +377,7 @@ Fields:
   server.registerTool(
     "bounty_claim",
     {
-      description: `Claim a bounty on bounty.drx4.xyz.
+      description: `[DEPRECATED — targets bounty.drx4.xyz, use bounty_*_native for aibtc.com] Claim a bounty on bounty.drx4.xyz.
 
 Submits a claim for an open bounty. Requires an unlocked wallet with BTC keys.
 The request is authenticated via BIP-322 signing.
@@ -458,7 +458,7 @@ Fields:
   server.registerTool(
     "bounty_status",
     {
-      description: `Check the current status of a bounty on bounty.drx4.xyz.
+      description: `[DEPRECATED — targets bounty.drx4.xyz, use bounty_*_native for aibtc.com] Check the current status of a bounty on bounty.drx4.xyz.
 
 Returns the bounty's current status in the workflow, along with any claims
 and submission details. The status flow is:
@@ -508,7 +508,7 @@ No authentication required.`,
   server.registerTool(
     "bounty_my_claims",
     {
-      description: `List all bounty claims and submissions for the current wallet's BTC address.
+      description: `[DEPRECATED — targets bounty.drx4.xyz, use bounty_*_native for aibtc.com] List all bounty claims and submissions for the current wallet's BTC address.
 
 Returns the agent profile from bounty.drx4.xyz including all bounties created
 and claims submitted. If no address is provided, uses the current wallet's BTC address.
@@ -555,7 +555,7 @@ No authentication required.`,
   server.registerTool(
     "bounty_stats",
     {
-      description: `Get aggregate platform statistics from bounty.drx4.xyz.
+      description: `[DEPRECATED — targets bounty.drx4.xyz, use bounty_*_native for aibtc.com] Get aggregate platform statistics from bounty.drx4.xyz.
 
 Returns totals for bounties, agents, claims, submissions, and sBTC paid out.
 
