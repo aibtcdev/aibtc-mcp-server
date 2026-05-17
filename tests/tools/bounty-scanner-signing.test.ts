@@ -66,8 +66,8 @@ describe("native bounty signing", () => {
       tags: ["test", "signing"],
     });
 
-    expect(response.isError).toBeUndefined();
-    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock, "fetch not called — signing likely threw").toHaveBeenCalledOnce();
+    expect(response.isError, "signing failed — check secp256k1 API usage").toBeUndefined();
 
     const init = fetchMock.mock.calls[0][1] as RequestInit;
     const body = JSON.parse(String(init.body)) as { signature: string };

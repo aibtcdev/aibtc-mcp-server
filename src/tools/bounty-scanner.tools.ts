@@ -109,15 +109,6 @@ function doubleSha256(data: Uint8Array): Uint8Array {
   return hashSha256Sync(hashSha256Sync(data));
 }
 
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    diff |= a[i] ^ b[i];
-  }
-  return diff === 0;
-}
-
 function isLegacyBtcAddress(address: string): boolean {
   return /^[13mn2]/.test(address);
 }
@@ -129,31 +120,18 @@ function isTaprootAddress(address: string): boolean {
 function signBip137(message: string, account: AccountForAuth): string {
   const formattedMsg = formatBitcoinMessage(message);
   const msgHash = doubleSha256(formattedMsg);
-  const compact = secp256k1.sign(msgHash, account.btcPrivateKey, {
+
+  // @noble/curves v2 returns raw bytes. The "recovered" format is
+  // [recoveryId, r(32), s(32)], which is the BIP-137 payload shape
+  // before the address-type header offset is applied.
+  const sigWithRecovery = secp256k1.sign(msgHash, account.btcPrivateKey, {
     prehash: false,
     lowS: true,
+    format: "recovered",
   });
 
-  const expectedPublicKey = secp256k1.getPublicKey(account.btcPrivateKey, true);
-  let recoveryId: number | undefined;
-  for (let candidate = 0; candidate < 4; candidate += 1) {
-    const recoveredSignature = new Uint8Array(65);
-    recoveredSignature[0] = candidate;
-    recoveredSignature.set(compact, 1);
-    try {
-      const recoveredPublicKey = secp256k1.recoverPublicKey(recoveredSignature, msgHash, {
-        prehash: false,
-      });
-      if (bytesEqual(recoveredPublicKey, expectedPublicKey)) {
-        recoveryId = candidate;
-        break;
-      }
-    } catch {
-      // Some recovery IDs are invalid for a given signature; try the next one.
-    }
-  }
-
-  if (recoveryId === undefined) {
+  const recoveryId = sigWithRecovery[0];
+  if (recoveryId === undefined || sigWithRecovery.length !== 65) {
     throw new Error("Could not recover BIP-137 signature recovery ID.");
   }
 
@@ -166,8 +144,8 @@ function signBip137(message: string, account: AccountForAuth): string {
 
   const bip137Sig = new Uint8Array(65);
   bip137Sig[0] = headerBase + recoveryId;
-  bip137Sig.set(compact.subarray(0, 32), 1);
-  bip137Sig.set(compact.subarray(32, 64), 33);
+  bip137Sig.set(sigWithRecovery.subarray(1, 33), 1);
+  bip137Sig.set(sigWithRecovery.subarray(33, 65), 33);
   return Buffer.from(bip137Sig).toString("base64");
 }
 
