@@ -42,6 +42,11 @@ function escapeTomlString(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+function getTomlTableHeader(line: string): string | null {
+  const match = line.trim().match(/^(\[[^\]]+\])(?:\s*#.*)?$/);
+  return match?.[1] ?? null;
+}
+
 function removeTomlTable(content: string, tableName: string): string {
   const target = `[${tableName}]`;
   const lines = content.split(/\r?\n/);
@@ -49,15 +54,14 @@ function removeTomlTable(content: string, tableName: string): string {
   let skipping = false;
 
   for (const line of lines) {
-    const trimmed = line.trim();
-    const startsTable = /^\[[^\]]+\]$/.test(trimmed);
+    const tableHeader = getTomlTableHeader(line);
 
-    if (trimmed === target) {
+    if (tableHeader === target) {
       skipping = true;
       continue;
     }
 
-    if (skipping && startsTable) {
+    if (skipping && tableHeader) {
       skipping = false;
     }
 
@@ -105,8 +109,11 @@ async function writeJsonConfig(filePath: string, config: Record<string, unknown>
 async function readTextConfig(filePath: string): Promise<string> {
   try {
     return await fs.readFile(filePath, "utf8");
-  } catch {
-    return "";
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return "";
+    }
+    throw err;
   }
 }
 
