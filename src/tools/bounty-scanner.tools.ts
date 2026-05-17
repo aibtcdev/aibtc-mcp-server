@@ -244,8 +244,8 @@ export function registerBountyScannerTools(server: McpServer): void {
       try {
         const account = requireBountyAccount(await getAccount());
         const signedAt = new Date().toISOString();
-        const message = `AIBTC Bounty Accept | ${bounty_id} | ${submission_id} | ${signedAt}`;
-        return createJsonResponse(await postNativeBounty(`/${encodeURIComponent(bounty_id)}/accept`, { submissionId: submission_id, signedAt, signature: signBountyMessage(message, account) }));
+        const message = `AIBTC Bounty Accept | ${bounty_id} | ${account.btcAddress} | ${submission_id} | ${signedAt}`;
+        return createJsonResponse(await postNativeBounty(`/${encodeURIComponent(bounty_id)}/accept`, { posterBtcAddress: account.btcAddress, submissionId: submission_id, signedAt, signature: signBountyMessage(message, account) }));
       } catch (error) { return createErrorResponse(error); }
     }
   );
@@ -257,8 +257,8 @@ export function registerBountyScannerTools(server: McpServer): void {
       try {
         const account = requireBountyAccount(await getAccount());
         const signedAt = new Date().toISOString();
-        const message = `AIBTC Bounty Paid | ${bounty_id} | ${txid} | ${signedAt}`;
-        return createJsonResponse(await postNativeBounty(`/${encodeURIComponent(bounty_id)}/paid`, { txid, signedAt, signature: signBountyMessage(message, account) }));
+        const message = `AIBTC Bounty Paid | ${bounty_id} | ${account.btcAddress} | ${txid} | ${signedAt}`;
+        return createJsonResponse(await postNativeBounty(`/${encodeURIComponent(bounty_id)}/paid`, { posterBtcAddress: account.btcAddress, txid, signedAt, signature: signBountyMessage(message, account) }));
       } catch (error) { return createErrorResponse(error); }
     }
   );
@@ -270,8 +270,8 @@ export function registerBountyScannerTools(server: McpServer): void {
       try {
         const account = requireBountyAccount(await getAccount());
         const signedAt = new Date().toISOString();
-        const message = `AIBTC Bounty Cancel | ${bounty_id} | ${signedAt}`;
-        return createJsonResponse(await postNativeBounty(`/${encodeURIComponent(bounty_id)}/cancel`, { signedAt, signature: signBountyMessage(message, account) }));
+        const message = `AIBTC Bounty Cancel | ${bounty_id} | ${account.btcAddress} | ${signedAt}`;
+        return createJsonResponse(await postNativeBounty(`/${encodeURIComponent(bounty_id)}/cancel`, { posterBtcAddress: account.btcAddress, signedAt, signature: signBountyMessage(message, account) }));
       } catch (error) { return createErrorResponse(error); }
     }
   );
