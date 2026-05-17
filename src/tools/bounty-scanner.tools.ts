@@ -1,7 +1,7 @@
 /**
  * Bounty Scanner Tools
  *
- * Tools for interacting with the bounty.drx4.xyz sBTC bounty board.
+ * Tools for interacting with the AIBTC native bounty board.
  * Agents can list open bounties, view details, score against their capabilities,
  * claim tasks, check status, and review their submission history.
  *
@@ -22,7 +22,7 @@
  *
  * Status flow: open → claimed → submitted → approved → paid (or cancelled)
  *
- * Reference: https://bounty.drx4.xyz/api
+ * Reference: https://AIBTC native bounty board/api
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -37,7 +37,7 @@ import { getAccount } from "../services/x402.service.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { bip322Sign } from "../utils/bip322.js";
 
-const BOUNTY_BASE = "https://bounty.drx4.xyz/api";
+const BOUNTY_BASE = "https://aibtc.com/api";
 
 // ============================================================================
 // Auth header builder for authenticated endpoints
@@ -54,7 +54,7 @@ type AccountForAuth = {
 };
 
 /**
- * Build BIP-322 auth headers for bounty.drx4.xyz write operations.
+ * Build BIP-322 auth headers for AIBTC native bounty board write operations.
  * Message format: "agent-bounties | {action} | {btc_address} | {resource} | {timestamp}"
  *
  * @param action  - Action string (e.g. "claim-bounty")
@@ -98,7 +98,7 @@ export function registerBountyScannerTools(server: McpServer): void {
   server.registerTool(
     "bounty_list",
     {
-      description: `List bounties on the bounty.drx4.xyz sBTC bounty board.
+      description: `List bounties on the AIBTC native bounty board.
 
 Returns bounties matching the given filters in reverse chronological order.
 
@@ -150,10 +150,8 @@ No authentication required.`,
       try {
         const params = new URLSearchParams();
         if (status) params.set("status", status);
-        if (tags) params.set("tags", tags);
-        if (creator) params.set("creator", creator);
-        if (min_amount !== undefined) params.set("min_amount", String(min_amount));
-        if (max_amount !== undefined) params.set("max_amount", String(max_amount));
+        if (tags) params.set("tag", tags);
+        if (creator) params.set("poster", creator);
         if (limit !== undefined) params.set("limit", String(limit));
         if (offset !== undefined) params.set("offset", String(offset));
 
@@ -180,7 +178,7 @@ No authentication required.`,
   server.registerTool(
     "bounty_get",
     {
-      description: `Get full details for a single bounty on bounty.drx4.xyz.
+      description: `Get full details for a single bounty on AIBTC native bounty board.
 
 Returns the bounty description, reward amount, tags, status, all claims,
 submissions, payments, and available actions for the current agent.
@@ -278,7 +276,7 @@ No authentication required.`,
   server.registerTool(
     "bounty_create",
     {
-      description: `Create a new bounty on bounty.drx4.xyz.
+      description: `Create a new bounty on AIBTC native bounty board.
 
 Posts a new bounty to the sBTC bounty board. Requires an unlocked wallet with
 BTC keys and AIBTC level >= 1. The request is authenticated via BIP-322 signing.
@@ -377,7 +375,7 @@ Fields:
   server.registerTool(
     "bounty_claim",
     {
-      description: `Claim a bounty on bounty.drx4.xyz.
+      description: `Claim a bounty on AIBTC native bounty board.
 
 Submits a claim for an open bounty. Requires an unlocked wallet with BTC keys.
 The request is authenticated via BIP-322 signing.
@@ -458,7 +456,7 @@ Fields:
   server.registerTool(
     "bounty_status",
     {
-      description: `Check the current status of a bounty on bounty.drx4.xyz.
+      description: `Check the current status of a bounty on AIBTC native bounty board.
 
 Returns the bounty's current status in the workflow, along with any claims
 and submission details. The status flow is:
@@ -486,8 +484,8 @@ No authentication required.`,
           id: data.id,
           status: data.status,
           title: data.title,
-          reward_sats: data.reward_sats,
-          creator: data.creator,
+          rewardSats: (data.bounty as Record<string, unknown> | undefined)?.rewardSats ?? data.rewardSats,
+          posterBtcAddress: (data.bounty as Record<string, unknown> | undefined)?.posterBtcAddress ?? data.posterBtcAddress,
           tags: data.tags,
           claims: data.claims,
           submissions: data.submissions,
@@ -510,7 +508,7 @@ No authentication required.`,
     {
       description: `List all bounty claims and submissions for the current wallet's BTC address.
 
-Returns the agent profile from bounty.drx4.xyz including all bounties created
+Returns the agent profile from AIBTC native bounty board including all bounties created
 and claims submitted. If no address is provided, uses the current wallet's BTC address.
 
 No authentication required.`,
@@ -555,7 +553,7 @@ No authentication required.`,
   server.registerTool(
     "bounty_stats",
     {
-      description: `Get aggregate platform statistics from bounty.drx4.xyz.
+      description: `Get aggregate platform statistics from AIBTC native bounty board.
 
 Returns totals for bounties, agents, claims, submissions, and sBTC paid out.
 
