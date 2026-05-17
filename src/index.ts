@@ -16,7 +16,7 @@ const require = createRequire(import.meta.url);
 const packageJson = require("../package.json");
 
 // =============================================================================
-// AUTO-INSTALL FOR CLAUDE CODE AND CLAUDE DESKTOP
+// AUTO-INSTALL FOR CLAUDE CODE, CLAUDE DESKTOP, AND CODEX
 // =============================================================================
 
 function getClaudeDesktopConfigPath(): string {
@@ -34,6 +34,57 @@ function getClaudeDesktopConfigPath(): string {
   }
 }
 
+function getCodexConfigPath(): string {
+  return path.join(os.homedir(), ".codex", "config.toml");
+}
+
+function escapeTomlString(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function removeTomlTable(content: string, tableName: string): string {
+  const target = `[${tableName}]`;
+  const lines = content.split(/\r?\n/);
+  const kept: string[] = [];
+  let skipping = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const startsTable = /^\[[^\]]+\]$/.test(trimmed);
+
+    if (trimmed === target) {
+      skipping = true;
+      continue;
+    }
+
+    if (skipping && startsTable) {
+      skipping = false;
+    }
+
+    if (!skipping) {
+      kept.push(line);
+    }
+  }
+
+  return kept.join("\n").trimEnd();
+}
+
+function upsertCodexConfig(content: string, network: string): string {
+  let next = removeTomlTable(content, "mcp_servers.aibtc");
+  next = removeTomlTable(next, "mcp_servers.aibtc.env");
+
+  const block = [
+    "[mcp_servers.aibtc]",
+    'command = "npx"',
+    'args = ["-y", "@aibtc/mcp-server@latest"]',
+    "",
+    "[mcp_servers.aibtc.env]",
+    `NETWORK = "${escapeTomlString(network)}"`,
+  ].join("\n");
+
+  return `${next}${next ? "\n\n" : ""}${block}\n`;
+}
+
 async function readJsonConfig(filePath: string): Promise<Record<string, unknown>> {
   try {
     const content = await fs.readFile(filePath, "utf8");
@@ -49,6 +100,20 @@ async function writeJsonConfig(filePath: string, config: Record<string, unknown>
   const dir = path.dirname(filePath);
   await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(filePath, JSON.stringify(config, null, 2));
+}
+
+async function readTextConfig(filePath: string): Promise<string> {
+  try {
+    return await fs.readFile(filePath, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+async function writeTextConfig(filePath: string, content: string): Promise<void> {
+  const dir = path.dirname(filePath);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(filePath, content);
 }
 
 async function installToClaudeCode(): Promise<void> {
@@ -121,6 +186,29 @@ async function installToClaudeDesktop(): Promise<void> {
   }
 }
 
+async function installToCodex(): Promise<void> {
+  const configPath = getCodexConfigPath();
+  const network = process.argv.includes("--testnet") ? "testnet" : "mainnet";
+
+  console.log("🔧 Installing @aibtc/mcp-server to Codex...\n");
+
+  const config = await readTextConfig(configPath);
+  await writeTextConfig(configPath, upsertCodexConfig(config, network));
+
+  console.log("✅ Successfully installed!\n");
+  console.log(`   Config: ${configPath}`);
+  console.log(`   Network: ${network}`);
+  console.log("\n📋 Next steps:");
+  console.log("   1. Restart Codex or reload MCP configuration");
+  console.log("   2. Run `codex mcp list` or use `/mcp` in the Codex TUI to verify `aibtc` is enabled");
+  console.log("   3. Ask Codex: \"What's your wallet address?\"");
+  console.log("   4. Codex will guide you through wallet setup\n");
+
+  if (network === "testnet") {
+    console.log("💡 Tip: Get testnet STX at https://explorer.hiro.so/sandbox/faucet?chain=testnet\n");
+  }
+}
+
 // =============================================================================
 // YIELD HUNTER DAEMON
 // =============================================================================
@@ -151,7 +239,8 @@ if (process.argv[2] === "yield-hunter") {
 // Check for --install flag
 else if (process.argv.includes("--install") || process.argv.includes("install")) {
   const isDesktop = process.argv.includes("--desktop");
-  const installFn = isDesktop ? installToClaudeDesktop : installToClaudeCode;
+  const isCodex = process.argv.includes("--codex");
+  const installFn = isCodex ? installToCodex : isDesktop ? installToClaudeDesktop : installToClaudeCode;
   installFn()
     .then(() => process.exit(0))
     .catch((error) => {
