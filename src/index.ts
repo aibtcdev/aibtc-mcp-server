@@ -43,7 +43,7 @@ function escapeTomlString(value: string): string {
 }
 
 function getTomlTableHeader(line: string): string | null {
-  const match = line.trim().match(/^(\[[^\]]+\])(?:\s*#.*)?$/);
+  const match = line.trim().match(/^(\[\[?[^\]]+\]\]?)(?:\s*#.*)?$/);
   return match?.[1] ?? null;
 }
 
