@@ -2,6 +2,7 @@
  * Bounty Scanner Tools
  *
  * Tools for interacting with the bounty.drx4.xyz sBTC bounty board.
+ * [DEPRECATED — targets bounty.drx4.xyz, use bounty_*_native for aibtc.com]
  * Agents can list open bounties, view details, score against their capabilities,
  * claim tasks, check status, and review their submission history.
  *
