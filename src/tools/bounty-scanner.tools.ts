@@ -263,6 +263,7 @@ function extractBountyRows(data: unknown): Array<Record<string, unknown>> {
     if (Array.isArray(obj.items)) return obj.items as Array<Record<string, unknown>>;
     if (Array.isArray(obj.results)) return obj.results as Array<Record<string, unknown>>;
   }
+  console.warn("Unrecognized native bounty API response shape; returning no rows.");
   return [];
 }
 
@@ -272,10 +273,13 @@ async function fetchNativeBountyView(filter: "poster" | "submitter", address: st
 }> {
   const seen = new Set<string>();
   const bounties: Array<Record<string, unknown>> = [];
+  const results = await Promise.all(
+    NATIVE_BOUNTY_STATUSES.map((status) =>
+      fetchNativeBounty("", nativeListParams({ [filter]: address, status, limit: 50 }))
+    )
+  );
 
-  for (const status of NATIVE_BOUNTY_STATUSES) {
-    const params = nativeListParams({ [filter]: address, status, limit: 50 });
-    const data = await fetchNativeBounty("", params);
+  for (const data of results) {
     for (const bounty of extractBountyRows(data)) {
       const id = typeof bounty.id === "string" ? bounty.id : JSON.stringify(bounty);
       if (seen.has(id)) continue;
