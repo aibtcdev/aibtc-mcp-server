@@ -22,7 +22,7 @@
  *
  * Status flow: open → claimed → submitted → approved → paid (or cancelled)
  *
- * Reference: https://AIBTC native bounty board/api
+ * Reference: https://aibtc.com/api
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -106,8 +106,6 @@ Filters:
 - status: "open", "claimed", "submitted", "approved", "paid", "cancelled" (default: all)
 - tags: comma-separated tag filter (e.g. "stacks,defi")
 - creator: filter by creator BTC address
-- min_amount: minimum reward in satoshis
-- max_amount: maximum reward in satoshis
 - limit: max results (default 20)
 - offset: pagination offset
 
@@ -125,14 +123,6 @@ No authentication required.`,
           .string()
           .optional()
           .describe("Filter by creator BTC address"),
-        min_amount: z
-          .number()
-          .optional()
-          .describe("Minimum reward in satoshis"),
-        max_amount: z
-          .number()
-          .optional()
-          .describe("Maximum reward in satoshis"),
         limit: z
           .number()
           .min(1)
@@ -146,7 +136,7 @@ No authentication required.`,
           .describe("Pagination offset (default 0)"),
       },
     },
-    async ({ status, tags, creator, min_amount, max_amount, limit, offset }) => {
+    async ({ status, tags, creator, limit, offset }) => {
       try {
         const params = new URLSearchParams();
         if (status) params.set("status", status);
