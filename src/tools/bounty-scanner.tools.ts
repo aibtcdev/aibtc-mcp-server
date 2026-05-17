@@ -38,6 +38,7 @@ import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { bip322Sign } from "../utils/bip322.js";
 
 const BOUNTY_BASE = "https://bounty.drx4.xyz/api";
+const NATIVE_BOUNTY_BASE = "https://aibtc.com/api/bounties";
 
 // ============================================================================
 // Auth header builder for authenticated endpoints
@@ -87,6 +88,45 @@ function buildBountyAuthHeaders(
   return headers;
 }
 
+function signNativeBountyMessage(message: string, account: AccountForAuth): string {
+  const btcNetwork = NETWORK === "testnet" ? BTC_TESTNET : BTC_MAINNET;
+  const scriptPubKey = p2wpkh(account.btcPublicKey, btcNetwork).script;
+  return bip322Sign(message, account.btcPrivateKey, scriptPubKey);
+}
+
+async function nativeBountyPost(
+  path: string,
+  payload: Record<string, unknown>,
+  expectedStatus: number | number[] = [200, 201]
+): Promise<unknown> {
+  const res = await fetch(`${NATIVE_BOUNTY_BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const responseText = await res.text();
+  let responseData: unknown;
+  try {
+    responseData = JSON.parse(responseText);
+  } catch {
+    responseData = { raw: responseText };
+  }
+
+  const expected = Array.isArray(expectedStatus) ? expectedStatus : [expectedStatus];
+  if (!expected.includes(res.status)) {
+    throw new Error(`Native bounty request failed (${res.status}): ${responseText}`);
+  }
+  return responseData;
+}
+
+async function getNativeBountyAccount(): Promise<AccountForAuth> {
+  const account = await getAccount();
+  if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
+    throw new Error("Bitcoin keys not available. Unlock a wallet with BTC key derivation to use native bounty tools.");
+  }
+  return account as AccountForAuth;
+}
+
 // ============================================================================
 // Tool Registration
 // ============================================================================
@@ -98,7 +138,7 @@ export function registerBountyScannerTools(server: McpServer): void {
   server.registerTool(
     "bounty_list",
     {
-      description: `List bounties on the bounty.drx4.xyz sBTC bounty board.
+      description: `[DEPRECATED — targets bounty.drx4.xyz, use bounty_list_native for aibtc.com] List bounties on the bounty.drx4.xyz sBTC bounty board.
 
 Returns bounties matching the given filters in reverse chronological order.
 
@@ -572,6 +612,300 @@ No authentication required.`,
 
         const data = await res.json();
         return createJsonResponse(data);
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  registerNativeBountyTools(server);
+}
+
+function registerNativeBountyTools(server: McpServer): void {
+  server.registerTool(
+    "bounty_list_native",
+    {
+      description: `List bounties from the native aibtc.com bounty API.
+
+Filters map directly to GET /api/bounties: status, poster, submitter, tag, limit, and offset.
+No authentication required.`,
+      inputSchema: {
+        status: z
+          .enum(["open", "judging", "winner-announced", "paid", "abandoned", "cancelled", "active"])
+          .optional()
+          .describe("Filter by derived bounty status"),
+        poster: z.string().optional().describe("Filter by poster BTC address"),
+        submitter: z.string().optional().describe("Filter by submitter BTC address"),
+        tag: z.string().optional().describe("Filter by a single tag"),
+        limit: z.number().int().min(1).max(100).optional().describe("Max results (default 20, max 100)"),
+        offset: z.number().int().min(0).optional().describe("Pagination offset"),
+      },
+    },
+    async ({ status, poster, submitter, tag, limit, offset }) => {
+      try {
+        const params = new URLSearchParams();
+        if (status) params.set("status", status);
+        if (poster) params.set("poster", poster);
+        if (submitter) params.set("submitter", submitter);
+        if (tag) params.set("tag", tag);
+        if (limit !== undefined) params.set("limit", String(limit));
+        if (offset !== undefined) params.set("offset", String(offset));
+        const query = params.toString();
+        const res = await fetch(`${NATIVE_BOUNTY_BASE}${query ? `?${query}` : ""}`);
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Failed to list native bounties (${res.status}): ${text}`);
+        }
+        return createJsonResponse(await res.json());
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "bounty_get_native",
+    {
+      description: "Get full native aibtc.com bounty details by bounty ID. No authentication required.",
+      inputSchema: {
+        id: z.string().describe("Native bounty ID"),
+      },
+    },
+    async ({ id }) => {
+      try {
+        const res = await fetch(`${NATIVE_BOUNTY_BASE}/${encodeURIComponent(id)}`);
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Failed to fetch native bounty ${id} (${res.status}): ${text}`);
+        }
+        return createJsonResponse(await res.json());
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "bounty_submissions_native",
+    {
+      description: "List submissions for a native aibtc.com bounty. No authentication required.",
+      inputSchema: {
+        bounty_id: z.string().describe("Native bounty ID"),
+        limit: z.number().int().min(1).max(100).optional().describe("Max submissions to return"),
+        offset: z.number().int().min(0).optional().describe("Pagination offset"),
+      },
+    },
+    async ({ bounty_id, limit, offset }) => {
+      try {
+        const params = new URLSearchParams();
+        if (limit !== undefined) params.set("limit", String(limit));
+        if (offset !== undefined) params.set("offset", String(offset));
+        const query = params.toString();
+        const res = await fetch(`${NATIVE_BOUNTY_BASE}/${encodeURIComponent(bounty_id)}/submissions${query ? `?${query}` : ""}`);
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Failed to fetch native bounty submissions (${res.status}): ${text}`);
+        }
+        return createJsonResponse(await res.json());
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "bounty_my_posted",
+    {
+      description: "List up to 50 native aibtc.com bounties posted by the current wallet or supplied BTC address.",
+      inputSchema: {
+        btc_address: z.string().optional().describe("BTC address to look up. Omit to use the current wallet."),
+      },
+    },
+    async ({ btc_address }) => {
+      try {
+        let address = btc_address as string | undefined;
+        if (!address) {
+          const account = await getAccount();
+          if (!account.btcAddress) throw new Error("No BTC address found. Provide btc_address or unlock a wallet.");
+          address = account.btcAddress;
+        }
+        const params = new URLSearchParams({ poster: address, limit: "50" });
+        const res = await fetch(`${NATIVE_BOUNTY_BASE}?${params.toString()}`);
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Failed to fetch native posted bounties (${res.status}): ${text}`);
+        }
+        return createJsonResponse(await res.json());
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "bounty_my_submissions",
+    {
+      description: "List up to 50 native aibtc.com bounties submitted to by the current wallet or supplied BTC address.",
+      inputSchema: {
+        btc_address: z.string().optional().describe("BTC address to look up. Omit to use the current wallet."),
+      },
+    },
+    async ({ btc_address }) => {
+      try {
+        let address = btc_address as string | undefined;
+        if (!address) {
+          const account = await getAccount();
+          if (!account.btcAddress) throw new Error("No BTC address found. Provide btc_address or unlock a wallet.");
+          address = account.btcAddress;
+        }
+        const params = new URLSearchParams({ submitter: address, limit: "50" });
+        const res = await fetch(`${NATIVE_BOUNTY_BASE}?${params.toString()}`);
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Failed to fetch native bounty submissions for wallet (${res.status}): ${text}`);
+        }
+        return createJsonResponse(await res.json());
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "bounty_create_native",
+    {
+      description: "Create a native aibtc.com bounty with the current wallet. Requires Genesis access and BIP-322 signing.",
+      inputSchema: {
+        title: z.string().min(1).max(120).describe("Bounty title"),
+        description: z.string().min(1).max(4000).describe("Bounty description"),
+        reward_sats: z.number().int().positive().describe("Reward in satoshis"),
+        expires_at: z.string().describe("Expiration timestamp in ISO 8601 format"),
+        tags: z.array(z.string().max(24)).max(5).optional().describe("Optional tags, max 5"),
+      },
+    },
+    async ({ title, description, reward_sats, expires_at, tags }) => {
+      try {
+        const account = await getNativeBountyAccount();
+        const signedAt = new Date().toISOString();
+        const nativeTags = Array.isArray(tags) ? tags : [];
+        const message = `AIBTC Bounty Create | ${account.btcAddress} | ${title} | ${description} | ${reward_sats} | ${expires_at} | ${nativeTags.join(",")} | ${signedAt}`;
+        const payload = {
+          posterBtcAddress: account.btcAddress,
+          title,
+          description,
+          rewardSats: reward_sats,
+          expiresAt: expires_at,
+          tags: nativeTags,
+          signedAt,
+          signature: signNativeBountyMessage(message, account),
+        };
+        return createJsonResponse(await nativeBountyPost("", payload, 201));
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "bounty_submit_native",
+    {
+      description: "Submit work to a native aibtc.com bounty with the current wallet.",
+      inputSchema: {
+        bounty_id: z.string().describe("Native bounty ID"),
+        message: z.string().min(1).max(2000).describe("Submission message"),
+        content_url: z.string().optional().describe("Optional URL to the submitted work"),
+      },
+    },
+    async ({ bounty_id, message, content_url }) => {
+      try {
+        const account = await getNativeBountyAccount();
+        const signedAt = new Date().toISOString();
+        const contentUrl = (content_url as string | undefined) ?? "";
+        const signedMessage = `AIBTC Bounty Submit | ${bounty_id} | ${account.btcAddress} | ${message} | ${contentUrl} | ${signedAt}`;
+        const payload = {
+          submitterBtcAddress: account.btcAddress,
+          message,
+          contentUrl,
+          signedAt,
+          signature: signNativeBountyMessage(signedMessage, account),
+        };
+        return createJsonResponse(await nativeBountyPost(`/${encodeURIComponent(bounty_id as string)}/submit`, payload, 201));
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "bounty_accept_native",
+    {
+      description: "Accept a native bounty submission as the bounty poster.",
+      inputSchema: {
+        bounty_id: z.string().describe("Native bounty ID"),
+        submission_id: z.string().describe("Submission ID to accept"),
+      },
+    },
+    async ({ bounty_id, submission_id }) => {
+      try {
+        const account = await getNativeBountyAccount();
+        const signedAt = new Date().toISOString();
+        const message = `AIBTC Bounty Accept | ${bounty_id} | ${submission_id} | ${signedAt}`;
+        const payload = {
+          submissionId: submission_id,
+          signedAt,
+          signature: signNativeBountyMessage(message, account),
+        };
+        return createJsonResponse(await nativeBountyPost(`/${encodeURIComponent(bounty_id as string)}/accept`, payload));
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "bounty_paid_native",
+    {
+      description: "Mark a native bounty paid by proving the confirmed sBTC transfer txid.",
+      inputSchema: {
+        bounty_id: z.string().describe("Native bounty ID"),
+        txid: z.string().describe("Confirmed sBTC transfer transaction ID"),
+      },
+    },
+    async ({ bounty_id, txid }) => {
+      try {
+        const account = await getNativeBountyAccount();
+        const signedAt = new Date().toISOString();
+        const message = `AIBTC Bounty Paid | ${bounty_id} | ${txid} | ${signedAt}`;
+        const payload = {
+          txid,
+          signedAt,
+          signature: signNativeBountyMessage(message, account),
+        };
+        return createJsonResponse(await nativeBountyPost(`/${encodeURIComponent(bounty_id as string)}/paid`, payload));
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  server.registerTool(
+    "bounty_cancel_native",
+    {
+      description: "Cancel a native bounty as the bounty poster before acceptance.",
+      inputSchema: {
+        bounty_id: z.string().describe("Native bounty ID"),
+      },
+    },
+    async ({ bounty_id }) => {
+      try {
+        const account = await getNativeBountyAccount();
+        const signedAt = new Date().toISOString();
+        const message = `AIBTC Bounty Cancel | ${bounty_id} | ${signedAt}`;
+        const payload = {
+          signedAt,
+          signature: signNativeBountyMessage(message, account),
+        };
+        return createJsonResponse(await nativeBountyPost(`/${encodeURIComponent(bounty_id as string)}/cancel`, payload));
       } catch (error) {
         return createErrorResponse(error);
       }
