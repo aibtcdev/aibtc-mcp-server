@@ -129,8 +129,8 @@ export function buildNativeBountySignedFields(
   };
 }
 
-export async function fetchNativeBountyJson(path: string, init?: RequestInit): Promise<unknown> {
-  const response = await fetch(new URL(path, AIBTC_BOUNTY_BASE), init);
+export async function fetchNativeBountyUrl(url: URL, init?: RequestInit): Promise<unknown> {
+  const response = await fetch(url, init);
   const text = await response.text();
   let data: unknown;
   try {
@@ -142,4 +142,8 @@ export async function fetchNativeBountyJson(path: string, init?: RequestInit): P
     throw new Error(`AIBTC bounty API ${response.status}: ${text}`);
   }
   return data;
+}
+
+export async function fetchNativeBountyJson(path: string, init?: RequestInit): Promise<unknown> {
+  return fetchNativeBountyUrl(new URL(path, AIBTC_BOUNTY_BASE), init);
 }

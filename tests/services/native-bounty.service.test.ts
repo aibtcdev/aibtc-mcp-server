@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { secp256k1 } from "@noble/curves/secp256k1.js";
 import {
   AIBTC_BOUNTY_BASE,
   buildNativeBountyMessage,
+  buildNativeBountySignedFields,
   buildNativeBountyUrl,
   normalizeNativeBountyListParams,
 } from "../../src/services/native-bounty.service.js";
@@ -80,20 +82,21 @@ describe("native bounty service", () => {
   });
 
   it("creates signed payload fields without leaking private key material", () => {
+    const privateKey = new Uint8Array(32).fill(1);
     const account = {
       btcAddress: "bc1poster",
-      btcPrivateKey: new Uint8Array(32).fill(1),
-      btcPublicKey: new Uint8Array([
-        2, 3, 9, 93, 204, 25, 207, 220, 147, 57, 22, 83, 101, 48, 31, 163, 36,
-        195, 21, 170, 45, 17, 123, 242, 204, 120, 22, 44, 178, 43, 129, 131, 209,
-      ]),
+      btcPrivateKey: privateKey,
+      btcPublicKey: secp256k1.getPublicKey(privateKey, true),
     };
-    const signed = {
-      signedAt: "2026-05-17T14:00:00.000Z",
-      signature: "<signature>",
-    };
+    const signed = buildNativeBountySignedFields(
+      "AIBTC Bounty Cancel | bnty1 | 2026-05-17T14:00:00.000Z",
+      "2026-05-17T14:00:00.000Z",
+      account
+    );
 
     expect(Object.keys(signed)).toEqual(["signedAt", "signature"]);
+    expect(signed.signedAt).toBe("2026-05-17T14:00:00.000Z");
+    expect(signed.signature.length).toBeGreaterThan(0);
     expect(JSON.stringify(signed)).not.toContain("private");
     expect(JSON.stringify(signed)).not.toContain("btcPrivateKey");
     expect(JSON.stringify(account)).toContain("btcPrivateKey");

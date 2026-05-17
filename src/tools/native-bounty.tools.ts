@@ -7,6 +7,7 @@ import {
   buildNativeBountyUrl,
   buildNativeBountySignedFields,
   fetchNativeBountyJson,
+  fetchNativeBountyUrl,
   type NativeBountyAccount,
   type NativeBountyStatus,
 } from "../services/native-bounty.service.js";
@@ -60,9 +61,7 @@ Read-only. Supports active/open/judging/winner-announced/paid/abandoned/cancelle
           limit,
           offset,
         });
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`AIBTC bounty API ${response.status}: ${await response.text()}`);
-        return createJsonResponse(await response.json());
+        return createJsonResponse(await fetchNativeBountyUrl(url));
       } catch (error) {
         return createErrorResponse(error);
       }
@@ -97,9 +96,7 @@ Read-only. Supports active/open/judging/winner-announced/paid/abandoned/cancelle
     async ({ id, limit, offset }) => {
       try {
         const url = buildNativeBountyUrl(`/api/bounties/${encodeURIComponent(id)}/submissions`, { limit, offset });
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`AIBTC bounty API ${response.status}: ${await response.text()}`);
-        return createJsonResponse(await response.json());
+        return createJsonResponse(await fetchNativeBountyUrl(url));
       } catch (error) {
         return createErrorResponse(error);
       }
@@ -142,9 +139,7 @@ Read-only. Supports active/open/judging/winner-announced/paid/abandoned/cancelle
           submitter = account.btcAddress;
         }
         const url = buildNativeBountyUrl("/api/bounties", { submitter, limit: limit ?? 50, offset: offset ?? 0 });
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`AIBTC bounty API ${response.status}: ${await response.text()}`);
-        return createJsonResponse(await response.json());
+        return createJsonResponse(await fetchNativeBountyUrl(url));
       } catch (error) {
         return createErrorResponse(error);
       }
@@ -169,9 +164,7 @@ Read-only. Supports active/open/judging/winner-announced/paid/abandoned/cancelle
           poster = account.btcAddress;
         }
         const url = buildNativeBountyUrl("/api/bounties", { poster, limit: limit ?? 50, offset: offset ?? 0 });
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`AIBTC bounty API ${response.status}: ${await response.text()}`);
-        return createJsonResponse(await response.json());
+        return createJsonResponse(await fetchNativeBountyUrl(url));
       } catch (error) {
         return createErrorResponse(error);
       }
