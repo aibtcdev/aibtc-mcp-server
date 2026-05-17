@@ -114,6 +114,39 @@ describe("tool registration smoke test", () => {
     }
   });
 
+  it("registers native AIBTC bounty tools with pagination inputs", () => {
+    const { server, tools } = createTrackingServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerAllTools(server as any);
+
+    const bountyTools = [
+      "bounty_list",
+      "bounty_get",
+      "bounty_submissions",
+      "bounty_create",
+      "bounty_submit",
+      "bounty_accept",
+      "bounty_paid",
+      "bounty_cancel",
+      "bounty_my_posted",
+      "bounty_my_submissions",
+    ];
+
+    for (const name of bountyTools) {
+      expect(tools.has(name), `expected bounty tool '${name}' to be registered`).toBe(true);
+    }
+
+    for (const name of ["bounty_my_posted", "bounty_my_submissions"]) {
+      expect(Object.keys(tools.get(name)?.inputSchema as Record<string, unknown>)).toEqual([
+        "btc_address",
+        "status",
+        "include_terminal",
+        "limit",
+        "offset",
+      ]);
+    }
+  });
+
   it("no two tools share the same name", () => {
     const names: string[] = [];
 

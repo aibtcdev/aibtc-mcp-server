@@ -49,6 +49,7 @@ import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { bip322Sign } from "../utils/bip322.js";
 
 const BOUNTY_BASE = "https://aibtc.com/api/bounties";
+const AIBTC_BOUNTY_TIMEOUT_MS = 15_000;
 
 const BOUNTY_STATUS_VALUES = [
   "open",
@@ -116,6 +117,7 @@ async function postSigned(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(AIBTC_BOUNTY_TIMEOUT_MS),
   });
   const text = await res.text();
   let parsed: unknown;
@@ -133,7 +135,9 @@ async function postSigned(
 }
 
 async function getJson(url: string): Promise<unknown> {
-  const res = await fetch(url);
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(AIBTC_BOUNTY_TIMEOUT_MS),
+  });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`GET ${url} failed (${res.status}): ${text}`);
@@ -279,7 +283,11 @@ Signs with BIP-322 over: "AIBTC Bounty Create | {posterBtc} | {title} | {descrip
         expires_at: z
           .string()
           .describe("ISO 8601 expiry timestamp (e.g. '2026-06-01T00:00:00Z'). Min 1 hour, max 365 days from now."),
-        tags: z.array(z.string().max(24)).max(5).optional().describe("Up to 5 tags"),
+        tags: z
+          .array(z.string().max(24).refine((tag) => !tag.includes(","), "Tags cannot contain commas"))
+          .max(5)
+          .optional()
+          .describe("Up to 5 tags"),
       },
     },
     async ({ title, description, reward_sats, expires_at, tags }) => {
@@ -338,9 +346,10 @@ Signs with BIP-322 over: "AIBTC Bounty Submit | {bountyId} | {submitterBtc} | {m
       try {
         const account = await requireBtcAccount();
         const signedAt = new Date().toISOString();
-        const contentUrl = content_url ?? "";
+        const contentUrl = content_url?.trim();
+        const signedContentUrl = contentUrl ?? "";
 
-        const signedMessage = `AIBTC Bounty Submit | ${bounty_id} | ${account.btcAddress} | ${message} | ${contentUrl} | ${signedAt}`;
+        const signedMessage = `AIBTC Bounty Submit | ${bounty_id} | ${account.btcAddress} | ${message} | ${signedContentUrl} | ${signedAt}`;
         const signature = signBounty(signedMessage, account);
 
         const body: Record<string, unknown> = {
@@ -349,7 +358,7 @@ Signs with BIP-322 over: "AIBTC Bounty Submit | {bountyId} | {submitterBtc} | {m
           signedAt,
           signature,
         };
-        if (content_url) body.contentUrl = content_url;
+        if (contentUrl) body.contentUrl = contentUrl;
 
         const result = await postSigned(`/${encodeURIComponent(bounty_id)}/submit`, body);
         return createJsonResponse(result);
@@ -504,9 +513,11 @@ No authentication required.`,
           .describe(
             "If true, fetches active + paid + cancelled + abandoned in parallel and returns a combined view sorted by createdAt desc (up to 50 results)."
           ),
+        limit: z.number().int().min(1).max(100).optional().describe("Max results (default 50, max 100)"),
+        offset: z.number().int().min(0).optional().describe("Pagination offset"),
       },
     },
-    async ({ btc_address, status, include_terminal }) => {
+    async ({ btc_address, status, include_terminal, limit, offset }) => {
       try {
         let address = btc_address;
         if (!address) {
@@ -518,7 +529,7 @@ No authentication required.`,
           }
           address = account.btcAddress;
         }
-        const data = await fetchByRole("poster", address, status, include_terminal === true);
+        const data = await fetchByRole("poster", address, status, include_terminal === true, limit, offset);
         return createJsonResponse(data);
       } catch (error) {
         return createErrorResponse(error);
@@ -552,9 +563,11 @@ No authentication required.`,
           .boolean()
           .optional()
           .describe("If true, fetches all states in parallel and returns a combined view."),
+        limit: z.number().int().min(1).max(100).optional().describe("Max results (default 50, max 100)"),
+        offset: z.number().int().min(0).optional().describe("Pagination offset"),
       },
     },
-    async ({ btc_address, status, include_terminal }) => {
+    async ({ btc_address, status, include_terminal, limit, offset }) => {
       try {
         let address = btc_address;
         if (!address) {
@@ -566,7 +579,7 @@ No authentication required.`,
           }
           address = account.btcAddress;
         }
-        const data = await fetchByRole("submitter", address, status, include_terminal === true);
+        const data = await fetchByRole("submitter", address, status, include_terminal === true, limit, offset);
         return createJsonResponse(data);
       } catch (error) {
         return createErrorResponse(error);
@@ -591,10 +604,16 @@ async function fetchByRole(
   role: "poster" | "submitter",
   address: string,
   status: string | undefined,
-  includeTerminal: boolean
+  includeTerminal: boolean,
+  limit = 50,
+  offset = 0
 ): Promise<unknown> {
   if (!includeTerminal) {
-    const params = new URLSearchParams({ [role]: address, limit: "50" });
+    const params = new URLSearchParams({
+      [role]: address,
+      limit: String(limit),
+      offset: String(offset),
+    });
     if (status) params.set("status", status);
     const data = (await getJson(`${BOUNTY_BASE}?${params.toString()}`)) as BountyListEnvelope;
     return data;
@@ -604,7 +623,7 @@ async function fetchByRole(
   const buckets = ["active", "paid", "cancelled", "abandoned"];
   const results = await Promise.all(
     buckets.map((s) => {
-      const params = new URLSearchParams({ [role]: address, status: s, limit: "50" });
+      const params = new URLSearchParams({ [role]: address, status: s, limit: String(limit) });
       return getJson(`${BOUNTY_BASE}?${params.toString()}`) as Promise<BountyListEnvelope>;
     })
   );
@@ -618,14 +637,18 @@ async function fetchByRole(
   const combined = Array.from(byId.values()).sort((a, b) =>
     a.createdAt < b.createdAt ? 1 : -1
   );
-  const truncated = combined.length > 50;
+  const paged = combined.slice(offset, offset + limit);
+  const nextOffset = offset + paged.length < combined.length ? offset + paged.length : null;
+  const truncated = nextOffset !== null;
   return {
-    bounties: combined.slice(0, 50),
+    bounties: paged,
     total: combined.length,
-    limit: 50,
+    limit,
+    offset,
+    nextOffset,
     truncated,
     note: truncated
-      ? "Combined view across active + paid + cancelled + abandoned (deduped by id, sorted by createdAt desc). More than 50 results — call bounty_list with explicit status + offset to page further."
+      ? "Combined view across active + paid + cancelled + abandoned (deduped by id, sorted by createdAt desc). More results are available via offset."
       : "Combined view across active + paid + cancelled + abandoned (deduped by id, sorted by createdAt desc).",
   };
 }
