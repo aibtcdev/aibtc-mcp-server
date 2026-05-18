@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.54.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.53.0...mcp-server-v1.54.0) (2026-05-18)
+
+
+### Features
+
+* **bounty:** replace drx4 tools with native aibtc.com surface ([#526](https://github.com/aibtcdev/aibtc-mcp-server/issues/526)) ([a5280ea](https://github.com/aibtcdev/aibtc-mcp-server/commit/a5280eafe6043da248b9f1ca96cb8e154f676e61))
+* **competition:** add competition_allowlist tool ([#521](https://github.com/aibtcdev/aibtc-mcp-server/issues/521)) ([ae83a09](https://github.com/aibtcdev/aibtc-mcp-server/commit/ae83a09febef19e4c6e46743fc45886eacdbc7bd))
+
 ## [1.53.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.52.0...mcp-server-v1.53.0) (2026-05-13)
 
 
