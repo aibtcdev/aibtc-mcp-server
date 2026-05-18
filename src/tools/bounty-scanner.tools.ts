@@ -50,6 +50,18 @@ import { bip322Sign } from "../utils/bip322.js";
 
 const BOUNTY_BASE = "https://aibtc.com/api/bounties";
 
+const BOUNTY_STATUS_VALUES = [
+  "open",
+  "judging",
+  "winner-announced",
+  "paid",
+  "abandoned",
+  "cancelled",
+  "active",
+] as const;
+
+const bountyStatusSchema = z.enum(BOUNTY_STATUS_VALUES);
+
 // ============================================================================
 // Signing helper
 // ============================================================================
@@ -153,16 +165,7 @@ Each bounty record includes a derived 'status' field computed from its timestamp
 
 No authentication required.`,
       inputSchema: {
-        status: z
-          .enum([
-            "open",
-            "judging",
-            "winner-announced",
-            "paid",
-            "abandoned",
-            "cancelled",
-            "active",
-          ])
+        status: bountyStatusSchema
           .optional()
           .describe("Filter by computed status. Default: 'active' (excludes terminal states)."),
         poster: z.string().optional().describe("Filter by poster BTC address"),
@@ -492,16 +495,7 @@ No authentication required.`,
           .string()
           .optional()
           .describe("BTC address to query. Omit to use the current wallet's bc1q address."),
-        status: z
-          .enum([
-            "open",
-            "judging",
-            "winner-announced",
-            "paid",
-            "abandoned",
-            "cancelled",
-            "active",
-          ])
+        status: bountyStatusSchema
           .optional()
           .describe("Filter by status. Default: 'active' (non-terminal)."),
         include_terminal: z
@@ -551,16 +545,7 @@ No authentication required.`,
           .string()
           .optional()
           .describe("BTC address to query. Omit to use the current wallet's bc1q address."),
-        status: z
-          .enum([
-            "open",
-            "judging",
-            "winner-announced",
-            "paid",
-            "abandoned",
-            "cancelled",
-            "active",
-          ])
+        status: bountyStatusSchema
           .optional()
           .describe("Filter by status. Default: 'active' (non-terminal)."),
         include_terminal: z
@@ -633,12 +618,14 @@ async function fetchByRole(
   const combined = Array.from(byId.values()).sort((a, b) =>
     a.createdAt < b.createdAt ? 1 : -1
   );
+  const truncated = combined.length > 50;
   return {
     bounties: combined.slice(0, 50),
     total: combined.length,
     limit: 50,
-    offset: 0,
-    nextOffset: combined.length > 50 ? 50 : null,
-    note: "Combined view across active + paid + cancelled + abandoned (deduped by id, sorted by createdAt desc).",
+    truncated,
+    note: truncated
+      ? "Combined view across active + paid + cancelled + abandoned (deduped by id, sorted by createdAt desc). More than 50 results — call bounty_list with explicit status + offset to page further."
+      : "Combined view across active + paid + cancelled + abandoned (deduped by id, sorted by createdAt desc).",
   };
 }
