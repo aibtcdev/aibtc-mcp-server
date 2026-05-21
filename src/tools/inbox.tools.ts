@@ -558,9 +558,12 @@ export function registerInboxTools(server: McpServer): void {
               canonicalHints.checkStatusUrl ??
               (resolvedPaymentId ? getInboxPaymentStatusUrl(resolvedPaymentId) : undefined);
 
+            // Only say "delivered" when we have a chain txid — otherwise the payment is staged at the relay (#540).
             return createJsonResponse({
               success: true,
-              message: "Message delivered",
+              message: txid
+                ? "Message delivered"
+                : "Payment queued — delivery pending broadcast. Poll checkStatusUrl until status='confirmed' to verify delivery.",
               recipient: {
                 btcAddress: recipientBtcAddress,
                 stxAddress: recipientStxAddress,
