@@ -1,28 +1,39 @@
 /**
- * Bounty Scanner Tools
+ * Bounty Tools — native aibtc.com/api/bounties
  *
- * Tools for interacting with the bounty.drx4.xyz sBTC bounty board.
- * Agents can list open bounties, view details, score against their capabilities,
- * claim tasks, check status, and review their submission history.
+ * First-party bounty board on aibtc.com. Replaces the prior bounty.drx4.xyz proxy
+ * (issue #524). Status is derived from timestamps at response time, not stored:
  *
- * Read-only tools (no auth required):
- * - bounty_list       — List bounties with optional filters
- * - bounty_get        — Full detail for a single bounty by ID
- * - bounty_match      — Score open bounties against agent capability tags
- * - bounty_status     — Check claim/submission status for a bounty
- * - bounty_my_claims  — List all claims/submissions for current wallet
- * - bounty_stats      — Platform aggregate stats
+ *   open → judging → winner-announced → paid (terminal)
+ *                  ↘ cancelled / abandoned (terminal)
  *
- * Authenticated tool (requires unlocked wallet with bc1q address):
- * - bounty_claim      — Claim a bounty (BIP-322 signed)
+ * Read tools (no auth):
+ * - bounty_list         — list with filters (status, poster, submitter, tag)
+ * - bounty_get          — detail with winner block + payment hint
+ * - bounty_submissions  — paginated submissions for a bounty
  *
- * Authentication: BIP-322 simple signature (P2WPKH, bc1q addresses preferred).
- * Message format: "agent-bounties | {action} | {btc_address} | {resource} | {timestamp}"
- * Headers: X-BTC-Address, X-Signature, X-Timestamp
+ * Signed write tools (BIP-322 over P2WPKH, embedded in request body):
+ * - bounty_create  — poster posts a bounty (Genesis L2+)
+ * - bounty_submit  — submitter posts work (Registered L1+)
+ * - bounty_accept  — poster picks a winner
+ * - bounty_paid    — poster proves payment with a confirmed sBTC txid
+ * - bounty_cancel  — poster cancels before any acceptance
  *
- * Status flow: open → claimed → submitted → approved → paid (or cancelled)
+ * Convenience views (read-only, default to current wallet's bc1q address):
+ * - bounty_my_posted       — bounties this wallet has posted
+ * - bounty_my_submissions  — bounties this wallet has submitted to
  *
- * Reference: https://bounty.drx4.xyz/api
+ * Signed-message format (no hashing — fields are inlined with " | "):
+ *   AIBTC Bounty Create | {posterBtc} | {title} | {description} | {rewardSats} | {expiresAt} | {tagsCommaJoined} | {signedAt}
+ *   AIBTC Bounty Submit | {bountyId} | {submitterBtc} | {message} | {contentUrl} | {signedAt}
+ *   AIBTC Bounty Accept | {bountyId} | {submissionId} | {signedAt}
+ *   AIBTC Bounty Paid   | {bountyId} | {txid} | {signedAt}
+ *   AIBTC Bounty Cancel | {bountyId} | {signedAt}
+ *
+ * `tagsCommaJoined` is `tags.join(",")` or `""` when no tags. `contentUrl` is `""`
+ * when omitted. `signedAt` is ISO 8601 within ±5 minutes of server time.
+ *
+ * Reference: https://aibtc.com/docs/bounties.txt, https://aibtc.com/api/openapi.json
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -37,54 +48,97 @@ import { getAccount } from "../services/x402.service.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { bip322Sign } from "../utils/bip322.js";
 
-const BOUNTY_BASE = "https://bounty.drx4.xyz/api";
+const BOUNTY_BASE = "https://aibtc.com/api/bounties";
+
+const BOUNTY_STATUS_VALUES = [
+  "open",
+  "judging",
+  "winner-announced",
+  "paid",
+  "abandoned",
+  "cancelled",
+  "active",
+] as const;
+
+const bountyStatusSchema = z.enum(BOUNTY_STATUS_VALUES);
 
 // ============================================================================
-// Auth header builder for authenticated endpoints
+// Signing helper
 // ============================================================================
 
-/**
- * Account fields needed for BIP-322 auth header construction.
- */
-type AccountForAuth = {
+type SignedAccount = {
   btcAddress: string;
   btcPrivateKey: Uint8Array;
   btcPublicKey: Uint8Array;
-  address?: string;
 };
 
 /**
- * Build BIP-322 auth headers for bounty.drx4.xyz write operations.
- * Message format: "agent-bounties | {action} | {btc_address} | {resource} | {timestamp}"
- *
- * @param action  - Action string (e.g. "claim-bounty")
- * @param resource - Resource path (e.g. "bounties/{uuid}")
- * @param account - Pre-fetched account with BTC keys
+ * Fetch the unlocked wallet's BTC keys (P2WPKH / bc1q only — the native bounty
+ * API accepts BIP-137 for legacy too, but the MCP's standard derivation path
+ * produces bc1q, so we constrain to that to avoid silent address-type drift).
  */
-function buildBountyAuthHeaders(
-  action: string,
-  resource: string,
-  account: AccountForAuth
-): Record<string, string> {
-  const timestamp = new Date().toISOString();
-  const message = `agent-bounties | ${action} | ${account.btcAddress} | ${resource} | ${timestamp}`;
+async function requireBtcAccount(): Promise<SignedAccount> {
+  const account = await getAccount();
+  if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
+    throw new Error(
+      "Bitcoin keys not available. Unlock a wallet with BTC key derivation to sign bounty operations."
+    );
+  }
+  if (
+    !account.btcAddress.startsWith("bc1q") &&
+    !account.btcAddress.startsWith("tb1q")
+  ) {
+    throw new Error(
+      `Bounty signing requires a native SegWit (P2WPKH) address. Current wallet address: ${account.btcAddress}`
+    );
+  }
+  return {
+    btcAddress: account.btcAddress,
+    btcPrivateKey: account.btcPrivateKey,
+    btcPublicKey: account.btcPublicKey,
+  };
+}
 
+/**
+ * Sign a bounty message with BIP-322 (P2WPKH) and return the base64 signature.
+ */
+function signBounty(message: string, account: SignedAccount): string {
   const btcNetwork = NETWORK === "testnet" ? BTC_TESTNET : BTC_MAINNET;
   const scriptPubKey = p2wpkh(account.btcPublicKey, btcNetwork).script;
-  const signature = bip322Sign(message, account.btcPrivateKey, scriptPubKey);
+  return bip322Sign(message, account.btcPrivateKey, scriptPubKey);
+}
 
-  const headers: Record<string, string> = {
-    "X-BTC-Address": account.btcAddress,
-    "X-Signature": signature,
-    "X-Timestamp": timestamp,
-    "Content-Type": "application/json",
-  };
-
-  if (account.address) {
-    headers["X-STX-Address"] = account.address;
+async function postSigned(
+  path: string,
+  body: Record<string, unknown>
+): Promise<unknown> {
+  const res = await fetch(`${BOUNTY_BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    parsed = { raw: text };
   }
+  if (!res.ok) {
+    throw new Error(
+      `${path} failed (${res.status}): ${typeof parsed === "object" ? JSON.stringify(parsed) : text}`
+    );
+  }
+  return parsed;
+}
 
-  return headers;
+async function getJson(url: string): Promise<unknown> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`GET ${url} failed (${res.status}): ${text}`);
+  }
+  return res.json();
 }
 
 // ============================================================================
@@ -93,80 +147,49 @@ function buildBountyAuthHeaders(
 
 export function registerBountyScannerTools(server: McpServer): void {
   // --------------------------------------------------------------------------
-  // bounty_list — List bounties with optional filters
+  // bounty_list — list bounties with filters
   // --------------------------------------------------------------------------
   server.registerTool(
     "bounty_list",
     {
-      description: `List bounties on the bounty.drx4.xyz sBTC bounty board.
-
-Returns bounties matching the given filters in reverse chronological order.
+      description: `List bounties on aibtc.com/api/bounties.
 
 Filters:
-- status: "open", "claimed", "submitted", "approved", "paid", "cancelled" (default: all)
-- tags: comma-separated tag filter (e.g. "stacks,defi")
-- creator: filter by creator BTC address
-- min_amount: minimum reward in satoshis
-- max_amount: maximum reward in satoshis
-- limit: max results (default 20)
-- offset: pagination offset
+- status: "open" | "judging" | "winner-announced" | "paid" | "abandoned" | "cancelled" | "active" (default: "active" — non-terminal states only)
+- poster: filter by poster BTC address
+- submitter: filter by submitter BTC address (bounties this address has submitted to)
+- tag: filter by single tag
+- limit / offset: pagination (max limit 100)
+
+Each bounty record includes a derived 'status' field computed from its timestamps.
 
 No authentication required.`,
       inputSchema: {
-        status: z
-          .enum(["open", "claimed", "submitted", "approved", "paid", "cancelled"])
+        status: bountyStatusSchema
           .optional()
-          .describe("Filter by bounty status"),
-        tags: z
+          .describe("Filter by computed status. Default: 'active' (excludes terminal states)."),
+        poster: z.string().optional().describe("Filter by poster BTC address"),
+        submitter: z
           .string()
           .optional()
-          .describe("Comma-separated tag filter (e.g. 'stacks,defi')"),
-        creator: z
-          .string()
-          .optional()
-          .describe("Filter by creator BTC address"),
-        min_amount: z
-          .number()
-          .optional()
-          .describe("Minimum reward in satoshis"),
-        max_amount: z
-          .number()
-          .optional()
-          .describe("Maximum reward in satoshis"),
-        limit: z
-          .number()
-          .min(1)
-          .max(100)
-          .optional()
-          .describe("Max results (default 20, max 100)"),
-        offset: z
-          .number()
-          .min(0)
-          .optional()
-          .describe("Pagination offset (default 0)"),
+          .describe("Filter by submitter BTC address (bounties this address has submitted to)"),
+        tag: z.string().optional().describe("Filter by a single tag"),
+        limit: z.number().int().min(1).max(100).optional().describe("Max results (default 20, max 100)"),
+        offset: z.number().int().min(0).optional().describe("Pagination offset"),
       },
     },
-    async ({ status, tags, creator, min_amount, max_amount, limit, offset }) => {
+    async ({ status, poster, submitter, tag, limit, offset }) => {
       try {
         const params = new URLSearchParams();
         if (status) params.set("status", status);
-        if (tags) params.set("tags", tags);
-        if (creator) params.set("creator", creator);
-        if (min_amount !== undefined) params.set("min_amount", String(min_amount));
-        if (max_amount !== undefined) params.set("max_amount", String(max_amount));
+        if (poster) params.set("poster", poster);
+        if (submitter) params.set("submitter", submitter);
+        if (tag) params.set("tag", tag);
         if (limit !== undefined) params.set("limit", String(limit));
         if (offset !== undefined) params.set("offset", String(offset));
-
         const query = params.toString();
-        const url = `${BOUNTY_BASE}/bounties${query ? `?${query}` : ""}`;
-
-        const res = await fetch(url);
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(`Failed to list bounties (${res.status}): ${text}`);
-        }
-
-        const data = await res.json();
+        const url = `${BOUNTY_BASE}${query ? `?${query}` : ""}`;
+        const data = await getJson(url);
         return createJsonResponse(data);
       } catch (error) {
         return createErrorResponse(error);
@@ -175,32 +198,25 @@ No authentication required.`,
   );
 
   // --------------------------------------------------------------------------
-  // bounty_get — Full detail for a single bounty by ID
+  // bounty_get — full detail with winner block + payment hint
   // --------------------------------------------------------------------------
   server.registerTool(
     "bounty_get",
     {
-      description: `Get full details for a single bounty on bounty.drx4.xyz.
+      description: `Get the full detail for a single bounty.
 
-Returns the bounty description, reward amount, tags, status, all claims,
-submissions, payments, and available actions for the current agent.
+Returns the bounty record, the first page of submissions, and:
+- 'winner' block (when acceptedAt is set): submission id, submitter addresses, contentUrl, message, acceptedAt
+- 'payment' hint (when status='winner-announced'): expectedMemo='BNTY:{bountyId}', recipientStxAddress, amountSats, sbtcContract
 
 No authentication required.`,
       inputSchema: {
-        id: z
-          .string()
-          .describe("Bounty UUID or identifier"),
+        bounty_id: z.string().describe("Bounty ID"),
       },
     },
-    async ({ id }) => {
+    async ({ bounty_id }) => {
       try {
-        const res = await fetch(`${BOUNTY_BASE}/bounties/${encodeURIComponent(id)}`);
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(`Failed to fetch bounty ${id} (${res.status}): ${text}`);
-        }
-
-        const data = await res.json();
+        const data = await getJson(`${BOUNTY_BASE}/${encodeURIComponent(bounty_id)}`);
         return createJsonResponse(data);
       } catch (error) {
         return createErrorResponse(error);
@@ -209,63 +225,31 @@ No authentication required.`,
   );
 
   // --------------------------------------------------------------------------
-  // bounty_match — Score open bounties against agent capability tags
+  // bounty_submissions — paginated submissions for one bounty
   // --------------------------------------------------------------------------
   server.registerTool(
-    "bounty_match",
+    "bounty_submissions",
     {
-      description: `Score open bounties against an agent's capability profile.
+      description: `Paginated list of submissions for a single bounty.
 
-Fetches all open bounties and ranks them by tag overlap with the provided
-capability_tags. Returns bounties sorted by match score (highest first),
-with a match_score field showing how many tags matched.
-
-Use this to discover which open bounties are most relevant to your skills.
-Provide tags that describe your capabilities (e.g. ["stacks", "clarity", "defi"]).
+Submissions are public (the inbox is public, so are bounty submissions).
 
 No authentication required.`,
       inputSchema: {
-        capability_tags: z
-          .array(z.string())
-          .min(1)
-          .describe("Array of capability tags to match against (e.g. ['stacks', 'clarity', 'defi'])"),
-        limit: z
-          .number()
-          .min(1)
-          .max(50)
-          .optional()
-          .describe("Max results to return (default 10)"),
+        bounty_id: z.string().describe("Bounty ID"),
+        limit: z.number().int().min(1).max(100).optional().describe("Max results (default 20)"),
+        offset: z.number().int().min(0).optional().describe("Pagination offset"),
       },
     },
-    async ({ capability_tags, limit }) => {
+    async ({ bounty_id, limit, offset }) => {
       try {
-        const res = await fetch(`${BOUNTY_BASE}/bounties?status=open&limit=100`);
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(`Failed to fetch open bounties (${res.status}): ${text}`);
-        }
-
-        const data = await res.json() as { bounties?: Array<Record<string, unknown>> };
-        const bounties = data.bounties ?? [];
-
-        const capabilitySet = new Set(capability_tags.map((t: string) => t.toLowerCase()));
-
-        const scored = bounties.map((bounty) => {
-          const bountyTags: string[] = Array.isArray(bounty.tags)
-            ? (bounty.tags as string[]).map((t: string) => t.toLowerCase())
-            : [];
-          const matchScore = bountyTags.filter((tag: string) => capabilitySet.has(tag)).length;
-          return { ...bounty, match_score: matchScore };
-        });
-
-        scored.sort((a, b) => b.match_score - a.match_score);
-
-        const maxResults = limit ?? 10;
-        return createJsonResponse({
-          matches: scored.slice(0, maxResults),
-          total_open: bounties.length,
-          capability_tags,
-        });
+        const params = new URLSearchParams();
+        if (limit !== undefined) params.set("limit", String(limit));
+        if (offset !== undefined) params.set("offset", String(offset));
+        const query = params.toString();
+        const url = `${BOUNTY_BASE}/${encodeURIComponent(bounty_id)}/submissions${query ? `?${query}` : ""}`;
+        const data = await getJson(url);
+        return createJsonResponse(data);
       } catch (error) {
         return createErrorResponse(error);
       }
@@ -273,98 +257,53 @@ No authentication required.`,
   );
 
   // --------------------------------------------------------------------------
-  // bounty_create — Create a new bounty (requires bc1q wallet, BIP-322 auth)
+  // bounty_create — Genesis L2+ posts a bounty (signed)
   // --------------------------------------------------------------------------
   server.registerTool(
     "bounty_create",
     {
-      description: `Create a new bounty on bounty.drx4.xyz.
-
-Posts a new bounty to the sBTC bounty board. Requires an unlocked wallet with
-BTC keys and AIBTC level >= 1. The request is authenticated via BIP-322 signing.
+      description: `Post a new bounty on aibtc.com. Requires Genesis-level (L2+) registration.
 
 Fields:
-- title: short descriptive title for the bounty
-- description: full details of the task, deliverables, and acceptance criteria
-- amount_sats: reward amount in satoshis
-- tags: comma-separated tags (e.g. "stacks,defi,clarity")
-- deadline: optional ISO 8601 deadline (e.g. "2026-04-15T00:00:00Z")`,
+- title: short description (max 120 chars)
+- description: full task details (max 4000 chars; markdown allowed)
+- reward_sats: reward in satoshis (min 1)
+- expires_at: ISO 8601 deadline for new submissions. Posters can still accept up to 14 days after expiry and pay up to 7 days after acceptance.
+- tags: optional list (max 5 tags, max 24 chars each)
+
+Signs with BIP-322 over: "AIBTC Bounty Create | {posterBtc} | {title} | {description} | {rewardSats} | {expiresAt} | {tagsCommaJoined} | {signedAt}"`,
       inputSchema: {
-        title: z
+        title: z.string().min(1).max(120).describe("Bounty title (max 120 chars)"),
+        description: z.string().min(1).max(4000).describe("Task description (max 4000 chars)"),
+        reward_sats: z.number().int().positive().describe("Reward in satoshis"),
+        expires_at: z
           .string()
-          .min(1)
-          .describe("Bounty title"),
-        description: z
-          .string()
-          .min(1)
-          .describe("Full description of the task, deliverables, and acceptance criteria"),
-        amount_sats: z
-          .number()
-          .int()
-          .positive()
-          .describe("Reward amount in satoshis (must be a positive integer)"),
-        tags: z
-          .string()
-          .optional()
-          .describe("Comma-separated tags (e.g. 'stacks,defi,clarity')"),
-        deadline: z
-          .string()
-          .optional()
-          .describe("Optional deadline in ISO 8601 format (e.g. '2026-04-15T00:00:00Z')"),
+          .describe("ISO 8601 expiry timestamp (e.g. '2026-06-01T00:00:00Z'). Min 1 hour, max 365 days from now."),
+        tags: z.array(z.string().max(24)).max(5).optional().describe("Up to 5 tags"),
       },
     },
-    async ({ title, description, amount_sats, tags, deadline }) => {
+    async ({ title, description, reward_sats, expires_at, tags }) => {
       try {
-        const account = await getAccount();
+        const account = await requireBtcAccount();
+        const signedAt = new Date().toISOString();
+        const tagsCommaJoined = tags && tags.length > 0 ? tags.join(",") : "";
 
-        if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
-          throw new Error(
-            "Bitcoin keys not available. Unlock a wallet with BTC key derivation to create bounties."
-          );
-        }
+        const message = `AIBTC Bounty Create | ${account.btcAddress} | ${title} | ${description} | ${reward_sats} | ${expires_at} | ${tagsCommaJoined} | ${signedAt}`;
+        const signature = signBounty(message, account);
 
-        const authHeaders = buildBountyAuthHeaders("create-bounty", "bounties", account as AccountForAuth);
-
-        const payload: Record<string, unknown> = {
+        const body: Record<string, unknown> = {
+          posterBtcAddress: account.btcAddress,
           title,
           description,
-          amount_sats,
-          btc_address: account.btcAddress,
+          rewardSats: reward_sats,
+          expiresAt: expires_at,
+          signedAt,
+          signature,
         };
-        if (account.address) {
-          payload.stx_address = account.address;
-        }
-        if (tags) {
-          payload.tags = tags;
-        }
-        if (deadline) {
-          payload.deadline = deadline;
-        }
+        if (tags && tags.length > 0) body.tags = tags;
 
-        const res = await fetch(`${BOUNTY_BASE}/bounties`, {
-          method: "POST",
-          headers: authHeaders,
-          body: JSON.stringify(payload),
-        });
-
-        const responseText = await res.text();
-        let responseData: unknown;
-        try {
-          responseData = JSON.parse(responseText);
-        } catch {
-          responseData = { raw: responseText };
-        }
-
-        if (!res.ok) {
-          throw new Error(`Failed to create bounty (${res.status}): ${responseText}`);
-        }
-
-        return createJsonResponse({
-          success: true,
-          message: "Bounty created successfully",
-          bounty: responseData,
-          created_by: account.btcAddress,
-        });
+        const result = await postSigned("", body);
+        return createJsonResponse(result);
       } catch (error) {
         return createErrorResponse(error);
       }
@@ -372,80 +311,48 @@ Fields:
   );
 
   // --------------------------------------------------------------------------
-  // bounty_claim — Claim a bounty (requires bc1q wallet, BIP-322 auth)
+  // bounty_submit — Registered L1+ submits work (signed)
   // --------------------------------------------------------------------------
   server.registerTool(
-    "bounty_claim",
+    "bounty_submit",
     {
-      description: `Claim a bounty on bounty.drx4.xyz.
+      description: `Submit work to a bounty. Requires Registered-level (L1+) on-chain identity.
 
-Submits a claim for an open bounty. Requires an unlocked wallet with BTC keys.
-The request is authenticated via BIP-322 signing.
-
-After claiming, use bounty_get to see the bounty detail and track next steps.
-The status flow is: open → claimed → submitted → approved → paid.
+The poster of the bounty cannot self-submit. Submissions are append-only and
+public — multiple agents may submit to the same bounty.
 
 Fields:
-- id: bounty UUID to claim
-- notes: optional notes about your approach or qualifications`,
+- bounty_id: target bounty ID
+- message: submission details (max 2000 chars)
+- content_url: optional link to the deliverable (PR, gist, IPFS, etc.)
+
+Signs with BIP-322 over: "AIBTC Bounty Submit | {bountyId} | {submitterBtc} | {message} | {contentUrl} | {signedAt}"
+(contentUrl is the empty string when omitted)`,
       inputSchema: {
-        id: z
-          .string()
-          .describe("Bounty UUID to claim"),
-        notes: z
-          .string()
-          .optional()
-          .describe("Optional notes about your approach or qualifications"),
+        bounty_id: z.string().describe("Bounty ID to submit to"),
+        message: z.string().min(1).max(2000).describe("Submission message (max 2000 chars)"),
+        content_url: z.string().optional().describe("Optional link to the deliverable"),
       },
     },
-    async ({ id, notes }) => {
+    async ({ bounty_id, message, content_url }) => {
       try {
-        const account = await getAccount();
+        const account = await requireBtcAccount();
+        const signedAt = new Date().toISOString();
+        const contentUrl = content_url ?? "";
 
-        if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
-          throw new Error(
-            "Bitcoin keys not available. Unlock a wallet with BTC key derivation to claim bounties."
-          );
-        }
+        const signedMessage = `AIBTC Bounty Submit | ${bounty_id} | ${account.btcAddress} | ${message} | ${contentUrl} | ${signedAt}`;
+        const signature = signBounty(signedMessage, account);
 
-        const resource = `bounties/${id}`;
-        const authHeaders = buildBountyAuthHeaders("claim-bounty", resource, account as AccountForAuth);
-
-        const payload: Record<string, unknown> = {
-          btc_address: account.btcAddress,
+        const body: Record<string, unknown> = {
+          submitterBtcAddress: account.btcAddress,
+          message,
+          signedAt,
+          signature,
         };
-        if (account.address) {
-          payload.stx_address = account.address;
-        }
-        if (notes) {
-          payload.notes = notes;
-        }
+        if (content_url) body.contentUrl = content_url;
 
-        const res = await fetch(`${BOUNTY_BASE}/bounties/${encodeURIComponent(id)}/claim`, {
-          method: "POST",
-          headers: authHeaders,
-          body: JSON.stringify(payload),
-        });
-
-        const responseText = await res.text();
-        let responseData: unknown;
-        try {
-          responseData = JSON.parse(responseText);
-        } catch {
-          responseData = { raw: responseText };
-        }
-
-        if (!res.ok) {
-          throw new Error(`Failed to claim bounty ${id} (${res.status}): ${responseText}`);
-        }
-
-        return createJsonResponse({
-          success: true,
-          message: "Bounty claimed successfully",
-          claim: responseData,
-          claimed_by: account.btcAddress,
-          bounty_id: id,
-        });
+        const result = await postSigned(`/${encodeURIComponent(bounty_id)}/submit`, body);
+        return createJsonResponse(result);
       } catch (error) {
         return createErrorResponse(error);
       }
@@ -453,49 +360,38 @@ Fields:
   );
 
   // --------------------------------------------------------------------------
-  // bounty_status — Check claim/submission status for a bounty
+  // bounty_accept — poster picks a winning submission (signed)
   // --------------------------------------------------------------------------
   server.registerTool(
-    "bounty_status",
+    "bounty_accept",
     {
-      description: `Check the current status of a bounty on bounty.drx4.xyz.
+      description: `Pick a winning submission for a bounty. Only the bounty's poster can call this.
 
-Returns the bounty's current status in the workflow, along with any claims
-and submission details. The status flow is:
-open → claimed → submitted → approved → paid (or cancelled at any point by creator).
+After acceptance, bounty_get will surface a 'payment' block telling the poster the
+exact memo ('BNTY:{bountyId}'), recipient STX address, amount, and sBTC contract
+to use for the payout. The poster has 7 days after acceptedAt to prove payment
+with bounty_paid before the bounty flips to 'abandoned'.
 
-No authentication required.`,
+Signs with BIP-322 over: "AIBTC Bounty Accept | {bountyId} | {submissionId} | {signedAt}"`,
       inputSchema: {
-        id: z
-          .string()
-          .describe("Bounty UUID to check status for"),
+        bounty_id: z.string().describe("Bounty ID"),
+        submission_id: z.string().describe("Submission ID to accept as the winner"),
       },
     },
-    async ({ id }) => {
+    async ({ bounty_id, submission_id }) => {
       try {
-        const res = await fetch(`${BOUNTY_BASE}/bounties/${encodeURIComponent(id)}`);
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(`Failed to fetch bounty status for ${id} (${res.status}): ${text}`);
-        }
+        const account = await requireBtcAccount();
+        const signedAt = new Date().toISOString();
 
-        const data = await res.json() as Record<string, unknown>;
+        const message = `AIBTC Bounty Accept | ${bounty_id} | ${submission_id} | ${signedAt}`;
+        const signature = signBounty(message, account);
 
-        // Extract and surface the most relevant status fields
-        return createJsonResponse({
-          id: data.id,
-          status: data.status,
-          title: data.title,
-          reward_sats: data.reward_sats,
-          creator: data.creator,
-          tags: data.tags,
-          claims: data.claims,
-          submissions: data.submissions,
-          payments: data.payments,
-          created_at: data.created_at,
-          updated_at: data.updated_at,
-          status_flow: "open → claimed → submitted → approved → paid (or cancelled)",
+        const result = await postSigned(`/${encodeURIComponent(bounty_id)}/accept`, {
+          submissionId: submission_id,
+          signedAt,
+          signature,
         });
+        return createJsonResponse(result);
       } catch (error) {
         return createErrorResponse(error);
       }
@@ -503,45 +399,126 @@ No authentication required.`,
   );
 
   // --------------------------------------------------------------------------
-  // bounty_my_claims — List all claims/submissions for current wallet
+  // bounty_paid — poster proves payment with a confirmed sBTC txid (signed)
   // --------------------------------------------------------------------------
   server.registerTool(
-    "bounty_my_claims",
+    "bounty_paid",
     {
-      description: `List all bounty claims and submissions for the current wallet's BTC address.
+      description: `Prove payment of a bounty with a confirmed sBTC transfer txid. Poster only.
 
-Returns the agent profile from bounty.drx4.xyz including all bounties created
-and claims submitted. If no address is provided, uses the current wallet's BTC address.
+Before calling this:
+1. Read the 'payment' hint from bounty_get to confirm expectedMemo, recipientStxAddress, amountSats, sbtcContract.
+2. Send sBTC via transfer_token (or any sBTC transfer path) with the exact memo 'BNTY:{bountyId}'.
+3. Wait for confirmation — use get_transaction_status until the tx is anchored.
+4. Submit the txid here.
+
+The server verifies on Hiro: tx anchored, sBTC transfer contract call, sender = poster,
+recipient = winner STX, amount ≥ rewardSats, memo equals 'BNTY:{bountyId}' byte-exact,
+tx time > acceptedAt − 60s. The same txid cannot pay two bounties.
+
+Signs with BIP-322 over: "AIBTC Bounty Paid | {bountyId} | {txid} | {signedAt}"`,
+      inputSchema: {
+        bounty_id: z.string().describe("Bounty ID being paid"),
+        txid: z
+          .string()
+          .describe("Confirmed Stacks tx ID for the sBTC transfer with memo 'BNTY:{bountyId}'"),
+      },
+    },
+    async ({ bounty_id, txid }) => {
+      try {
+        const account = await requireBtcAccount();
+        const signedAt = new Date().toISOString();
+
+        const message = `AIBTC Bounty Paid | ${bounty_id} | ${txid} | ${signedAt}`;
+        const signature = signBounty(message, account);
+
+        const result = await postSigned(`/${encodeURIComponent(bounty_id)}/paid`, {
+          txid,
+          signedAt,
+          signature,
+        });
+        return createJsonResponse(result);
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // bounty_cancel — poster cancels before any acceptance (signed)
+  // --------------------------------------------------------------------------
+  server.registerTool(
+    "bounty_cancel",
+    {
+      description: `Cancel a bounty. Only the poster can call this, and only while status is 'open' or 'judging' (i.e. before any submission has been accepted).
+
+Signs with BIP-322 over: "AIBTC Bounty Cancel | {bountyId} | {signedAt}"`,
+      inputSchema: {
+        bounty_id: z.string().describe("Bounty ID to cancel"),
+      },
+    },
+    async ({ bounty_id }) => {
+      try {
+        const account = await requireBtcAccount();
+        const signedAt = new Date().toISOString();
+
+        const message = `AIBTC Bounty Cancel | ${bounty_id} | ${signedAt}`;
+        const signature = signBounty(message, account);
+
+        const result = await postSigned(`/${encodeURIComponent(bounty_id)}/cancel`, {
+          signedAt,
+          signature,
+        });
+        return createJsonResponse(result);
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // bounty_my_posted — bounties this wallet has posted (convenience view)
+  // --------------------------------------------------------------------------
+  server.registerTool(
+    "bounty_my_posted",
+    {
+      description: `List bounties posted by a BTC address. Defaults to the current wallet's bc1q address.
+
+By default returns up to 50 active (non-terminal) bounties so the poster sees what they still need to act on:
+which are still open for submissions, which are in 'judging', and which need a winner accepted or payment proven.
+
+Pass status='paid' / 'cancelled' / 'abandoned' to see specific terminal states. Pass include_terminal=true to fetch all states in parallel and return a combined view (up to 50 results).
 
 No authentication required.`,
       inputSchema: {
         btc_address: z
           .string()
           .optional()
-          .describe("BTC address to look up (bc1q...). Omit to use the current wallet's BTC address."),
+          .describe("BTC address to query. Omit to use the current wallet's bc1q address."),
+        status: bountyStatusSchema
+          .optional()
+          .describe("Filter by status. Default: 'active' (non-terminal)."),
+        include_terminal: z
+          .boolean()
+          .optional()
+          .describe(
+            "If true, fetches active + paid + cancelled + abandoned in parallel and returns a combined view sorted by createdAt desc (up to 50 results)."
+          ),
       },
     },
-    async ({ btc_address }) => {
+    async ({ btc_address, status, include_terminal }) => {
       try {
         let address = btc_address;
-
         if (!address) {
           const account = await getAccount();
           if (!account.btcAddress) {
             throw new Error(
-              "No BTC address found. Provide a btc_address or unlock a wallet with BTC key derivation."
+              "No BTC address available. Provide btc_address or unlock a wallet with BTC key derivation."
             );
           }
           address = account.btcAddress;
         }
-
-        const res = await fetch(`${BOUNTY_BASE}/agents/${encodeURIComponent(address)}`);
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(`Failed to fetch agent profile for ${address} (${res.status}): ${text}`);
-        }
-
-        const data = await res.json();
+        const data = await fetchByRole("poster", address, status, include_terminal === true);
         return createJsonResponse(data);
       } catch (error) {
         return createErrorResponse(error);
@@ -550,31 +527,105 @@ No authentication required.`,
   );
 
   // --------------------------------------------------------------------------
-  // bounty_stats — Platform aggregate stats
+  // bounty_my_submissions — bounties this wallet has submitted to (convenience view)
   // --------------------------------------------------------------------------
   server.registerTool(
-    "bounty_stats",
+    "bounty_my_submissions",
     {
-      description: `Get aggregate platform statistics from bounty.drx4.xyz.
+      description: `List bounties this BTC address has submitted to. Defaults to the current wallet's bc1q address.
 
-Returns totals for bounties, agents, claims, submissions, and sBTC paid out.
+Returns the bounty records (with derived status, acceptedSubmissionId, paidTxid). Use bounty_get
+on any row to see whether your specific submission was the one accepted, and whether payment is proven.
+
+By default returns up to 50 active (non-terminal) bounties. Pass include_terminal=true for a combined view across all states.
 
 No authentication required.`,
-      inputSchema: {},
+      inputSchema: {
+        btc_address: z
+          .string()
+          .optional()
+          .describe("BTC address to query. Omit to use the current wallet's bc1q address."),
+        status: bountyStatusSchema
+          .optional()
+          .describe("Filter by status. Default: 'active' (non-terminal)."),
+        include_terminal: z
+          .boolean()
+          .optional()
+          .describe("If true, fetches all states in parallel and returns a combined view."),
+      },
     },
-    async () => {
+    async ({ btc_address, status, include_terminal }) => {
       try {
-        const res = await fetch(`${BOUNTY_BASE}/stats`);
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(`Failed to fetch bounty stats (${res.status}): ${text}`);
+        let address = btc_address;
+        if (!address) {
+          const account = await getAccount();
+          if (!account.btcAddress) {
+            throw new Error(
+              "No BTC address available. Provide btc_address or unlock a wallet with BTC key derivation."
+            );
+          }
+          address = account.btcAddress;
         }
-
-        const data = await res.json();
+        const data = await fetchByRole("submitter", address, status, include_terminal === true);
         return createJsonResponse(data);
       } catch (error) {
         return createErrorResponse(error);
       }
     }
   );
+}
+
+// ============================================================================
+// Convenience-view helper
+// ============================================================================
+
+type BountyListEnvelope = {
+  bounties: Array<Record<string, unknown> & { id: string; createdAt: string }>;
+  total: number;
+  limit: number;
+  offset: number;
+  nextOffset: number | null;
+};
+
+async function fetchByRole(
+  role: "poster" | "submitter",
+  address: string,
+  status: string | undefined,
+  includeTerminal: boolean
+): Promise<unknown> {
+  if (!includeTerminal) {
+    const params = new URLSearchParams({ [role]: address, limit: "50" });
+    if (status) params.set("status", status);
+    const data = (await getJson(`${BOUNTY_BASE}?${params.toString()}`)) as BountyListEnvelope;
+    return data;
+  }
+
+  // include_terminal=true → fetch all four state buckets in parallel, dedupe, sort, slice.
+  const buckets = ["active", "paid", "cancelled", "abandoned"];
+  const results = await Promise.all(
+    buckets.map((s) => {
+      const params = new URLSearchParams({ [role]: address, status: s, limit: "50" });
+      return getJson(`${BOUNTY_BASE}?${params.toString()}`) as Promise<BountyListEnvelope>;
+    })
+  );
+
+  const byId = new Map<string, Record<string, unknown> & { id: string; createdAt: string }>();
+  for (const r of results) {
+    for (const b of r.bounties) {
+      byId.set(b.id, b);
+    }
+  }
+  const combined = Array.from(byId.values()).sort((a, b) =>
+    a.createdAt < b.createdAt ? 1 : -1
+  );
+  const truncated = combined.length > 50;
+  return {
+    bounties: combined.slice(0, 50),
+    total: combined.length,
+    limit: 50,
+    truncated,
+    note: truncated
+      ? "Combined view across active + paid + cancelled + abandoned (deduped by id, sorted by createdAt desc). More than 50 results — call bounty_list with explicit status + offset to page further."
+      : "Combined view across active + paid + cancelled + abandoned (deduped by id, sorted by createdAt desc).",
+  };
 }

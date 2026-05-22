@@ -200,7 +200,7 @@ export function registerAllTools(server: McpServer): void {
   // Souldinals (soul.md child inscriptions — inscribe, reveal, list, load, display traits)
   registerSouldinalsTools(server);
 
-  // Bounty Scanner (bounty.drx4.xyz — list, match, claim, status, my-claims)
+  // Bounty board (aibtc.com/api/bounties — list, get, submit, accept, pay, cancel, my-views)
   registerBountyScannerTools(server);
 
   // Runes (Bitcoin-native fungible tokens — list, query, holders, activity, balances)
