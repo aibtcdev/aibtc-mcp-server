@@ -279,6 +279,13 @@ function deriveNextStep(
  * exponential backoff (2s, 5s, 13s) between attempts. Returns a "fallback"
  * outcome on any unrecoverable poll error rather than throwing — the original
  * 202 body is still surfaced to the caller, just without held-state detail.
+ *
+ * Coordination with #504: when the canonical poll surfaces a real `txid` via
+ * `lastStatus.txid`, the placeholder-txid dedup cache entry from the original
+ * 202 attempt is shadowed by the canonical txid. #504 (merged 2026-05-22)
+ * eliminated the placeholder-txid invention path entirely, so this function
+ * now operates against a clean caller contract: any `txid` it surfaces is
+ * either a real on-chain transaction id or absent.
  */
 async function pollHeldStateForSuccessPath(options: {
   paymentId: string;
@@ -292,6 +299,10 @@ async function pollHeldStateForSuccessPath(options: {
   let pollError: unknown = undefined;
 
   for (let i = 0; i < HELD_POLL_BACKOFFS_MS.length; i++) {
+    // Budget check assumes ≤3.3s/poll fetch time (10s slack over 20s of sleeps
+    // within the 30s total). A consistently slow relay can push past the budget
+    // by ≤1 poll; widening this to subtract observed per-poll fetch latency is
+    // a follow-up (biwasxyz review item 1, #518). Acceptable tightness for now.
     if (Date.now() - startedAt + HELD_POLL_BACKOFFS_MS[i] > HELD_POLL_TOTAL_BUDGET_MS) {
       break;
     }

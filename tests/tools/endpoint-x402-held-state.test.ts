@@ -246,8 +246,10 @@ describe("execute_x402_endpoint 202 + paymentId held-state visibility (issue #48
     expect(parsed.payment!.nextStep!).toContain("check_relay_health");
     expect(parsed.payment!.nextStep!).toContain("pay_held_002");
     // 3 polls under the 30s budget; backoffs 2s + 5s + 13s = 20s used, 4th would exceed.
-    expect(parsed.payment!.pollCount).toBeGreaterThanOrEqual(1);
-    expect(parsed.payment!.pollCount).toBeLessThanOrEqual(3);
+    // Tightened to `toBe(3)` per biwasxyz review item 2 — the loose bound let a regression
+    // that short-circuits polling pass silently. Three polls is the contract here.
+    expect(parsed.payment!.pollCount).toBe(3);
+    expect(mockResolveCanonicalPaymentStatus).toHaveBeenCalledTimes(3);
   });
 
   it("falls back gracefully when polling throws (relay unavailable / 5xx)", async () => {
@@ -432,5 +434,56 @@ describe("execute_x402_endpoint 202 + paymentId held-state visibility (issue #48
     expect(parsed.response).toEqual(body202);
     expect(parsed.payment).toBeUndefined();
     expect(mockResolveCanonicalPaymentStatus).not.toHaveBeenCalled();
+  });
+
+  it("surfaces 'still-pending' for non-terminal status with no terminalReason (genuine in-flight)", async () => {
+    // Matrix completeness per biwasxyz review item 3: the third branch of the
+    // pollOutcome classification. Non-terminal status, NO terminalReason — relay
+    // does not know it's stuck. Distinct from 'still-held' (relay has a reason)
+    // and 'terminal' (settled). Caller should keep polling.
+    const body202 = {
+      classifiedId: "cls_007",
+      paymentId: "pay_genuine_pending",
+      paymentStatus: "pending",
+      status: "queued",
+      checkStatusUrl: "https://x402-relay.aibtc.com/payment/pay_genuine_pending",
+    };
+    const request = vi.fn().mockResolvedValue({
+      status: 202,
+      data: body202,
+      headers: {},
+      config: { headers: {} },
+    });
+    mockCreateApiClient.mockResolvedValue({ request });
+
+    // Non-terminal across all 3 polls, no terminalReason ever populated.
+    const pendingStatus: HttpPaymentStatusResponse = {
+      paymentId: "pay_genuine_pending",
+      status: "broadcasting",
+      checkStatusUrl: body202.checkStatusUrl,
+    };
+    mockResolveCanonicalPaymentStatus.mockResolvedValue(pendingStatus);
+
+    const { server, tools } = createTrackingServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerEndpointTools(server as any);
+    const tool = tools.get("execute_x402_endpoint")!;
+
+    const promise = tool.handler({
+      method: "POST",
+      url: "https://aibtc.news/api/classifieds",
+      autoApprove: true,
+    });
+    await flushPollBackoffs();
+    const parsed = parseToolResponse(await promise);
+
+    expect(parsed.response).toEqual(body202);
+    expect(parsed.payment).toBeDefined();
+    expect(parsed.payment!.pollOutcome).toBe("still-pending");
+    expect(parsed.payment!.status).toBe("broadcasting");
+    expect(parsed.payment!.terminalReason).toBeUndefined();
+    expect(parsed.payment!.pollCount).toBe(3);
+    expect(parsed.payment!.nextStep).toBeDefined();
+    expect(parsed.payment!.nextStep!).toContain("auto-poll budget exhausted");
   });
 });
