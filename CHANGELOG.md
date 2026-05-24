@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.55.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.54.0...mcp-server-v1.55.0) (2026-05-24)
+
+
+### Features
+
+* **inbox:** non-sponsored x402 inbox tool ([#545](https://github.com/aibtcdev/aibtc-mcp-server/issues/545)) ([d346e9e](https://github.com/aibtcdev/aibtc-mcp-server/commit/d346e9e4e93a4b78f6e467d09ba3e55169502c3f))
+
+
+### Bug Fixes
+
+* **execute_x402_endpoint:** never invent placeholder txid (fixes [#487](https://github.com/aibtcdev/aibtc-mcp-server/issues/487) Gap 1) ([#504](https://github.com/aibtcdev/aibtc-mcp-server/issues/504)) ([26ddec0](https://github.com/aibtcdev/aibtc-mcp-server/commit/26ddec0db365b73b7a43dac9959ff9ca996cdc20))
+
 ## [1.54.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.53.0...mcp-server-v1.54.0) (2026-05-18)
 
 
