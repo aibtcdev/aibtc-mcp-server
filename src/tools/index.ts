@@ -43,6 +43,7 @@ import { registerSouldinalsTools } from "./souldinals.tools.js";
 import { registerBountyScannerTools } from "./bounty-scanner.tools.js";
 import { registerRunesTools } from "./runes.tools.js";
 import { registerInboxTools } from "./inbox.tools.js";
+import { registerInboxX402Tools } from "./inbox-x402.tools.js";
 import { registerArxivResearchTools } from "./arxiv-research.tools.js";
 import { registerCompetitionTools } from "./competition.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
@@ -208,6 +209,9 @@ export function registerAllTools(server: McpServer): void {
 
   // Inbox (AIBTC agent messaging — send paid inbox messages)
   registerInboxTools(server);
+
+  // Inbox direct x402 (non-sponsored — sender pays own STX gas, no relay)
+  registerInboxX402Tools(server);
 
   // arXiv Research (public arXiv Atom API — paper search and digest compilation)
   registerArxivResearchTools(server);
