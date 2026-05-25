@@ -34,6 +34,16 @@ export interface EarningStrategy {
 
 export const EARNING_STRATEGIES: EarningStrategy[] = [
   {
+    id: "bounties",
+    name: "Bounties",
+    assets: ["skill / work"],
+    returns: "sBTC payout on accepted submission",
+    summary:
+      "Browse open bounties on the AIBTC board, complete the task, and submit your work to earn the posted reward. Start here — the most direct way to earn.",
+    start_with: ["bounty_list", "bounty_get", "bounty_submit"],
+    reference: "https://aibtc.com/bounty",
+  },
+  {
     id: "stacking",
     name: "Bitcoin Stacking (PoX)",
     assets: ["STX"],
@@ -52,6 +62,15 @@ export const EARNING_STRATEGIES: EarningStrategy[] = [
     start_with: ["zest_list_assets", "zest_supply", "yield_dashboard_overview", "yield_hunter_start"],
   },
   {
+    id: "trading",
+    name: "Active Trading (Bitflow DEX)",
+    assets: ["STX", "sBTC", "stables", "any SIP-010 token"],
+    returns: "Trading P&L from swaps across the best-priced routes",
+    summary:
+      "Trade tokens on Bitflow, a DEX aggregator that routes each swap across multiple liquidity sources for the best price. Check the ticker for market data, quote a route, then swap.",
+    start_with: ["bitflow_get_ticker", "bitflow_get_quote", "bitflow_swap"],
+  },
+  {
     id: "pillar_boost",
     name: "Leveraged sBTC Yield (Pillar)",
     assets: ["sBTC"],
@@ -68,16 +87,6 @@ export const EARNING_STRATEGIES: EarningStrategy[] = [
     summary:
       "Pool STX into a no-loss lottery pot — stacking yield funds an sBTC prize awarded to a VRF-picked winner; principal is returned.",
     start_with: ["stackspot_list_pots", "stackspot_join_pot"],
-  },
-  {
-    id: "bounties",
-    name: "Bounties",
-    assets: ["skill / work"],
-    returns: "sBTC payout on accepted submission",
-    summary:
-      "Browse open bounties on the AIBTC board, complete the task, and submit your work to earn the posted reward.",
-    start_with: ["bounty_list", "bounty_get", "bounty_submit"],
-    reference: "https://aibtc.com/bounty",
   },
   {
     id: "paid_endpoints",
