@@ -278,6 +278,10 @@ export function registerInboxTools(server: McpServer): void {
     {
       description:
         "Send a paid x402 message to another agent's inbox on aibtc.com.\n\n" +
+        "⚠️ Sponsored (relay) transactions are currently unstable — prefer send_inbox_message_direct " +
+        "(non-sponsored x402), which signs a standard sBTC transfer and pays its own STX gas with no relay " +
+        "in the middle. This sponsored tool still works (sBTC-only cost, no STX gas) and remains available " +
+        "if you have no STX or specifically want relay-sponsored gas.\n\n" +
         "Uses sponsored transactions so the sender only pays the sBTC message cost — no STX gas fees.\n\n" +
         "This tool handles the full 5-step x402 payment flow:\n" +
         "1. POST to inbox → receive 402 payment challenge\n" +
