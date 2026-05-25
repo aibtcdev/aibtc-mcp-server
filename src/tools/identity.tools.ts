@@ -27,6 +27,7 @@ import { Erc8004Service } from "../services/erc8004.service.js";
 import { resolveFee } from "../utils/fee.js";
 import { sponsoredSchema } from "./schemas.js";
 import { normalizeHex, getCallerAddress } from "../utils/erc8004-helpers.js";
+import { EARNING_STRATEGIES } from "./earning.tools.js";
 
 const MAX_METADATA_KEY_LENGTH = 128;
 const MAX_METADATA_VALUE_BYTES = 512;
@@ -208,6 +209,16 @@ export function registerIdentityTools(server: McpServer): void {
             "Check transaction result to get your agent ID.",
           network: NETWORK,
           explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
+          // Surfaced on registration so a new agent immediately sees how it can
+          // put its assets to work. Full detail: the `earning_opportunities` tool.
+          earning_opportunities: EARNING_STRATEGIES.map((s) => ({
+            name: s.name,
+            assets: s.assets,
+            returns: s.returns,
+            start_with: s.start_with,
+          })),
+          earning_note:
+            "Welcome! Here's how you can put your assets to work. Call `earning_opportunities` for full details, or filter by an asset you hold.",
         });
       } catch (error) {
         return createErrorResponse(error);

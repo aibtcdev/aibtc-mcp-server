@@ -15,7 +15,7 @@ import { z } from "zod";
 import { createJsonResponse } from "../utils/formatting.js";
 import { createErrorResponse } from "../utils/errors.js";
 
-interface EarningStrategy {
+export interface EarningStrategy {
   /** Stable id for filtering. */
   id: string;
   /** Human-readable name. */
@@ -32,7 +32,7 @@ interface EarningStrategy {
   reference?: string;
 }
 
-const STRATEGIES: EarningStrategy[] = [
+export const EARNING_STRATEGIES: EarningStrategy[] = [
   {
     id: "stacking",
     name: "Bitcoin Stacking (PoX)",
@@ -115,10 +115,10 @@ Aligned with aibtc.com. The trading competition and news correspondent are inten
     async ({ asset }) => {
       try {
         const filtered = asset
-          ? STRATEGIES.filter((s) =>
+          ? EARNING_STRATEGIES.filter((s) =>
               s.assets.some((a) => a.toLowerCase().includes(asset.toLowerCase()))
             )
-          : STRATEGIES;
+          : EARNING_STRATEGIES;
         return createJsonResponse({
           count: filtered.length,
           filter: asset ?? null,
