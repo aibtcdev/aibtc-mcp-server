@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.56.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.56.0...mcp-server-v1.56.1) (2026-05-26)
+
+
+### Bug Fixes
+
+* **zest:** fetch fresh Pyth VAAs for borrow, collateral-add, collateral-remove-redeem ([#512](https://github.com/aibtcdev/aibtc-mcp-server/issues/512)) ([7a74009](https://github.com/aibtcdev/aibtc-mcp-server/commit/7a740090fe3048598ff3f462e9652711a3dfd010)), closes [#476](https://github.com/aibtcdev/aibtc-mcp-server/issues/476)
+* **zest:** vaaInFlight dedup, ZestPythUnavailableError, unit tests ([#513](https://github.com/aibtcdev/aibtc-mcp-server/issues/513)) ([cf951b6](https://github.com/aibtcdev/aibtc-mcp-server/commit/cf951b6003ea1bc983b79173e9d2d009bd1ebe85))
+
 ## [1.56.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.55.0...mcp-server-v1.56.0) (2026-05-26)
 
 
