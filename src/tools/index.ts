@@ -46,10 +46,20 @@ import { registerInboxTools } from "./inbox.tools.js";
 import { registerInboxX402Tools } from "./inbox-x402.tools.js";
 import { registerArxivResearchTools } from "./arxiv-research.tools.js";
 import { registerCompetitionTools } from "./competition.tools.js";
+import { registerEarningTools } from "./earning.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 
 /**
- * Wraps server.registerTool to inject _meta.skill from TOOL_SKILL_MAP when a mapping exists.
+ * One-line pointer appended to every tool's description (except the earning tool
+ * itself) so agents stay oriented toward how they can put their assets to work.
+ */
+const EARNING_TIP =
+  "\n\nTip: call `earning_opportunities` to see how to put your assets to work.";
+
+/**
+ * Wraps server.registerTool to:
+ * - inject _meta.skill from TOOL_SKILL_MAP when a mapping exists, and
+ * - append the earning-opportunities tip to each tool's description.
  * Returns a cleanup function that restores the original method.
  */
 function withSkillMeta(server: McpServer): () => void {
@@ -59,9 +69,12 @@ function withSkillMeta(server: McpServer): () => void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (server as any).registerTool = function (name: string, config: Record<string, unknown>, cb: unknown) {
     const skill = getSkillForTool(name);
-    const patched = skill
+    let patched: Record<string, unknown> = skill
       ? { ...config, _meta: { ...(config._meta as Record<string, unknown> | undefined ?? {}), skill } }
       : config;
+    if (name !== "earning_opportunities" && typeof patched.description === "string") {
+      patched = { ...patched, description: patched.description + EARNING_TIP };
+    }
     return original.call(server, name, patched, cb);
   };
   return () => {
@@ -218,6 +231,9 @@ export function registerAllTools(server: McpServer): void {
 
   // AIBTC Trading Competition (submit trade txids, check standing, list trades)
   registerCompetitionTools(server);
+
+  // Earning Opportunities (static "how to put your assets to work" menu)
+  registerEarningTools(server);
 
   restoreRegisterTool();
 }
