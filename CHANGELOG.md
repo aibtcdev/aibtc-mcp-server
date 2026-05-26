@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.56.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.55.0...mcp-server-v1.56.0) (2026-05-26)
+
+
+### Features
+
+* earning_opportunities tool + CLAUDE.md trim ([#549](https://github.com/aibtcdev/aibtc-mcp-server/issues/549)) ([2f30414](https://github.com/aibtcdev/aibtc-mcp-server/commit/2f3041490138c00c646442038f0d6a19e1c6e5e8))
+
 ## [1.55.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.54.0...mcp-server-v1.55.0) (2026-05-24)
 
 
