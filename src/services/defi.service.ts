@@ -9,6 +9,8 @@ import {
   principalCV,
   noneCV,
   someCV,
+  bufferCV,
+  listCV,
 } from "@stacks/transactions";
 import { AlexSDK, Currency, type TokenInfo } from "alex-sdk";
 import { HiroApiService, getHiroApi } from "./hiro-api.js";
@@ -358,6 +360,59 @@ export class ZestProtocolService {
   }
 
   /**
+   * Pyth price feed IDs that Zest's v0-4-market oracle reads. Confirmed on-chain
+   * against v0-assets: all 12 registered assets map to just these three. (USDh
+   * uses DIA, resolved contract-internally — it needs no entry in price-feeds.)
+   * Order is not significant: verify-and-update-price-feeds self-identifies each
+   * VAA by its payload. RECONFIRM IF ZEST ADDS NEW PYTH-BACKED ASSETS.
+   */
+  private static readonly PYTH_FEED_IDS = [
+    "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43", // BTC/USD
+    "ec7a775f46379b5e943c3526b1c8d54cd49749176b0b98e02dde68d1bd335c17", // STX/USD
+    "eaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a", // USDC/USD
+  ];
+
+  /**
+   * Fetch fresh signed Pyth VAAs for Zest's oracle-gated calls (borrow,
+   * collateral-add, collateral-remove-redeem) and return (some (list 3 buff)).
+   *
+   * Each feed is fetched as its own VAA: Hermes collapses a batched multi-id
+   * query into a single aggregate VAA, which the contract's write-feeds fold
+   * would treat as one feed — leaving the other two stale and aborting borrow
+   * with an opaque (err none). Throws on any fetch failure so the cause surfaces
+   * before broadcast rather than as an on-chain abort.
+   */
+  private async fetchPriceFeeds(): Promise<ClarityValue> {
+    const HERMES = "https://hermes.pyth.network/v2/updates/price/latest";
+    const buffers = await Promise.all(
+      ZestProtocolService.PYTH_FEED_IDS.map(async (id) => {
+        const res = await fetch(`${HERMES}?ids[]=${id}&encoding=hex`, {
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!res.ok) {
+          throw new Error(
+            `Pyth Hermes returned ${res.status} for price feed ${id.slice(0, 8)}. ` +
+              `Zest borrow/collateral calls require fresh signed VAAs; aborting before broadcast.`
+          );
+        }
+        const data = await res.json();
+        const hex = data?.binary?.data?.[0];
+        if (!hex) {
+          throw new Error(`Pyth Hermes returned no VAA for price feed ${id.slice(0, 8)}.`);
+        }
+        const buf = Buffer.from(hex, "hex");
+        if (buf.length > 8192) {
+          throw new Error(
+            `Pyth VAA for ${id.slice(0, 8)} is ${buf.length} bytes, exceeds the contract's (buff 8192) limit.`
+          );
+        }
+        return bufferCV(buf);
+      })
+    );
+    return someCV(listCV(buffers));
+  }
+
+  /**
    * Get asset configuration from ZEST_ASSETS by symbol or contract ID
    */
   private getAssetConfig(assetOrSymbol: string): ZestAssetConfig {
@@ -656,7 +711,7 @@ export class ZestProtocolService {
     const functionArgs: ClarityValue[] = [
       contractPrincipalCV(vaultAddr, vaultName),  // ft (zToken vault contract)
       uintCV(amount),                              // amount of zTokens
-      noneCV(),                                    // price-feeds (use cached)
+      await this.fetchPriceFeeds(),                // price-feeds (fresh Pyth VAAs)
     ];
 
     // Post-condition: user sends zTokens to market-vault
@@ -709,7 +764,7 @@ export class ZestProtocolService {
       uintCV(amount),                              // amount (zToken shares)
       uintCV(expectedUnderlying > 0n ? (expectedUnderlying * 95n) / 100n : 0n),  // min-underlying (5% slippage tolerance)
       noneCV(),                                    // receiver (none = tx-sender)
-      noneCV(),                                    // price-feeds (use cached)
+      await this.fetchPriceFeeds(),                // price-feeds (fresh Pyth VAAs)
     ];
 
     // Post-conditions (Deny mode requires ALL ft-transfers to be covered):
@@ -760,7 +815,7 @@ export class ZestProtocolService {
       contractPrincipalCV(assetAddr, assetName),  // ft (token to borrow)
       uintCV(amount),                              // amount
       noneCV(),                                    // receiver (none = tx-sender)
-      noneCV(),                                    // price-feeds (use cached)
+      await this.fetchPriceFeeds(),                // price-feeds (fresh Pyth VAAs)
     ];
 
     // Post-condition: vault sends borrowed underlying to user
