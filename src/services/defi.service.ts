@@ -355,10 +355,31 @@ const ZEST_PYTH_FEED_IDS = [
 // Zest v0.4 oracle-timestamp-fresh check allows 120s staleness; 10s broadcast margin
 const VAA_CACHE_TTL_MS = 110_000;
 
+/**
+ * Thrown when Hermes (Pyth price oracle) is unreachable or returns a non-OK response.
+ * Callers can detect this vs. on-chain rejection and apply the direct-broadcast workaround
+ * (borrow-helper-v2-1-7 pattern) without catching generic Error.
+ */
+export class ZestPythUnavailableError extends Error {
+  readonly feedId: string;
+  readonly status?: number;
+  constructor(feedId: string, status?: number) {
+    super(
+      status
+        ? `Hermes ${status} for feed ${feedId.slice(0, 8)} — use borrow-helper-v2-1-7 direct-broadcast as workaround`
+        : `No VAA data returned for feed ${feedId.slice(0, 8)} — use borrow-helper-v2-1-7 direct-broadcast as workaround`
+    );
+    this.name = "ZestPythUnavailableError";
+    this.feedId = feedId;
+    this.status = status;
+  }
+}
+
 export class ZestProtocolService {
   private hiro: HiroApiService;
   private contracts: ReturnType<typeof getZestContracts>;
   private vaaCache: { value: ClarityValue; fetchedAt: number } | null = null;
+  private vaaInFlight: Promise<ClarityValue> | null = null;
 
   constructor(private network: Network) {
     this.hiro = getHiroApi(network);
@@ -380,22 +401,36 @@ export class ZestProtocolService {
       return this.vaaCache.value;
     }
 
-    const vaas = await Promise.all(
-      ZEST_PYTH_FEED_IDS.map(async (id) => {
-        const res = await fetch(
-          `https://hermes.pyth.network/v2/updates/price/latest?ids[]=${id}&encoding=hex`
-        );
-        if (!res.ok) throw new Error(`Hermes ${res.status} for feed ${id.slice(0, 8)}`);
-        const data = await res.json() as { binary: { data: string[] } };
-        const hex = data?.binary?.data?.[0];
-        if (!hex) throw new Error(`No VAA data returned for feed ${id.slice(0, 8)}`);
-        return bufferCV(Buffer.from(hex, "hex"));
-      })
-    );
+    // Coalesce concurrent callers: if a fetch is already in-flight, await it rather
+    // than firing duplicate Hermes requests.
+    if (this.vaaInFlight) {
+      return this.vaaInFlight;
+    }
 
-    const value = someCV(listCV(vaas));
-    this.vaaCache = { value, fetchedAt: now };
-    return value;
+    this.vaaInFlight = (async () => {
+      try {
+        const vaas = await Promise.all(
+          ZEST_PYTH_FEED_IDS.map(async (id) => {
+            const res = await fetch(
+              `https://hermes.pyth.network/v2/updates/price/latest?ids[]=${id}&encoding=hex`
+            );
+            if (!res.ok) throw new ZestPythUnavailableError(id, res.status);
+            const data = await res.json() as { binary: { data: string[] } };
+            const hex = data?.binary?.data?.[0];
+            if (!hex) throw new ZestPythUnavailableError(id);
+            return bufferCV(Buffer.from(hex, "hex"));
+          })
+        );
+
+        const value = someCV(listCV(vaas));
+        this.vaaCache = { value, fetchedAt: Date.now() };
+        return value;
+      } finally {
+        this.vaaInFlight = null;
+      }
+    })();
+
+    return this.vaaInFlight;
   }
 
   private ensureMainnet(): void {
