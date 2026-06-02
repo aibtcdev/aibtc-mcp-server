@@ -38,6 +38,13 @@ import {
 
 const INBOX_BASE = "https://aibtc.com/api/inbox";
 
+// Deprecation switch for the sponsored relay send. The full implementation is
+// retained below but gated off behind this flag — the relay-sponsored path was
+// unstable, so all inbox sends go through send_inbox_message_direct. Flip to
+// `false` to re-enable. Typed as `boolean` (not a literal) so TypeScript keeps
+// type-checking the retained handler body instead of treating it as dead code.
+const SPONSORED_INBOX_DISABLED: boolean = true;
+
 // ============================================================================
 // Nonce Manager (delegated to SharedNonceTracker — issue #413)
 //
@@ -277,20 +284,13 @@ export function registerInboxTools(server: McpServer): void {
     "send_inbox_message",
     {
       description:
-        "Send a paid x402 message to another agent's inbox on aibtc.com.\n\n" +
-        "⚠️ Sponsored (relay) transactions are currently unstable — prefer send_inbox_message_direct " +
-        "(non-sponsored x402), which signs a standard sBTC transfer and pays its own STX gas with no relay " +
-        "in the middle. This sponsored tool still works (sBTC-only cost, no STX gas) and remains available " +
-        "if you have no STX or specifically want relay-sponsored gas.\n\n" +
-        "Uses sponsored transactions so the sender only pays the sBTC message cost — no STX gas fees.\n\n" +
-        "This tool handles the full 5-step x402 payment flow:\n" +
-        "1. POST to inbox → receive 402 payment challenge\n" +
-        "2. Parse payment requirements from response\n" +
-        "3. Build sponsored sBTC transfer (relay pays gas)\n" +
-        "4. Encode payment payload\n" +
-        "5. Retry with payment proof → message delivered\n\n" +
-        "Use this instead of execute_x402_endpoint for inbox messages — the generic tool has known settlement timeout issues with sBTC contract calls.\n\n" +
-        "Canonical payment status polling is primary. If the inbox or relay returns a canonical checkStatusUrl, that URL is returned to the caller and should be polled. An inbox-local /api/payment-status/{paymentId} URL is synthesized only as a compatibility fallback when canonical poll hints are absent.",
+        "⛔ DEPRECATED — do not use. This sponsored (relay) inbox send no longer executes; it returns " +
+        "a redirect to send_inbox_message_direct.\n\n" +
+        "Use send_inbox_message_direct instead. It signs a standard sBTC transfer and settles directly " +
+        "through the x402 facilitator (no relay). Requires an unlocked wallet holding sBTC (message cost) " +
+        "and STX (gas). Mainnet only.\n\n" +
+        "The sponsored implementation below is retained but gated off behind a deprecation guard — the " +
+        "relay-sponsored path was unstable, so it is disabled rather than removed.",
       inputSchema: {
         recipientBtcAddress: z
           .string()
@@ -313,6 +313,24 @@ export function registerInboxTools(server: McpServer): void {
       },
     },
     async ({ recipientBtcAddress, recipientStxAddress, content, paymentTxid }) => {
+      // Deprecation guard: the sponsored relay path is disabled (see
+      // SPONSORED_INBOX_DISABLED). The full implementation below is kept intact
+      // and can be re-enabled by flipping that flag — relay-sponsored sends were
+      // unstable, so all inbox sends go through send_inbox_message_direct.
+      if (SPONSORED_INBOX_DISABLED) {
+        return createJsonResponse({
+          success: false,
+          deprecated: true,
+          error:
+            "send_inbox_message is deprecated and no longer sends. The sponsored relay path " +
+            "is disabled because relay-sponsored transactions were unstable.",
+          useInstead: "send_inbox_message_direct",
+          note:
+            "Call send_inbox_message_direct with the same recipientBtcAddress, recipientStxAddress, " +
+            "and content. It pays both the sBTC message cost and its own STX gas, with no relay in the middle.",
+        });
+      }
+
       try {
         // Network mismatch guard: fail early if testnet MCP server targets mainnet inbox.
         // Match the parsed hostname exactly (not a substring) so lookalike hosts can't pass.

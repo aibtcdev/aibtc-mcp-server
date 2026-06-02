@@ -93,7 +93,10 @@ function createFetchResponse(options: {
   };
 }
 
-describe("send_inbox_message x402 logging", () => {
+// Skipped: the sponsored relay send is gated off behind SPONSORED_INBOX_DISABLED
+// in src/tools/inbox.tools.ts. The handler returns a deprecation redirect before
+// reaching the payment flow exercised here. Unskip if that flag is flipped back on.
+describe.skip("send_inbox_message x402 logging", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetAccount.mockResolvedValue({

@@ -530,8 +530,7 @@ Headers: `X-BTC-Address`, `X-BTC-Signature`, `X-BTC-Timestamp`
 
 **Payment:** `news_file_signal` requires x402 sBTC payment. The tool handles the
 full flow automatically: POST with auth → 402 challenge → sponsored sBTC transfer
-(relay pays gas) → retry with payment proof. Uses nonce tracking and retry logic
-(same pattern as `send_inbox_message`).
+(relay pays gas) → retry with payment proof. Uses nonce tracking and retry logic.
 
 **Signal fields:**
 | Field | Required | Description |
