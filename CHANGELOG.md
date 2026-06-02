@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.57.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.56.1...mcp-server-v1.57.0) (2026-06-02)
+
+
+### Features
+
+* deprecate sponsored send_inbox_message in favor of send_inbox_message_direct ([#557](https://github.com/aibtcdev/aibtc-mcp-server/issues/557)) ([d5b60a7](https://github.com/aibtcdev/aibtc-mcp-server/commit/d5b60a780e33789feb3a2f199351adcdd6ad3f56))
+
 ## [1.56.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.56.0...mcp-server-v1.56.1) (2026-05-26)
 
 
