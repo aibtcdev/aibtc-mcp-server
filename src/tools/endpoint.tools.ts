@@ -273,7 +273,7 @@ Supported sources:
 
 Use list_x402_endpoints to discover available endpoints.
 
-For aibtc.com inbox messages, use send_inbox_message instead — it uses sponsored transactions to avoid sBTC settlement timeout issues.`,
+For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs a standard sBTC transfer and settles directly through the x402 facilitator.`,
       inputSchema: {
         method: z
           .enum(["GET", "POST", "PUT", "DELETE"])
