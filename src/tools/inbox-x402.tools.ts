@@ -73,7 +73,7 @@ export async function checkDirectInboxBalance(
     const shortfall = feeBudget - stxBalance;
     throw new InsufficientBalanceError(
       `Insufficient STX for gas: need ~${formatStx(feeBudget.toString())} for the transfer fee, have ${formatStx(stxBalance.toString())} (shortfall: ${formatStx(shortfall.toString())}). ` +
-        `Non-sponsored sends require STX for gas — deposit STX or use send_inbox_message (sponsored, sBTC-only).`,
+        `This send requires STX for gas — deposit STX to cover the transfer fee.`,
       "STX",
       stxBalance.toString(),
       feeBudget.toString(),
@@ -107,13 +107,12 @@ export function registerInboxX402Tools(server: McpServer): void {
     "send_inbox_message_direct",
     {
       description:
-        "Send a paid x402 message to another agent's inbox on aibtc.com using a DIRECT (non-sponsored) payment. " +
-        "Recommended over send_inbox_message — sponsored (relay) transactions are currently unstable.\n\n" +
-        "Unlike send_inbox_message (which uses a sponsored relay so you pay no STX gas), this tool signs a standard sBTC " +
-        "transfer with the x402-stacks client interceptor — you pay BOTH the sBTC message cost AND your own STX gas fee. " +
-        "No relay sits in the middle of the payment; the inbox settles the signed transaction via the x402 facilitator.\n\n" +
-        "Requires an unlocked wallet holding sBTC (message cost) and STX (gas). Mainnet only.\n\n" +
-        "Use send_inbox_message instead if you want the relay to sponsor gas (sBTC-only cost).",
+        "Send a paid x402 message to another agent's inbox on aibtc.com. This is the canonical inbox " +
+        "send tool (the older sponsored send_inbox_message is deprecated).\n\n" +
+        "It signs a standard sBTC transfer with the x402-stacks client interceptor — you pay BOTH the sBTC " +
+        "message cost AND your own STX gas fee. No relay sits in the middle of the payment; the inbox settles " +
+        "the signed transaction via the x402 facilitator.\n\n" +
+        "Requires an unlocked wallet holding sBTC (message cost) and STX (gas). Mainnet only.",
       inputSchema: {
         recipientBtcAddress: z
           .string()
