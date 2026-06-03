@@ -45,41 +45,46 @@ This detects your OS and writes to the correct Claude Desktop config file:
 
 Restart Claude Desktop after installing.
 
-### Testnet Mode
+### Other MCP Clients
 
-Add `--testnet` to either command:
+This is a standard stdio MCP server, so it works with **any** MCP-compatible client. Claude Code is the default `--install` target; select another client with a flag:
 
 ```bash
-# Claude Code on testnet
-npx @aibtc/mcp-server@latest --install --testnet
+npx @aibtc/mcp-server@latest --install --cursor     # Cursor
+npx @aibtc/mcp-server@latest --install --windsurf   # Windsurf
+npx @aibtc/mcp-server@latest --install --gemini     # Gemini CLI
+npx @aibtc/mcp-server@latest --install --codex      # OpenAI Codex CLI
+npx @aibtc/mcp-server@latest --install --vscode     # VS Code (writes ./.vscode/mcp.json)
+```
 
-# Claude Desktop on testnet
-npx @aibtc/mcp-server@latest --install --desktop --testnet
+| Flag | Client | Config written |
+|------|--------|----------------|
+| _(none)_ | Claude Code | `~/.claude.json` |
+| `--desktop` | Claude Desktop | `claude_desktop_config.json` (see path table above) |
+| `--cursor` | Cursor | `~/.cursor/mcp.json` |
+| `--windsurf` | Windsurf | `~/.codeium/windsurf/mcp_config.json` |
+| `--gemini` | Gemini CLI | `~/.gemini/settings.json` |
+| `--codex` | OpenAI Codex CLI | `~/.codex/config.toml` |
+| `--vscode` | VS Code (Copilot agent) | `./.vscode/mcp.json` (project-scoped) |
+
+Each installer merges into the existing config — it won't clobber other servers or settings. Restart the client afterward.
+
+### Testnet Mode
+
+Add `--testnet` to any install command:
+
+```bash
+npx @aibtc/mcp-server@latest --install --testnet            # Claude Code, testnet
+npx @aibtc/mcp-server@latest --install --cursor --testnet   # Cursor, testnet
 ```
 
 > **Why npx?** Using `npx @aibtc/mcp-server@latest` ensures you always get the newest version automatically. Global installs (`npm install -g`) won't auto-update.
 
 ### Manual Configuration
 
-If you prefer to configure manually, add the following to your config file.
+If you prefer to configure manually, add the following to your client's config file. The `-y` flag stops npx from prompting for confirmation.
 
-**Claude Code** (`~/.claude.json`):
-
-```json
-{
-  "mcpServers": {
-    "aibtc": {
-      "command": "npx",
-      "args": ["@aibtc/mcp-server@latest"],
-      "env": {
-        "NETWORK": "mainnet"
-      }
-    }
-  }
-}
-```
-
-**Claude Desktop** (`claude_desktop_config.json` -- see path table above):
+**Claude Code / Claude Desktop / Cursor / Windsurf / Gemini CLI** — `mcpServers` JSON:
 
 ```json
 {
@@ -95,7 +100,50 @@ If you prefer to configure manually, add the following to your config file.
 }
 ```
 
-> **Note:** Claude Desktop requires the `-y` flag in args so npx doesn't prompt for confirmation.
+**VS Code** (`.vscode/mcp.json`) — uses a `servers` key and a typed entry:
+
+```json
+{
+  "servers": {
+    "aibtc": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@aibtc/mcp-server@latest"],
+      "env": { "NETWORK": "mainnet" }
+    }
+  }
+}
+```
+
+**OpenAI Codex CLI** (`~/.codex/config.toml`) — TOML, not JSON:
+
+```toml
+[mcp_servers.aibtc]
+command = "npx"
+args = ["-y", "@aibtc/mcp-server@latest"]
+
+[mcp_servers.aibtc.env]
+NETWORK = "mainnet"
+```
+
+**Zed** (`settings.json`) — uses a `context_servers` key:
+
+```json
+{
+  "context_servers": {
+    "aibtc": {
+      "source": "custom",
+      "command": "npx",
+      "args": ["-y", "@aibtc/mcp-server@latest"],
+      "env": { "NETWORK": "mainnet" }
+    }
+  }
+}
+```
+
+**Cline / Roo Code** (VS Code extension) — add the same `mcpServers` JSON block above via the extension's MCP settings panel (the exact `cline_mcp_settings.json` path varies by OS and VS Code build).
+
+> Any other MCP client works too — point it at `npx -y @aibtc/mcp-server@latest` over stdio with `NETWORK` in the env.
 
 ## Giving Claude a Wallet
 

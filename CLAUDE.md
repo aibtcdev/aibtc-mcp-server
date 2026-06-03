@@ -140,21 +140,23 @@ Managed wallets are stored encrypted in `~/.aibtc/`:
         └── keystore.json  # Encrypted mnemonic (AES-256-GCM)
 ```
 
-## Adding to Claude Code or Claude Desktop
+## Adding to an MCP Client
 
-**Claude Code (terminal):**
+This is a standard stdio MCP server, so it works with any MCP-compatible client. The `--install` helper writes the right config for a target; Claude Code is the default, others are selected with a flag. The install registry lives in `src/index.ts` (`INSTALL_TARGETS`).
+
 ```bash
-npx @aibtc/mcp-server@latest --install
+npx @aibtc/mcp-server@latest --install              # Claude Code (default)
+npx @aibtc/mcp-server@latest --install --desktop    # Claude Desktop (OS-detected path)
+npx @aibtc/mcp-server@latest --install --cursor     # Cursor
+npx @aibtc/mcp-server@latest --install --windsurf   # Windsurf
+npx @aibtc/mcp-server@latest --install --gemini     # Gemini CLI
+npx @aibtc/mcp-server@latest --install --codex      # OpenAI Codex CLI (TOML)
+npx @aibtc/mcp-server@latest --install --vscode     # VS Code (./.vscode/mcp.json)
 ```
 
-**Claude Desktop (app):**
-```bash
-npx @aibtc/mcp-server@latest --install --desktop
-```
+Each installer merges into the existing config rather than overwriting it. Zed and Cline are manual-config only (their schemas/paths vary by version) — see README for snippets. The `@latest` tag ensures users always get the newest features.
 
-The `--desktop` flag auto-detects your OS and writes to the correct Claude Desktop config path. The `@latest` tag ensures users always get the newest features.
-
-**For testnet:** Add `--testnet` to either command, e.g. `npx @aibtc/mcp-server@latest --install --desktop --testnet`
+**For testnet:** Add `--testnet` to any install command, e.g. `npx @aibtc/mcp-server@latest --install --cursor --testnet`
 
 **Note:** `CLIENT_MNEMONIC` is optional. Users can either:
 1. **Managed wallets (recommended)**: Use `wallet_create` or `wallet_import` to generate/import wallets with password protection
