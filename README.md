@@ -45,9 +45,19 @@ This detects your OS and writes to the correct Claude Desktop config file:
 
 Restart Claude Desktop after installing.
 
+### Codex (CLI / IDE)
+
+```bash
+npx @aibtc/mcp-server@latest --install --codex
+```
+
+This writes the AIBTC MCP server to Codex's shared config at `~/.codex/config.toml`.
+Restart Codex, then run `codex mcp list` or use `/mcp` in the Codex TUI to verify
+that `aibtc` is enabled.
+
 ### Testnet Mode
 
-Add `--testnet` to either command:
+Add `--testnet` to any install command:
 
 ```bash
 # Claude Code on testnet
@@ -55,6 +65,9 @@ npx @aibtc/mcp-server@latest --install --testnet
 
 # Claude Desktop on testnet
 npx @aibtc/mcp-server@latest --install --desktop --testnet
+
+# Codex on testnet
+npx @aibtc/mcp-server@latest --install --codex --testnet
 ```
 
 > **Why npx?** Using `npx @aibtc/mcp-server@latest` ensures you always get the newest version automatically. Global installs (`npm install -g`) won't auto-update.
@@ -96,6 +109,17 @@ If you prefer to configure manually, add the following to your config file.
 ```
 
 > **Note:** Claude Desktop requires the `-y` flag in args so npx doesn't prompt for confirmation.
+
+**Codex** (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.aibtc]
+command = "npx"
+args = ["-y", "@aibtc/mcp-server@latest"]
+
+[mcp_servers.aibtc.env]
+NETWORK = "mainnet"
+```
 
 ## Giving Claude a Wallet
 
