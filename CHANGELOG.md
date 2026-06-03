@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.58.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.57.0...mcp-server-v1.58.0) (2026-06-03)
+
+
+### Features
+
+* add --install flags for Cursor, Windsurf, Gemini, Codex, VS Code ([#559](https://github.com/aibtcdev/aibtc-mcp-server/issues/559)) ([3700620](https://github.com/aibtcdev/aibtc-mcp-server/commit/3700620a06fbcf9d189f6e851607d92534a1134e))
+
 ## [1.57.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.56.1...mcp-server-v1.57.0) (2026-06-02)
 
 
