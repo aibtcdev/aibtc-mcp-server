@@ -185,9 +185,14 @@ const INSTALL_TARGETS: InstallTarget[] = [
 ];
 
 function resolveInstallTarget(): InstallTarget {
-  const flagged = INSTALL_TARGETS.find((t) => t.flag && process.argv.includes(t.flag));
-  // Default to Claude Code when no client flag is present.
-  return flagged ?? INSTALL_TARGETS[INSTALL_TARGETS.length - 1];
+  const matched = INSTALL_TARGETS.filter((t) => t.flag && process.argv.includes(t.flag));
+  if (matched.length > 1) {
+    console.warn(
+      `⚠️  Multiple client flags passed (${matched.map((t) => t.flag).join(", ")}); using ${matched[0].label}.`,
+    );
+  }
+  // Default to the entry explicitly marked as default (flag === null) — Claude Code.
+  return matched[0] ?? INSTALL_TARGETS.find((t) => t.flag === null)!;
 }
 
 async function runInstall(): Promise<void> {
