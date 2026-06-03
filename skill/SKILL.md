@@ -15,13 +15,24 @@ A skill for managing Bitcoin L1 wallets with optional Pillar smart wallet and St
 
 ## Install
 
-One-command installation:
+One-command installation (Claude Code is the default):
 
 ```bash
 npx @aibtc/mcp-server@latest --install
 ```
 
-For testnet:
+Other MCP clients are selected with a flag:
+
+```bash
+npx @aibtc/mcp-server@latest --install --cursor     # Cursor
+npx @aibtc/mcp-server@latest --install --codex      # OpenAI Codex CLI
+npx @aibtc/mcp-server@latest --install --gemini     # Gemini CLI
+npx @aibtc/mcp-server@latest --install --windsurf   # Windsurf
+npx @aibtc/mcp-server@latest --install --vscode     # VS Code
+npx @aibtc/mcp-server@latest --install --desktop    # Claude Desktop
+```
+
+For testnet, add `--testnet` to any command:
 
 ```bash
 npx @aibtc/mcp-server@latest --install --testnet

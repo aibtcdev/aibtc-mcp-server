@@ -252,7 +252,7 @@ Example: http://localhost:3999`,
     {
       description: `Check the currently running MCP server version and compare with the latest published version on npm.
 Use this to detect if you're running a stale cached version (common with npx).
-If your version is outdated, clear the npx cache and reinstall: npx clear-npx-cache && npx @aibtc/mcp-server@latest --install`,
+If your version is outdated, clear the npx cache and restart your MCP client: npx clear-npx-cache (the client config already points at @latest, so the next launch pulls the newest version).`,
       inputSchema: {},
     },
     async () => {
@@ -295,7 +295,7 @@ If your version is outdated, clear the npx cache and reinstall: npx clear-npx-ca
           updateAvailable,
           package: "@aibtc/mcp-server",
           hint: updateAvailable
-            ? "⚠️  Update available! Clear npx cache and reinstall: npx clear-npx-cache && npx @aibtc/mcp-server@latest --install"
+            ? "⚠️  Update available! Clear the npx cache and restart your MCP client: npx clear-npx-cache (config already points at @latest, so the next launch pulls the newest version)."
             : fetched
               ? "✅ Running the latest version"
               : "Unable to verify latest version (network error)",
