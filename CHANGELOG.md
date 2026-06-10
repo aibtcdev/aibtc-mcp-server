@@ -10,6 +10,7 @@
 
 ### Bug Fixes
 
+* **deps:** patch 10 dependency vulnerabilities (1 critical) — axios, ws, vitest, and transitive protobufjs/hono/ip-address; `npm audit` now reports 0 ([#566](https://github.com/aibtcdev/aibtc-mcp-server/issues/566)) ([ef5ce26](https://github.com/aibtcdev/aibtc-mcp-server/commit/ef5ce26))
 * **docs:** correct signed-message formats + level gate in genesis-lifecycle ([#562](https://github.com/aibtcdev/aibtc-mcp-server/issues/562)) ([131265f](https://github.com/aibtcdev/aibtc-mcp-server/commit/131265fdcc4846754f85c7d338d7a4ba814efb60))
 * security hardening — BTC address network check + credentials perms ([#568](https://github.com/aibtcdev/aibtc-mcp-server/issues/568)) ([c5e4612](https://github.com/aibtcdev/aibtc-mcp-server/commit/c5e461252eb7978833c9b99e579fabfc6e9ee67f))
 * surface errors instead of returning defaults ([#569](https://github.com/aibtcdev/aibtc-mcp-server/issues/569)) ([f35e05b](https://github.com/aibtcdev/aibtc-mcp-server/commit/f35e05b330c5adad3b05b542fa63c49af3f5361d))
