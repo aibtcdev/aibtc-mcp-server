@@ -114,6 +114,12 @@ Embedded, self-custodial Lightning wallet backed by the [Spark SDK](https://www.
 ### x402 API Endpoints
 - `execute_x402_endpoint` - Execute ANY x402 endpoint URL with automatic payment handling. Can use full URL or path+apiUrl.
 
+**Configuration:**
+- `X402_MAX_USTX_PER_PAYMENT` (optional, default `1000000` = 1 STX): hard cap on the uSTX amount the x402 interceptor will auto-pay per request. Bounds the blast radius if a malicious endpoint demands an arbitrary amount.
+- `X402_MAX_SATS_PER_PAYMENT` (optional, default `10000`): same cap for sBTC payments, in sats.
+
+Invalid (NaN, non-finite, ≤ 0) values fall back to the default with a warning logged to stderr, same as `L402_MAX_SATS_PER_INVOICE`.
+
 ### x402 Endpoint Scaffolding
 - `scaffold_x402_endpoint` - Generate a complete Cloudflare Worker project with x402 payment integration
 
