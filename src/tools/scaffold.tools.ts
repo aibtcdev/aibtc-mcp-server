@@ -15,21 +15,17 @@ import { getWalletAddress } from "../services/x402.service.js";
  * Check if a directory contains an existing x402 project
  */
 async function isExistingX402Project(dir: string): Promise<boolean> {
-  try {
-    const indexPath = path.join(dir, "src", "index.ts");
-    const middlewarePath = path.join(dir, "src", "x402-middleware.ts");
-    const packagePath = path.join(dir, "package.json");
+  const indexPath = path.join(dir, "src", "index.ts");
+  const middlewarePath = path.join(dir, "src", "x402-middleware.ts");
+  const packagePath = path.join(dir, "package.json");
 
-    const [hasIndex, hasMiddleware, hasPackage] = await Promise.all([
-      fs.access(indexPath).then(() => true).catch(() => false),
-      fs.access(middlewarePath).then(() => true).catch(() => false),
-      fs.access(packagePath).then(() => true).catch(() => false),
-    ]);
+  const [hasIndex, hasMiddleware, hasPackage] = await Promise.all([
+    fs.access(indexPath).then(() => true).catch(() => false),
+    fs.access(middlewarePath).then(() => true).catch(() => false),
+    fs.access(packagePath).then(() => true).catch(() => false),
+  ]);
 
-    return hasIndex && hasMiddleware && hasPackage;
-  } catch {
-    return false;
-  }
+  return hasIndex && hasMiddleware && hasPackage;
 }
 
 /**
