@@ -1,5 +1,19 @@
 import { PILLAR_API_URL, PILLAR_API_KEY } from "../config/pillar.js";
 
+/**
+ * HTTP error from the Pillar API, carrying the status code so callers can
+ * treat 4xx ("no such wallet / no position") differently from infra failures.
+ */
+export class PillarApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number
+  ) {
+    super(message);
+    this.name = "PillarApiError";
+  }
+}
+
 class PillarApiService {
   private baseUrl: string;
   private apiKey: string;
@@ -43,7 +57,10 @@ class PillarApiService {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Pillar API error (${response.status}): ${errorText}`);
+      throw new PillarApiError(
+        `Pillar API error (${response.status}): ${errorText}`,
+        response.status
+      );
     }
 
     return response.json();

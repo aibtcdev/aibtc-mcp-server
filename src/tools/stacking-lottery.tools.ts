@@ -9,7 +9,7 @@ import {
   cvToJSON,
 } from "@stacks/transactions";
 import { getAccount, NETWORK } from "../services/x402.service.js";
-import { getHiroApi } from "../services/hiro-api.js";
+import { getHiroApi, isNotFoundError } from "../services/hiro-api.js";
 import { callContract } from "../transactions/builder.js";
 import { getExplorerTxUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
@@ -147,13 +147,14 @@ Note: Stackspot is only available on mainnet.`,
                 "get-pot-value",
                 []
               );
-            } catch {
-              // pot may not be deployed or reachable — skip gracefully
+            } catch (error) {
+              // 404 = pot contract not deployed; other failures surface
+              if (!isNotFoundError(error)) throw error;
             }
             try {
               isLocked = await callPotReadOnly(pot.contractName, "is-locked", []);
-            } catch {
-              // same
+            } catch (error) {
+              if (!isNotFoundError(error)) throw error;
             }
             return {
               name: pot.name,
