@@ -338,7 +338,9 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
         const api = await createApiClient(parsed.baseUrl, {
           toolName: "execute_x402_endpoint",
           onBeforePayment: async (requirements) => {
-            await checkSufficientBalance(requirements.account, requirements.amount, requirements.asset, true);
+            // Non-sponsored: sender pays its own gas, so validate STX for the
+            // fee too (sponsored=false is the default, passed explicitly here).
+            await checkSufficientBalance(requirements.account, requirements.amount, requirements.asset, false);
           },
         });
         const response = await api.request({ method, url: parsed.requestPath, params, data });

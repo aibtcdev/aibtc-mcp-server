@@ -5,6 +5,7 @@ import {
   uintCV,
   principalCV,
   noneCV,
+  Pc,
   PostConditionMode,
 } from "@stacks/transactions";
 import {
@@ -25,6 +26,7 @@ import { getHiroApi } from "./hiro-api.js";
 import { createHash } from "crypto";
 import { InsufficientBalanceError } from "../utils/errors.js";
 import { getContracts, parseContractId } from "../config/contracts.js";
+import { resolveDefaultFee } from "../utils/fee.js";
 import {
   classifyCanonicalPaymentStatus,
   formatCanonicalPaymentStatus,
@@ -74,6 +76,22 @@ function parseSatsCap(envName: string, fallback: number): number {
 const L402_MAX_SATS_PER_INVOICE = parseSatsCap(
   "L402_MAX_SATS_PER_INVOICE",
   DEFAULT_L402_MAX_SATS
+);
+
+/**
+ * Per-payment caps for the Stacks x402 interceptor, mirroring the L402 cap
+ * above: a malicious endpoint can demand an arbitrary amount in its 402
+ * response and an autoApprove'd call would pay it, bounded only by wallet
+ * balance. Known registry endpoints cost at most 0.02 STX / 100 sats, so the
+ * defaults leave generous headroom. Overridable via env vars.
+ */
+const X402_MAX_USTX_PER_PAYMENT = parseSatsCap(
+  "X402_MAX_USTX_PER_PAYMENT",
+  1_000_000 // 1 STX
+);
+const X402_MAX_SATS_PER_PAYMENT = parseSatsCap(
+  "X402_MAX_SATS_PER_PAYMENT",
+  10_000
 );
 
 // Track payment attempts per client instance (auto-cleanup via WeakMap)
@@ -648,6 +666,21 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           );
         }
 
+        const tokenType = detectTokenType(selectedOption.asset);
+        const amount = BigInt(selectedOption.amount);
+        const isSbtc = tokenType === "sBTC";
+        const cap = isSbtc ? X402_MAX_SATS_PER_PAYMENT : X402_MAX_USTX_PER_PAYMENT;
+        const unit = isSbtc ? "sats" : "uSTX";
+        if (amount > BigInt(Math.floor(cap))) {
+          return Promise.reject(
+            new Error(
+              `x402 payment of ${amount} ${unit} exceeds the per-payment cap of ${cap} ${unit}. ` +
+              `If this cost is expected, raise the cap via the ` +
+              `${isSbtc ? "X402_MAX_SATS_PER_PAYMENT" : "X402_MAX_USTX_PER_PAYMENT"} env var.`
+            )
+          );
+        }
+
         // Lazy-load account on first 402 — free endpoints never reach here
         const acct = await ensureAccount();
 
@@ -674,9 +707,11 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           });
         }
 
-        // Build a sponsored signed transaction (relay pays gas; fee: 0n)
-        const tokenType = detectTokenType(selectedOption.asset);
-        const amount = BigInt(selectedOption.amount);
+        // Build a non-sponsored signed transaction: the sender pays its own
+        // STX gas (fee + nonce auto-estimated by @stacks), and the x402
+        // facilitator simply verifies and broadcasts it. No relay sponsorship
+        // — this is the same tx shape the x402-stacks lib produces, and the
+        // balance check in onBeforePayment already accounts for the gas.
         const networkName = getStacksNetwork(acct.network);
 
         let transaction;
@@ -698,9 +733,18 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
             ],
             senderKey: acct.privateKey,
             network: networkName,
-            postConditionMode: PostConditionMode.Allow,
-            sponsored: true,
-            fee: 0n,
+            // The payment amount is known at build time, so pin it: a
+            // compromised token contract must not be able to pull more.
+            postConditionMode: PostConditionMode.Deny,
+            postConditions: [
+              Pc.principal(acct.address)
+                .willSendEq(amount)
+                .ft(contracts.SBTC_TOKEN as `${string}.${string}`, "sbtc-token"),
+            ],
+            // Clamped medium fee — do NOT let @stacks auto-estimate, since
+            // Hiro's contract_call high_priority tier is polluted by outliers
+            // (observed >2000 STX). resolveDefaultFee caps it at 0.05 STX.
+            fee: await resolveDefaultFee(acct.network, "contract_call"),
           });
         } else {
           transaction = await makeSTXTokenTransfer({
@@ -709,8 +753,7 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
             senderKey: acct.privateKey,
             network: networkName,
             memo: "",
-            sponsored: true,
-            fee: 0n,
+            fee: await resolveDefaultFee(acct.network, "token_transfer"),
           });
         }
 
@@ -1009,8 +1052,9 @@ export async function checkSufficientBalance(
       const hiroApiForSbtc = getHiroApi(account.network);
       const stxInfoForSbtc = await hiroApiForSbtc.getStxBalance(account.address);
       const stxBalanceForSbtc = BigInt(stxInfoForSbtc.balance);
-      const sbtcFees = await hiroApiForSbtc.getMempoolFees();
-      const estimatedSbtcFee = BigInt(sbtcFees.contract_call.high_priority);
+      // Same clamped fee the interceptor actually sets on the sBTC contract
+      // call — so this check is exact, not a high-priority over-estimate.
+      const estimatedSbtcFee = await resolveDefaultFee(account.network, "contract_call");
 
       if (stxBalanceForSbtc < estimatedSbtcFee) {
         const stxShortfall = estimatedSbtcFee - stxBalanceForSbtc;
@@ -1036,8 +1080,8 @@ export async function checkSufficientBalance(
 
   let totalRequired = requiredAmount;
   if (!sponsored) {
-    const mempoolFees = await hiroApi.getMempoolFees();
-    const estimatedFee = BigInt(mempoolFees.contract_call.high_priority);
+    // Same clamped fee the interceptor sets on the STX transfer.
+    const estimatedFee = await resolveDefaultFee(account.network, "token_transfer");
     totalRequired = requiredAmount + estimatedFee;
   }
 

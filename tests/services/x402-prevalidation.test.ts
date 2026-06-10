@@ -217,16 +217,16 @@ describe("checkSufficientBalance", () => {
         const error = err as InstanceType<typeof InsufficientBalanceError>;
         expect(error.tokenType).toBe("STX");
         expect(error.balance).toBe("500000");
-        // required = payment (1_000_000) + high_priority fee (15_000)
-        expect(error.required).toBe("1015000");
+        // required = payment (1_000_000) + clamped token_transfer fee (2_500)
+        expect(error.required).toBe("1002500");
         // shortfall = required - balance
-        expect(error.shortfall).toBe("515000");
+        expect(error.shortfall).toBe("502500");
       }
     });
 
     it("passes when balance exactly equals payment + fee", async () => {
-      // Exactly 1_000_000 + 15_000 = 1_015_000
-      mockGetStxBalance.mockResolvedValue({ balance: "1015000" });
+      // Exactly 1_000_000 + clamped token_transfer fee 2_500 = 1_002_500
+      mockGetStxBalance.mockResolvedValue({ balance: "1002500" });
 
       await expect(
         checkSufficientBalance(MOCK_ACCOUNT, "1000000", "STX")
@@ -565,5 +565,60 @@ describe("payment attempt guard", () => {
     ]));
     expect(logEvents.find((entry) => entry.event === "payment.fallback_used")).toBeUndefined();
     consoleSpy.mockRestore();
+  });
+});
+
+describe("x402 per-payment spend cap", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+    mockGetActiveAccount.mockReturnValue(MOCK_ACCOUNT);
+  });
+
+  /** Adapter that always 402s with a properly encoded payment-required header */
+  function make402Adapter(asset: string, amount: string) {
+    return async (config: unknown) => {
+      const paymentRequired = {
+        x402Version: 2,
+        resource: { url: "https://x402.test.com/test" },
+        accepts: [
+          { network: "stacks:1", asset, amount, payTo: MOCK_ACCOUNT.address },
+        ],
+      };
+      throw {
+        response: {
+          status: 402,
+          data: paymentRequired,
+          headers: {
+            "payment-required": Buffer.from(JSON.stringify(paymentRequired)).toString("base64"),
+          },
+          config,
+        },
+        config,
+      };
+    };
+  }
+
+  it("rejects STX payments above the uSTX cap", async () => {
+    const client = await createApiClient("https://x402.test.com");
+    client.defaults.adapter = make402Adapter("STX", "2000000"); // 2 STX > 1 STX default cap
+    await expect(client.get("/test")).rejects.toThrow("exceeds the per-payment cap");
+  });
+
+  it("rejects sBTC payments above the sats cap", async () => {
+    const client = await createApiClient("https://x402.test.com");
+    client.defaults.adapter = make402Adapter("sbtc", "20000"); // > 10k sats default cap
+    await expect(client.get("/test")).rejects.toThrow("exceeds the per-payment cap");
+  });
+
+  it("does not block payments at the cap", async () => {
+    const client = await createApiClient("https://x402.test.com");
+    client.defaults.adapter = make402Adapter("STX", "1000000"); // exactly 1 STX
+    try {
+      await client.get("/test");
+      expect.fail("Should have thrown (mock account cannot sign)");
+    } catch (error) {
+      expect((error as Error).message).not.toContain("exceeds the per-payment cap");
+    }
   });
 });
