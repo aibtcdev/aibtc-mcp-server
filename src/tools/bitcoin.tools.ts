@@ -48,6 +48,23 @@ async function getBtcAddress(providedAddress?: string): Promise<string> {
 }
 
 /**
+ * Reject recipient addresses that belong to the other Bitcoin network before
+ * any UTXO fetching. The tx builder (@scure/btc-signer) rejects these too, but
+ * late and with a cryptic bech32/version-byte error.
+ */
+function validateRecipientNetwork(address: string): void {
+  const prefixes =
+    NETWORK === "mainnet" ? ["bc1", "1", "3"] : ["tb1", "m", "n", "2"];
+  if (!prefixes.some((p) => address.startsWith(p))) {
+    throw new Error(
+      `Recipient "${address}" is not a ${NETWORK} address. ` +
+        `Expected a prefix of ${prefixes.join(", ")} — check that the address ` +
+        `matches the configured NETWORK.`
+    );
+  }
+}
+
+/**
  * Format satoshis as BTC string
  */
 function formatBtc(satoshis: number): string {
@@ -284,6 +301,8 @@ export function registerBitcoinTools(server: McpServer): void {
     },
     async ({ recipient, amount, feeRate, includeOrdinals }) => {
       try {
+        validateRecipientNetwork(recipient);
+
         // Get wallet account (requires unlocked wallet)
         const walletManager = getWalletManager();
         const account = walletManager.getActiveAccount();
