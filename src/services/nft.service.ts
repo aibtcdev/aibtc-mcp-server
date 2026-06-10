@@ -1,5 +1,5 @@
 import { ClarityValue, uintCV, principalCV } from "@stacks/transactions";
-import { HiroApiService, getHiroApi, NftHolding, NftEvent } from "./hiro-api.js";
+import { HiroApiService, getHiroApi, HiroApiError, NftHolding, NftEvent } from "./hiro-api.js";
 import { parseContractId, type Network } from "../config/index.js";
 import { callContract, type Account, type TransferResult } from "../transactions/builder.js";
 import { createNftSendPostCondition } from "../transactions/post-conditions.js";
@@ -95,8 +95,13 @@ export class NftService {
         }
       }
       return null;
-    } catch {
-      return null;
+    } catch (error) {
+      // 4xx means the contract doesn't implement get-owner (or rejects the
+      // call) — that is "no owner". Network/server failures must surface.
+      if (error instanceof HiroApiError && error.status < 500) {
+        return null;
+      }
+      throw error;
     }
   }
 
@@ -126,8 +131,12 @@ export class NftService {
           totalSupply = parseInt(match[1], 10);
         }
       }
-    } catch {
-      // Function may not exist or may fail
+    } catch (error) {
+      // 4xx means the contract doesn't implement get-last-token-id —
+      // supply is simply unknown. Network/server failures must surface.
+      if (!(error instanceof HiroApiError && error.status < 500)) {
+        throw error;
+      }
     }
 
     return {

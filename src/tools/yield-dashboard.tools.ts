@@ -323,26 +323,26 @@ async function readStackingPosition(walletAddress: string): Promise<ProtocolPosi
 async function getWalletBalances(
   walletAddress: string
 ): Promise<{ stxMicroStx: number; sbtcSats: number }> {
-  try {
-    const res = await fetch(
-      `${MAINNET_HIRO_API}/extended/v1/address/${walletAddress}/balances`
+  const res = await fetch(
+    `${MAINNET_HIRO_API}/extended/v1/address/${walletAddress}/balances`
+  );
+  if (!res.ok) {
+    throw new Error(
+      `Failed to fetch wallet balances for ${walletAddress}: HTTP ${res.status}`
     );
-    if (!res.ok) return { stxMicroStx: 0, sbtcSats: 0 };
-    const data = (await res.json()) as {
-      stx?: { balance?: string };
-      fungible_tokens?: Record<string, { balance?: string }>;
-    };
-    const stxMicroStx = parseInt(data.stx?.balance ?? "0", 10);
-    const sbtcKey = Object.keys(data.fungible_tokens ?? {}).find((k) =>
-      k.toLowerCase().includes("sbtc")
-    );
-    const sbtcSats = sbtcKey
-      ? parseInt(data.fungible_tokens?.[sbtcKey]?.balance ?? "0", 10)
-      : 0;
-    return { stxMicroStx, sbtcSats };
-  } catch {
-    return { stxMicroStx: 0, sbtcSats: 0 };
   }
+  const data = (await res.json()) as {
+    stx?: { balance?: string };
+    fungible_tokens?: Record<string, { balance?: string }>;
+  };
+  const stxMicroStx = parseInt(data.stx?.balance ?? "0", 10);
+  const sbtcKey = Object.keys(data.fungible_tokens ?? {}).find((k) =>
+    k.toLowerCase().includes("sbtc")
+  );
+  const sbtcSats = sbtcKey
+    ? parseInt(data.fungible_tokens?.[sbtcKey]?.balance ?? "0", 10)
+    : 0;
+  return { stxMicroStx, sbtcSats };
 }
 
 async function checkZestV2(): Promise<boolean> {

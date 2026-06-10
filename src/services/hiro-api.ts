@@ -20,6 +20,25 @@ export class HiroApiRateLimitError extends Error {
   }
 }
 
+/**
+ * HTTP error from the Hiro / BNS V2 APIs, carrying the status code so
+ * callers can treat 404 as "not found" without swallowing other failures.
+ */
+export class HiroApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number
+  ) {
+    super(message);
+    this.name = "HiroApiError";
+  }
+}
+
+/** True when the error is an expected "resource does not exist" response. */
+export function isNotFoundError(error: unknown): boolean {
+  return error instanceof HiroApiError && error.status === 404;
+}
+
 export interface AccountInfo {
   balance: string;
   locked: string;
@@ -362,7 +381,10 @@ export class HiroApiService {
       }
 
       const errorText = await response.text();
-      throw new Error(`Hiro API error (${response.status}): ${errorText}`);
+      throw new HiroApiError(
+        `Hiro API error (${response.status}): ${errorText}`,
+        response.status
+      );
     }
 
     return response.json();
@@ -450,8 +472,9 @@ export class HiroApiService {
   async getTokenMetadata(contractId: string): Promise<TokenMetadata | null> {
     try {
       return await this.fetch<TokenMetadata>(`/metadata/v1/ft/${contractId}`);
-    } catch {
-      return null;
+    } catch (error) {
+      if (isNotFoundError(error)) return null;
+      throw error;
     }
   }
 
@@ -710,8 +733,9 @@ export class HiroApiService {
     try {
       const info = await this.getBnsNameInfo(name);
       return info.address;
-    } catch {
-      return null;
+    } catch (error) {
+      if (isNotFoundError(error)) return null;
+      throw error;
     }
   }
 
@@ -809,7 +833,10 @@ export class BnsV2ApiService {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`BNS V2 API error (${response.status}): ${errorText}`);
+      throw new HiroApiError(
+        `BNS V2 API error (${response.status}): ${errorText}`,
+        response.status
+      );
     }
 
     return response.json();
@@ -858,8 +885,9 @@ export class BnsV2ApiService {
         return info.data.owner;
       }
       return null;
-    } catch {
-      return null;
+    } catch (error) {
+      if (isNotFoundError(error)) return null;
+      throw error;
     }
   }
 }
