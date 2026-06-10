@@ -367,15 +367,9 @@ Signers later process the request and send BTC on L1.`,
     },
     async () => {
       try {
-        // Try to get wallet account (don't throw if not unlocked)
+        // getActiveAccount returns null when locked - generic instructions then
         const walletManager = getWalletManager();
-        let account;
-        try {
-          account = walletManager.getActiveAccount();
-        } catch {
-          // Wallet not unlocked - return generic instructions
-          account = null;
-        }
+        const account = walletManager.getActiveAccount();
 
         // If wallet is unlocked and has Taproot keys, generate real deposit address
         if (account?.taprootPublicKey) {

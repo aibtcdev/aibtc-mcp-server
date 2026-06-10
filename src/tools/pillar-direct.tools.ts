@@ -17,7 +17,7 @@ import {
   generateAuthId,
   type SigAuth,
 } from "../services/signing-key.service.js";
-import { getPillarApi } from "../services/pillar-api.service.js";
+import { getPillarApi, PillarApiError } from "../services/pillar-api.service.js";
 import { getHiroApi } from "../services/hiro-api.js";
 import { NETWORK } from "../config/networks.js";
 import { PILLAR_API_KEY } from "../config/pillar.js";
@@ -635,8 +635,12 @@ export function registerPillarDirectTools(server: McpServer): void {
             data: { status: string; contractAddress: string } | null;
           }>(`/api/smart-wallet/${walletName}`);
           walletStatus = walletInfo.data?.status || null;
-        } catch {
-          // Wallet not found in backend
+        } catch (error) {
+          // 404 = wallet not registered in backend. Anything else (network,
+          // 5xx) must surface, or an initialized wallet gets misreported.
+          if (!(error instanceof PillarApiError && error.status === 404)) {
+            throw error;
+          }
         }
 
         if (!walletStatus || walletStatus === "pending_init") {
@@ -715,8 +719,11 @@ export function registerPillarDirectTools(server: McpServer): void {
           });
 
           position = unwindQuote.data as Record<string, unknown>;
-        } catch {
-          // unwind-quote may fail for fresh wallets with no position
+        } catch (error) {
+          // 4xx = fresh wallet with no position. Infra failures must surface.
+          if (!(error instanceof PillarApiError && error.status < 500)) {
+            throw error;
+          }
         }
 
         return createJsonResponse({
@@ -1572,27 +1579,16 @@ export function registerPillarDirectTools(server: McpServer): void {
           return `${whole}.${frac} STX`;
         };
 
-        // Fetch PoX cycle info
-        let poxInfo: {
-          currentCycleId: number;
-          nextCycleId: number;
-          blocksUntilNextCycle: number;
-          minAmountUstx: number;
-          isPoxActive: boolean;
-        } | null = null;
-
-        try {
-          const pox = await hiro.getPoxInfo();
-          poxInfo = {
-            currentCycleId: pox.current_cycle.id,
-            nextCycleId: pox.next_cycle.id,
-            blocksUntilNextCycle: pox.next_cycle.blocks_until_reward_phase,
-            minAmountUstx: pox.min_amount_ustx,
-            isPoxActive: pox.current_cycle.is_pox_active,
-          };
-        } catch {
-          // PoX info fetch failed, continue without it
-        }
+        // Fetch PoX cycle info — a global endpoint with no "not found" case,
+        // so any failure is infrastructure and should surface.
+        const pox = await hiro.getPoxInfo();
+        const poxInfo = {
+          currentCycleId: pox.current_cycle.id,
+          nextCycleId: pox.next_cycle.id,
+          blocksUntilNextCycle: pox.next_cycle.blocks_until_reward_phase,
+          minAmountUstx: pox.min_amount_ustx,
+          isPoxActive: pox.current_cycle.is_pox_active,
+        };
 
         // Check enrollment status via backend
         const api = getPillarApi();
@@ -1619,8 +1615,13 @@ export function registerPillarDirectTools(server: McpServer): void {
               dualStackingTxId: walletInfo.data.dualStackingTxId || null,
             };
           }
-        } catch {
-          // Backend lookup failed, continue without enrollment info
+        } catch (error) {
+          // 404 = wallet not registered, so not enrolled. Other failures
+          // must surface — defaulting to enrolled:false on a backend outage
+          // misreports an enrolled wallet and could prompt re-enrollment.
+          if (!(error instanceof PillarApiError && error.status === 404)) {
+            throw error;
+          }
         }
 
         const isStacking = lockedMicro > BigInt(0);

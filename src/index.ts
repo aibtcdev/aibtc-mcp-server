@@ -41,12 +41,24 @@ function getClaudeDesktopConfigPath(): string {
 }
 
 async function readJsonConfig(filePath: string): Promise<Record<string, unknown>> {
+  let content: string;
   try {
-    const content = await fs.readFile(filePath, "utf8");
+    content = await fs.readFile(filePath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return {}; // No config yet - fresh install
+    }
+    throw error;
+  }
+  try {
     return JSON.parse(content);
   } catch {
-    // File doesn't exist or isn't valid JSON, start fresh
-    return {};
+    // Never silently replace an unparseable config: it may hold the user's
+    // other MCP servers, and "merging" into {} would discard them on write.
+    throw new Error(
+      `Existing config at ${filePath} is not valid JSON. ` +
+        `Fix or remove it, then re-run the install.`
+    );
   }
 }
 
@@ -107,8 +119,10 @@ async function writeCodexToml(configPath: string, network: string): Promise<void
   let existing = "";
   try {
     existing = await fs.readFile(configPath, "utf8");
-  } catch {
-    existing = "";
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error; // Unreadable existing config must not be clobbered
+    }
   }
   const preserved = stripCodexSection(existing).replace(/\s+$/, "");
   const block = [

@@ -73,19 +73,17 @@ async function getNextNonce(address: string): Promise<number> {
   const accountInfo = await hiroApi.getAccountInfo(address);
   const confirmedNonce = accountInfo.nonce;
 
+  // The mempool scan is what makes the nonce safe against pending txs —
+  // silently skipping it on failure risks a nonce collision, so let it fail.
   let highestMempoolNonce = -1;
-  try {
-    const mempool = await hiroApi.getMempoolTransactions({
-      sender_address: address,
-      limit: 50,
-    });
-    for (const tx of mempool.results) {
-      if (tx.nonce > highestMempoolNonce) {
-        highestMempoolNonce = tx.nonce;
-      }
+  const mempool = await hiroApi.getMempoolTransactions({
+    sender_address: address,
+    limit: 50,
+  });
+  for (const tx of mempool.results) {
+    if (tx.nonce > highestMempoolNonce) {
+      highestMempoolNonce = tx.nonce;
     }
-  } catch {
-    // Non-fatal: fall back to confirmed nonce only
   }
 
   const chainNext = Math.max(confirmedNonce, highestMempoolNonce + 1);
