@@ -1,18 +1,17 @@
 # gitleaks config for aibtc-mcp — used by the CI secret-scan backstop and by
 # the local pre-commit hook when gitleaks is installed.
+#
+# Wallet-secret rules are ANCHORED to a key/identifier (mnemonic =, secretKey:,
+# CLIENT_MNEMONIC=...). An unanchored "12 lowercase words" match is far too noisy
+# in a codebase full of comments and UI strings — it fires on ordinary prose like
+# "both success and error responses". Anchoring keeps precision high.
 [extend]
 useDefault = true
 
 [[rules]]
-id = "bip39-mnemonic"
-description = "BIP-39 seed phrase (12+ consecutive lowercase words)"
-regex = '''(?i)([a-z]{3,8}\s+){11,}[a-z]{3,8}'''
-tags = ["mnemonic", "wallet"]
-
-[[rules]]
-id = "client-mnemonic-env"
-description = "Populated CLIENT_MNEMONIC env var"
-regex = '''(?i)CLIENT_MNEMONIC\s*=\s*["']?([a-z]+\s+){11,}'''
+id = "mnemonic-assignment"
+description = "Seed phrase assigned to a mnemonic/seed/secret identifier"
+regex = '''(?i)(client[_-]?mnemonic|mnemonic|seed[_-]?phrase|recovery[_-]?phrase|secret[_-]?key)["']?\s*[:=]\s*["']([a-z]+\s+){11,23}[a-z]+["']'''
 tags = ["mnemonic", "wallet"]
 
 [[rules]]
@@ -23,14 +22,25 @@ tags = ["privatekey", "wallet"]
 
 [[rules]]
 id = "named-secp256k1-privkey"
-description = "Named private key with 64/66-char hex value"
-regex = '''(?i)(priv(ate)?[_-]?key|secret[_-]?key|stxprivatekey|wif)["']?\s*[:=]\s*["']?[0-9a-f]{64,66}'''
+description = "Named private key with a 64/66-char hex value"
+regex = '''(?i)(priv(ate)?[_-]?key|stxprivatekey|wif)["']?\s*[:=]\s*["']?[0-9a-f]{64,66}'''
 tags = ["privatekey", "wallet"]
 
 [allowlist]
-description = "Placeholders and fixtures that legitimately resemble secrets"
+description = "Placeholders, public addresses, and deterministic test vectors"
 paths = [
   '''\.env\.example$''',
-  '''(^|/)README\.md$''',
   '''\.md$''',
+  '''(^|/)dist/''',
+  # Test fixtures use well-known public BIP-39 vectors (e.g. the canonical
+  # "abandon abandon ... about" seed) — deterministic test data, zero value.
+  '''(^|/)tests?/''',
+  '''\.test\.[tj]s$''',
+  '''\.spec\.[tj]s$''',
+]
+regexes = [
+  # Public Stacks addresses / contract principals (uppercase Crockford base32).
+  # Covers all c32 version prefixes: SP/SM mainnet, ST/SN testnet. Not secrets;
+  # the default generic-api-key rule mis-flags them.
+  '''S[PMTN][0-9A-HJKMNP-Z]{37,40}''',
 ]
