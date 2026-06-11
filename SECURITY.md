@@ -82,19 +82,29 @@ it out of version control (`.gitignore` blocks `.env` and `.env.*`).
 This repo ships layered protection so a seed can't slip into git history:
 
 - **Pre-commit hook** (`.githooks/pre-commit`, auto-installed via `npm install`)
-  blocks commits containing BIP-39 seed phrases, BIP32 extended keys
-  (`xprv`/`zprv`), a populated `CLIENT_MNEMONIC`, or named private keys.
-- **CI secret scan** (`.github/workflows/secret-scan.yml`, gitleaks) catches
-  anything pushed with `--no-verify` or from a machine without the hook.
+  blocks commits containing a seed phrase assigned to a mnemonic/seed/secret
+  field, BIP32 extended keys (`xprv`/`zprv`), or named private keys. This is the
+  primary gate. It runs the built-in scanner with zero dependencies, and also
+  invokes `gitleaks` if you have it installed.
 - **GitHub push protection** (repo setting) is the server-side backstop that no
-  local bypass can defeat — keep it enabled.
+  local bypass can defeat. Because the hook is local — bypassable with
+  `git commit --no-verify` or a commit from a machine that never ran
+  `npm install` — keep push protection enabled as the net the hook can't be.
 
 If the hook ever blocks a legitimate commit, bypass with `git commit --no-verify`.
 
 ### Limit blast radius
 
+- **Spending limit (default-on).** Every outbound spend path — `transfer_stx`,
+  `transfer_btc`, x402/L402 auto-payments — is metered against a cumulative
+  per-session and per-day cap (default ~10 STX + ~50k sats). A spend that would
+  exceed it is blocked and surfaces the remaining budget, so a single
+  prompt-injected call (or a malicious endpoint looping sub-cap payments) can't
+  drain the wallet. Override per wallet with `SPEND_LIMIT_DAILY_USTX` /
+  `SPEND_LIMIT_SESSION_USTX` / `SPEND_LIMIT_DAILY_SATS` /
+  `SPEND_LIMIT_SESSION_SATS`, or disable with `SPEND_LIMIT_ENABLED=false`.
 - Keep only working funds in the agent's hot wallet; hold the rest in cold storage.
-- The x402 payment flow enforces a per-transaction spend cap.
+- The x402 payment flow also enforces a per-transaction spend cap.
 - Wallets auto-lock after an idle timeout (`wallet_set_timeout`); lock manually
   with `wallet_lock` when stepping away.
 

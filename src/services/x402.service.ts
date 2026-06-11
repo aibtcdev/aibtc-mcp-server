@@ -20,6 +20,7 @@ import { NETWORK, API_URL, getStacksNetwork, type Network } from "../config/netw
 import { getNetworkFromStacksChainId } from "../config/caip.js";
 import type { Account } from "../transactions/builder.js";
 import { getWalletManager } from "./wallet-manager.js";
+import { getSpendLimiter } from "./spend-limiter.js";
 import { formatStx, formatSbtc } from "../utils/formatting.js";
 import { getSbtcService } from "./sbtc.service.js";
 import { getHiroApi } from "./hiro-api.js";
@@ -523,6 +524,14 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
         );
       }
 
+      // Cumulative spending limit (sats ledger) — bounds a drain-by-loop of
+      // sub-cap L402 invoices. Keyed by the wallet's Stacks address so all sats
+      // spends (BTC L1, sBTC, L402) share one ledger.
+      const l402Addr = getWalletManager().getActiveAccount()?.address;
+      if (l402Addr) {
+        await getSpendLimiter().check("sats", BigInt(amountSats), l402Addr);
+      }
+
       // Pay the Lightning invoice.
       let payment: { preimage: string; feesPaid: number };
       try {
@@ -533,6 +542,10 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
             `L402 payment failed: ${payErr instanceof Error ? payErr.message : String(payErr)}`
           )
         );
+      }
+
+      if (l402Addr) {
+        await getSpendLimiter().record("sats", BigInt(amountSats), l402Addr);
       }
 
       cacheL402Auth(
@@ -695,6 +708,11 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           );
         }
 
+        // Cumulative spending limit: the per-payment cap above bounds a single
+        // 402, but a malicious endpoint can loop sub-cap payments. This blocks
+        // once the session/day total would be exceeded.
+        await getSpendLimiter().check(isSbtc ? "sats" : "ustx", amount, acct.address);
+
         // Invoke pre-payment callback (e.g. balance check) before signing/broadcasting.
         // If the callback throws, the payment is aborted and the error propagates to the caller.
         if (options?.onBeforePayment) {
@@ -777,6 +795,10 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           action: "payment_submitted",
           compatShimUsed: false,
         });
+
+        // Record the spend against the cumulative ledger now that the signed
+        // payment tx is submitted to the facilitator.
+        await getSpendLimiter().record(isSbtc ? "sats" : "ustx", amount, acct.address);
 
         // Retry the original request with the payment header
         const originalRequest = error.config;

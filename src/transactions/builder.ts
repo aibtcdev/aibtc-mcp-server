@@ -11,6 +11,7 @@ import { hexToBytes } from "@stacks/common";
 import { getStacksNetwork, getApiBaseUrl, type Network } from "../config/networks.js";
 import { getHiroApi } from "../services/hiro-api.js";
 import { resolveDefaultFee } from "../utils/fee.js";
+import { getSpendLimiter } from "../services/spend-limiter.js";
 import type { WalletAddresses } from "../utils/storage.js";
 import {
   getTrackedNonce,
@@ -175,6 +176,10 @@ export async function transferStx(
   memo?: string,
   fee?: bigint
 ): Promise<TransferResult> {
+  // Safety rail: block before signing if this would exceed the wallet's
+  // cumulative spending limit (per-session or per-day).
+  await getSpendLimiter().check("ustx", amount, account.address);
+
   const networkName = getStacksNetwork(account.network);
   const nonce = await getNextNonce(account.address, account.network);
 
@@ -203,6 +208,7 @@ export async function transferStx(
   }
 
   advancePendingNonce(account.address, nonce, broadcastResponse.txid);
+  await getSpendLimiter().record("ustx", amount, account.address);
 
   return {
     txid: broadcastResponse.txid,
