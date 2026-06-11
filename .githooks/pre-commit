@@ -1,0 +1,68 @@
+#!/bin/sh
+# Pre-commit secret scanner for aibtc-mcp.
+#
+# Blocks commits that contain wallet-draining secrets: BIP-39 seed phrases,
+# extended private keys, populated CLIENT_MNEMONIC, or named private keys.
+# This is the tripwire that was missing when a plaintext mnemonic reached a
+# commit. If a match is a genuine false positive, bypass with:
+#
+#   git commit --no-verify
+#
+# Prefer gitleaks if installed (broader coverage); always run the built-in
+# scan as the zero-dependency backstop.
+
+set -e
+
+RED='\033[0;31m'
+YEL='\033[0;33m'
+NC='\033[0m'
+
+fail() {
+  printf "${RED}✖ pre-commit: refusing to commit a likely secret${NC}\n" >&2
+  printf "  %s\n" "$1" >&2
+  printf "    %s\n" "$2" >&2
+  printf "${YEL}  If this is a false positive: git commit --no-verify${NC}\n" >&2
+  exit 1
+}
+
+# Only scan added/modified, non-binary, staged content. Skip example/doc/lock
+# files where placeholders legitimately resemble secrets.
+FILES=$(git diff --cached --name-only --diff-filter=ACM \
+  | grep -vE '\.(example|lock)$|(^|/)package-lock\.json$|\.md$' || true)
+
+[ -z "$FILES" ] && exit 0
+
+for f in $FILES; do
+  # Staged blob content (what will actually be committed), additions only.
+  ADDED=$(git diff --cached --unified=0 -- "$f" | grep -E '^\+' | grep -vE '^\+\+\+' || true)
+  [ -z "$ADDED" ] && continue
+
+  # 1) Extended private keys (BIP32) — unambiguous, always block.
+  if printf '%s' "$ADDED" | grep -Eq '(xprv|yprv|zprv|tprv)[0-9A-Za-z]{50,}'; then
+    fail "$f contains a BIP32 extended private key (xprv/zprv/...)" "extended private key"
+  fi
+
+  # 2) Populated CLIENT_MNEMONIC (placeholder in .env.example is excluded above).
+  if printf '%s' "$ADDED" | grep -Eiq 'CLIENT_MNEMONIC[[:space:]]*=[[:space:]]*["'"'"']?([a-z]+[[:space:]]+){11,}'; then
+    fail "$f sets CLIENT_MNEMONIC to a real multi-word phrase" "use a managed encrypted wallet instead of a plaintext seed"
+  fi
+
+  # 3) Bare BIP-39 seed phrase: 12+ consecutive lowercase 3-8 letter words.
+  #    English prose rarely strings 12 such tokens with no punctuation.
+  if printf '%s' "$ADDED" | grep -Eq '([a-z]{3,8}[[:space:]]+){11,}[a-z]{3,8}'; then
+    fail "$f contains a 12+ word lowercase phrase (looks like a BIP-39 mnemonic)" "if it is real seed material, do NOT commit it — the seed is burned once pushed"
+  fi
+
+  # 4) Named private keys assigned a 64/66-char hex value (Stacks/secp256k1).
+  if printf '%s' "$ADDED" | grep -Eiq '(priv(ate)?[_-]?key|secret[_-]?key|stxprivatekey|wif)["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"']?[0-9a-f]{64,66}'; then
+    fail "$f assigns a 64/66-char hex value to a private-key field" "private key material must never be committed"
+  fi
+done
+
+# Broader coverage if the operator has gitleaks installed.
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --redact --no-banner 2>/dev/null \
+    || fail "gitleaks flagged staged content" "run: gitleaks protect --staged --verbose"
+fi
+
+exit 0

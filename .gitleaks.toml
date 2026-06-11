@@ -1,0 +1,36 @@
+# gitleaks config for aibtc-mcp — used by the CI secret-scan backstop and by
+# the local pre-commit hook when gitleaks is installed.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "bip39-mnemonic"
+description = "BIP-39 seed phrase (12+ consecutive lowercase words)"
+regex = '''(?i)([a-z]{3,8}\s+){11,}[a-z]{3,8}'''
+tags = ["mnemonic", "wallet"]
+
+[[rules]]
+id = "client-mnemonic-env"
+description = "Populated CLIENT_MNEMONIC env var"
+regex = '''(?i)CLIENT_MNEMONIC\s*=\s*["']?([a-z]+\s+){11,}'''
+tags = ["mnemonic", "wallet"]
+
+[[rules]]
+id = "bip32-xprv"
+description = "BIP32 extended private key"
+regex = '''(xprv|yprv|zprv|tprv)[0-9A-Za-z]{50,}'''
+tags = ["privatekey", "wallet"]
+
+[[rules]]
+id = "named-secp256k1-privkey"
+description = "Named private key with 64/66-char hex value"
+regex = '''(?i)(priv(ate)?[_-]?key|secret[_-]?key|stxprivatekey|wif)["']?\s*[:=]\s*["']?[0-9a-f]{64,66}'''
+tags = ["privatekey", "wallet"]
+
+[allowlist]
+description = "Placeholders and fixtures that legitimately resemble secrets"
+paths = [
+  '''\.env\.example$''',
+  '''(^|/)README\.md$''',
+  '''\.md$''',
+]
