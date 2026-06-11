@@ -6,6 +6,13 @@ deep documentation that was previously inlined in `CLAUDE.md`; it is kept separa
 
 ## Available Tools
 
+> **Spending limit:** Fund-moving tools (`transfer_stx`, `transfer_btc`, and x402/L402
+> auto-payments via `execute_x402_endpoint`) are metered against a default-on cumulative
+> spending cap (per session + per day, ~10 STX / ~50k sats by default). A spend over the
+> remaining budget is **rejected before signing** with a message stating the remaining
+> amount and the env var to raise it (`SPEND_LIMIT_*`, or `SPEND_LIMIT_ENABLED=false` to
+> disable). See [SECURITY.md](../SECURITY.md#limit-blast-radius).
+
 ### Endpoint Discovery
 - `list_x402_endpoints` - List all available x402 endpoints with search/filter by source, category, or keyword. **Use this first** to discover what actions are available.
 
