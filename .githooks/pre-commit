@@ -54,6 +54,12 @@ for f in $FILES; do
   if printf '%s' "$ADDED" | grep -Eiq '(priv(ate)?[_-]?key|secret[_-]?key|stxprivatekey|wif)["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"']?[0-9a-f]{64,66}'; then
     fail "$f assigns a 64/66-char hex value to a private-key field" "private key material must never be committed"
   fi
+
+  # 5) WIF private keys (base58, ~52 chars: mainnet 5/K/L, testnet c) — the
+  #    default export format for many Bitcoin tools.
+  if printf '%s' "$ADDED" | grep -Eiq '(priv(ate)?[_-]?key|wif)["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"']?[5KLc][1-9A-HJ-NP-Za-km-z]{50,51}'; then
+    fail "$f assigns a WIF (base58) private key to a key field" "private key material must never be committed"
+  fi
 done
 
 # Broader coverage if the operator has gitleaks installed.

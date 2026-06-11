@@ -93,6 +93,11 @@ This repo ships layered protection so a seed can't slip into git history:
 
 If the hook ever blocks a legitimate commit, bypass with `git commit --no-verify`.
 
+The hook is **best-effort**: it auto-installs via the `prepare` npm script (which
+won't override an existing `core.hooksPath`, so husky/lefthook users keep theirs),
+but `npm ci --ignore-scripts` and fresh clones that skip `npm install` won't have
+it. Keep GitHub push protection on as the enforcement those workflows can't skip.
+
 ### Limit blast radius
 
 - **Spending limit (default-on).** Every outbound spend path — `transfer_stx`,

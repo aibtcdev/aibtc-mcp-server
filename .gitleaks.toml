@@ -10,8 +10,11 @@ useDefault = true
 
 [[rules]]
 id = "mnemonic-assignment"
+# Case-insensitivity is scoped to the identifier via (?i:...) — the BIP-39
+# wordlist is exclusively lowercase, so a global (?i) would match Title-Case
+# prose ("The Quick Brown Fox ...") and false-positive.
 description = "Seed phrase assigned to a mnemonic/seed/secret identifier"
-regex = '''(?i)(client[_-]?mnemonic|mnemonic|seed[_-]?phrase|recovery[_-]?phrase|secret[_-]?key)["']?\s*[:=]\s*["']([a-z]+\s+){11,23}[a-z]+["']'''
+regex = '''(?i:client[_-]?mnemonic|mnemonic|seed[_-]?phrase|recovery[_-]?phrase|secret[_-]?key)["']?\s*[:=]\s*["']([a-z]+\s+){11,23}[a-z]+["']'''
 tags = ["mnemonic", "wallet"]
 
 [[rules]]
@@ -24,6 +27,14 @@ tags = ["privatekey", "wallet"]
 id = "named-secp256k1-privkey"
 description = "Named private key with a 64/66-char hex value"
 regex = '''(?i)(priv(ate)?[_-]?key|stxprivatekey|wif)["']?\s*[:=]\s*["']?[0-9a-f]{64,66}'''
+tags = ["privatekey", "wallet"]
+
+[[rules]]
+id = "wif-privkey"
+# WIF (base58, ~52 chars: mainnet 5/K/L, testnet c) is the default export for
+# many Bitcoin tools and would slip past the hex-only rule above.
+description = "Named private key in WIF (base58) format"
+regex = '''(?i:priv(ate)?[_-]?key|wif)["']?\s*[:=]\s*["']?[5KLc][1-9A-HJ-NP-Za-km-z]{50,51}'''
 tags = ["privatekey", "wallet"]
 
 [allowlist]
