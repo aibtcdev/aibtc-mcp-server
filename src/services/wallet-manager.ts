@@ -31,6 +31,7 @@ import {
 import { NETWORK, type Network } from "../config/networks.js";
 import type { Account } from "../transactions/builder.js";
 import { resetPendingNonce } from "../transactions/builder.js";
+import { getSpendLimiter } from "./spend-limiter.js";
 import { deriveBitcoinAddress, deriveBitcoinKeyPair, deriveTaprootAddress, deriveTaprootKeyPair, deriveNostrKeyPair } from "../utils/bitcoin.js";
 
 /**
@@ -283,6 +284,9 @@ class WalletManager {
     // Reset pending nonce counter so the new session re-syncs with the chain
     await resetPendingNonce(account.address);
 
+    // Fresh unlock starts a fresh per-session spend budget.
+    getSpendLimiter().resetSession(account.address);
+
     return account;
   }
 
@@ -294,6 +298,8 @@ class WalletManager {
     // Reset pending nonce counter before clearing session
     if (this.session?.account) {
       await resetPendingNonce(this.session.account.address);
+      // Clear the per-session spend budget so the next unlock starts fresh.
+      getSpendLimiter().resetSession(this.session.account.address);
     }
     // Zero out sensitive key buffers before dropping references
     if (this.session?.account) {

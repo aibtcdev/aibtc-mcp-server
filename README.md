@@ -512,8 +512,13 @@ Or use any SIP-010 token by contract ID: `SP2X...::token-name`
 | `API_URL` | Default x402 API base URL | `https://x402.biwas.xyz` |
 | `CLIENT_MNEMONIC` | (Optional) Pre-configured mnemonic | - |
 | `HIRO_API_KEY` | (Optional) Hiro API key for higher rate limits | - |
+| `SPEND_LIMIT_ENABLED` | Set `false` to disable the wallet spending limit | `true` |
+| `SPEND_LIMIT_DAILY_USTX` / `SPEND_LIMIT_SESSION_USTX` | STX spend cap per day / per unlock (micro-STX) | `10000000` (10 STX) |
+| `SPEND_LIMIT_DAILY_SATS` / `SPEND_LIMIT_SESSION_SATS` | BTC spend cap per day / per unlock (sats) | `50000` |
 
 **Note on `NETWORK`:** The `--install` command writes `NETWORK=mainnet` by default (pass `--testnet` to use testnet). If you omit `NETWORK` from your config entirely, the runtime fallback is `testnet`. Most users should set this explicitly.
+
+**Note on spending limits:** A default-on safety rail meters every outbound spend (`transfer_stx`, `transfer_btc`, x402/L402 auto-payments) against a cumulative per-session and per-day cap, so a single bad instruction or a malicious endpoint can't drain the wallet. A spend over the cap is blocked and reports the remaining budget. Raise the caps via the env vars above, or disable with `SPEND_LIMIT_ENABLED=false`. See [SECURITY.md](SECURITY.md#limit-blast-radius).
 
 **Note:** `CLIENT_MNEMONIC` is optional. The recommended approach is to let Claude create its own wallet. `HIRO_API_KEY` is optional but recommended for production use — without it, you may hit Hiro's public rate limits (429 responses). Get a key at [platform.hiro.so](https://platform.hiro.so).
 
@@ -538,7 +543,11 @@ You ←→ Claude ←→ aibtc-mcp-server
 - Mnemonics shown only once at creation
 - Auto-lock after 15 minutes (configurable)
 - Transactions signed locally before broadcast
+- **Spending limit (default-on):** outbound spends are capped per session and per day so a single bad instruction can't drain the wallet — see [Configuration](#configuration)
+- **Secret-scanning pre-commit hook:** contributors get a hook (auto-installed via `npm install`) that blocks committing a seed phrase or private key
 - For mainnet: Fund with small amounts first
+
+See [SECURITY.md](SECURITY.md) for the full wallet-key protection model and key-leak recovery steps.
 
 ## Advanced: Pre-configured Mnemonic
 
