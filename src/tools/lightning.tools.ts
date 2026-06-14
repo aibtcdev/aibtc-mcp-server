@@ -374,26 +374,35 @@ export function registerLightningTools(server: McpServer): void {
 
         // Decode the BOLT-11 invoice to get the payable amount in sats.
         // Same pattern as the L402 auto-pay path in x402.service.ts.
-        let decoded: ReturnType<typeof decodeBolt11>;
+        // The try-catch covers both decode and amount extraction: BigInt()
+        // can throw if the decoder returns an unexpected value type.
+        let amountSats: number;
+        let amountMsat: bigint;
         try {
-          decoded = decodeBolt11(bolt11);
+          const decoded = decodeBolt11(bolt11);
+          const amountSection = decoded.sections.find(
+            (s): s is { name: "amount"; letters: string; value: string } =>
+              s.name === "amount"
+          );
+          amountMsat = amountSection?.value
+            ? BigInt(amountSection.value)
+            : 0n;
+          amountSats = Number(amountMsat / 1000n);
         } catch (decodeErr) {
           throw new Error(
             `Invoice could not be decoded: ${decodeErr instanceof Error ? decodeErr.message : String(decodeErr)}`
           );
         }
 
-        const amountSection = decoded.sections.find(
-          (s): s is { name: "amount"; letters: string; value: string } =>
-            s.name === "amount"
-        );
-        const amountMsat = amountSection?.value
-          ? BigInt(amountSection.value)
-          : 0n;
-        const amountSats = Number(amountMsat / 1000n);
-        if (amountSats === 0) {
+        if (amountMsat === 0n) {
           throw new Error(
             "Invoice has no amount; refusing to pay amountless invoices for safety."
+          );
+        }
+        if (amountSats === 0) {
+          // amountMsat > 0 but < 1000: sub-sat invoice, unmeterable.
+          throw new Error(
+            "Invoice amount is below 1 sat minimum (< 1000 msat); refusing to pay."
           );
         }
 
@@ -406,6 +415,13 @@ export function registerLightningTools(server: McpServer): void {
         await getSpendLimiter().check("sats", BigInt(amountSats), addr);
 
         const result = await provider.payInvoice(bolt11, maxFeeSats);
+
+        // spark-provider.payInvoice() throws on any failure (including a
+        // missing preimage), so result.preimage is always set here. The guard
+        // below is an extra safety net against future provider implementations.
+        if (!result.preimage) {
+          throw new Error("Payment failed: no preimage returned.");
+        }
 
         // Record the spend only after a confirmed payment.
         await getSpendLimiter().record("sats", BigInt(amountSats), addr);
