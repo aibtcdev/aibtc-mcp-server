@@ -424,7 +424,20 @@ export function registerLightningTools(server: McpServer): void {
         }
 
         // Record the spend only after a confirmed payment.
-        await getSpendLimiter().record("sats", BigInt(amountSats), addr);
+        // record() performs a file-system read-modify-write; if it throws
+        // (e.g. transient KV/disk failure), the Lightning payment has already
+        // settled and cannot be reversed. We log the ledger gap rather than
+        // propagating an error that would mislead the caller into thinking the
+        // payment failed. The daily state file reconciles on the next write.
+        try {
+          await getSpendLimiter().record("sats", BigInt(amountSats), addr);
+        } catch (recordErr) {
+          console.error(
+            `[spend-limit] record() failed after confirmed Lightning payment ` +
+              `(${amountSats} sats, addr=${addr}): ` +
+              `${recordErr instanceof Error ? recordErr.message : String(recordErr)}`
+          );
+        }
 
         return createJsonResponse({
           success: true,

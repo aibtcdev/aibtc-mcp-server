@@ -101,13 +101,24 @@ it. Keep GitHub push protection on as the enforcement those workflows can't skip
 ### Limit blast radius
 
 - **Spending limit (default-on).** Every outbound spend path — `transfer_stx`,
-  `transfer_btc`, x402/L402 auto-payments — is metered against a cumulative
-  per-session and per-day cap (default ~10 STX + ~50k sats). A spend that would
-  exceed it is blocked and surfaces the remaining budget, so a single
-  prompt-injected call (or a malicious endpoint looping sub-cap payments) can't
-  drain the wallet. Override per wallet with `SPEND_LIMIT_DAILY_USTX` /
-  `SPEND_LIMIT_SESSION_USTX` / `SPEND_LIMIT_DAILY_SATS` /
-  `SPEND_LIMIT_SESSION_SATS`, or disable with `SPEND_LIMIT_ENABLED=false`.
+  `transfer_btc`, x402/L402 auto-payments, and `lightning_pay_invoice` — is
+  metered against a cumulative per-session and per-day cap (default ~10 STX +
+  ~50k sats). A spend that would exceed it is blocked and surfaces the remaining
+  budget, so a single prompt-injected call (or a malicious endpoint looping
+  sub-cap payments) can't drain the wallet. Override per wallet with
+  `SPEND_LIMIT_DAILY_USTX` / `SPEND_LIMIT_SESSION_USTX` /
+  `SPEND_LIMIT_DAILY_SATS` / `SPEND_LIMIT_SESSION_SATS`, or disable with
+  `SPEND_LIMIT_ENABLED=false`.
+
+  **Two-bucket Lightning semantics.** The sats ledger is keyed by the active
+  Stacks address so BTC L1, sBTC, and Lightning spends share one budget. When
+  the STX wallet is locked (`wallet_lock`) but the Lightning wallet is still
+  active, `lightning_pay_invoice` spends are metered against a separate
+  `__lightning__` bucket instead. Both buckets enforce the same cap
+  independently — this means total daily exposure can approach 2× the
+  `SPEND_LIMIT_DAILY_SATS` cap if the STX wallet is locked mid-session. To
+  bound this: keep funds in cold storage and set a conservative
+  `SPEND_LIMIT_DAILY_SATS`, or use `wallet_lock` only when done transacting.
 - Keep only working funds in the agent's hot wallet; hold the rest in cold storage.
 - The x402 payment flow also enforces a per-transaction spend cap.
 - Wallets auto-lock after an idle timeout (`wallet_set_timeout`); lock manually
