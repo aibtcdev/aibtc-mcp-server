@@ -9,8 +9,10 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { decode as decodeBolt11 } from "light-bolt11-decoder";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { getLightningManager } from "../services/lightning-manager.js";
+import { getSpendLimiter } from "../services/spend-limiter.js";
 import { getWalletManager } from "../services/wallet-manager.js";
 import {
   MempoolApi,
@@ -369,7 +371,45 @@ export function registerLightningTools(server: McpServer): void {
             "Lightning wallet is locked. Use lightning_unlock first."
           );
         }
+
+        // Decode the BOLT-11 invoice to get the payable amount in sats.
+        // Same pattern as the L402 auto-pay path in x402.service.ts.
+        let decoded: ReturnType<typeof decodeBolt11>;
+        try {
+          decoded = decodeBolt11(bolt11);
+        } catch (decodeErr) {
+          throw new Error(
+            `Invoice could not be decoded: ${decodeErr instanceof Error ? decodeErr.message : String(decodeErr)}`
+          );
+        }
+
+        const amountSection = decoded.sections.find(
+          (s): s is { name: "amount"; letters: string; value: string } =>
+            s.name === "amount"
+        );
+        const amountMsat = amountSection?.value
+          ? BigInt(amountSection.value)
+          : 0n;
+        const amountSats = Number(amountMsat / 1000n);
+        if (amountSats === 0) {
+          throw new Error(
+            "Invoice has no amount; refusing to pay amountless invoices for safety."
+          );
+        }
+
+        // Enforce cumulative spending cap (sats ledger).
+        // Key by the active Stacks address when available; fall back to a
+        // stable Lightning-specific key so the cap is always enforced even
+        // when the main wallet is locked (separate budget bucket in that case).
+        const addr =
+          getWalletManager().getActiveAccount()?.address ?? "__lightning__";
+        await getSpendLimiter().check("sats", BigInt(amountSats), addr);
+
         const result = await provider.payInvoice(bolt11, maxFeeSats);
+
+        // Record the spend only after a confirmed payment.
+        await getSpendLimiter().record("sats", BigInt(amountSats), addr);
+
         return createJsonResponse({
           success: true,
           preimage: result.preimage,
