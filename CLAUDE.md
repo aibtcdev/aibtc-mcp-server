@@ -127,6 +127,7 @@ Set environment variables in `.env`:
 - `CLIENT_MNEMONIC` - 24-word Stacks wallet mnemonic (optional - can use managed wallets instead)
 - `NETWORK` - "mainnet" or "testnet" (default: mainnet)
 - `API_URL` - Default x402 API base URL (default: https://x402.biwas.xyz)
+- `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` - Only used by the `bridge` subcommand (drive tools via an OpenRouter model)
 
 ### Wallet Storage
 
@@ -161,6 +162,24 @@ Each installer merges into the existing config rather than overwriting it. Zed a
 **Note:** `CLIENT_MNEMONIC` is optional. Users can either:
 1. **Managed wallets (recommended)**: Use `wallet_create` or `wallet_import` to generate/import wallets with password protection
 2. **Environment mnemonic**: Set `CLIENT_MNEMONIC` in env (for power users)
+
+## OpenRouter Bridge
+
+`bridge` is a CLI subcommand (`src/bridge/index.ts`, routed in `src/index.ts` next to `yield-hunter`) that lets an [OpenRouter](https://openrouter.ai) model drive the tools without an MCP host. It spawns this same binary in server mode over stdio, lists tools, converts each to an OpenAI function-tool schema (verbatim `inputSchema` passthrough), and runs the tool-call loop against `https://openrouter.ai/api/v1/chat/completions`. This is OpenRouter's own client-side MCP pattern ([cookbook](https://openrouter.ai/docs/cookbook/coding-agents/mcp-servers)) ported to Node — the client connects to MCP; there is no OpenRouter-side MCP hosting.
+
+```bash
+export OPENROUTER_API_KEY=sk-or-...
+npx @aibtc/mcp-server@latest bridge "what's the STX balance of SP3..."
+```
+
+Safety flags (default exposes all tools; constrain with these):
+- `--read-only` — heuristic allowlist; never includes a transfer/swap/deploy/spend tool
+- `--allow a,b` / `--block a,b` — explicit overrides (`--block` wins)
+- `--max-spend-ustx <n>` / `--max-spend-sats <n>` — forwarded to the spawned server's `SPEND_LIMIT_SESSION_*` rail
+- `--list-tools` — preview exposed set, no API key needed
+- `--model` / `--network` / `--max-turns`
+
+The allowlist is re-enforced at `tools/call` time, so the model can't reach a tool outside the exposed set. Frameworks with native MCP support (`@openrouter/agent`, OpenAI/Claude Agents SDKs) can point at the server directly instead.
 
 ## Available Tools
 

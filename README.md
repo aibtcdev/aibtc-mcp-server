@@ -69,6 +69,38 @@ npx @aibtc/mcp-server@latest --install --vscode     # VS Code (writes ./.vscode/
 
 Each installer merges into the existing config — it won't clobber other servers or settings. Restart the client afterward.
 
+### OpenRouter (any model)
+
+The clients above are MCP hosts — they connect to this server for you. To drive the tools with an [OpenRouter](https://openrouter.ai) model instead, the server ships a built-in bridge: it spawns itself in server mode, exposes the tools to the model as function tools, and runs the tool-call loop. This is the client-side pattern from [OpenRouter's MCP cookbook](https://openrouter.ai/docs/cookbook/coding-agents/mcp-servers), packaged into the binary.
+
+```bash
+export OPENROUTER_API_KEY=sk-or-...
+npx @aibtc/mcp-server@latest bridge "what's the STX balance of SP3...?"
+```
+
+Safety flags (this server moves real funds, so the bridge defaults to nothing extra and lets you constrain it):
+
+| Flag | Effect |
+|------|--------|
+| `--read-only` | Expose only read-only tools (no transfer/swap/deploy/etc.) |
+| `--allow a,b` | Force-allow specific tool names (added to the set) |
+| `--block a,b` | Force-remove specific tool names (wins over `--allow`) |
+| `--max-spend-ustx <n>` / `--max-spend-sats <n>` | Cap spend via the server's spend-limit rail (enforced before signing) |
+| `--list-tools` | Print the exposed tool set and exit (no API key needed) |
+| `--model <id>` | OpenRouter model (default `anthropic/claude-3.5-haiku`) |
+| `--network <net>` | `mainnet` or `testnet` (default `mainnet`) |
+| `--max-turns <n>` | Tool-call loop cap (default 10) |
+
+```bash
+# Preview what a read-only session would expose, no key needed:
+npx @aibtc/mcp-server@latest bridge --read-only --list-tools
+
+# Read-only chat, plus one explicitly allowed write tool:
+npx @aibtc/mcp-server@latest bridge --read-only --allow transfer_stx "send 1 STX to SP3..."
+```
+
+The allowlist is re-enforced at execution time, so a model can never call a tool outside the exposed set. Any MCP-capable agent framework (`@openrouter/agent`, OpenAI Agents SDK, Claude Agent SDK) can also point at this server directly — the bridge is for driving it through OpenRouter's raw API without adopting a framework.
+
 ### Testnet Mode
 
 Add `--testnet` to any install command:

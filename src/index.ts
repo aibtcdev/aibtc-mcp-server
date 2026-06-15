@@ -259,6 +259,16 @@ if (process.argv[2] === "yield-hunter") {
       process.exit(1);
     });
 }
+// Check for bridge command (OpenRouter <-> MCP)
+else if (process.argv[2] === "bridge") {
+  import("./bridge/index.js")
+    .then(({ runBridge }) => runBridge(process.argv.slice(3)))
+    .then(() => process.exit(0))
+    .catch((error) => {
+      console.error("❌ Bridge error:", redactSensitive(String(error)));
+      process.exit(1);
+    });
+}
 // Check for --install flag
 else if (process.argv.includes("--install") || process.argv.includes("install")) {
   runInstall()
