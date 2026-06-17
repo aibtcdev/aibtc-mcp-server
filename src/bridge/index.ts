@@ -70,10 +70,9 @@ function isReadOnly(name: string): boolean {
 
 /** MCP tool -> OpenRouter (OpenAI) function-tool schema (verbatim JSON Schema). */
 function toOpenAITool(tool: { name: string; description?: string; inputSchema?: unknown }) {
-  const schema =
-    (tool.inputSchema as Record<string, unknown>) ?? { type: "object", properties: {} };
-  if (!schema.type) schema.type = "object";
-  if (!schema.properties) schema.properties = {};
+  // Clone so we never mutate the tool descriptor handed back by the MCP SDK.
+  const raw = (tool.inputSchema as Record<string, unknown>) ?? {};
+  const schema: Record<string, unknown> = { type: "object", properties: {}, ...raw };
   return {
     type: "function",
     function: {
@@ -100,16 +99,36 @@ function parseArgs(argv: string[]): BridgeOptions {
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    // Value-taking flags must be followed by a value — otherwise the next loop
+    // iteration would silently consume the following flag (or leave the option
+    // unset, which for a spend cap means the rail is quietly disabled).
+    const value = (flag: string): string => {
+      const v = argv[++i];
+      if (v === undefined || v.startsWith("--")) {
+        console.error(`Missing value for ${flag}`);
+        process.exit(1);
+      }
+      return v;
+    };
     switch (a) {
       case "--read-only": opts.readOnly = true; break;
       case "--list-tools": opts.listTools = true; break;
-      case "--model": opts.model = argv[++i]; break;
-      case "--network": opts.network = argv[++i]; break;
-      case "--allow": csv(argv[++i] ?? "").forEach((t) => opts.allow.add(t)); break;
-      case "--block": csv(argv[++i] ?? "").forEach((t) => opts.block.add(t)); break;
-      case "--max-spend-ustx": opts.maxSpendUstx = argv[++i]; break;
-      case "--max-spend-sats": opts.maxSpendSats = argv[++i]; break;
-      case "--max-turns": opts.maxTurns = parseInt(argv[++i], 10) || 10; break;
+      case "--model": opts.model = value(a); break;
+      case "--network": opts.network = value(a); break;
+      case "--allow": csv(value(a)).forEach((t) => opts.allow.add(t)); break;
+      case "--block": csv(value(a)).forEach((t) => opts.block.add(t)); break;
+      case "--max-spend-ustx": opts.maxSpendUstx = value(a); break;
+      case "--max-spend-sats": opts.maxSpendSats = value(a); break;
+      case "--max-turns": {
+        const raw = value(a);
+        const n = parseInt(raw, 10);
+        if (!Number.isInteger(n) || n < 1) {
+          console.error(`--max-turns must be a positive integer (got "${raw}")`);
+          process.exit(1);
+        }
+        opts.maxTurns = n;
+        break;
+      }
       default:
         if (a.startsWith("--")) {
           console.error(`Unknown flag: ${a}`);
@@ -137,7 +156,7 @@ async function callOpenRouter(
   model: string,
   messages: unknown[],
   tools: unknown[]
-): Promise<{ content?: string; tool_calls?: { id: string; function: { name: string; arguments: string } }[] }> {
+): Promise<{ role: string; content?: string; tool_calls?: { id: string; function: { name: string; arguments: string } }[] }> {
   const res = await fetch(OPENROUTER_URL, {
     method: "POST",
     headers: {
@@ -151,8 +170,15 @@ async function callOpenRouter(
   if (!res.ok) {
     throw new Error(`OpenRouter ${res.status}: ${await res.text()}`);
   }
-  const data = (await res.json()) as { choices: { message: any }[] };
-  return data.choices[0].message;
+  // OpenRouter can return HTTP 200 with an error payload (rate limit, moderation,
+  // provider failure) and no choices — surface it instead of crashing on [0].
+  const data = (await res.json()) as { choices?: { message: any }[]; error?: { message?: string } };
+  const message = data.choices?.[0]?.message;
+  if (!message) {
+    const detail = data.error?.message ?? JSON.stringify(data);
+    throw new Error(`OpenRouter returned no message: ${detail}`);
+  }
+  return message;
 }
 
 export async function runBridge(argv: string[]): Promise<void> {
@@ -217,49 +243,62 @@ export async function runBridge(argv: string[]): Promise<void> {
     { role: "user", content: opts.prompt },
   ];
 
-  for (let turn = 0; turn < opts.maxTurns; turn++) {
-    const reply = await callOpenRouter(apiKey, opts.model, messages, openaiTools);
-    messages.push(reply);
+  try {
+    let completed = false;
+    for (let turn = 0; turn < opts.maxTurns; turn++) {
+      const reply = await callOpenRouter(apiKey, opts.model, messages, openaiTools);
+      messages.push(reply);
 
-    const toolCalls = reply.tool_calls ?? [];
-    if (toolCalls.length === 0) {
-      console.log("\n" + (reply.content ?? ""));
-      break;
+      const toolCalls = reply.tool_calls ?? [];
+      if (toolCalls.length === 0) {
+        console.log("\n" + (reply.content ?? ""));
+        completed = true;
+        break;
+      }
+
+      for (const call of toolCalls) {
+        const name = call.function.name;
+        // Enforce the allowlist at execution time too — never trust the model
+        // to stay inside the exposed set.
+        if (!exposed.some((t) => t.name === name)) {
+          messages.push({
+            role: "tool",
+            tool_call_id: call.id,
+            name,
+            content: `Tool ${name} is not permitted by the bridge.`,
+          });
+          continue;
+        }
+        let args: Record<string, unknown> = {};
+        try {
+          args = JSON.parse(call.function.arguments || "{}");
+        } catch {
+          /* malformed JSON -> empty args */
+        }
+        console.error(`-> ${name}(${call.function.arguments || "{}"})`);
+
+        let content: string;
+        try {
+          const result = await client.callTool({ name, arguments: args });
+          content = ((result.content as any[]) ?? [])
+            .map((c) => (c?.type === "text" ? c.text : JSON.stringify(c)))
+            .join("\n");
+        } catch (err) {
+          content = `Tool error: ${(err as Error).message}`;
+        }
+        messages.push({ role: "tool", tool_call_id: call.id, name, content });
+      }
     }
 
-    for (const call of toolCalls) {
-      const name = call.function.name;
-      // Enforce the allowlist at execution time too — never trust the model
-      // to stay inside the exposed set.
-      if (!exposed.some((t) => t.name === name)) {
-        messages.push({
-          role: "tool",
-          tool_call_id: call.id,
-          name,
-          content: `Tool ${name} is not permitted by the bridge.`,
-        });
-        continue;
-      }
-      let args: Record<string, unknown> = {};
-      try {
-        args = JSON.parse(call.function.arguments || "{}");
-      } catch {
-        /* malformed JSON -> empty args */
-      }
-      console.error(`-> ${name}(${call.function.arguments || "{}"})`);
-
-      let content: string;
-      try {
-        const result = await client.callTool({ name, arguments: args });
-        content = ((result.content as any[]) ?? [])
-          .map((c) => (c?.type === "text" ? c.text : JSON.stringify(c)))
-          .join("\n");
-      } catch (err) {
-        content = `Tool error: ${(err as Error).message}`;
-      }
-      messages.push({ role: "tool", tool_call_id: call.id, name, content });
+    // Don't let the cap swallow the session silently — the model was still
+    // calling tools when we ran out of turns.
+    if (!completed) {
+      console.error(
+        `Bridge: reached --max-turns limit (${opts.maxTurns}) without a final response. ` +
+          "Re-run with a higher --max-turns to let it finish."
+      );
     }
+  } finally {
+    await client.close();
   }
-
-  await client.close();
 }
