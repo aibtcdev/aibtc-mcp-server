@@ -128,6 +128,13 @@ Set environment variables in `.env`:
 - `NETWORK` - "mainnet" or "testnet" (default: mainnet)
 - `API_URL` - Default x402 API base URL (default: https://x402.biwas.xyz)
 - `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` - Only used by the `bridge` subcommand (drive tools via an OpenRouter model)
+- `SPEND_LIMIT_ENABLED` - Wallet spending limit on/off (default: true)
+- `SPEND_LIMIT_DAILY_USTX` / `SPEND_LIMIT_SESSION_USTX` - STX spend cap per day / per unlock in micro-STX (default: 10000000 = 10 STX)
+- `SPEND_LIMIT_DAILY_SATS` / `SPEND_LIMIT_SESSION_SATS` - BTC spend cap per day / per unlock in sats (default: 50000)
+
+### Spending Limit
+
+A default-on safety rail (`src/services/spend-limiter.ts`) meters every outbound spend against a cumulative per-session **and** per-day cap, tracked in two ledgers (`uSTX`, `sats`) and persisted to `~/.aibtc/spend-state.json`. Enforced at the spend chokepoints: `transferStx` (`builder.ts`), `transfer_btc` (`bitcoin.tools.ts`), and the x402/L402 auto-payment paths (`x402.service.ts`). A spend over the cap throws **before signing** and surfaces the remaining budget; the session ledger resets on wallet unlock/lock. Not yet wired to contract-call swaps or manual `lightning_pay_invoice` (amount isn't a direct chokepoint param) — known follow-up.
 
 ### Wallet Storage
 

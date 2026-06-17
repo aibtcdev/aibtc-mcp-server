@@ -1,6 +1,6 @@
 {
   "name": "@aibtc/mcp-server",
-  "version": "1.58.0",
+  "version": "1.59.0",
   "description": "Bitcoin-native MCP server for AI agents: BTC/STX wallets, DeFi yield, sBTC peg, NFTs, and x402 payments.",
   "mcpName": "io.github.aibtcdev/mcp-server",
   "type": "module",
@@ -14,6 +14,7 @@
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "prepare": "git config core.hooksPath >/dev/null 2>&1 || git config core.hooksPath .githooks 2>/dev/null || true",
     "prepublishOnly": "npm run build"
   },
   "files": [
