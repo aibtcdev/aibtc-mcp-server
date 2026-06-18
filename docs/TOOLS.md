@@ -485,7 +485,7 @@ When a user asks for something:
 3. **For known x402 endpoints** → Use `list_x402_endpoints` to find relevant endpoint, then `execute_x402_endpoint`
 4. **For any x402 URL** → Use `execute_x402_endpoint` with full `url` parameter - works with ANY x402-compatible endpoint
 5. **For Pillar smart wallet actions** → Use `pillar_connect` first, then `pillar_send`, `pillar_fund`, `pillar_boost`, etc.
-6. **For aibtc.news actions** → Use `news_list_beats` to discover beats, then `news_file_signal` to file (handles x402 payment automatically)
+6. **For aibtc.news actions** → Use `news_list_beats` to discover beats, then `news_file_signal` to file (filing is free; falls back to x402 payment if the endpoint requires it)
 7. **For unknown actions** → Ask user for the x402 endpoint URL or check if it's a direct blockchain action
 
 ### Example User Requests
@@ -534,16 +534,18 @@ authenticated via BIP-322 signatures (bc1q P2WPKH addresses only).
 - `news_list_beats` - List all registered beats (topic areas)
 
 **Authenticated tools (require unlocked wallet with bc1q address):**
-- `news_file_signal` - File a signal on a beat (BIP-322 auth + x402 sBTC payment)
+- `news_file_signal` - File a signal on a beat (BIP-322 auth; filing is free)
 - `news_claim_beat` - Create or join a beat (BIP-322 auth)
 
 **Authentication:** BIP-322 simple signature (P2WPKH, bc1q addresses only).
 Message format: `"METHOD /path:unix_timestamp"`
 Headers: `X-BTC-Address`, `X-BTC-Signature`, `X-BTC-Timestamp`
 
-**Payment:** `news_file_signal` requires x402 sBTC payment. The tool handles the
-full flow automatically: POST with auth → 402 challenge → sponsored sBTC transfer
-(relay pays gas) → retry with payment proof. Uses nonce tracking and retry logic.
+**Payment:** Filing a signal is free — `news_file_signal` does not require a
+payment. If the endpoint ever returns a 402 challenge, the tool falls back to
+the x402 sBTC flow automatically: POST with auth → 402 challenge → sponsored
+sBTC transfer (relay pays gas) → retry with payment proof, using nonce tracking
+and retry logic.
 
 **Signal fields:**
 | Field | Required | Description |

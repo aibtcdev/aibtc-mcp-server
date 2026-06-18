@@ -597,10 +597,11 @@ Fields:
     {
       description: `File a signal on a beat at aibtc.news.
 
-Requires an unlocked wallet with a P2WPKH (bc1q) BTC address and sBTC balance
-for the x402 payment. The tool handles the full payment flow:
-1. POST with BIP-322 auth → receive 402 payment challenge
-2. Build sponsored sBTC transfer (relay pays gas)
+Filing is free — no payment required. Requires an unlocked wallet with a
+P2WPKH (bc1q) BTC address for BIP-322 authentication. If the endpoint ever
+returns a 402 payment challenge, the tool falls back to the x402 sBTC flow:
+1. POST with BIP-322 auth → signal filed (or receive 402 payment challenge)
+2. On 402: build sponsored sBTC transfer (relay pays gas)
 3. Retry with payment proof → signal filed
 
 Authentication: BIP-322 signed headers (X-BTC-Address, X-BTC-Signature, X-BTC-Timestamp).
