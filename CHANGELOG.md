@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.60.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.59.0...mcp-server-v1.60.0) (2026-06-18)
+
+
+### Features
+
+* OpenRouter bridge subcommand ([#577](https://github.com/aibtcdev/aibtc-mcp-server/issues/577)) ([d2572cd](https://github.com/aibtcdev/aibtc-mcp-server/commit/d2572cdfa2b57927d4c77fcfedbb260f2730fec4))
+
 ## [1.59.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.58.0...mcp-server-v1.59.0) (2026-06-10)
 
 
