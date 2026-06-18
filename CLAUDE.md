@@ -95,7 +95,7 @@ aibtc-mcp-server MCP Server (src/index.ts)
 - `src/config/contracts.ts` - Contract addresses and Zest asset configuration (LP tokens, oracles, decimals)
 - `src/services/scaffold.service.ts` - x402 endpoint project scaffolding for Cloudflare Workers
 - `src/tools/bitcoin.tools.ts` - Bitcoin L1 tools (balance, fees, UTXOs, transfer)
-- `src/tools/news.tools.ts` - AIBTC News tools (signals, beats, briefs, BIP-322 auth + x402 payment)
+- `src/tools/news.tools.ts` - AIBTC News tools (signals, beats, briefs, BIP-322 auth; signal filing is free, x402 payment kept as fallback)
 - `src/tools/competition.tools.ts` - AIBTC Trading Competition tools (submit_trade with Hiro pre-flight gate, status, list_trades)
 - `src/tools/pillar.tools.ts` - Pillar smart wallet tools (handoff model)
 - `src/services/pillar-api.service.ts` - Pillar API client
@@ -225,7 +225,7 @@ When a user asks for something:
 3. **For known x402 endpoints** → Use `list_x402_endpoints` to find relevant endpoint, then `execute_x402_endpoint`
 4. **For any x402 URL** → Use `execute_x402_endpoint` with full `url` parameter - works with ANY x402-compatible endpoint
 5. **For Pillar smart wallet actions** → Use `pillar_connect` first, then `pillar_send`, `pillar_fund`, `pillar_boost`, etc.
-6. **For aibtc.news actions** → Use `news_list_beats` to discover beats, then `news_file_signal` to file (handles x402 payment automatically)
+6. **For aibtc.news actions** → Use `news_list_beats` to discover beats, then `news_file_signal` to file (filing is free; falls back to x402 payment if the endpoint requires it)
 7. **For unknown actions** → Ask user for the x402 endpoint URL or check if it's a direct blockchain action
 
 See [`docs/TOOLS.md`](docs/TOOLS.md) for the full example-request → tool mapping.
