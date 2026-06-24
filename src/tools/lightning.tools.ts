@@ -376,7 +376,6 @@ export function registerLightningTools(server: McpServer): void {
         // Same pattern as the L402 auto-pay path in x402.service.ts.
         // The try-catch covers both decode and amount extraction: BigInt()
         // can throw if the decoder returns an unexpected value type.
-        let amountSats: number;
         let amountMsat: bigint;
         try {
           const decoded = decodeBolt11(bolt11);
@@ -387,7 +386,6 @@ export function registerLightningTools(server: McpServer): void {
           amountMsat = amountSection?.value
             ? BigInt(amountSection.value)
             : 0n;
-          amountSats = Number(amountMsat / 1000n);
         } catch (decodeErr) {
           throw new Error(
             `Invoice could not be decoded: ${decodeErr instanceof Error ? decodeErr.message : String(decodeErr)}`
@@ -399,7 +397,7 @@ export function registerLightningTools(server: McpServer): void {
             "Invoice has no amount; refusing to pay amountless invoices for safety."
           );
         }
-        if (amountSats === 0) {
+        if (amountMsat < 1000n) {
           // amountMsat > 0 but < 1000: sub-sat invoice, unmeterable.
           throw new Error(
             "Invoice amount is below 1 sat minimum (< 1000 msat); refusing to pay."
@@ -412,7 +410,7 @@ export function registerLightningTools(server: McpServer): void {
         // when the main wallet is locked (separate budget bucket in that case).
         const addr =
           getWalletManager().getActiveAccount()?.address ?? "__lightning__";
-        await getSpendLimiter().check("sats", BigInt(amountSats), addr);
+        await getSpendLimiter().check("sats", amountMsat / 1000n, addr);
 
         const result = await provider.payInvoice(bolt11, maxFeeSats);
 
@@ -430,11 +428,11 @@ export function registerLightningTools(server: McpServer): void {
         // propagating an error that would mislead the caller into thinking the
         // payment failed. The daily state file reconciles on the next write.
         try {
-          await getSpendLimiter().record("sats", BigInt(amountSats), addr);
+          await getSpendLimiter().record("sats", amountMsat / 1000n, addr);
         } catch (recordErr) {
           console.error(
             `[spend-limit] record() failed after confirmed Lightning payment ` +
-              `(${amountSats} sats, addr=${addr}): ` +
+              `(${amountMsat / 1000n} sats, addr=${addr}): ` +
               `${recordErr instanceof Error ? recordErr.message : String(recordErr)}`
           );
         }
