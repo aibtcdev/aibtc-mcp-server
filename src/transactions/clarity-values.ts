@@ -74,12 +74,9 @@ export function parseArgToClarityValue(arg: unknown): ClarityValue {
         case "principal":
           return principalCV(typedArg.value as string);
         case "buffer": {
-          const rawHex = typedArg.value as string;
           // Strip optional 0x/0X prefix — without this, Buffer.from("0x...", "hex")
-          // silently produces an empty buffer (confirmed in legion-gov testnet run, #1012)
-          const hexStr = rawHex.startsWith("0x") || rawHex.startsWith("0X")
-            ? rawHex.slice(2)
-            : rawHex;
+          // silently produces an empty buffer (aibtcdev/landing-page#1012 Finding 2)
+          const hexStr = (typedArg.value as string).replace(/^0x/i, "");
           return bufferCV(Buffer.from(hexStr, "hex"));
         }
         case "none":
