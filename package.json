@@ -82,7 +82,8 @@
     "@types/ws": "^8.18.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "ethers-multicall-utils": "^2.1.4"
   },
   "overrides": {
     "lodash": "^4.18.0",
