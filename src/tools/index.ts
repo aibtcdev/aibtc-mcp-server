@@ -36,6 +36,7 @@ import { registerOrdinalsMarketplaceTools } from "./ordinals-marketplace.tools.j
 import { registerTaprootMultisigTools } from "./taproot-multisig.tools.js";
 import { registerJingswapTools } from "./jingswap.tools.js";
 import { registerSigningTools } from "./signing.tools.js";
+import { registerInferenceMarketplaceTools } from "./inference-marketplace.tools.js";
 import { registerNewsTools } from "./news.tools.js";
 import { registerIdentityTools } from "./identity.tools.js";
 import { registerCredentialsTools } from "./credentials.tools.js";
@@ -201,6 +202,9 @@ export function registerAllTools(server: McpServer): void {
 
   // Message Signing (BTC BIP-322, Stacks SIWS, SIP-018 structured data, Nostr NIP-01)
   registerSigningTools(server);
+
+  // AIBTC Inference Marketplace (list/manage a paid model endpoint via wallet signature)
+  registerInferenceMarketplaceTools(server);
 
   // AIBTC News (signal feed, leaderboard, file signals)
   registerNewsTools(server);

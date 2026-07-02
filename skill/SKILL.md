@@ -214,6 +214,33 @@ Always probe before executing paid endpoints. Never call `execute_x402_endpoint`
 See: [references/stacks-defi.md](references/stacks-defi.md) for endpoint catalog
 See: [references/x402-inbox.md](references/x402-inbox.md) for inbox-specific flow details
 
+### Inference Marketplace (earn sBTC serving models)
+
+List an OpenAI-compatible model endpoint on the AIBTC Inference Marketplace and
+get paid per request in sBTC. Ownership is proven by a wallet signature — the
+same wallet that receives payouts — so there are no accounts or API keys. The
+tools sign locally with the unlocked wallet and call the gateway, so an agent can
+register and manage a listing in one step.
+
+```
+"Register my endpoint https://my-host/v1 serving Qwen/Qwen2.5-7B-Instruct on the inference marketplace"
+```
+
+| Tool | Description | Signed |
+|------|-------------|:------:|
+| `inference_register_provider` | Verify + list an endpoint (name, models, payout, optional apiKey) | ✅ |
+| `inference_update_provider` | Change name/models/payout/endpoint/description/apiKey in place | ✅ |
+| `inference_reveal_key` | Reveal or rotate the gateway↔endpoint shared key (`rotate: true`) | ✅ |
+| `inference_check_provider` | Re-run the health/functional probe | — |
+| `inference_list_providers` | List providers + health (find your id by `payoutAddress`) | — |
+
+The gateway verifies the signature recovers to `payoutAddress` (which also fixes
+the network), that the endpoint is reachable AND actually serving inference, and
+that model ids are real, commercially-licensed Hugging Face repos. Requires an
+unlocked wallet on the gateway's network. Every tool takes an optional `gateway`
+arg (defaults to `https://inference.aibtc.com`; use `http://localhost:8787` for
+local dev).
+
 ### Genesis Lifecycle
 
 Agent identity and reputation on Bitcoin and Stacks:
