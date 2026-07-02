@@ -33,6 +33,46 @@ import { getWalletManager } from "../services/wallet-manager.js";
 /** Default marketplace gateway; override with the `gateway` arg for local dev. */
 const DEFAULT_GATEWAY = "https://inference.aibtc.com";
 
+/** Bound network calls so a hung endpoint can't block the tool call forever. */
+const GATEWAY_TIMEOUT_MS = 15_000;
+
+/** Loopback hosts always allowed for local dev. */
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
+/**
+ * These tools sign an ownership message with the payout wallet and may forward
+ * the endpoint's own `apiKey` — both secrets. If the gateway destination were
+ * free-form, a prompt-injected "use gateway https://attacker.example" could
+ * redirect that signed request and leak the signature + apiKey. So the override
+ * is restricted to localhost and the marketplace (`*.aibtc.com`); any other host
+ * requires an explicit `allowUnsafeGateway: true`, which natural language alone
+ * won't set.
+ */
+function isAllowedGatewayHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  if (LOOPBACK_HOSTS.has(host)) return true;
+  return host === "aibtc.com" || host.endsWith(".aibtc.com");
+}
+
+/** Validate + normalize the gateway base URL (trailing slash stripped). */
+function resolveGateway(gateway: string | undefined, allowUnsafe: boolean): string {
+  const base = (gateway ?? DEFAULT_GATEWAY).replace(/\/$/, "");
+  let url: URL;
+  try {
+    url = new URL(base);
+  } catch {
+    throw new Error(`Invalid gateway URL: ${base}`);
+  }
+  if (!allowUnsafe && !isAllowedGatewayHost(url.hostname)) {
+    throw new Error(
+      `Gateway host "${url.hostname}" is not allowed. Wallet-signed headers and your endpoint apiKey ` +
+        `are only sent to the marketplace (*.aibtc.com) or localhost. To target another host on ` +
+        `purpose, pass allowUnsafeGateway: true.`
+    );
+  }
+  return base;
+}
+
 type AuthAction = "register" | "update" | "reveal-key";
 
 function requireUnlockedWallet() {
@@ -75,7 +115,7 @@ async function gatewayFetch(
   url: string,
   init: RequestInit
 ): Promise<{ ok: boolean; status: number; body: unknown }> {
-  const res = await fetch(url, init);
+  const res = await fetch(url, { ...init, signal: AbortSignal.timeout(GATEWAY_TIMEOUT_MS) });
   const text = await res.text();
   let body: unknown;
   try {
@@ -91,6 +131,14 @@ const gatewayArg = z
   .url()
   .optional()
   .describe(`Marketplace gateway base URL. Defaults to ${DEFAULT_GATEWAY}. Use http://localhost:8787 for local dev.`);
+
+const allowUnsafeGatewayArg = z
+  .boolean()
+  .optional()
+  .describe(
+    "Allow a gateway host outside localhost / *.aibtc.com. Required to send wallet-signed headers " +
+      "(and any apiKey) to an arbitrary host — leave unset unless you deliberately self-host the gateway."
+  );
 
 export function registerInferenceMarketplaceTools(server: McpServer): void {
   // Register (verify + list) an endpoint — signed
@@ -122,12 +170,13 @@ export function registerInferenceMarketplaceTools(server: McpServer): void {
           .optional()
           .describe("Optional: a key your endpoint requires. Locks the endpoint so only the gateway (which presents it) can call it."),
         gateway: gatewayArg,
+        allowUnsafeGateway: allowUnsafeGatewayArg,
       },
     },
-    async ({ name, endpoint, models, payoutAddress, apiKey, gateway }) => {
+    async ({ name, endpoint, models, payoutAddress, apiKey, gateway, allowUnsafeGateway }) => {
       try {
         const account = requireUnlockedWallet();
-        const base = (gateway ?? DEFAULT_GATEWAY).replace(/\/$/, "");
+        const base = resolveGateway(gateway, allowUnsafeGateway ?? false);
         const payout = payoutAddress ?? account.address;
         const headers = signAuthHeaders(account, "register", endpoint);
         const { ok, status, body } = await gatewayFetch(`${base}/v1/providers`, {
@@ -174,12 +223,13 @@ export function registerInferenceMarketplaceTools(server: McpServer): void {
         description: z.string().optional().describe("New description."),
         apiKey: z.string().optional().describe("Set/replace the key your endpoint requires (locks the endpoint)."),
         gateway: gatewayArg,
+        allowUnsafeGateway: allowUnsafeGatewayArg,
       },
     },
-    async ({ providerId, name, endpoint, models, payoutAddress, description, apiKey, gateway }) => {
+    async ({ providerId, name, endpoint, models, payoutAddress, description, apiKey, gateway, allowUnsafeGateway }) => {
       try {
         const account = requireUnlockedWallet();
-        const base = (gateway ?? DEFAULT_GATEWAY).replace(/\/$/, "");
+        const base = resolveGateway(gateway, allowUnsafeGateway ?? false);
         const patch: Record<string, unknown> = {};
         if (name !== undefined) patch.name = name;
         if (endpoint !== undefined) patch.endpoint = endpoint;
@@ -221,12 +271,13 @@ export function registerInferenceMarketplaceTools(server: McpServer): void {
         providerId: z.string().describe("The provider id (from inference_list_providers)."),
         rotate: z.boolean().optional().describe("true = generate and return a NEW key (invalidates the old one). false/omitted = reveal the current key."),
         gateway: gatewayArg,
+        allowUnsafeGateway: allowUnsafeGatewayArg,
       },
     },
-    async ({ providerId, rotate, gateway }) => {
+    async ({ providerId, rotate, gateway, allowUnsafeGateway }) => {
       try {
         const account = requireUnlockedWallet();
-        const base = (gateway ?? DEFAULT_GATEWAY).replace(/\/$/, "");
+        const base = resolveGateway(gateway, allowUnsafeGateway ?? false);
         const headers = signAuthHeaders(account, "reveal-key", providerId);
         const { ok, status, body } = await gatewayFetch(`${base}/v1/providers/${providerId}/key`, {
           method: "POST",
@@ -258,11 +309,12 @@ export function registerInferenceMarketplaceTools(server: McpServer): void {
       inputSchema: {
         providerId: z.string().describe("The provider id to check."),
         gateway: gatewayArg,
+        allowUnsafeGateway: allowUnsafeGatewayArg,
       },
     },
-    async ({ providerId, gateway }) => {
+    async ({ providerId, gateway, allowUnsafeGateway }) => {
       try {
-        const base = (gateway ?? DEFAULT_GATEWAY).replace(/\/$/, "");
+        const base = resolveGateway(gateway, allowUnsafeGateway ?? false);
         const { ok, status, body } = await gatewayFetch(`${base}/v1/providers/${providerId}/check`, {
           method: "POST",
         });
@@ -282,11 +334,12 @@ export function registerInferenceMarketplaceTools(server: McpServer): void {
         "required. Use it to find your provider id (match on payoutAddress) after registering.",
       inputSchema: {
         gateway: gatewayArg,
+        allowUnsafeGateway: allowUnsafeGatewayArg,
       },
     },
-    async ({ gateway }) => {
+    async ({ gateway, allowUnsafeGateway }) => {
       try {
-        const base = (gateway ?? DEFAULT_GATEWAY).replace(/\/$/, "");
+        const base = resolveGateway(gateway, allowUnsafeGateway ?? false);
         const { ok, status, body } = await gatewayFetch(`${base}/v1/providers`, { method: "GET" });
         return createJsonResponse({ success: ok, status, gateway: base, result: body });
       } catch (error) {
