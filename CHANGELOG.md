@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.61.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.60.0...mcp-server-v1.61.0) (2026-07-02)
+
+
+### Features
+
+* inference marketplace provider tools ([#587](https://github.com/aibtcdev/aibtc-mcp-server/issues/587)) ([ffeb851](https://github.com/aibtcdev/aibtc-mcp-server/commit/ffeb8515db9045ad1e98e186857e183dcb0df571))
+
 ## [1.60.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.59.0...mcp-server-v1.60.0) (2026-06-18)
 
 
