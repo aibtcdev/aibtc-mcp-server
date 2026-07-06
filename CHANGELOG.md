@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.62.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.61.0...mcp-server-v1.62.0) (2026-07-06)
+
+
+### Features
+
+* dual_stacking resilience, lightning spend limit, bridge safety receipt ([#590](https://github.com/aibtcdev/aibtc-mcp-server/issues/590)) ([aa3c94d](https://github.com/aibtcdev/aibtc-mcp-server/commit/aa3c94def5c7347382c78404f09b81d9867865ab))
+
 ## [1.61.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.60.0...mcp-server-v1.61.0) (2026-07-02)
 
 
