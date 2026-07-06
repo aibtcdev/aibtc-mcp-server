@@ -96,19 +96,40 @@ Note: Dual Stacking is only available on mainnet.`,
 
         const resolvedAddress = address || (await getWalletAddress());
 
-        const [
-          enrolledThisCycleRaw,
-          enrolledNextCycleRaw,
-          minimumAmountRaw,
-          aprDataRaw,
-          cycleOverviewRaw,
-        ] = await Promise.all([
+        // Use allSettled, not all: `is-enrolled-this-cycle` fails contract-side
+        // on mainnet with RuntimeCheck(AtBlockUnavailable) (it reads historical
+        // block state Hiro has pruned). With Promise.all a single failing read
+        // sinks the whole response, hiding the other 4 useful fields. Recover
+        // per-call and surface a `warnings` array instead. (#554)
+        const warnings: string[] = [];
+        const settled = await Promise.allSettled([
           callDualStackingReadOnly("is-enrolled-this-cycle", [principalCV(resolvedAddress)]),
           callDualStackingReadOnly("is-enrolled-in-next-cycle", [principalCV(resolvedAddress)]),
           callDualStackingReadOnly("get-minimum-enrollment-amount", []),
           callDualStackingReadOnly("get-apr-data", []),
           callDualStackingReadOnly("current-overview-data", []),
         ]);
+        const readNames = [
+          "is-enrolled-this-cycle",
+          "is-enrolled-in-next-cycle",
+          "get-minimum-enrollment-amount",
+          "get-apr-data",
+          "current-overview-data",
+        ] as const;
+        const values = settled.map((r, i) => {
+          if (r.status === "fulfilled") return r.value;
+          warnings.push(
+            `${readNames[i]}: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`
+          );
+          return null;
+        });
+        const [
+          enrolledThisCycleRaw,
+          enrolledNextCycleRaw,
+          minimumAmountRaw,
+          aprDataRaw,
+          cycleOverviewRaw,
+        ] = values;
 
         // Parse APR data — returns {min-apr: uint, max-apr: uint} divided by 1_000_000 for %
         let apr: { minApr: number; maxApr: number; unit: string; note: string } = {
@@ -155,9 +176,10 @@ Note: Dual Stacking is only available on mainnet.`,
           minimumEnrollmentSats = raw.value !== undefined ? Number(raw.value) : 0;
         }
 
-        // Parse boolean enrollment flags
-        const parseBoolean = (raw: unknown): boolean => {
-          if (raw === null || raw === undefined) return false;
+        // Parse boolean enrollment flags. A failed read stays null (unknown)
+        // rather than collapsing to a misleading `false`.
+        const parseBoolean = (raw: unknown): boolean | null => {
+          if (raw === null || raw === undefined) return null;
           if (typeof raw === "boolean") return raw;
           const obj = raw as { value?: unknown; type?: string };
           if (obj.type === "bool") return obj.value === true || obj.value === "true";
@@ -172,6 +194,7 @@ Note: Dual Stacking is only available on mainnet.`,
           minimumEnrollmentSats,
           apr,
           cycleOverview,
+          ...(warnings.length > 0 && { warnings }),
         });
       } catch (error) {
         return createErrorResponse(error);

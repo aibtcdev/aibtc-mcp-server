@@ -9,9 +9,11 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { decode as decodeBolt11 } from "light-bolt11-decoder";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { getLightningManager } from "../services/lightning-manager.js";
 import { getWalletManager } from "../services/wallet-manager.js";
+import { getSpendLimiter } from "../services/spend-limiter.js";
 import {
   MempoolApi,
   getMempoolTxUrl,
@@ -369,11 +371,51 @@ export function registerLightningTools(server: McpServer): void {
             "Lightning wallet is locked. Use lightning_unlock first."
           );
         }
+
+        // Meter the invoice face value against the cumulative sats spend limit
+        // (#572). maxFeeSats only bounds the routing fee, not the payable amount,
+        // so without this a single invoice can pay out an unbounded amount.
+        // Decode the invoice to read the amount (millisats), mirroring the L402
+        // auto-pay path in x402.service.ts.
+        let decoded: ReturnType<typeof decodeBolt11>;
+        try {
+          decoded = decodeBolt11(bolt11);
+        } catch (decodeErr) {
+          throw new Error(
+            `BOLT-11 invoice could not be decoded: ${decodeErr instanceof Error ? decodeErr.message : String(decodeErr)}`
+          );
+        }
+        const amountSection = decoded.sections.find(
+          (s): s is { name: "amount"; letters: string; value: string } =>
+            s.name === "amount"
+        );
+        const amountMsat = amountSection?.value ? BigInt(amountSection.value) : 0n;
+        const amountSats = Number(amountMsat / 1000n);
+        if (amountSats === 0) {
+          throw new Error(
+            "Invoice has no amount; refusing to pay amountless invoices for safety (an unmeterable spend defeats the spending cap)."
+          );
+        }
+
+        // Key the sats ledger by the active Stacks address so BTC L1 / sBTC /
+        // L402 / Lightning spends share one budget. When the main wallet is
+        // locked (Lightning has its own session), fall back to a dedicated
+        // Lightning bucket so the pay is always metered. Note: a locked-STX
+        // user therefore gets a separate Lightning ledger from their STX-address
+        // ledger — see SECURITY.md.
+        const ledgerKey =
+          getWalletManager().getActiveAccount()?.address ?? "__lightning__";
+        await getSpendLimiter().check("sats", BigInt(amountSats), ledgerKey);
+
         const result = await provider.payInvoice(bolt11, maxFeeSats);
+
+        await getSpendLimiter().record("sats", BigInt(amountSats), ledgerKey);
+
         return createJsonResponse({
           success: true,
           preimage: result.preimage,
           feesPaidSats: result.feesPaid,
+          amountSats,
         });
       } catch (error) {
         return createErrorResponse(error);

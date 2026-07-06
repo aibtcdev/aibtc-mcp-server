@@ -30,6 +30,7 @@
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { ALL_ENDPOINTS } from "../endpoints/registry.js";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const DEFAULT_MODEL = "anthropic/claude-3.5-haiku";
@@ -141,6 +142,33 @@ function parseArgs(argv: string[]): BridgeOptions {
   return opts;
 }
 
+/**
+ * Compact safety receipt printed before any agent loop runs (#583). Makes the
+ * configured execution boundaries visible up front so a user can trust the
+ * bridge without digging through flags/config. It reports ONLY configured
+ * boundaries — it never claims that any value moved. Emitted on stderr so it
+ * can't pollute stdout (the final assistant reply / --list-tools piping).
+ */
+function printSafetyReceipt<T extends { name: string }>(
+  opts: BridgeOptions,
+  exposed: T[],
+  totalTools: number
+): void {
+  const writeToolCount = exposed.filter((t) => !isReadOnly(t.name)).length;
+  const lines = [
+    "aibtc-mcp bridge — safety receipt",
+    `  network=${opts.network}`,
+    `  read_only=${opts.readOnly}`,
+    `  exposed_tools=${exposed.length}/${totalTools}`,
+    `  write_tool_count=${writeToolCount}`,
+    `  blocked_tool_count=${opts.block.size}`,
+    `  session_spend_cap=${opts.maxSpendUstx ?? "default"} uSTX / ${opts.maxSpendSats ?? "default"} sats`,
+    `  x402_endpoints_known=${ALL_ENDPOINTS.length}`,
+    "  (reports configured execution boundaries only; no value has moved)",
+  ];
+  console.error(lines.join("\n"));
+}
+
 /** Apply read-only + allow + block to the raw MCP tool list. */
 function selectTools<T extends { name: string }>(tools: T[], opts: BridgeOptions): T[] {
   return tools.filter((t) => {
@@ -204,6 +232,7 @@ export async function runBridge(argv: string[]): Promise<void> {
   const exposed = selectTools(allTools, opts);
 
   if (opts.listTools) {
+    printSafetyReceipt(opts, exposed, allTools.length);
     console.log(`Exposed ${exposed.length}/${allTools.length} tools` +
       (opts.readOnly ? " (read-only)" : "") + ":");
     for (const t of exposed) console.log(`  ${t.name}`);
@@ -223,14 +252,8 @@ export async function runBridge(argv: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const writeCount = exposed.filter((t) => !isReadOnly(t.name)).length;
-  console.error(
-    `Bridge: ${exposed.length} tools -> ${opts.model}` +
-      (opts.readOnly ? " [read-only]" : ` [${writeCount} can write/spend]`) +
-      (opts.maxSpendUstx || opts.maxSpendSats
-        ? ` (cap ${opts.maxSpendUstx ?? "-"} uSTX / ${opts.maxSpendSats ?? "-"} sats)`
-        : "")
-  );
+  printSafetyReceipt(opts, exposed, allTools.length);
+  console.error(`  model=${opts.model}, max_turns=${opts.maxTurns}`);
 
   const openaiTools = exposed.map(toOpenAITool);
   const messages: any[] = [

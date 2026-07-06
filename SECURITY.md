@@ -101,13 +101,21 @@ it. Keep GitHub push protection on as the enforcement those workflows can't skip
 ### Limit blast radius
 
 - **Spending limit (default-on).** Every outbound spend path — `transfer_stx`,
-  `transfer_btc`, x402/L402 auto-payments — is metered against a cumulative
-  per-session and per-day cap (default ~10 STX + ~50k sats). A spend that would
-  exceed it is blocked and surfaces the remaining budget, so a single
-  prompt-injected call (or a malicious endpoint looping sub-cap payments) can't
-  drain the wallet. Override per wallet with `SPEND_LIMIT_DAILY_USTX` /
-  `SPEND_LIMIT_SESSION_USTX` / `SPEND_LIMIT_DAILY_SATS` /
+  `transfer_btc`, x402/L402 auto-payments, and manual `lightning_pay_invoice` —
+  is metered against a cumulative per-session and per-day cap (default ~10 STX +
+  ~50k sats). A spend that would exceed it is blocked and surfaces the remaining
+  budget, so a single prompt-injected call (or a malicious endpoint looping
+  sub-cap payments) can't drain the wallet. Override per wallet with
+  `SPEND_LIMIT_DAILY_USTX` / `SPEND_LIMIT_SESSION_USTX` / `SPEND_LIMIT_DAILY_SATS` /
   `SPEND_LIMIT_SESSION_SATS`, or disable with `SPEND_LIMIT_ENABLED=false`.
+  - The `sats` ledger is keyed by the active Stacks address so BTC L1, sBTC, and
+    L402 spends share one budget. `lightning_pay_invoice` uses the same key, but
+    because the Lightning wallet unlocks in its own session, a pay made while the
+    main STX wallet is **locked** is metered against a separate `__lightning__`
+    bucket instead. This is intentional (an always-metered fallback rather than
+    an unmetered pass), but it means a locked-STX user has two `sats` buckets;
+    unlock the STX wallet before paying to keep everything on one budget. Amountless
+    BOLT-11 invoices are refused (an unmeterable spend would defeat the cap).
 - Keep only working funds in the agent's hot wallet; hold the rest in cold storage.
 - The x402 payment flow also enforces a per-transaction spend cap.
 - Wallets auto-lock after an idle timeout (`wallet_set_timeout`); lock manually

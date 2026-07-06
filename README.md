@@ -99,6 +99,8 @@ npx @aibtc/mcp-server@latest bridge --read-only --list-tools
 npx @aibtc/mcp-server@latest bridge --read-only --allow transfer_stx "send 1 STX to SP3..."
 ```
 
+Before any agent loop runs (and on `--list-tools`), the bridge prints a compact **safety receipt** to stderr — network, read-only mode, exposed/write/blocked tool counts, the session spend cap, and the number of known x402 endpoints — so the configured execution boundaries are visible up front. It reports boundaries only; it never claims any value moved.
+
 The allowlist is re-enforced at execution time, so a model can never call a tool outside the exposed set. Any MCP-capable agent framework (`@openrouter/agent`, OpenAI Agents SDK, Claude Agent SDK) can also point at this server directly — the bridge is for driving it through OpenRouter's raw API without adopting a framework.
 
 ### Testnet Mode
