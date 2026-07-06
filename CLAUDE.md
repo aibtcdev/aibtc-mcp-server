@@ -134,7 +134,7 @@ Set environment variables in `.env`:
 
 ### Spending Limit
 
-A default-on safety rail (`src/services/spend-limiter.ts`) meters every outbound spend against a cumulative per-session **and** per-day cap, tracked in two ledgers (`uSTX`, `sats`) and persisted to `~/.aibtc/spend-state.json`. Enforced at the spend chokepoints: `transferStx` (`builder.ts`), `transfer_btc` (`bitcoin.tools.ts`), and the x402/L402 auto-payment paths (`x402.service.ts`). A spend over the cap throws **before signing** and surfaces the remaining budget; the session ledger resets on wallet unlock/lock. Not yet wired to contract-call swaps or manual `lightning_pay_invoice` (amount isn't a direct chokepoint param) — known follow-up.
+A default-on safety rail (`src/services/spend-limiter.ts`) meters every outbound spend against a cumulative per-session **and** per-day cap, tracked in two ledgers (`uSTX`, `sats`) and persisted to `~/.aibtc/spend-state.json`. Enforced at the spend chokepoints: `transferStx` (`builder.ts`), `transfer_btc` (`bitcoin.tools.ts`), the x402/L402 auto-payment paths (`x402.service.ts`), and manual `lightning_pay_invoice` (`lightning.tools.ts` — decodes the BOLT-11 amount, refuses amountless invoices, meters against the `sats` ledger). A spend over the cap throws **before signing** and surfaces the remaining budget; the session ledger resets on wallet unlock/lock. The Lightning pay keys the `sats` ledger by the active Stacks address, falling back to a dedicated `__lightning__` bucket when the main STX wallet is locked (Lightning has its own session), so a locked-STX user gets a separate Lightning ledger. Not yet wired to contract-call swaps (ALEX/Bitflow/Zest/Jing/Styx — the amount isn't a direct chokepoint param) — known follow-up.
 
 ### Wallet Storage
 
