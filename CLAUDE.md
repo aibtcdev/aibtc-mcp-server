@@ -215,6 +215,7 @@ The allowlist is re-enforced at `tools/call` time, so the model can't reach a to
 | Competition | `competition_submit_trade/status/list_trades/allowlist` | Mainnet only; requires identity registration; Bitflow swaps only score today |
 | Pillar | `pillar_connect/disconnect/status/send/fund/supply/boost/unwind/auto_compound/position/create_wallet/add_admin/invite` | Browser handoff for passkey signing |
 | AIBTC News | `news_list_signals/front_page/leaderboard/check_status/list_beats` (read) + `news_file_signal/claim_beat` (BIP-322 auth) | bc1q addresses only |
+| Inbox | `send_inbox_message_direct` | Mainnet only; non-sponsored sBTC transfer, sender pays STX gas. `send_inbox_message` (sponsored relay path) is **deprecated** — it no longer sends and just redirects here (relay queue could wedge, #540/#592) |
 
 ## Agent Behavior Guidelines
 
