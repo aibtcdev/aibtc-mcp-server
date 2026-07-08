@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.62.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.62.0...mcp-server-v1.62.1) (2026-07-08)
+
+
+### Bug Fixes
+
+* remove unstable sponsored send_inbox_message path ([#593](https://github.com/aibtcdev/aibtc-mcp-server/issues/593)) ([#594](https://github.com/aibtcdev/aibtc-mcp-server/issues/594)) ([ed8ff23](https://github.com/aibtcdev/aibtc-mcp-server/commit/ed8ff23086f89f525808de602b0fae20ea96b084))
+
 ## [1.62.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.61.0...mcp-server-v1.62.0) (2026-07-06)
 
 
