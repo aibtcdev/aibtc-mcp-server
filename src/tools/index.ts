@@ -41,6 +41,7 @@ import { registerNewsTools } from "./news.tools.js";
 import { registerIdentityTools } from "./identity.tools.js";
 import { registerCredentialsTools } from "./credentials.tools.js";
 import { registerSouldinalsTools } from "./souldinals.tools.js";
+import { registerOrdinalsTools } from "./ordinals.tools.js";
 import { registerChildInscriptionTools } from "./child-inscription.tools.js";
 import { registerBountyScannerTools } from "./bounty-scanner.tools.js";
 import { registerRunesTools } from "./runes.tools.js";
@@ -215,6 +216,9 @@ export function registerAllTools(server: McpServer): void {
 
   // Credentials (encrypted credential store — list, get, set, delete, unlock)
   registerCredentialsTools(server);
+
+  // Ordinals (genesis inscriptions — taproot address, estimate fee, inscribe, reveal, lookup)
+  registerOrdinalsTools(server);
 
   // Souldinals (soul.md child inscriptions — inscribe, reveal, list, load, display traits)
   registerSouldinalsTools(server);
