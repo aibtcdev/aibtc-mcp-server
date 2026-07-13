@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.63.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.62.1...mcp-server-v1.63.0) (2026-07-13)
+
+
+### Features
+
+* register orphaned inscription tools (ordinals + child) ([#599](https://github.com/aibtcdev/aibtc-mcp-server/issues/599)) ([b7727a9](https://github.com/aibtcdev/aibtc-mcp-server/commit/b7727a97cce5f2e01b3639ce89a1d7e77a27a18f))
+
 ## [1.62.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.62.0...mcp-server-v1.62.1) (2026-07-08)
 
 
