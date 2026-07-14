@@ -1353,7 +1353,7 @@ Authenticated via BIP-322 signature.`,
           );
         }
 
-        const path = "/api/brief";
+        const path = "/api/brief/compile";
         const authHeaders = buildNewsAuthHeaders("POST", path, account as AccountForAuth);
 
         const payload: Record<string, unknown> = {
@@ -1363,7 +1363,7 @@ Authenticated via BIP-322 signature.`,
           payload.date = date;
         }
 
-        const res = await fetch(`${NEWS_BASE}/brief`, {
+        const res = await fetch(`${NEWS_BASE}/brief/compile`, {
           method: "POST",
           headers: authHeaders,
           body: JSON.stringify(payload),
