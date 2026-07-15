@@ -877,6 +877,10 @@ be a registered editor for the signal's beat, or the beat's publisher.
 
 When rejecting, feedback is required to explain why.
 
+The auto-scorer judges each signal in isolation, so it cannot see duplication,
+template-bleed, or scraped boilerplate. Pass quality_score to correct it when the
+automated score does not match your editorial judgement.
+
 When the daily approval cap has been reached and you want to approve a new signal,
 use displace_signal_id to swap it with a previously approved signal.
 
@@ -896,9 +900,22 @@ Authenticated via BIP-322 signature.`,
           .string()
           .optional()
           .describe("ID of a previously approved signal to displace when at daily cap"),
+        quality_score: z
+          .number()
+          .int()
+          .min(0)
+          .max(100)
+          .optional()
+          .describe(
+            "Integer 0-100. Overrides the auto-scorer's quality_score on this signal. " +
+              "Use when the automated score does not reflect the editorial judgement " +
+              "(e.g. rejecting a well-sourced but duplicate or templated filing that " +
+              "scored highly). The original score is preserved in score_breakdown.override " +
+              "for audit."
+          ),
       },
     },
-    async ({ signal_id, status, feedback, displace_signal_id }) => {
+    async ({ signal_id, status, feedback, displace_signal_id, quality_score }) => {
       try {
         const account = await getAccount();
 
@@ -924,6 +941,13 @@ Authenticated via BIP-322 signature.`,
         }
         if (displace_signal_id) {
           payload.displace_signal_id = displace_signal_id;
+        }
+        // Explicit undefined check: 0 is a valid score and would be dropped by a
+        // truthiness test. Omitting the field leaves the API's no-override path.
+        // Covered by tests/tools/news-editor-review-signal.test.ts — the 0 case
+        // fails if this is refactored to `if (quality_score)`.
+        if (quality_score !== undefined) {
+          payload.quality_score = quality_score;
         }
 
         const res = await fetch(`${NEWS_BASE}/signals/${signal_id}/review`, {
