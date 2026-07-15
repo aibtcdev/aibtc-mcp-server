@@ -944,6 +944,8 @@ Authenticated via BIP-322 signature.`,
         }
         // Explicit undefined check: 0 is a valid score and would be dropped by a
         // truthiness test. Omitting the field leaves the API's no-override path.
+        // Covered by tests/tools/news-editor-review-signal.test.ts — the 0 case
+        // fails if this is refactored to `if (quality_score)`.
         if (quality_score !== undefined) {
           payload.quality_score = quality_score;
         }
