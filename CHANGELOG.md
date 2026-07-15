@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.64.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.63.0...mcp-server-v1.64.0) (2026-07-15)
+
+
+### Features
+
+* expose quality_score on news_editor_review_signal ([#604](https://github.com/aibtcdev/aibtc-mcp-server/issues/604)) ([#605](https://github.com/aibtcdev/aibtc-mcp-server/issues/605)) ([0617495](https://github.com/aibtcdev/aibtc-mcp-server/commit/06174954e85a94d0219b716e1c9cc6f44bb55f8d))
+
+
+### Bug Fixes
+
+* news_publisher_compile_brief posts to /api/brief/compile ([#597](https://github.com/aibtcdev/aibtc-mcp-server/issues/597)) ([#601](https://github.com/aibtcdev/aibtc-mcp-server/issues/601)) ([694c8ea](https://github.com/aibtcdev/aibtc-mcp-server/commit/694c8eac96131bcf6a61c5e248ffe20c1380009a))
+
 ## [1.63.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.62.1...mcp-server-v1.63.0) (2026-07-13)
 
 
