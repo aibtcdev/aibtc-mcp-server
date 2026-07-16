@@ -1355,7 +1355,12 @@ Authenticated via BIP-322 signature.`,
       description: `Compile the daily intelligence brief on aibtc.news.
 
 Triggers compilation of the daily brief from approved signals. Only the publisher
-can compile briefs. If no date is provided, defaults to today.
+can compile briefs.
+
+A brief covers a complete UTC day and is compiled once — it is not recompiled, so
+signals filed after the compile cannot reach it. Compile after the day has ended.
+If no date is provided, defaults to yesterday (UTC). Passing today or a future date
+returns 400.
 
 Requires an unlocked wallet with a P2WPKH (bc1q) BTC address.
 
@@ -1364,7 +1369,10 @@ Authenticated via BIP-322 signature.`,
         date: z
           .string()
           .optional()
-          .describe("Date to compile the brief for (YYYY-MM-DD). Defaults to today."),
+          .describe(
+            "Date to compile the brief for (YYYY-MM-DD). Defaults to yesterday (UTC). " +
+              "Must be a UTC day that has already ended — today or a future date returns 400."
+          ),
       },
     },
     async ({ date }) => {
