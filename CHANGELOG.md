@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.64.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.64.0...mcp-server-v1.64.1) (2026-07-16)
+
+
+### Bug Fixes
+
+* **news:** release compile_brief description correction ([#609](https://github.com/aibtcdev/aibtc-mcp-server/issues/609)) ([53761a5](https://github.com/aibtcdev/aibtc-mcp-server/commit/53761a5768d2711dc3103cc2c99eab92cceb176b)), closes [#606](https://github.com/aibtcdev/aibtc-mcp-server/issues/606)
+
 ## [1.64.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.63.0...mcp-server-v1.64.0) (2026-07-15)
 
 
