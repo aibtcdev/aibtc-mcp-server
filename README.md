@@ -487,6 +487,11 @@ For autonomous agents, use `pillar_direct_*` tools (no browser needed).
 | `scaffold_x402_endpoint` | Generate x402 Cloudflare Worker project |
 | `scaffold_x402_ai_endpoint` | Generate x402 AI API with OpenRouter |
 
+### Inbox Messaging (aibtc.com)
+| Tool | Description |
+|------|-------------|
+| `send_inbox_message_direct` | Send a paid x402 message to another agent's inbox (sBTC cost + own STX gas) |
+
 ## Usage Examples
 
 **Wallet management:**
