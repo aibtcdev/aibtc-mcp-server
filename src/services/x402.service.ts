@@ -317,6 +317,13 @@ export interface CreateApiClientOptions {
    */
   onBeforePayment?: (requirements: PaymentRequirements) => Promise<void>;
   toolName?: string;
+  /**
+   * Optional payment-asset selector (contract id or symbol like "sBTC"/"STX").
+   * Filters the endpoint's accepts[] to the matching entry. When omitted, the
+   * caller's held asset with the highest balance is preferred, falling back to
+   * first-in-accepts (see #613).
+   */
+  asset?: string;
 }
 
 /**
@@ -667,16 +674,18 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           );
         }
 
-        // Select first Stacks-compatible payment option
-        const selectedOption = paymentRequired.accepts.find(
-          (opt) => opt.network?.startsWith("stacks:")
-        );
-
-        if (!selectedOption) {
-          const networks = paymentRequired.accepts.map((a) => a.network).join(", ");
-          return Promise.reject(
-            new Error(`No compatible Stacks payment option found. Available networks: ${networks}`)
+        // Select payment option: caller's asset selector first, then the
+        // caller's held asset (highest balance), then first-in-accepts (#613).
+        let selectedOption;
+        try {
+          const preferredAssets = options?.asset ? undefined : await getHeldAssetPreference();
+          selectedOption = selectPaymentOption(
+            paymentRequired.accepts,
+            options?.asset,
+            preferredAssets
           );
+        } catch (selectionError) {
+          return Promise.reject(selectionError);
         }
 
         const tokenType = detectTokenType(selectedOption.asset);
@@ -879,6 +888,8 @@ export type ProbeResultPaymentRequired = {
     mimeType?: string;
   };
   maxTimeoutSeconds?: number;
+  /** All payment assets advertised in the endpoint's accepts[] (v2 manifests). */
+  acceptedAssets?: string[];
 };
 
 export type ProbeResult = ProbeResultFree | ProbeResultPaymentRequired;
@@ -900,6 +911,112 @@ export function detectTokenType(asset: string): 'STX' | 'sBTC' {
 }
 
 /**
+ * Check whether an accepts[] entry matches a caller-supplied asset selector.
+ * The selector may be a full contract identifier ("SP...address.contract-name"),
+ * or a symbol ("STX", "sBTC"). Matching is case-insensitive.
+ */
+export function assetMatchesSelector(entryAsset: string, selector: string): boolean {
+  const sel = selector.trim().toLowerCase();
+  const entry = entryAsset.trim().toLowerCase();
+
+  // Exact contract-id (or exact token-name) match
+  if (entry === sel) return true;
+
+  // Symbol matching
+  if (sel === 'sbtc') {
+    return detectTokenType(entryAsset) === 'sBTC';
+  }
+  if (sel === 'stx') {
+    // Native STX is advertised as "STX" (not a contract id)
+    return entry === 'stx';
+  }
+
+  // Match on contract name suffix: selector "usdcx" matches "SP....usdcx"
+  const dotIdx = entry.lastIndexOf('.');
+  if (dotIdx !== -1) {
+    const contractName = entry.slice(dotIdx + 1).split('::')[0];
+    if (contractName === sel) return true;
+  }
+  return false;
+}
+
+/**
+ * Select a payment option from a v2 accepts[] array.
+ *
+ * Selection order:
+ * 1. If `assetSelector` is given, the first Stacks entry matching it. Throws
+ *    if no entry matches (lists what IS accepted so the caller can retry).
+ * 2. Otherwise, if `heldAssetProbe` is provided, the Stacks entry for the
+ *    caller's held asset with the highest balance (sBTC checked first).
+ * 3. Otherwise, the first Stacks-compatible entry (documented default).
+ */
+export function selectPaymentOption<T extends { network?: string; asset: string }>(
+  accepts: T[],
+  assetSelector?: string,
+  preferredAssets?: string[]
+): T {
+  const stacksOptions = accepts.filter((opt) => opt.network?.startsWith('stacks:'));
+  if (stacksOptions.length === 0) {
+    const networks = accepts.map((a) => a.network).join(', ');
+    throw new Error(`No compatible Stacks payment option found. Available networks: ${networks}`);
+  }
+
+  if (assetSelector) {
+    const match = stacksOptions.find((opt) => assetMatchesSelector(opt.asset, assetSelector));
+    if (!match) {
+      const available = stacksOptions.map((o) => o.asset).join(', ');
+      throw new Error(
+        `Requested payment asset "${assetSelector}" is not accepted by this endpoint. ` +
+        `Accepted assets: ${available}`
+      );
+    }
+    return match;
+  }
+
+  if (preferredAssets && preferredAssets.length > 0) {
+    for (const pref of preferredAssets) {
+      const match = stacksOptions.find((opt) => assetMatchesSelector(opt.asset, pref));
+      if (match) return match;
+    }
+  }
+
+  // Documented default: first Stacks-compatible entry in accepts[]
+  return stacksOptions[0];
+}
+
+/**
+ * Rank the caller's held assets for payment preference. Returns asset symbols
+ * ordered by preference (held, non-zero balances first; sBTC checked before
+ * STX since sBTC-only wallets are the blocked case — see #613). Returns
+ * undefined when no wallet is configured/unlockable so probe keeps working
+ * without a wallet (falls back to first-in-accepts).
+ */
+export async function getHeldAssetPreference(): Promise<string[] | undefined> {
+  try {
+    const acct = await getAccount();
+    const held: Array<{ symbol: string; balance: bigint }> = [];
+
+    try {
+      const sbtcService = getSbtcService(acct.network);
+      const sbtcBalance = BigInt((await sbtcService.getBalance(acct.address)).balance);
+      if (sbtcBalance > 0n) held.push({ symbol: 'sBTC', balance: sbtcBalance });
+    } catch { /* sBTC balance unavailable — skip */ }
+
+    try {
+      const hiroApi = getHiroApi(acct.network);
+      const stxBalance = BigInt((await hiroApi.getStxBalance(acct.address)).balance);
+      if (stxBalance > 0n) held.push({ symbol: 'STX', balance: stxBalance });
+    } catch { /* STX balance unavailable — skip */ }
+
+    if (held.length === 0) return undefined;
+    return held.map((h) => h.symbol);
+  } catch {
+    // No wallet configured — probe must still work
+    return undefined;
+  }
+}
+
+/**
  * Format payment amount into human-readable string with token symbol
  * @param amount - Raw amount string (microSTX or satoshis)
  * @param asset - Token asset identifier
@@ -910,7 +1027,16 @@ export function formatPaymentAmount(amount: string, asset: string): string {
   if (tokenType === 'sBTC') {
     return formatSbtc(amount);
   }
-  return formatStx(amount);
+  // Only claim STX when the asset actually IS native STX. Other SIP-10
+  // tokens (e.g. USDCx) must never be displayed as STX — see #613 bug 2:
+  // message said "29 STX" while payment.asset was the USDCx contract.
+  if (asset.trim().toLowerCase() === 'stx') {
+    return formatStx(amount);
+  }
+  // Unknown SIP-10 token: derive display name from the contract identifier
+  // and show atomic units (decimals are not knowable without a contract read).
+  const contractName = asset.split('.').pop()?.split('::')[0] ?? asset;
+  return `${amount} ${contractName} (atomic units, contract: ${asset})`;
 }
 
 /**
@@ -922,8 +1048,10 @@ export async function probeEndpoint(options: {
   url: string;
   params?: Record<string, string>;
   data?: Record<string, unknown>;
+  /** Optional payment-asset selector (contract id or symbol like "sBTC"/"STX"). */
+  asset?: string;
 }): Promise<ProbeResult> {
-  const { method, url, params, data } = options;
+  const { method, url, params, data, asset } = options;
   const axiosInstance = createBaseAxiosInstance();
 
   try {
@@ -945,7 +1073,14 @@ export async function probeEndpoint(options: {
 
       // If v2 header is successfully parsed, use it
       if (paymentRequired?.accepts?.length) {
-        const acceptedPayment = paymentRequired.accepts[0];
+        // Select by caller's asset preference, falling back to the caller's
+        // held asset (highest balance first), then first-in-accepts.
+        const preferredAssets = asset ? undefined : await getHeldAssetPreference();
+        const acceptedPayment = selectPaymentOption(
+          paymentRequired.accepts,
+          asset,
+          preferredAssets
+        );
 
         // Convert CAIP-2 network identifier to human-readable format
         const network = getNetworkFromStacksChainId(acceptedPayment.network) ?? NETWORK;
@@ -959,6 +1094,7 @@ export async function probeEndpoint(options: {
           endpoint: url,
           resource: paymentRequired.resource,
           maxTimeoutSeconds: acceptedPayment.maxTimeoutSeconds,
+          acceptedAssets: paymentRequired.accepts.map((a) => a.asset),
         };
       }
 
