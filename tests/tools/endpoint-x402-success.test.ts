@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockCreateApiClient = vi.fn();
+const mockProbeEndpoint = vi.fn();
 const mockCheckSufficientBalance = vi.fn();
 const mockGenerateDedupKey = vi.fn(() => "dedup-key-success");
 const mockCheckDedupCache = vi.fn(() => null);
@@ -9,7 +10,7 @@ const mockRecordTransaction = vi.fn();
 vi.mock("../../src/services/x402.service.js", () => ({
   createApiClient: mockCreateApiClient,
   API_URL: "https://aibtc.com",
-  probeEndpoint: vi.fn(),
+  probeEndpoint: mockProbeEndpoint,
   formatPaymentAmount: vi.fn((amount: string, asset: string) => `${amount} ${asset}`),
   checkSufficientBalance: mockCheckSufficientBalance,
   generateDedupKey: mockGenerateDedupKey,
@@ -67,6 +68,33 @@ function buildOkResponse(opts: {
 describe("execute_x402_endpoint success-path txid handling (#487 Gap 1)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("carries the selected probe asset into callWith and keeps display/payment consistent", async () => {
+    const contract = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token::token-sbtc";
+    mockProbeEndpoint.mockResolvedValue({
+      type: "payment_required",
+      amount: "100",
+      asset: contract,
+      recipient: "SP000000000000000000002Q6VF78",
+      network: "mainnet",
+      endpoint: "https://example.com/paid",
+    });
+
+    const { server, tools } = createTrackingServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerEndpointTools(server as any);
+    const result = (await tools.get("probe_x402_endpoint")!.handler({
+      method: "GET",
+      url: "https://example.com/paid",
+      asset: "sBTC",
+    })) as { content: Array<{ text: string }> };
+    const body = JSON.parse(result.content[0].text);
+
+    expect(mockProbeEndpoint).toHaveBeenCalledWith(expect.objectContaining({ asset: "sBTC" }));
+    expect(body.payment).toMatchObject({ amount: "100", asset: contract });
+    expect(body.message).toContain(`100 ${contract}`);
+    expect(body.callWith.asset).toBe("sBTC");
   });
 
   it("returns the real txid when the upstream response exposes one", async () => {

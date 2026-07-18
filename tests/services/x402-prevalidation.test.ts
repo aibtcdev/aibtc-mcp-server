@@ -34,6 +34,7 @@ const {
   recordTransaction,
   detectTokenType,
   formatPaymentAmount,
+  selectPaymentRequirement,
   createApiClient,
   getAccount,
 } = await import("../../src/services/x402.service.js");
@@ -100,6 +101,34 @@ describe("formatPaymentAmount", () => {
   it("formats sBTC amounts from sats", () => {
     expect(formatPaymentAmount("100", "sbtc")).toBe("0.000001 sBTC");
     expect(formatPaymentAmount("100000000", "sbtc")).toBe("1 sBTC");
+  });
+
+  it("never labels USDCx as STX", () => {
+    expect(formatPaymentAmount("1500000", "SP123.usdcx::usdcx")).toBe("1.5 USDCx");
+  });
+});
+
+describe("selectPaymentRequirement", () => {
+  const accepts = [
+    { asset: "STX", amount: "1000" },
+    { asset: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token::token-sbtc", amount: "100" },
+    { asset: "SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx", amount: "500000" },
+  ];
+
+  it("selects sBTC from a multi-asset manifest by symbol", () => {
+    expect(selectPaymentRequirement(accepts, "sBTC")).toBe(accepts[1]);
+  });
+
+  it("matches a full contract asset identifier case-insensitively", () => {
+    expect(selectPaymentRequirement(accepts, accepts[2].asset.toLowerCase())).toBe(accepts[2]);
+  });
+
+  it("returns no match for an unadvertised selector", () => {
+    expect(selectPaymentRequirement(accepts, "not-a-token")).toBeUndefined();
+  });
+
+  it("preserves the first-advertised fallback when omitted", () => {
+    expect(selectPaymentRequirement(accepts)).toBe(accepts[0]);
   });
 });
 
@@ -609,6 +638,29 @@ describe("x402 per-payment spend cap", () => {
     const client = await createApiClient("https://x402.test.com");
     client.defaults.adapter = make402Adapter("sbtc", "20000"); // > 10k sats default cap
     await expect(client.get("/test")).rejects.toThrow("exceeds the per-payment cap");
+  });
+
+  it("returns a clear error when the selected asset is not advertised", async () => {
+    const client = await createApiClient("https://x402.test.com", { asset: "sBTC" });
+    client.defaults.adapter = make402Adapter("STX", "1000");
+    await expect(client.get("/test")).rejects.toThrow(
+      'No matching payment asset for selector "sBTC". Advertised assets: STX'
+    );
+  });
+
+  it("fails closed before constructing a payment for an explicit USDCx selection", async () => {
+    const usdcxAsset = "SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx::usdcx";
+    const client = await createApiClient("https://x402.test.com", { asset: "USDCx" });
+    client.defaults.adapter = make402Adapter(usdcxAsset, "500000");
+
+    await expect(client.get("/test")).rejects.toThrow(
+      `USDCx x402 payment execution is not supported for asset "${usdcxAsset}"`
+    );
+    // The guard runs before account access and therefore before either the
+    // native STX or contract-call transaction builder can be reached.
+    expect(mockGetActiveAccount).not.toHaveBeenCalled();
+    expect(mockGetStxBalance).not.toHaveBeenCalled();
+    expect(mockGetMempoolFees).not.toHaveBeenCalled();
   });
 
   it("does not block payments at the cap", async () => {

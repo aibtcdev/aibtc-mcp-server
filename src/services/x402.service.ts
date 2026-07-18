@@ -21,7 +21,7 @@ import { getNetworkFromStacksChainId } from "../config/caip.js";
 import type { Account } from "../transactions/builder.js";
 import { getWalletManager } from "./wallet-manager.js";
 import { getSpendLimiter } from "./spend-limiter.js";
-import { formatStx, formatSbtc } from "../utils/formatting.js";
+import { formatStx, formatSbtc, formatTokenAmount } from "../utils/formatting.js";
 import { getSbtcService } from "./sbtc.service.js";
 import { getHiroApi } from "./hiro-api.js";
 import { createHash } from "crypto";
@@ -316,6 +316,8 @@ export interface CreateApiClientOptions {
    * callback aborts the payment (e.g. insufficient balance check).
    */
   onBeforePayment?: (requirements: PaymentRequirements) => Promise<void>;
+  /** Select a specific advertised payment asset by contract ID, symbol, or name. */
+  asset?: string;
   toolName?: string;
 }
 
@@ -667,15 +669,36 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           );
         }
 
-        // Select first Stacks-compatible payment option
-        const selectedOption = paymentRequired.accepts.find(
+        const stacksOptions = paymentRequired.accepts.filter(
           (opt) => opt.network?.startsWith("stacks:")
         );
+        // Preserve the existing first-compatible fallback when no selector is
+        // supplied. Balance lookup is currently performed only after selection.
+        const selectedOption = selectPaymentRequirement(stacksOptions, options?.asset);
 
         if (!selectedOption) {
+          if (options?.asset) {
+            const assets = paymentRequired.accepts.map((a) => a.asset).join(", ");
+            return Promise.reject(
+              new Error(`No matching payment asset for selector "${options.asset}". Advertised assets: ${assets}`)
+            );
+          }
           const networks = paymentRequired.accepts.map((a) => a.network).join(", ");
           return Promise.reject(
             new Error(`No compatible Stacks payment option found. Available networks: ${networks}`)
+          );
+        }
+
+        // USDCx is a SIP-010 token, not native STX. The x402 executor only
+        // supports native STX and the dedicated sBTC contract path today, so
+        // fail before loading an account or constructing/signing a transaction.
+        // Falling through to detectTokenType would otherwise build an STX
+        // transfer while advertising the selected USDCx requirement.
+        if (getPaymentAssetSymbol(selectedOption.asset) === "USDCx") {
+          return Promise.reject(
+            new Error(
+              `USDCx x402 payment execution is not supported for asset "${selectedOption.asset}"`
+            )
           );
         }
 
@@ -910,7 +933,33 @@ export function formatPaymentAmount(amount: string, asset: string): string {
   if (tokenType === 'sBTC') {
     return formatSbtc(amount);
   }
-  return formatStx(amount);
+  const symbol = getPaymentAssetSymbol(asset);
+  if (symbol === 'STX') return formatStx(amount);
+  if (symbol === 'USDCx') return formatTokenAmount(amount, 6, symbol);
+  return `${amount} ${symbol}`;
+}
+
+/** Return a stable display/matching symbol from an advertised asset identifier. */
+export function getPaymentAssetSymbol(asset: string): string {
+  const normalized = asset.trim().toLowerCase();
+  const parts = normalized.split(/\.|::/).filter(Boolean);
+  if (normalized === 'stx' || parts.includes('stx')) return 'STX';
+  if (normalized === 'sbtc' || parts.some((part) => part === 'sbtc' || part === 'sbtc-token' || part === 'token-sbtc')) return 'sBTC';
+  if (normalized === 'usdcx' || parts.some((part) => part === 'usdcx' || part === 'usdcx-token' || part === 'token-usdcx')) return 'USDCx';
+  return asset.includes('::') ? asset.split('::').at(-1)! : asset.split('.').at(-1)!;
+}
+
+/** Select an advertised requirement by full contract ID or common symbol/name. */
+export function selectPaymentRequirement<T extends { asset: string }>(
+  accepts: T[],
+  selector?: string
+): T | undefined {
+  if (!selector) return accepts[0];
+  const normalizedSelector = selector.trim().toLowerCase();
+  return accepts.find((entry) =>
+    entry.asset.trim().toLowerCase() === normalizedSelector ||
+    getPaymentAssetSymbol(entry.asset).toLowerCase() === normalizedSelector
+  );
 }
 
 /**
@@ -922,8 +971,9 @@ export async function probeEndpoint(options: {
   url: string;
   params?: Record<string, string>;
   data?: Record<string, unknown>;
+  asset?: string;
 }): Promise<ProbeResult> {
-  const { method, url, params, data } = options;
+  const { method, url, params, data, asset } = options;
   const axiosInstance = createBaseAxiosInstance();
 
   try {
@@ -945,7 +995,13 @@ export async function probeEndpoint(options: {
 
       // If v2 header is successfully parsed, use it
       if (paymentRequired?.accepts?.length) {
-        const acceptedPayment = paymentRequired.accepts[0];
+        // The probe has no safe, side-effect-free multi-token balance snapshot,
+        // so omission intentionally preserves the first-advertised fallback.
+        const acceptedPayment = selectPaymentRequirement(paymentRequired.accepts, asset);
+        if (!acceptedPayment) {
+          const assets = paymentRequired.accepts.map((entry) => entry.asset).join(', ');
+          throw new Error(`No matching payment asset for selector "${asset}". Advertised assets: ${assets}`);
+        }
 
         // Convert CAIP-2 network identifier to human-readable format
         const network = getNetworkFromStacksChainId(acceptedPayment.network) ?? NETWORK;
@@ -978,6 +1034,10 @@ export async function probeEndpoint(options: {
           `Invalid 402 response from ${url}: missing payment fields in both v2 header and v1 body. ` +
           `v2 header: ${headerDebug}; v1 body keys: ${Object.keys(paymentData as object).join(', ') || 'none'}`
         );
+      }
+
+      if (asset && !selectPaymentRequirement([{ asset: paymentData.asset }], asset)) {
+        throw new Error(`No matching payment asset for selector "${asset}". Advertised asset: ${paymentData.asset}`);
       }
 
       return {
