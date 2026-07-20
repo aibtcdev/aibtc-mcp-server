@@ -14,6 +14,7 @@ import {
   generatePaymentId,
   buildPaymentIdentifierExtension,
   X402_HEADERS,
+  type PaymentRequirementsV2,
 } from "../utils/x402-protocol.js";
 import { generateWallet, getStxAddress } from "@stacks/wallet-sdk";
 import { NETWORK, API_URL, getStacksNetwork, type Network } from "../config/networks.js";
@@ -969,6 +970,32 @@ export function detectTokenType(asset: string): PaymentTokenType {
  * - If `asset` is provided (symbol or contract id), prefer matching entry.
  * - Else prefer sBTC, then STX, then first Stacks-compatible option.
  */
+/**
+ * Map asset contract id / symbol to a stable display name for selection.
+ * Aligned with detectTokenType() so symbol filters like "sBTC" match contract ids.
+ */
+export function getAssetDisplayName(asset: string): string {
+  const t = detectTokenType(asset);
+  if (t === 'sBTC') return 'sBTC';
+  if (t === 'USDCx') return 'USDCx';
+  if (t === 'STX') return 'STX';
+  const short = asset.includes('.') ? asset.split('.').pop() || asset : asset;
+  return short || asset;
+}
+
+/**
+ * Select an accepts[] payment option for Stacks.
+ * - If `asset` is provided (symbol or contract id), prefer matching entry.
+ * - Else prefer sBTC, then STX, then first Stacks-compatible option.
+ */
+export function selectPaymentOption(
+  accepts: PaymentRequirementsV2[],
+  asset?: string
+): PaymentRequirementsV2 | undefined;
+export function selectPaymentOption<T extends { network?: string; asset?: string }>(
+  accepts: T[],
+  asset?: string
+): T | undefined;
 export function selectPaymentOption<T extends { network?: string; asset?: string }>(
   accepts: T[],
   asset?: string
@@ -982,11 +1009,13 @@ export function selectPaymentOption<T extends { network?: string; asset?: string
     const match = pool.find((opt) => {
       const a = (opt.asset || '').toLowerCase();
       if (a === want) return true;
+      const display = getAssetDisplayName(opt.asset || '').toLowerCase();
+      if (display === want) return true;
       if (a.endsWith('.' + want) || a.endsWith('::' + want)) return true;
-      // symbol aliases
-      if (want === 'sbtc' && (a.endsWith('.sbtc-token') || a.endsWith('::token-sbtc') || a === 'sbtc')) return true;
-      if ((want === 'usdcx' || want === 'usdc') && (a.includes('usdcx') || a.endsWith('.usdcx'))) return true;
-      if (want === 'stx' && (a === '' || a === 'stx' || a === 'native')) return true;
+      // symbol aliases via detectTokenType (aligned with display names)
+      if (want === 'sbtc' && detectTokenType(opt.asset || '') === 'sBTC') return true;
+      if ((want === 'usdcx' || want === 'usdc') && detectTokenType(opt.asset || '') === 'USDCx') return true;
+      if (want === 'stx' && detectTokenType(opt.asset || '') === 'STX') return true;
       return false;
     });
     if (match) return match;
