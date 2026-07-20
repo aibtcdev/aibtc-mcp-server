@@ -24,9 +24,69 @@ const DUAL_STACKING_ADDRESS = "SP1HFCRKEJ8BYW4D0E3FAWHFDX8A25PPAA83HWWZ9";
 const DUAL_STACKING_CONTRACT = "dual-stacking-v2_0_4";
 const DUAL_STACKING_CONTRACT_ID = `${DUAL_STACKING_ADDRESS}.${DUAL_STACKING_CONTRACT}`;
 
+/** APR fields are fixed-point, scaled by 1e6 (500000 => 0.5%). */
+const APR_DIVISOR = 1_000_000;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Unwrap a `cvToJSON` tuple into its field map.
+ *
+ * cvToJSON renders a tuple as `{ type: "(tuple ...)", value: { FIELD: { type, value } } }`
+ * — the fields sit one level down under `.value`, keyed by their on-wire Clarity
+ * name. Reading them off the top-level object silently yields `undefined` for
+ * every field, which is how #611 turned real APR/cycle data into zeros.
+ */
+function tupleFields(
+  raw: unknown
+): Record<string, { value?: unknown } | undefined> | null {
+  if (!raw || typeof raw !== "object") return null;
+  const inner = (raw as { value?: unknown }).value;
+  if (!inner || typeof inner !== "object") return null;
+  return inner as Record<string, { value?: unknown } | undefined>;
+}
+
+/**
+ * Read a uint field out of a tuple field map. Returns null and records the key
+ * in `missing` when absent or non-numeric, so a decode miss surfaces as a
+ * warning instead of a plausible-looking zero.
+ */
+function tupleUint(
+  fields: Record<string, { value?: unknown } | undefined> | null,
+  key: string,
+  missing: string[]
+): number | null {
+  const raw = fields?.[key]?.value;
+  if (raw === undefined || raw === null) {
+    missing.push(key);
+    return null;
+  }
+  const num = Number(raw);
+  if (!Number.isFinite(num)) {
+    missing.push(key);
+    return null;
+  }
+  return num;
+}
+
+/**
+ * Unwrap a `cvToJSON` optional. `(some u123)` renders as
+ * `{ type: "(optional uint)", value: { type: "uint", value: "123" } }` and
+ * `none` as a null/undefined `.value`, so the payload needs one extra hop.
+ */
+function optionalUint(raw: unknown): number | null {
+  if (!raw || typeof raw !== "object") return null;
+  const inner = (raw as { value?: unknown }).value;
+  if (inner === undefined || inner === null) return null;
+  // `some` wraps the payload in another {type, value} envelope.
+  const scalar =
+    typeof inner === "object" ? (inner as { value?: unknown }).value : inner;
+  if (scalar === undefined || scalar === null) return null;
+  const num = Number(scalar);
+  return Number.isFinite(num) ? num : null;
+}
 
 /**
  * Call a read-only function on the dual-stacking contract and return a JSON-friendly value.
@@ -131,49 +191,70 @@ Note: Dual Stacking is only available on mainnet.`,
           cycleOverviewRaw,
         ] = values;
 
-        // Parse APR data — returns {min-apr: uint, max-apr: uint} divided by 1_000_000 for %
-        let apr: { minApr: number; maxApr: number; unit: string; note: string } = {
-          minApr: 0,
-          maxApr: 0,
-          unit: "%",
-          note: "Multiplier up to 10x with stacked STX",
-        };
-        if (aprDataRaw && typeof aprDataRaw === "object") {
-          const aprObj = aprDataRaw as Record<string, { value?: string | number }>;
-          const minAprRaw = aprObj["min-apr"]?.value;
-          const maxAprRaw = aprObj["max-apr"]?.value;
+        // Parse APR data — tuple {MAX_APR: uint, MIN_APR: uint, MULTIPLIER: uint}.
+        // Keys are the uppercase on-wire Clarity names, not the camelCase output
+        // names. A field that fails to decode stays null and is named in
+        // `warnings` — a zero here reads as "0% APR, don't enroll" (#611).
+        let apr: {
+          minApr: number | null;
+          maxApr: number | null;
+          multiplier: number | null;
+          unit: string;
+          note: string;
+        } | null = null;
+        if (aprDataRaw) {
+          const missing: string[] = [];
+          const fields = tupleFields(aprDataRaw);
+          const minApr = tupleUint(fields, "MIN_APR", missing);
+          const maxApr = tupleUint(fields, "MAX_APR", missing);
+          const multiplier = tupleUint(fields, "MULTIPLIER", missing);
+          if (missing.length > 0) {
+            warnings.push(
+              `get-apr-data: could not decode tuple field(s): ${missing.join(", ")}`
+            );
+          }
           apr = {
-            minApr: minAprRaw !== undefined ? Number(minAprRaw) / 1_000_000 : 0,
-            maxApr: maxAprRaw !== undefined ? Number(maxAprRaw) / 1_000_000 : 0,
+            minApr: minApr === null ? null : minApr / APR_DIVISOR,
+            maxApr: maxApr === null ? null : maxApr / APR_DIVISOR,
+            multiplier,
             unit: "%",
-            note: "Multiplier up to 10x with stacked STX",
+            note: `Multiplier up to ${multiplier ?? 10}x with stacked STX`,
           };
         }
 
-        // Parse cycle overview — returns tuple with cycle-id, snapshot-index, snapshots-per-cycle
+        // Parse cycle overview — tuple {cycle-id, snapshot-index, snapshots-per-cycle}
         let cycleOverview: {
-          currentCycleId: number;
-          snapshotIndex: number;
-          snapshotsPerCycle: number;
-        } = { currentCycleId: 0, snapshotIndex: 0, snapshotsPerCycle: 0 };
-        if (cycleOverviewRaw && typeof cycleOverviewRaw === "object") {
-          const co = cycleOverviewRaw as Record<string, { value?: string | number }>;
+          currentCycleId: number | null;
+          snapshotIndex: number | null;
+          snapshotsPerCycle: number | null;
+        } | null = null;
+        if (cycleOverviewRaw) {
+          const missing: string[] = [];
+          const fields = tupleFields(cycleOverviewRaw);
           cycleOverview = {
-            currentCycleId: co["cycle-id"]?.value !== undefined ? Number(co["cycle-id"].value) : 0,
-            snapshotIndex:
-              co["snapshot-index"]?.value !== undefined ? Number(co["snapshot-index"].value) : 0,
-            snapshotsPerCycle:
-              co["snapshots-per-cycle"]?.value !== undefined
-                ? Number(co["snapshots-per-cycle"].value)
-                : 0,
+            currentCycleId: tupleUint(fields, "cycle-id", missing),
+            snapshotIndex: tupleUint(fields, "snapshot-index", missing),
+            snapshotsPerCycle: tupleUint(fields, "snapshots-per-cycle", missing),
           };
+          if (missing.length > 0) {
+            warnings.push(
+              `current-overview-data: could not decode tuple field(s): ${missing.join(", ")}`
+            );
+          }
         }
 
-        // Parse minimum enrollment amount
-        let minimumEnrollmentSats = 0;
+        // Parse minimum enrollment amount (plain uint — one {type, value} level)
+        let minimumEnrollmentSats: number | null = null;
         if (minimumAmountRaw !== null && minimumAmountRaw !== undefined) {
-          const raw = minimumAmountRaw as { value?: string | number };
-          minimumEnrollmentSats = raw.value !== undefined ? Number(raw.value) : 0;
+          const raw = (minimumAmountRaw as { value?: unknown }).value;
+          const num = Number(raw);
+          if (raw === undefined || raw === null || !Number.isFinite(num)) {
+            warnings.push(
+              "get-minimum-enrollment-amount: could not decode uint result"
+            );
+          } else {
+            minimumEnrollmentSats = num;
+          }
         }
 
         // Parse boolean enrollment flags. A failed read stays null (unknown)
@@ -250,13 +331,10 @@ Note: Dual Stacking is only available on mainnet.`,
           ]
         );
 
-        let rewardSats = 0;
-        if (rewardRaw !== null && rewardRaw !== undefined) {
-          const raw = rewardRaw as { value?: string | number };
-          rewardSats = raw.value !== undefined ? Number(raw.value) : 0;
-        }
-
-        const rewardBtc = rewardSats / 100_000_000;
+        // Contract returns `(optional uint)` — `none` means no reward recorded
+        // for this cycle/address, which is distinct from a zero reward.
+        const rewardSats = optionalUint(rewardRaw);
+        const rewardBtc = rewardSats === null ? null : rewardSats / 100_000_000;
 
         return createJsonResponse({
           address: resolvedAddress,
