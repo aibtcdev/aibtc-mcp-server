@@ -131,49 +131,102 @@ Note: Dual Stacking is only available on mainnet.`,
           cycleOverviewRaw,
         ] = values;
 
-        // Parse APR data — returns {min-apr: uint, max-apr: uint} divided by 1_000_000 for %
-        let apr: { minApr: number; maxApr: number; unit: string; note: string } = {
+        // cvToJSON shape for tuples:
+        //   { type: "(tuple ...)", value: { KEY: { type, value } } }
+        // Clarity wire keys are MIN_APR / MAX_APR / cycle-id (not camelCase min-apr).
+        // Reading the wrong level or wrong key silently zeroes every field (#611).
+        const tupleFields = (
+          raw: unknown
+        ): Record<string, { value?: string | number }> | null => {
+          if (!raw || typeof raw !== "object") return null;
+          const obj = raw as { value?: unknown; type?: string };
+          if (obj.value && typeof obj.value === "object" && !Array.isArray(obj.value)) {
+            return obj.value as Record<string, { value?: string | number }>;
+          }
+          // Already unwrapped map of fields
+          return obj as Record<string, { value?: string | number }>;
+        };
+        const fieldValue = (
+          fields: Record<string, { value?: string | number }> | null,
+          ...keys: string[]
+        ): number | undefined => {
+          if (!fields) return undefined;
+          for (const k of keys) {
+            const v = fields[k]?.value;
+            if (v !== undefined && v !== null) return Number(v);
+          }
+          return undefined;
+        };
+
+        // Parse APR data — MIN_APR/MAX_APR uints divided by 1_000_000 for %
+        let apr: { minApr: number; maxApr: number; unit: string; note: string; multiplier?: number } = {
           minApr: 0,
           maxApr: 0,
           unit: "%",
           note: "Multiplier up to 10x with stacked STX",
         };
         if (aprDataRaw && typeof aprDataRaw === "object") {
-          const aprObj = aprDataRaw as Record<string, { value?: string | number }>;
-          const minAprRaw = aprObj["min-apr"]?.value;
-          const maxAprRaw = aprObj["max-apr"]?.value;
+          const fields = tupleFields(aprDataRaw);
+          const minAprRaw = fieldValue(fields, "MIN_APR", "min-apr", "minApr");
+          const maxAprRaw = fieldValue(fields, "MAX_APR", "max-apr", "maxApr");
+          const multiplier = fieldValue(fields, "MULTIPLIER", "multiplier");
+          const decoded =
+            minAprRaw !== undefined || maxAprRaw !== undefined;
+          if (!decoded && fields) {
+            warnings.push(
+              "get-apr-data: tuple decoded but MIN_APR/MAX_APR keys missing; check Clarity wire names"
+            );
+          }
           apr = {
-            minApr: minAprRaw !== undefined ? Number(minAprRaw) / 1_000_000 : 0,
-            maxApr: maxAprRaw !== undefined ? Number(maxAprRaw) / 1_000_000 : 0,
+            minApr: minAprRaw !== undefined ? minAprRaw / 1_000_000 : 0,
+            maxApr: maxAprRaw !== undefined ? maxAprRaw / 1_000_000 : 0,
             unit: "%",
             note: "Multiplier up to 10x with stacked STX",
+            ...(multiplier !== undefined && { multiplier }),
           };
         }
 
-        // Parse cycle overview — returns tuple with cycle-id, snapshot-index, snapshots-per-cycle
+        // Parse cycle overview — cycle-id, snapshot-index, snapshots-per-cycle
         let cycleOverview: {
           currentCycleId: number;
           snapshotIndex: number;
           snapshotsPerCycle: number;
         } = { currentCycleId: 0, snapshotIndex: 0, snapshotsPerCycle: 0 };
         if (cycleOverviewRaw && typeof cycleOverviewRaw === "object") {
-          const co = cycleOverviewRaw as Record<string, { value?: string | number }>;
+          const fields = tupleFields(cycleOverviewRaw);
+          const cycleId = fieldValue(fields, "cycle-id", "cycleId", "currentCycleId");
+          const snapshotIndex = fieldValue(fields, "snapshot-index", "snapshotIndex");
+          const snapshotsPerCycle = fieldValue(
+            fields,
+            "snapshots-per-cycle",
+            "snapshotsPerCycle"
+          );
+          if (
+            cycleId === undefined &&
+            snapshotIndex === undefined &&
+            snapshotsPerCycle === undefined &&
+            fields
+          ) {
+            warnings.push(
+              "current-overview-data: tuple decoded but cycle-id/snapshot keys missing; check Clarity wire names"
+            );
+          }
           cycleOverview = {
-            currentCycleId: co["cycle-id"]?.value !== undefined ? Number(co["cycle-id"].value) : 0,
-            snapshotIndex:
-              co["snapshot-index"]?.value !== undefined ? Number(co["snapshot-index"].value) : 0,
-            snapshotsPerCycle:
-              co["snapshots-per-cycle"]?.value !== undefined
-                ? Number(co["snapshots-per-cycle"].value)
-                : 0,
+            currentCycleId: cycleId ?? 0,
+            snapshotIndex: snapshotIndex ?? 0,
+            snapshotsPerCycle: snapshotsPerCycle ?? 0,
           };
         }
 
-        // Parse minimum enrollment amount
+        // Parse minimum enrollment amount (simple uint cvToJSON: { type, value })
         let minimumEnrollmentSats = 0;
         if (minimumAmountRaw !== null && minimumAmountRaw !== undefined) {
-          const raw = minimumAmountRaw as { value?: string | number };
-          minimumEnrollmentSats = raw.value !== undefined ? Number(raw.value) : 0;
+          if (typeof minimumAmountRaw === "number" || typeof minimumAmountRaw === "string") {
+            minimumEnrollmentSats = Number(minimumAmountRaw);
+          } else {
+            const raw = minimumAmountRaw as { value?: string | number };
+            minimumEnrollmentSats = raw.value !== undefined ? Number(raw.value) : 0;
+          }
         }
 
         // Parse boolean enrollment flags. A failed read stays null (unknown)
