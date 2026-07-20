@@ -14,6 +14,7 @@ import {
   generatePaymentId,
   buildPaymentIdentifierExtension,
   X402_HEADERS,
+  type PaymentRequirementsV2,
 } from "../utils/x402-protocol.js";
 import { generateWallet, getStxAddress } from "@stacks/wallet-sdk";
 import { NETWORK, API_URL, getStacksNetwork, type Network } from "../config/networks.js";
@@ -317,6 +318,12 @@ export interface CreateApiClientOptions {
    */
   onBeforePayment?: (requirements: PaymentRequirements) => Promise<void>;
   toolName?: string;
+  /**
+   * Which asset to pay with when the endpoint offers several — an asset
+   * identifier ("SM3V....sbtc-token") or a symbol ("sBTC", "STX", "USDCx").
+   * Unset means the first entry this client can pay for.
+   */
+  asset?: string;
 }
 
 /**
@@ -667,19 +674,19 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           );
         }
 
-        // Select first Stacks-compatible payment option
-        const selectedOption = paymentRequired.accepts.find(
-          (opt) => opt.network?.startsWith("stacks:")
-        );
-
-        if (!selectedOption) {
-          const networks = paymentRequired.accepts.map((a) => a.network).join(", ");
-          return Promise.reject(
-            new Error(`No compatible Stacks payment option found. Available networks: ${networks}`)
-          );
+        // Select the payment option: the caller's requested asset, else the
+        // first entry this client can actually sign for. Throws with the list
+        // of accepted assets rather than falling back to a different one.
+        let selectedOption: PaymentRequirementsV2;
+        try {
+          selectedOption = selectPaymentOption(paymentRequired.accepts, options?.asset);
+        } catch (selectionError) {
+          return Promise.reject(selectionError);
         }
 
-        const tokenType = detectTokenType(selectedOption.asset);
+        // Guaranteed non-'unsupported' by selectPaymentOption, so the branch
+        // below can never route a third-party token into the native-STX path.
+        const tokenType = detectTokenType(selectedOption.asset) as 'STX' | 'sBTC';
         const amount = BigInt(selectedOption.amount);
         const isSbtc = tokenType === "sBTC";
         const cap = isSbtc ? X402_MAX_SATS_PER_PAYMENT : X402_MAX_USTX_PER_PAYMENT;
@@ -870,9 +877,13 @@ export type ProbeResultPaymentRequired = {
   type: 'payment_required';
   amount: string;
   asset: string;
+  /** Display symbol for `asset` (e.g. "USDCx"), when derivable. */
+  symbol?: string;
   recipient: string;
   network: string;
   endpoint: string;
+  /** Every asset the endpoint accepts, so the caller can pick another. */
+  accepts?: PaymentOptionSummary[];
   resource?: {
     url: string;
     description?: string;
@@ -884,11 +895,24 @@ export type ProbeResultPaymentRequired = {
 export type ProbeResult = ProbeResultFree | ProbeResultPaymentRequired;
 
 /**
- * Detect token type from asset identifier
- * @param asset - Full contract identifier or token name
- * @returns 'STX' for native STX, 'sBTC' for sBTC token
+ * Token rails this client can actually build and sign a payment for.
+ * Anything else is `unsupported` — see detectTokenType.
  */
-export function detectTokenType(asset: string): 'STX' | 'sBTC' {
+export type PaymentTokenType = 'STX' | 'sBTC' | 'unsupported';
+
+/**
+ * Detect token type from asset identifier.
+ *
+ * STX must be identified POSITIVELY, never as a fallback. This function used
+ * to return 'STX' for any unrecognized asset, which meant a USDCx-denominated
+ * 402 (asset `SP120...usdcx`, amount `29000000`) was routed to the interceptor's
+ * native-STX branch and signed as a 29 STX transfer — real funds, wrong asset,
+ * and the endpoint never credits it. Unknown assets are now `unsupported` so
+ * the payment is refused instead of silently mis-sent (#613).
+ *
+ * @param asset - Full contract identifier or token name
+ */
+export function detectTokenType(asset: string): PaymentTokenType {
   const assetLower = asset.trim().toLowerCase();
   // Treat as sBTC if the asset is exactly "sbtc" (token name),
   // a full contract identifier ending with "::token-sbtc",
@@ -896,21 +920,162 @@ export function detectTokenType(asset: string): 'STX' | 'sBTC' {
   if (assetLower === 'sbtc' || assetLower.endsWith('::token-sbtc') || assetLower.endsWith('.sbtc-token')) {
     return 'sBTC';
   }
-  return 'STX';
+  // Native STX: the bare symbol, or a CAIP-19-style native reference
+  // ("stacks:1/native" / ".../slip44:5773") used by some manifests.
+  if (assetLower === 'stx' || /(^|\/)(native|slip44:5773)$/.test(assetLower)) {
+    return 'STX';
+  }
+  return 'unsupported';
 }
 
 /**
- * Format payment amount into human-readable string with token symbol
- * @param amount - Raw amount string (microSTX or satoshis)
- * @param asset - Token asset identifier
- * @returns Formatted string like "0.000001 sBTC" or "0.001 STX"
+ * Best-effort display symbol for an asset. Servers advertise a friendly name in
+ * `extra.tokenType` (arc0btc sends "USDCx"); otherwise fall back to the contract
+ * name, then the raw identifier.
  */
-export function formatPaymentAmount(amount: string, asset: string): string {
+export function resolveAssetSymbol(asset: string, extra?: Record<string, unknown>): string {
+  const advertised = extra?.tokenType;
+  if (typeof advertised === 'string' && advertised.trim()) {
+    return advertised.trim();
+  }
+  const tokenType = detectTokenType(asset);
+  if (tokenType !== 'unsupported') {
+    return tokenType;
+  }
+  // "SP120....usdcx" -> "usdcx"; strip any "::asset-name" suffix first.
+  const withoutAssetName = asset.split('::')[0];
+  const contractName = withoutAssetName.split('.')[1];
+  return contractName || asset;
+}
+
+/**
+ * Format payment amount into human-readable string with token symbol.
+ *
+ * Only STX and sBTC have known decimal scales here. For any other asset the
+ * amount is rendered in raw base units with an explicit marker rather than
+ * being run through the STX formatter — dividing a USDCx amount by 1e6 and
+ * labelling it "STX" is how `29000000` USDCx base units got reported as
+ * "29 STX" (#613).
+ *
+ * @param amount - Raw amount string (microSTX, satoshis, or token base units)
+ * @param asset - Token asset identifier
+ * @param extra - Scheme-specific `extra` block from the accepts[] entry
+ * @returns Formatted string like "0.000001 sBTC", "0.001 STX", or "29000000 USDCx (base units)"
+ */
+export function formatPaymentAmount(
+  amount: string,
+  asset: string,
+  extra?: Record<string, unknown>
+): string {
   const tokenType = detectTokenType(asset);
   if (tokenType === 'sBTC') {
     return formatSbtc(amount);
   }
+  if (tokenType === 'unsupported') {
+    // Decimals are unknown, so do not invent a scaled figure.
+    return `${amount} ${resolveAssetSymbol(asset, extra)} (base units)`;
+  }
   return formatStx(amount);
+}
+
+/**
+ * Does `requested` name this accepts[] entry? Matches on the full asset
+ * identifier or on the display symbol, both case-insensitively, so callers can
+ * say "sBTC", "usdcx", or the full "SM3V....sbtc-token".
+ */
+function assetMatches(option: PaymentRequirementsV2, requested: string): boolean {
+  const want = requested.trim().toLowerCase();
+  if (!want) return false;
+  if (option.asset.trim().toLowerCase() === want) return true;
+  if (resolveAssetSymbol(option.asset, option.extra).toLowerCase() === want) return true;
+  // "sbtc" should also match the full sbtc-token contract id, and "stx" the
+  // native entry, without the caller needing the exact string.
+  const tokenType = detectTokenType(option.asset);
+  return tokenType !== 'unsupported' && tokenType.toLowerCase() === want;
+}
+
+/** One payment option, summarised for callers choosing between them. */
+export interface PaymentOptionSummary {
+  asset: string;
+  symbol: string;
+  amount: string;
+  formatted: string;
+  payTo: string;
+  /** False when this client cannot build a transaction for the asset. */
+  payable: boolean;
+}
+
+export function summarizePaymentOptions(
+  accepts: PaymentRequirementsV2[]
+): PaymentOptionSummary[] {
+  return accepts.map((opt) => ({
+    asset: opt.asset,
+    symbol: resolveAssetSymbol(opt.asset, opt.extra),
+    amount: opt.amount,
+    formatted: formatPaymentAmount(opt.amount, opt.asset, opt.extra),
+    payTo: opt.payTo,
+    payable: detectTokenType(opt.asset) !== 'unsupported',
+  }));
+}
+
+/**
+ * Choose which entry of `accepts[]` to pay.
+ *
+ * Previously this was hardcoded to the first Stacks-network entry, so on a
+ * multi-asset endpoint the caller got whatever the server happened to list
+ * first — USDCx on arc0btc — with no way to ask for anything else (#613).
+ *
+ * - `preferredAsset` set: that asset or an explicit error naming what IS on
+ *   offer. Never silently substitutes a different asset than the one asked for.
+ * - unset: the first entry this client can actually pay for, in the server's
+ *   own preference order. Deliberately NOT balance-aware — auto-selecting by
+ *   wallet contents would let a manifest reorder change which asset leaves the
+ *   wallet without the caller ever naming it.
+ */
+export function selectPaymentOption(
+  accepts: PaymentRequirementsV2[],
+  preferredAsset?: string
+): PaymentRequirementsV2 {
+  const stacksOptions = accepts.filter((opt) => opt.network?.startsWith('stacks:'));
+  if (stacksOptions.length === 0) {
+    const networks = accepts.map((a) => a.network).join(', ') || 'none';
+    throw new Error(
+      `No compatible Stacks payment option found. Available networks: ${networks}`
+    );
+  }
+
+  const describe = (opts: PaymentRequirementsV2[]) =>
+    opts
+      .map((o) => `${resolveAssetSymbol(o.asset, o.extra)} (${o.asset})`)
+      .join(', ');
+
+  if (preferredAsset) {
+    const match = stacksOptions.find((opt) => assetMatches(opt, preferredAsset));
+    if (!match) {
+      throw new Error(
+        `Endpoint does not accept "${preferredAsset}". Accepted assets: ${describe(stacksOptions)}.`
+      );
+    }
+    if (detectTokenType(match.asset) === 'unsupported') {
+      throw new Error(
+        `Payment in ${resolveAssetSymbol(match.asset, match.extra)} (${match.asset}) is not supported — ` +
+          `this client can only sign STX and sBTC payments. ` +
+          `Accepted assets: ${describe(stacksOptions)}.`
+      );
+    }
+    return match;
+  }
+
+  const payable = stacksOptions.find(
+    (opt) => detectTokenType(opt.asset) !== 'unsupported'
+  );
+  if (!payable) {
+    throw new Error(
+      `No payable asset offered: this client can only sign STX and sBTC payments, ` +
+        `but the endpoint accepts ${describe(stacksOptions)}.`
+    );
+  }
+  return payable;
 }
 
 /**
@@ -922,8 +1087,10 @@ export async function probeEndpoint(options: {
   url: string;
   params?: Record<string, string>;
   data?: Record<string, unknown>;
+  /** Asset to quote (identifier or symbol). Defaults to the first payable entry. */
+  asset?: string;
 }): Promise<ProbeResult> {
-  const { method, url, params, data } = options;
+  const { method, url, params, data, asset: preferredAsset } = options;
   const axiosInstance = createBaseAxiosInstance();
 
   try {
@@ -945,7 +1112,9 @@ export async function probeEndpoint(options: {
 
       // If v2 header is successfully parsed, use it
       if (paymentRequired?.accepts?.length) {
-        const acceptedPayment = paymentRequired.accepts[0];
+        // Pick the requested asset, or the first one we can actually pay —
+        // NOT blindly accepts[0], which quoted USDCx to sBTC-only wallets (#613).
+        const acceptedPayment = selectPaymentOption(paymentRequired.accepts, preferredAsset);
 
         // Convert CAIP-2 network identifier to human-readable format
         const network = getNetworkFromStacksChainId(acceptedPayment.network) ?? NETWORK;
@@ -954,11 +1123,13 @@ export async function probeEndpoint(options: {
           type: 'payment_required',
           amount: acceptedPayment.amount,
           asset: acceptedPayment.asset,
+          symbol: resolveAssetSymbol(acceptedPayment.asset, acceptedPayment.extra),
           recipient: acceptedPayment.payTo,
           network,
           endpoint: url,
           resource: paymentRequired.resource,
           maxTimeoutSeconds: acceptedPayment.maxTimeoutSeconds,
+          accepts: summarizePaymentOptions(paymentRequired.accepts),
         };
       }
 
@@ -1050,6 +1221,14 @@ export async function checkSufficientBalance(
 ): Promise<void> {
   const tokenType = detectTokenType(asset);
   const requiredAmount = BigInt(amount);
+
+  if (tokenType === 'unsupported') {
+    // No balance rail for third-party tokens. Refuse rather than falling
+    // through to the STX check, which would validate the wrong asset (#613).
+    throw new Error(
+      `Cannot validate balance for asset ${asset}: this client only supports STX and sBTC payments.`
+    );
+  }
 
   if (tokenType === 'sBTC') {
     const sbtcService = getSbtcService(account.network);
