@@ -57,3 +57,31 @@ describe("detectTokenType", () => {
     expect(detectTokenType("SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx")).toBe("USDCx");
   });
 });
+
+describe("payment route selection helpers (#613 review)", () => {
+  it("routes only native STX to STX token type", () => {
+    expect(detectTokenType("stx")).toBe("STX");
+    expect(detectTokenType("STX")).toBe("STX");
+    expect(detectTokenType("native")).toBe("STX");
+  });
+
+  it("routes USDCx contract id to USDCx not STX", () => {
+    expect(detectTokenType("SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx")).toBe("USDCx");
+    expect(detectTokenType("SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx")).not.toBe("STX");
+  });
+
+  it("routes sBTC contract id to sBTC", () => {
+    expect(detectTokenType("SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token")).toBe("sBTC");
+  });
+
+  it("prefers explicit asset over default when both sBTC and USDCx present", () => {
+    const accepts = [
+      { network: "stacks:1", asset: "SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx" },
+      { network: "stacks:1", asset: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token" },
+      { network: "stacks:1", asset: "stx" },
+    ];
+    expect(selectPaymentOption(accepts, "USDCx")?.asset).toContain("usdcx");
+    expect(selectPaymentOption(accepts, "sBTC")?.asset).toContain("sbtc-token");
+    expect(selectPaymentOption(accepts, "STX")?.asset?.toLowerCase()).toBe("stx");
+  });
+});
