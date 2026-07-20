@@ -317,6 +317,8 @@ export interface CreateApiClientOptions {
    */
   onBeforePayment?: (requirements: PaymentRequirements) => Promise<void>;
   toolName?: string;
+  /** Prefer this asset symbol/contract when selecting accepts[] (e.g. "sBTC"). */
+  preferredAsset?: string;
 }
 
 /**
@@ -667,9 +669,10 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           );
         }
 
-        // Select first Stacks-compatible payment option
-        const selectedOption = paymentRequired.accepts.find(
-          (opt) => opt.network?.startsWith("stacks:")
+        // Select Stacks-compatible payment option (optional preferred asset)
+        const selectedOption = selectPaymentOption(
+          paymentRequired.accepts,
+          options?.preferredAsset
         );
 
         if (!selectedOption) {
@@ -888,7 +891,9 @@ export type ProbeResult = ProbeResultFree | ProbeResultPaymentRequired;
  * @param asset - Full contract identifier or token name
  * @returns 'STX' for native STX, 'sBTC' for sBTC token
  */
-export function detectTokenType(asset: string): 'STX' | 'sBTC' {
+export type PaymentTokenType = 'STX' | 'sBTC' | 'USDCx' | 'other';
+
+export function detectTokenType(asset: string): PaymentTokenType {
   const assetLower = asset.trim().toLowerCase();
   // Treat as sBTC if the asset is exactly "sbtc" (token name),
   // a full contract identifier ending with "::token-sbtc",
@@ -896,7 +901,60 @@ export function detectTokenType(asset: string): 'STX' | 'sBTC' {
   if (assetLower === 'sbtc' || assetLower.endsWith('::token-sbtc') || assetLower.endsWith('.sbtc-token')) {
     return 'sBTC';
   }
+  if (
+    assetLower === 'usdcx' ||
+    assetLower === 'usdc' ||
+    assetLower.endsWith('.usdcx') ||
+    assetLower.endsWith('::usdcx') ||
+    assetLower.includes('usdcx')
+  ) {
+    return 'USDCx';
+  }
+  // Native STX is typically represented as empty, "stx", or a known native marker
+  if (assetLower === '' || assetLower === 'stx' || assetLower === 'native' || assetLower.endsWith('::stx')) {
+    return 'STX';
+  }
+  // Unknown SIP-010 assets: do not mislabel as STX in display text
+  if (assetLower.includes('.')) {
+    return 'other';
+  }
   return 'STX';
+}
+
+/**
+ * Select an accepts[] payment option for Stacks.
+ * - If `asset` is provided (symbol or contract id), prefer matching entry.
+ * - Else prefer sBTC, then STX, then first Stacks-compatible option.
+ */
+export function selectPaymentOption<T extends { network?: string; asset?: string }>(
+  accepts: T[],
+  asset?: string
+): T | undefined {
+  const stacksOpts = accepts.filter((opt) => opt.network?.startsWith('stacks:'));
+  const pool = stacksOpts.length ? stacksOpts : accepts;
+  if (!pool.length) return undefined;
+
+  if (asset && asset.trim()) {
+    const want = asset.trim().toLowerCase();
+    const match = pool.find((opt) => {
+      const a = (opt.asset || '').toLowerCase();
+      if (a === want) return true;
+      if (a.endsWith('.' + want) || a.endsWith('::' + want)) return true;
+      // symbol aliases
+      if (want === 'sbtc' && (a.endsWith('.sbtc-token') || a.endsWith('::token-sbtc') || a === 'sbtc')) return true;
+      if ((want === 'usdcx' || want === 'usdc') && (a.includes('usdcx') || a.endsWith('.usdcx'))) return true;
+      if (want === 'stx' && (a === '' || a === 'stx' || a === 'native')) return true;
+      return false;
+    });
+    if (match) return match;
+  }
+
+  // Default preference when no explicit asset: sBTC > STX > first
+  const sbtc = pool.find((opt) => detectTokenType(opt.asset || '') === 'sBTC');
+  if (sbtc) return sbtc;
+  const stx = pool.find((opt) => detectTokenType(opt.asset || '') === 'STX');
+  if (stx) return stx;
+  return pool[0];
 }
 
 /**
@@ -910,6 +968,16 @@ export function formatPaymentAmount(amount: string, asset: string): string {
   if (tokenType === 'sBTC') {
     return formatSbtc(amount);
   }
+  if (tokenType === 'USDCx') {
+    // USDCx uses 6 decimals like USDC
+    const n = Number(amount) / 1_000_000;
+    return `${n} USDCx`;
+  }
+  if (tokenType === 'other') {
+    // Avoid claiming "STX" for unknown SIP-010 assets
+    const short = asset.includes('.') ? asset.split('.').pop() || asset : asset;
+    return `${amount} ${short}`;
+  }
   return formatStx(amount);
 }
 
@@ -922,6 +990,8 @@ export async function probeEndpoint(options: {
   url: string;
   params?: Record<string, string>;
   data?: Record<string, unknown>;
+  /** Optional asset symbol or contract id to select from accepts[] */
+  asset?: string;
 }): Promise<ProbeResult> {
   const { method, url, params, data } = options;
   const axiosInstance = createBaseAxiosInstance();
@@ -945,7 +1015,10 @@ export async function probeEndpoint(options: {
 
       // If v2 header is successfully parsed, use it
       if (paymentRequired?.accepts?.length) {
-        const acceptedPayment = paymentRequired.accepts[0];
+        const acceptedPayment = selectPaymentOption(paymentRequired.accepts, options.asset);
+        if (!acceptedPayment) {
+          throw new Error(`No matching payment option for asset filter ${options.asset ?? '(default)'} on ${url}`);
+        }
 
         // Convert CAIP-2 network identifier to human-readable format
         const network = getNetworkFromStacksChainId(acceptedPayment.network) ?? NETWORK;
