@@ -85,6 +85,7 @@ function buildCallWith(options: {
   apiUrl?: string;
   params?: Record<string, string>;
   data?: Record<string, unknown>;
+  asset?: string;
 }): Record<string, unknown> {
   const callWith: Record<string, unknown> = { method: options.method, autoApprove: true };
   if (options.url) callWith.url = options.url;
@@ -92,6 +93,8 @@ function buildCallWith(options: {
   if (options.apiUrl) callWith.apiUrl = options.apiUrl;
   if (options.params && Object.keys(options.params).length > 0) callWith.params = options.params;
   if (options.data && Object.keys(options.data).length > 0) callWith.data = options.data;
+  // Echo the asset so executing the quote pays in the asset that was quoted.
+  if (options.asset) callWith.asset = options.asset;
   return callWith;
 }
 
@@ -140,18 +143,30 @@ function formatProbeResponse(
     });
   }
 
+  // Derive the message from the same asset the machine-readable block reports.
+  // These used to disagree — the text said "29 STX" while payment.asset was
+  // USDCx — because the formatter treated every unknown token as STX (#613).
   const formattedCost = formatPaymentAmount(result.amount, result.asset);
   const prefix = messagePrefix ?? 'No payment made. ';
+  const alternatives = (result.accepts ?? []).filter((o) => o.asset !== result.asset);
+  const altNote =
+    alternatives.length > 0
+      ? ` This endpoint also accepts ${alternatives
+          .map((o) => `${o.formatted}${o.payable ? '' : ' [not payable by this client]'}`)
+          .join(', ')} — pass the \`asset\` parameter to pay with one of those instead.`
+      : '';
   return createJsonResponse({
     type: 'payment_required',
     endpoint: `${method} ${fullUrl}`,
-    message: `${prefix}This endpoint costs ${formattedCost}. To execute and pay, call execute_x402_endpoint with autoApprove: true and the parameters shown in callWith below.`,
+    message: `${prefix}This endpoint costs ${formattedCost}. To execute and pay, call execute_x402_endpoint with autoApprove: true and the parameters shown in callWith below.${altNote}`,
     payment: {
       amount: result.amount,
       asset: result.asset,
+      ...(result.symbol && { symbol: result.symbol }),
       recipient: result.recipient,
       network: result.network,
     },
+    ...(result.accepts && result.accepts.length > 0 && { accepts: result.accepts }),
     callWith: buildCallWith(callWithOptions),
   });
 }
@@ -306,9 +321,15 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
           .optional()
           .default(false)
           .describe("Skip cost probe and execute immediately. When false (default), probes first and returns cost info for paid endpoints. When true, executes atomically like before. Free endpoints always execute transparently."),
+        asset: z
+          .string()
+          .optional()
+          .describe(
+            "Which asset to pay with when the endpoint accepts several. Accepts a symbol (\"sBTC\", \"STX\") or a full contract identifier. Defaults to the first asset this client can pay. Only STX and sBTC can be signed; requesting any other asset returns an error listing what is accepted."
+          ),
       },
     },
-    async ({ method, url, path, apiUrl, params, data, autoApprove }) => {
+    async ({ method, url, path, apiUrl, params, data, autoApprove, asset }) => {
       let fullUrl = "";
 
       try {
@@ -317,8 +338,8 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
         params = parsed.params;
 
         if (!autoApprove) {
-          const probeResult = await probeEndpoint({ method, url: fullUrl, params, data });
-          return formatProbeResponse(probeResult, method, fullUrl, { method, url, path, apiUrl, params, data });
+          const probeResult = await probeEndpoint({ method, url: fullUrl, params, data, asset });
+          return formatProbeResponse(probeResult, method, fullUrl, { method, url, path, apiUrl, params, data, asset });
         }
 
         // autoApprove=true: check dedup cache before any network request, then execute
@@ -337,6 +358,7 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
 
         const api = await createApiClient(parsed.baseUrl, {
           toolName: "execute_x402_endpoint",
+          asset,
           onBeforePayment: async (requirements) => {
             // Non-sponsored: sender pays its own gas, so validate STX for the
             // fee too (sponsored=false is the default, passed explicitly here).
@@ -532,9 +554,15 @@ Supported sources:
           .record(z.string(), z.unknown())
           .optional()
           .describe("Request body for POST/PUT requests"),
+        asset: z
+          .string()
+          .optional()
+          .describe(
+            "Quote the cost in this asset when the endpoint accepts several. Accepts a symbol (\"sBTC\", \"STX\") or a full contract identifier. Defaults to the first asset this client can pay; the full accepts[] list is always returned."
+          ),
       },
     },
-    async ({ method, url, path, apiUrl, params, data }) => {
+    async ({ method, url, path, apiUrl, params, data, asset }) => {
       let fullUrl = "";
 
       try {
@@ -542,8 +570,8 @@ Supported sources:
         fullUrl = parsed.fullUrl;
         params = parsed.params;
 
-        const result = await probeEndpoint({ method, url: fullUrl, params, data });
-        return formatProbeResponse(result, method, fullUrl, { method, url, path, apiUrl, params, data });
+        const result = await probeEndpoint({ method, url: fullUrl, params, data, asset });
+        return formatProbeResponse(result, method, fullUrl, { method, url, path, apiUrl, params, data, asset });
       } catch (error) {
         return formatEndpointError(error, fullUrl || "unknown");
       }
