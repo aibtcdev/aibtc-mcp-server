@@ -94,6 +94,12 @@ const X402_MAX_SATS_PER_PAYMENT = parseSatsCap(
   "X402_MAX_SATS_PER_PAYMENT",
   10_000
 );
+// Atomic units for SIP-010 assets other than sBTC (e.g. USDCx 6-decimals).
+// Default 100 USDC-equivalent at 6 decimals; raise via env for larger invoices.
+const X402_MAX_SIP010_ATOMIC_PER_PAYMENT = parseSatsCap(
+  "X402_MAX_SIP010_ATOMIC_PER_PAYMENT",
+  100_000_000
+);
 
 // Track payment attempts per client instance (auto-cleanup via WeakMap)
 const paymentAttempts: WeakMap<AxiosInstance, number> = new WeakMap();
@@ -317,6 +323,8 @@ export interface CreateApiClientOptions {
    */
   onBeforePayment?: (requirements: PaymentRequirements) => Promise<void>;
   toolName?: string;
+  /** Prefer this asset symbol/contract when selecting accepts[] (e.g. "sBTC"). */
+  preferredAsset?: string;
 }
 
 /**
@@ -667,9 +675,10 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           );
         }
 
-        // Select first Stacks-compatible payment option
-        const selectedOption = paymentRequired.accepts.find(
-          (opt) => opt.network?.startsWith("stacks:")
+        // Select Stacks-compatible payment option (optional preferred asset)
+        const selectedOption = selectPaymentOption(
+          paymentRequired.accepts,
+          options?.preferredAsset
         );
 
         if (!selectedOption) {
@@ -682,14 +691,28 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
         const tokenType = detectTokenType(selectedOption.asset);
         const amount = BigInt(selectedOption.amount);
         const isSbtc = tokenType === "sBTC";
-        const cap = isSbtc ? X402_MAX_SATS_PER_PAYMENT : X402_MAX_USTX_PER_PAYMENT;
-        const unit = isSbtc ? "sats" : "uSTX";
+        const isStx = tokenType === "STX";
+        let cap: number;
+        let unit: string;
+        let capEnv: string;
+        if (isSbtc) {
+          cap = X402_MAX_SATS_PER_PAYMENT;
+          unit = "sats";
+          capEnv = "X402_MAX_SATS_PER_PAYMENT";
+        } else if (isStx) {
+          cap = X402_MAX_USTX_PER_PAYMENT;
+          unit = "uSTX";
+          capEnv = "X402_MAX_USTX_PER_PAYMENT";
+        } else {
+          cap = X402_MAX_SIP010_ATOMIC_PER_PAYMENT;
+          unit = "atomic";
+          capEnv = "X402_MAX_SIP010_ATOMIC_PER_PAYMENT";
+        }
         if (amount > BigInt(Math.floor(cap))) {
           return Promise.reject(
             new Error(
               `x402 payment of ${amount} ${unit} exceeds the per-payment cap of ${cap} ${unit}. ` +
-              `If this cost is expected, raise the cap via the ` +
-              `${isSbtc ? "X402_MAX_SATS_PER_PAYMENT" : "X402_MAX_USTX_PER_PAYMENT"} env var.`
+              `If this cost is expected, raise the cap via the ${capEnv} env var.`
             )
           );
         }
@@ -708,10 +731,13 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           );
         }
 
-        // Cumulative spending limit: the per-payment cap above bounds a single
-        // 402, but a malicious endpoint can loop sub-cap payments. This blocks
-        // once the session/day total would be exceeded.
-        await getSpendLimiter().check(isSbtc ? "sats" : "ustx", amount, acct.address);
+        // Cumulative spending limit for STX/sBTC micro-payments.
+        // Other SIP-010 assets are bounded by X402_MAX_SIP010_ATOMIC_PER_PAYMENT + balance checks.
+        if (isSbtc) {
+          await getSpendLimiter().check("sats", amount, acct.address);
+        } else if (isStx) {
+          await getSpendLimiter().check("ustx", amount, acct.address);
+        }
 
         // Invoke pre-payment callback (e.g. balance check) before signing/broadcasting.
         // If the callback throws, the payment is aborted and the error propagates to the caller.
@@ -733,11 +759,45 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
         const networkName = getStacksNetwork(acct.network);
 
         let transaction;
-        if (tokenType === "sBTC") {
-          const contracts = getContracts(acct.network);
-          const { address: contractAddress, name: contractName } = parseContractId(
-            contracts.SBTC_TOKEN
-          );
+        if (tokenType === "STX") {
+          transaction = await makeSTXTokenTransfer({
+            recipient: selectedOption.payTo,
+            amount,
+            senderKey: acct.privateKey,
+            network: networkName,
+            memo: "",
+            fee: await resolveDefaultFee(acct.network, "token_transfer"),
+          });
+        } else {
+          // sBTC and other SIP-010 assets (e.g. USDCx): contract-call transfer
+          const contractId =
+            tokenType === "sBTC"
+              ? getContracts(acct.network).SBTC_TOKEN
+              : selectedOption.asset;
+          if (!contractId || !contractId.includes(".")) {
+            return Promise.reject(
+              new Error(
+                `Cannot build SIP-010 payment: asset "${selectedOption.asset}" is not a contract id ` +
+                  `(expected Address.contract-name).`
+              )
+            );
+          }
+          const { address: contractAddress, name: contractName } = parseContractId(contractId);
+
+          let tokenName = contractName;
+          if (tokenType === "sBTC") {
+            tokenName = "sbtc-token";
+          } else {
+            try {
+              const iface = await getHiroApi(acct.network).getContractInterface(contractId);
+              const fts = iface?.fungible_tokens ?? [];
+              if (fts.length > 0 && fts[0]?.name) {
+                tokenName = fts[0].name;
+              }
+            } catch {
+              // Fall back to contract name segment
+            }
+          }
 
           transaction = await makeContractCall({
             contractAddress,
@@ -751,27 +811,13 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
             ],
             senderKey: acct.privateKey,
             network: networkName,
-            // The payment amount is known at build time, so pin it: a
-            // compromised token contract must not be able to pull more.
             postConditionMode: PostConditionMode.Deny,
             postConditions: [
               Pc.principal(acct.address)
                 .willSendEq(amount)
-                .ft(contracts.SBTC_TOKEN as `${string}.${string}`, "sbtc-token"),
+                .ft(contractId as `${string}.${string}`, tokenName),
             ],
-            // Clamped medium fee — do NOT let @stacks auto-estimate, since
-            // Hiro's contract_call high_priority tier is polluted by outliers
-            // (observed >2000 STX). resolveDefaultFee caps it at 0.05 STX.
             fee: await resolveDefaultFee(acct.network, "contract_call"),
-          });
-        } else {
-          transaction = await makeSTXTokenTransfer({
-            recipient: selectedOption.payTo,
-            amount,
-            senderKey: acct.privateKey,
-            network: networkName,
-            memo: "",
-            fee: await resolveDefaultFee(acct.network, "token_transfer"),
           });
         }
 
@@ -888,7 +934,9 @@ export type ProbeResult = ProbeResultFree | ProbeResultPaymentRequired;
  * @param asset - Full contract identifier or token name
  * @returns 'STX' for native STX, 'sBTC' for sBTC token
  */
-export function detectTokenType(asset: string): 'STX' | 'sBTC' {
+export type PaymentTokenType = 'STX' | 'sBTC' | 'USDCx' | 'other';
+
+export function detectTokenType(asset: string): PaymentTokenType {
   const assetLower = asset.trim().toLowerCase();
   // Treat as sBTC if the asset is exactly "sbtc" (token name),
   // a full contract identifier ending with "::token-sbtc",
@@ -896,7 +944,60 @@ export function detectTokenType(asset: string): 'STX' | 'sBTC' {
   if (assetLower === 'sbtc' || assetLower.endsWith('::token-sbtc') || assetLower.endsWith('.sbtc-token')) {
     return 'sBTC';
   }
+  if (
+    assetLower === 'usdcx' ||
+    assetLower === 'usdc' ||
+    assetLower.endsWith('.usdcx') ||
+    assetLower.endsWith('::usdcx') ||
+    assetLower.includes('usdcx')
+  ) {
+    return 'USDCx';
+  }
+  // Native STX is typically represented as empty, "stx", or a known native marker
+  if (assetLower === '' || assetLower === 'stx' || assetLower === 'native' || assetLower.endsWith('::stx')) {
+    return 'STX';
+  }
+  // Unknown SIP-010 assets: do not mislabel as STX in display text
+  if (assetLower.includes('.')) {
+    return 'other';
+  }
   return 'STX';
+}
+
+/**
+ * Select an accepts[] payment option for Stacks.
+ * - If `asset` is provided (symbol or contract id), prefer matching entry.
+ * - Else prefer sBTC, then STX, then first Stacks-compatible option.
+ */
+export function selectPaymentOption<T extends { network?: string; asset?: string }>(
+  accepts: T[],
+  asset?: string
+): T | undefined {
+  const stacksOpts = accepts.filter((opt) => opt.network?.startsWith('stacks:'));
+  const pool = stacksOpts.length ? stacksOpts : accepts;
+  if (!pool.length) return undefined;
+
+  if (asset && asset.trim()) {
+    const want = asset.trim().toLowerCase();
+    const match = pool.find((opt) => {
+      const a = (opt.asset || '').toLowerCase();
+      if (a === want) return true;
+      if (a.endsWith('.' + want) || a.endsWith('::' + want)) return true;
+      // symbol aliases
+      if (want === 'sbtc' && (a.endsWith('.sbtc-token') || a.endsWith('::token-sbtc') || a === 'sbtc')) return true;
+      if ((want === 'usdcx' || want === 'usdc') && (a.includes('usdcx') || a.endsWith('.usdcx'))) return true;
+      if (want === 'stx' && (a === '' || a === 'stx' || a === 'native')) return true;
+      return false;
+    });
+    if (match) return match;
+  }
+
+  // Default preference when no explicit asset: sBTC > STX > first
+  const sbtc = pool.find((opt) => detectTokenType(opt.asset || '') === 'sBTC');
+  if (sbtc) return sbtc;
+  const stx = pool.find((opt) => detectTokenType(opt.asset || '') === 'STX');
+  if (stx) return stx;
+  return pool[0];
 }
 
 /**
@@ -910,6 +1011,16 @@ export function formatPaymentAmount(amount: string, asset: string): string {
   if (tokenType === 'sBTC') {
     return formatSbtc(amount);
   }
+  if (tokenType === 'USDCx') {
+    // USDCx uses 6 decimals like USDC
+    const n = Number(amount) / 1_000_000;
+    return `${n} USDCx`;
+  }
+  if (tokenType === 'other') {
+    // Avoid claiming "STX" for unknown SIP-010 assets
+    const short = asset.includes('.') ? asset.split('.').pop() || asset : asset;
+    return `${amount} ${short}`;
+  }
   return formatStx(amount);
 }
 
@@ -922,6 +1033,8 @@ export async function probeEndpoint(options: {
   url: string;
   params?: Record<string, string>;
   data?: Record<string, unknown>;
+  /** Optional asset symbol or contract id to select from accepts[] */
+  asset?: string;
 }): Promise<ProbeResult> {
   const { method, url, params, data } = options;
   const axiosInstance = createBaseAxiosInstance();
@@ -945,7 +1058,10 @@ export async function probeEndpoint(options: {
 
       // If v2 header is successfully parsed, use it
       if (paymentRequired?.accepts?.length) {
-        const acceptedPayment = paymentRequired.accepts[0];
+        const acceptedPayment = selectPaymentOption(paymentRequired.accepts, options.asset);
+        if (!acceptedPayment) {
+          throw new Error(`No matching payment option for asset filter ${options.asset ?? '(default)'} on ${url}`);
+        }
 
         // Convert CAIP-2 network identifier to human-readable format
         const network = getNetworkFromStacksChainId(acceptedPayment.network) ?? NETWORK;
@@ -1051,7 +1167,27 @@ export async function checkSufficientBalance(
   const tokenType = detectTokenType(asset);
   const requiredAmount = BigInt(amount);
 
-  if (tokenType === 'sBTC') {
+  const ensureStxForContractCall = async (label: string): Promise<void> => {
+    if (sponsored) return;
+    const hiroApi = getHiroApi(account.network);
+    const stxInfo = await hiroApi.getStxBalance(account.address);
+    const stxBalance = BigInt(stxInfo.balance);
+    const estimatedFee = await resolveDefaultFee(account.network, "contract_call");
+    if (stxBalance < estimatedFee) {
+      const stxShortfall = estimatedFee - stxBalance;
+      throw new InsufficientBalanceError(
+        `Insufficient STX balance to cover ${label} transfer fee: need ${formatStx(estimatedFee.toString())} estimated fee, ` +
+          `have ${formatStx(stxInfo.balance)} (shortfall: ${formatStx(stxShortfall.toString())}). ` +
+          `Deposit more STX or use a different wallet.`,
+        "STX",
+        stxInfo.balance,
+        estimatedFee.toString(),
+        stxShortfall.toString()
+      );
+    }
+  };
+
+  if (tokenType === "sBTC") {
     const sbtcService = getSbtcService(account.network);
     const balanceInfo = await sbtcService.getBalance(account.address);
     const balance = BigInt(balanceInfo.balance);
@@ -1060,65 +1196,71 @@ export async function checkSufficientBalance(
       const shortfall = requiredAmount - balance;
       throw new InsufficientBalanceError(
         `Insufficient sBTC balance: need ${formatSbtc(amount)}, have ${formatSbtc(balanceInfo.balance)} (shortfall: ${formatSbtc(shortfall.toString())}). ` +
-        `Deposit more sBTC via the bridge at https://bridge.stx.eco or use a different wallet.`,
-        'sBTC',
+          `Deposit more sBTC via the bridge at https://bridge.stx.eco or use a different wallet.`,
+        "sBTC",
         balanceInfo.balance,
         amount,
         shortfall.toString()
       );
     }
 
-    // sBTC transfers are contract calls that also require STX for gas fees,
-    // unless the transaction is sponsored (relay pays gas; fee: 0n).
-    if (!sponsored) {
-      const hiroApiForSbtc = getHiroApi(account.network);
-      const stxInfoForSbtc = await hiroApiForSbtc.getStxBalance(account.address);
-      const stxBalanceForSbtc = BigInt(stxInfoForSbtc.balance);
-      // Same clamped fee the interceptor actually sets on the sBTC contract
-      // call — so this check is exact, not a high-priority over-estimate.
-      const estimatedSbtcFee = await resolveDefaultFee(account.network, "contract_call");
-
-      if (stxBalanceForSbtc < estimatedSbtcFee) {
-        const stxShortfall = estimatedSbtcFee - stxBalanceForSbtc;
-        throw new InsufficientBalanceError(
-          `Insufficient STX balance to cover sBTC transfer fee: need ${formatStx(estimatedSbtcFee.toString())} estimated fee, ` +
-          `have ${formatStx(stxInfoForSbtc.balance)} (shortfall: ${formatStx(stxShortfall.toString())}). ` +
-          `Deposit more STX or use a different wallet.`,
-          'STX',
-          stxInfoForSbtc.balance,
-          estimatedSbtcFee.toString(),
-          stxShortfall.toString()
-        );
-      }
-    }
-
+    await ensureStxForContractCall("sBTC");
     return;
   }
 
-  // STX: include estimated fee in the required amount
-  const hiroApi = getHiroApi(account.network);
-  const balanceInfo = await hiroApi.getStxBalance(account.address);
-  const balance = BigInt(balanceInfo.balance);
+  if (tokenType === "STX") {
+    // STX: include estimated fee in the required amount (unless sponsored)
+    const hiroApi = getHiroApi(account.network);
+    const balanceInfo = await hiroApi.getStxBalance(account.address);
+    const balance = BigInt(balanceInfo.balance);
+    const estimatedFee = sponsored
+      ? 0n
+      : await resolveDefaultFee(account.network, "token_transfer");
+    const totalRequired = requiredAmount + estimatedFee;
 
-  let totalRequired = requiredAmount;
-  if (!sponsored) {
-    // Same clamped fee the interceptor sets on the STX transfer.
-    const estimatedFee = await resolveDefaultFee(account.network, "token_transfer");
-    totalRequired = requiredAmount + estimatedFee;
+    if (balance < totalRequired) {
+      const shortfall = totalRequired - balance;
+      throw new InsufficientBalanceError(
+        `Insufficient STX balance: need ${formatStx(amount)}` +
+          (estimatedFee > 0n ? ` + ${formatStx(estimatedFee.toString())} estimated fee` : "") +
+          `, have ${formatStx(balanceInfo.balance)} (shortfall: ${formatStx(shortfall.toString())}). ` +
+          `Deposit more STX or use a different wallet.`,
+        "STX",
+        balanceInfo.balance,
+        totalRequired.toString(),
+        shortfall.toString()
+      );
+    }
+    return;
   }
 
-  if (balance >= totalRequired) return;
+  // SIP-010 (USDCx and other FT): check FT balance + STX gas for contract call
+  if (!asset.includes(".")) {
+    throw new InsufficientBalanceError(
+      `Unsupported payment asset "${asset}" for balance check (expected SIP-010 contract id).`,
+      asset,
+      "0",
+      amount,
+      amount
+    );
+  }
 
-  const shortfall = totalRequired - balance;
-  throw new InsufficientBalanceError(
-    `Insufficient STX balance: need ${formatStx(totalRequired.toString())} (${formatStx(amount)} payment${!sponsored ? ` + estimated fee` : ''}), ` +
-    `have ${formatStx(balanceInfo.balance)} (shortfall: ${formatStx(shortfall.toString())}). ` +
-    `Deposit more STX or use a different wallet.`,
-    'STX',
-    balanceInfo.balance,
-    totalRequired.toString(),
-    shortfall.toString()
-  );
+  const hiroApi = getHiroApi(account.network);
+  const ftBalanceRaw = await hiroApi.getTokenBalance(account.address, asset);
+  const ftBalance = BigInt(ftBalanceRaw);
+  if (ftBalance < requiredAmount) {
+    const shortfall = requiredAmount - ftBalance;
+    throw new InsufficientBalanceError(
+      `Insufficient SIP-010 balance for ${asset}: need ${amount}, have ${ftBalanceRaw} (shortfall: ${shortfall.toString()}). ` +
+        `Acquire more of this token or select a different payment asset.`,
+      asset,
+      ftBalanceRaw,
+      amount,
+      shortfall.toString()
+    );
+  }
+
+  await ensureStxForContractCall(asset);
 }
 
 export { NETWORK, API_URL };

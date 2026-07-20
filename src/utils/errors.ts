@@ -118,7 +118,7 @@ export class InvalidMnemonicError extends WalletError {
 export class InsufficientBalanceError extends AibtcError {
   constructor(
     message: string,
-    public readonly tokenType: 'STX' | 'sBTC',
+    public readonly tokenType: string,
     public readonly balance: string,
     public readonly required: string,
     public readonly shortfall: string

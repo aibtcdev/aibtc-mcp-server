@@ -85,6 +85,7 @@ function buildCallWith(options: {
   apiUrl?: string;
   params?: Record<string, string>;
   data?: Record<string, unknown>;
+  asset?: string;
 }): Record<string, unknown> {
   const callWith: Record<string, unknown> = { method: options.method, autoApprove: true };
   if (options.url) callWith.url = options.url;
@@ -92,6 +93,7 @@ function buildCallWith(options: {
   if (options.apiUrl) callWith.apiUrl = options.apiUrl;
   if (options.params && Object.keys(options.params).length > 0) callWith.params = options.params;
   if (options.data && Object.keys(options.data).length > 0) callWith.data = options.data;
+  if (options.asset) callWith.asset = options.asset;
   return callWith;
 }
 
@@ -306,9 +308,13 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
           .optional()
           .default(false)
           .describe("Skip cost probe and execute immediately. When false (default), probes first and returns cost info for paid endpoints. When true, executes atomically like before. Free endpoints always execute transparently."),
+        asset: z
+          .string()
+          .optional()
+          .describe("Preferred payment asset: symbol (sBTC, STX, USDCx) or full contract id. Filters accepts[] on multi-asset endpoints."),
       },
     },
-    async ({ method, url, path, apiUrl, params, data, autoApprove }) => {
+    async ({ method, url, path, apiUrl, params, data, autoApprove, asset }) => {
       let fullUrl = "";
 
       try {
@@ -317,8 +323,8 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
         params = parsed.params;
 
         if (!autoApprove) {
-          const probeResult = await probeEndpoint({ method, url: fullUrl, params, data });
-          return formatProbeResponse(probeResult, method, fullUrl, { method, url, path, apiUrl, params, data });
+          const probeResult = await probeEndpoint({ method, url: fullUrl, params, data, asset });
+          return formatProbeResponse(probeResult, method, fullUrl, { method, url, path, apiUrl, params, data, asset });
         }
 
         // autoApprove=true: check dedup cache before any network request, then execute
@@ -337,6 +343,7 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
 
         const api = await createApiClient(parsed.baseUrl, {
           toolName: "execute_x402_endpoint",
+          preferredAsset: asset,
           onBeforePayment: async (requirements) => {
             // Non-sponsored: sender pays its own gas, so validate STX for the
             // fee too (sponsored=false is the default, passed explicitly here).
@@ -532,9 +539,13 @@ Supported sources:
           .record(z.string(), z.unknown())
           .optional()
           .describe("Request body for POST/PUT requests"),
+        asset: z
+          .string()
+          .optional()
+          .describe("Preferred payment asset: symbol (sBTC, STX, USDCx) or full contract id. Filters accepts[] on multi-asset endpoints."),
       },
     },
-    async ({ method, url, path, apiUrl, params, data }) => {
+    async ({ method, url, path, apiUrl, params, data, asset }) => {
       let fullUrl = "";
 
       try {
@@ -542,8 +553,8 @@ Supported sources:
         fullUrl = parsed.fullUrl;
         params = parsed.params;
 
-        const result = await probeEndpoint({ method, url: fullUrl, params, data });
-        return formatProbeResponse(result, method, fullUrl, { method, url, path, apiUrl, params, data });
+        const result = await probeEndpoint({ method, url: fullUrl, params, data, asset });
+        return formatProbeResponse(result, method, fullUrl, { method, url, path, apiUrl, params, data, asset });
       } catch (error) {
         return formatEndpointError(error, fullUrl || "unknown");
       }
