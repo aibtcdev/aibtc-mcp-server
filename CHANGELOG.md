@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.64.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.64.1...mcp-server-v1.64.2) (2026-07-20)
+
+
+### Bug Fixes
+
+* **dual-stacking:** decode Clarity tuples from cvToJSON's nested shape ([#611](https://github.com/aibtcdev/aibtc-mcp-server/issues/611)) ([#620](https://github.com/aibtcdev/aibtc-mcp-server/issues/620)) ([16e56ab](https://github.com/aibtcdev/aibtc-mcp-server/commit/16e56abd7446d5ca0dc06e806697dffef6c6fa08))
+* **x402:** select payment asset instead of hardcoding accepts[0] ([#613](https://github.com/aibtcdev/aibtc-mcp-server/issues/613)) ([#622](https://github.com/aibtcdev/aibtc-mcp-server/issues/622)) ([491e7bc](https://github.com/aibtcdev/aibtc-mcp-server/commit/491e7bcc061e7591529a36f89d73e35a603b4552))
+
 ## [1.64.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.64.0...mcp-server-v1.64.1) (2026-07-16)
 
 
