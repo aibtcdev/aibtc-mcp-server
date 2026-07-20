@@ -317,6 +317,12 @@ export interface CreateApiClientOptions {
    */
   onBeforePayment?: (requirements: PaymentRequirements) => Promise<void>;
   toolName?: string;
+  /**
+   * Optional preferred payment asset (e.g., 'STX', 'sBTC', 'USDCx', or full contract-id).
+   * When specified, the interceptor will select this asset from the accepts[] array.
+   * When omitted, defaults to the first available asset.
+   */
+  asset?: string;
 }
 
 /**
@@ -667,12 +673,20 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           );
         }
 
-        // Select first Stacks-compatible payment option
-        const selectedOption = paymentRequired.accepts.find(
-          (opt) => opt.network?.startsWith("stacks:")
-        );
+        // Select first Stacks-compatible payment option, or preferred asset if specified
+        const selectedOption = options?.asset
+          ? selectPaymentOption(paymentRequired.accepts, options.asset)
+          : paymentRequired.accepts.find(
+              (opt) => opt.network?.startsWith("stacks:")
+            );
 
         if (!selectedOption) {
+          if (options?.asset) {
+            const availableAssets = paymentRequired.accepts.map((a) => getAssetDisplayName(a.asset)).join(", ");
+            return Promise.reject(
+              new Error(`Asset "${options.asset}" not accepted by this endpoint. Available assets: ${availableAssets}`)
+            );
+          }
           const networks = paymentRequired.accepts.map((a) => a.network).join(", ");
           return Promise.reject(
             new Error(`No compatible Stacks payment option found. Available networks: ${networks}`)
@@ -785,7 +799,7 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
         const encodedPayload = encodePaymentPayload({
           x402Version: 2,
           resource: paymentRequired.resource,
-          accepted: selectedOption,
+          accepted: selectedOption as import("../utils/x402-protocol.js").PaymentRequirementsV2,
           payload: { transaction: txHex },
           extensions: buildPaymentIdentifierExtension(paymentId),
         });
@@ -900,6 +914,26 @@ export function detectTokenType(asset: string): 'STX' | 'sBTC' {
 }
 
 /**
+ * Extract a short asset name for display from a full asset identifier
+ * @param asset - Full asset identifier (contract-id or "native")
+ * @returns Short name like "STX", "sBTC", "USDCx"
+ */
+function getAssetDisplayName(asset: string): string {
+  if (asset === 'native' || asset.toLowerCase() === 'stx') {
+    return 'STX';
+  }
+  // For contract identifiers like "SPxxx.contract-name" or "SMxxx.sbtc-token"
+  const parts = asset.split('.');
+  if (parts.length >= 2) {
+    const contractName = parts[parts.length - 1].toLowerCase();
+    if (contractName.includes('sbtc')) return 'sBTC';
+    if (contractName.includes('usdc')) return 'USDCx';
+    return parts[parts.length - 1]; // Return contract name as-is
+  }
+  return asset;
+}
+
+/**
  * Format payment amount into human-readable string with token symbol
  * @param amount - Raw amount string (microSTX or satoshis)
  * @param asset - Token asset identifier
@@ -907,10 +941,45 @@ export function detectTokenType(asset: string): 'STX' | 'sBTC' {
  */
 export function formatPaymentAmount(amount: string, asset: string): string {
   const tokenType = detectTokenType(asset);
-  if (tokenType === 'sBTC') {
-    return formatSbtc(amount);
+  const formattedValue = tokenType === 'sBTC' ? formatSbtc(amount) : formatStx(amount);
+  const assetName = getAssetDisplayName(asset);
+  // Replace the default suffix with the correct asset name
+  return formattedValue.replace(/sBTC$/, assetName).replace(/STX$/, assetName);
+}
+
+/**
+ * Select the best payment option from the accepts array
+ * @param accepts - Array of payment options from x402 manifest
+ * @param preferredAsset - Optional preferred asset (contract-id or symbol like "STX", "sBTC", "USDCx")
+ * @returns The selected payment option or null if no match
+ */
+function selectPaymentOption(
+  accepts: Array<{ asset: string; amount: string; payTo: string; network: string; maxTimeoutSeconds?: number; scheme?: string; extra?: Record<string, unknown> }>,
+  preferredAsset?: string
+): { asset: string; amount: string; payTo: string; network: string; maxTimeoutSeconds?: number; scheme?: string; extra?: Record<string, unknown> } | null {
+  if (!accepts.length) return null;
+
+  // If preferred asset is specified, find exact match
+  if (preferredAsset) {
+    const preferredLower = preferredAsset.toLowerCase();
+    const match = accepts.find(opt => {
+      // Match by display name (e.g., "sBTC" matches contract-id ending in "sbtc-token")
+      const displayName = getAssetDisplayName(opt.asset).toLowerCase();
+      if (displayName === preferredLower) return true;
+      
+      // Also match by exact asset string or suffix checks for direct contract-id matches
+      const optAssetLower = opt.asset.toLowerCase();
+      return optAssetLower === preferredLower ||
+             optAssetLower.endsWith(`.${preferredLower}`) ||
+             optAssetLower.endsWith(`::${preferredLower}`);
+    });
+    if (match) return match;
+    // No match found - return null to signal no_matching_asset
+    return null;
   }
-  return formatStx(amount);
+
+  // Default: return first accepts entry (preserving existing behavior)
+  return accepts[0];
 }
 
 /**
@@ -922,8 +991,9 @@ export async function probeEndpoint(options: {
   url: string;
   params?: Record<string, string>;
   data?: Record<string, unknown>;
+  asset?: string;
 }): Promise<ProbeResult> {
-  const { method, url, params, data } = options;
+  const { method, url, params, data, asset } = options;
   const axiosInstance = createBaseAxiosInstance();
 
   try {
@@ -945,7 +1015,14 @@ export async function probeEndpoint(options: {
 
       // If v2 header is successfully parsed, use it
       if (paymentRequired?.accepts?.length) {
-        const acceptedPayment = paymentRequired.accepts[0];
+        const acceptedPayment = selectPaymentOption(paymentRequired.accepts, asset);
+
+        if (!acceptedPayment) {
+          const availableAssets = paymentRequired.accepts.map(a => getAssetDisplayName(a.asset)).join(', ');
+          throw new Error(
+            `Asset "${asset}" not accepted by this endpoint. Available assets: ${availableAssets}`
+          );
+        }
 
         // Convert CAIP-2 network identifier to human-readable format
         const network = getNetworkFromStacksChainId(acceptedPayment.network) ?? NETWORK;

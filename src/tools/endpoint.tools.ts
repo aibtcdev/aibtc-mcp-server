@@ -306,9 +306,13 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
           .optional()
           .default(false)
           .describe("Skip cost probe and execute immediately. When false (default), probes first and returns cost info for paid endpoints. When true, executes atomically like before. Free endpoints always execute transparently."),
+        asset: z
+          .string()
+          .optional()
+          .describe("Preferred payment asset (e.g., 'STX', 'sBTC', 'USDCx', or full contract-id). When omitted, defaults to the first available asset."),
       },
     },
-    async ({ method, url, path, apiUrl, params, data, autoApprove }) => {
+    async ({ method, url, path, apiUrl, params, data, autoApprove, asset }) => {
       let fullUrl = "";
 
       try {
@@ -317,7 +321,7 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
         params = parsed.params;
 
         if (!autoApprove) {
-          const probeResult = await probeEndpoint({ method, url: fullUrl, params, data });
+          const probeResult = await probeEndpoint({ method, url: fullUrl, params, data, asset });
           return formatProbeResponse(probeResult, method, fullUrl, { method, url, path, apiUrl, params, data });
         }
 
@@ -337,6 +341,7 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
 
         const api = await createApiClient(parsed.baseUrl, {
           toolName: "execute_x402_endpoint",
+          asset,
           onBeforePayment: async (requirements) => {
             // Non-sponsored: sender pays its own gas, so validate STX for the
             // fee too (sponsored=false is the default, passed explicitly here).
@@ -532,9 +537,13 @@ Supported sources:
           .record(z.string(), z.unknown())
           .optional()
           .describe("Request body for POST/PUT requests"),
+        asset: z
+          .string()
+          .optional()
+          .describe("Preferred payment asset (e.g., 'STX', 'sBTC', 'USDCx', or full contract-id like 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token'). When omitted, defaults to the first available asset."),
       },
     },
-    async ({ method, url, path, apiUrl, params, data }) => {
+    async ({ method, url, path, apiUrl, params, data, asset }) => {
       let fullUrl = "";
 
       try {
@@ -542,7 +551,7 @@ Supported sources:
         fullUrl = parsed.fullUrl;
         params = parsed.params;
 
-        const result = await probeEndpoint({ method, url: fullUrl, params, data });
+        const result = await probeEndpoint({ method, url: fullUrl, params, data, asset });
         return formatProbeResponse(result, method, fullUrl, { method, url, path, apiUrl, params, data });
       } catch (error) {
         return formatEndpointError(error, fullUrl || "unknown");
