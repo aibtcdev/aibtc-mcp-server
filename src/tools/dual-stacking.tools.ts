@@ -15,6 +15,7 @@ import { getHiroApi } from "../services/hiro-api.js";
 import { callContract } from "../transactions/builder.js";
 import { getExplorerTxUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
+import { fieldValue, tupleFields } from "./dual-stacking-decode.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -131,32 +132,8 @@ Note: Dual Stacking is only available on mainnet.`,
           cycleOverviewRaw,
         ] = values;
 
-        // cvToJSON shape for tuples:
-        //   { type: "(tuple ...)", value: { KEY: { type, value } } }
-        // Clarity wire keys are MIN_APR / MAX_APR / cycle-id (not camelCase min-apr).
-        // Reading the wrong level or wrong key silently zeroes every field (#611).
-        const tupleFields = (
-          raw: unknown
-        ): Record<string, { value?: string | number }> | null => {
-          if (!raw || typeof raw !== "object") return null;
-          const obj = raw as { value?: unknown; type?: string };
-          if (obj.value && typeof obj.value === "object" && !Array.isArray(obj.value)) {
-            return obj.value as Record<string, { value?: string | number }>;
-          }
-          // Already unwrapped map of fields
-          return obj as Record<string, { value?: string | number }>;
-        };
-        const fieldValue = (
-          fields: Record<string, { value?: string | number }> | null,
-          ...keys: string[]
-        ): number | undefined => {
-          if (!fields) return undefined;
-          for (const k of keys) {
-            const v = fields[k]?.value;
-            if (v !== undefined && v !== null) return Number(v);
-          }
-          return undefined;
-        };
+        // cvToJSON tuple helpers (shared dual-stacking-decode.ts) — real wire keys MIN_APR / cycle-id.
+        // Fallback keys min-apr/minApr kept only as defensive Hiro-shape fallbacks, not observed wire names.
 
         // Parse APR data — MIN_APR/MAX_APR uints divided by 1_000_000 for %
         let apr: { minApr: number; maxApr: number; unit: string; note: string; multiplier?: number } = {
