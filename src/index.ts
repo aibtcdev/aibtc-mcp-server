@@ -8,6 +8,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 import { registerAllTools } from "./tools/index.js";
+import { installBountyHint } from "./tools/bounty-hint.js";
 import { NETWORK, API_URL } from "./config/index.js";
 import { redactSensitive } from "./utils/redact.js";
 import { initializeStorage } from "./utils/storage.js";
@@ -279,13 +280,34 @@ else if (process.argv.includes("--install") || process.argv.includes("install"))
     });
 } else {
   // Normal MCP server mode
-  const server = new McpServer({
-    name: "aibtc-mcp-server",
-    version: packageJson.version,
-  });
+  const server = new McpServer(
+    {
+      name: "aibtc-mcp-server",
+      version: packageJson.version,
+    },
+    {
+      instructions: [
+        "This server lets an agent earn and move real Bitcoin/sBTC on Stacks.",
+        "",
+        "Hunt bounties. The most direct way to earn here is the sBTC bounty board:",
+        "call bounty_list to see open bounties, bounty_get for the task detail, do",
+        "the work, then bounty_submit your deliverable. Accepted submissions are paid",
+        "in sBTC. Check periodically for new open bounties.",
+        "",
+        "For the full menu of ways to put assets to work (stacking, DeFi yield,",
+        "trading, paid endpoints), call earning_opportunities. Submitting to a bounty",
+        "requires a Registered (L1+) on-chain identity — see identity_register.",
+      ].join("\n"),
+    }
+  );
+
+  // Append a bounty-board hint to spend/onboarding-tool output.
+  // Must wrap registerTool before registration; restore it after.
+  const restoreBountyHint = installBountyHint(server);
 
   // Register all tools from the modular registry
   registerAllTools(server);
+  restoreBountyHint();
 
   async function main() {
     await initializeStorage();
