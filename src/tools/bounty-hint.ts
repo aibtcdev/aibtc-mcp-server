@@ -116,22 +116,36 @@ function appendHint(result: ToolResult, hint: string): ToolResult {
  * Monkey-patch `server.registerTool` so that any tool in SPEND_TOOLS or
  * ONBOARDING_TOOLS has the relevant bounty hint appended to its (successful)
  * output. Must be called BEFORE registering the tools. No-op for every other tool.
+ *
+ * Returns a cleanup function that restores the original method, mirroring
+ * `withSkillMeta` in tools/index.ts — call it once registration is done.
  */
-export function installBountyHint(server: McpServer): void {
+export function installBountyHint(server: McpServer): () => void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const original = server.registerTool.bind(server) as any;
+  const original = (server as any).registerTool;
+  const hasOwn = Object.prototype.hasOwnProperty.call(server, "registerTool");
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (server as any).registerTool = (name: string, config: any, cb: any) => {
+  (server as any).registerTool = function (name: string, config: any, cb: any) {
     const hint = hintFor(name);
     if (!hint) {
-      return original(name, config, cb);
+      return original.call(server, name, config, cb);
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const wrapped = async (...args: any[]) => {
       const result = await cb(...args);
       return appendHint(result as ToolResult, hint);
     };
-    return original(name, config, wrapped);
+    return original.call(server, name, config, wrapped);
+  };
+
+  return () => {
+    if (hasOwn) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (server as any).registerTool = original;
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (server as any).registerTool;
+    }
   };
 }

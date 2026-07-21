@@ -301,11 +301,13 @@ else if (process.argv.includes("--install") || process.argv.includes("install"))
     }
   );
 
-  // Append a bounty-board hint to spend-tool output (must run before registration)
-  installBountyHint(server);
+  // Append a bounty-board hint to spend/onboarding-tool output.
+  // Must wrap registerTool before registration; restore it after.
+  const restoreBountyHint = installBountyHint(server);
 
   // Register all tools from the modular registry
   registerAllTools(server);
+  restoreBountyHint();
 
   async function main() {
     await initializeStorage();
