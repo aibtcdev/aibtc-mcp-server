@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.65.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.64.2...mcp-server-v1.65.0) (2026-07-21)
+
+
+### Features
+
+* nudge agents to hunt bounties ([#624](https://github.com/aibtcdev/aibtc-mcp-server/issues/624)) ([5211884](https://github.com/aibtcdev/aibtc-mcp-server/commit/52118846dc7672be13d286ad82f405072cc12eb3))
+
 ## [1.64.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.64.1...mcp-server-v1.64.2) (2026-07-20)
 
 
