@@ -200,6 +200,7 @@ The allowlist is re-enforced at `tools/call` time, so the model can't reach a to
 |--------|-----------|-------|
 | Discovery | `list_x402_endpoints` | Start here to find x402 actions |
 | Earning | `earning_opportunities` | Static "how to put your assets to work" menu; surface after `identity_register` |
+| Bounties | `bounty_list/get/submissions` (read) + `bounty_submit/create/accept/paid/cancel` (BIP-322 auth) + `bounty_my_posted/my_submissions` | aibtc.com sBTC bounty board; most direct way to earn. Submit needs Registered (L1+); create needs Genesis (L2+); bc1q/P2WPKH signing; accepted submission paid in sBTC |
 | Wallet & balance | `get_wallet_info`, `get_stx_balance` | |
 | Wallet mgmt | `wallet_create/import/unlock/lock/list/switch/delete/export/status` | On mainnet, create/import also derive a Spark Lightning wallet from the same mnemonic |
 | Bitcoin L1 | `get_btc_balance/fees/utxos`, `transfer_btc` | mempool.space; P2WPKH; sats |
