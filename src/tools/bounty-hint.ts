@@ -1,13 +1,15 @@
 /**
  * Bounty hint injector.
  *
- * Appends a one-line pointer to the sBTC bounty board on the output of
- * money-moving tools (transfers, contract calls, swaps, spends). The idea: when
- * an agent has just spent value, remind it that the board pays sBTC for completed
- * work — so earning is one call away (`bounty_list`).
+ * Appends a one-line pointer to the sBTC bounty board on the output of two tool
+ * groups:
+ *  - SPEND_TOOLS: money-moving tools (transfers, contract calls, swaps, protocol
+ *    deposits). When an agent has just moved value, remind it the board pays sBTC.
+ *  - ONBOARDING_TOOLS: identity registration and wallet creation/import. When an
+ *    agent has just set itself up, point it at the fastest way to start earning.
  *
  * Deliberately NOT applied to read/query tools an agent calls constantly
- * (balances, status, lists) — that would be noise. Only spend chokepoints get it.
+ * (balances, status, lists) — that would be noise. Only these two groups get it.
  *
  * The hint is a separate text content block, static (no network call), and only
  * added to successful results — never to errors, and never touching the tool's
@@ -68,9 +70,31 @@ export const SPEND_TOOLS: ReadonlySet<string> = new Set([
   "send_inbox_message_direct",
 ]);
 
-const BOUNTY_HINT =
+/**
+ * Onboarding tools. A hint is appended right after an agent registers an identity
+ * or creates/imports a wallet — the moment it's deciding what to do next.
+ */
+export const ONBOARDING_TOOLS: ReadonlySet<string> = new Set([
+  "identity_register",
+  "wallet_create",
+  "wallet_import",
+]);
+
+const SPEND_HINT =
   "💰 Tip: the AIBTC bounty board pays sBTC for completed tasks — " +
   "call bounty_list to see open bounties you could earn from.";
+
+const ONBOARDING_HINT =
+  "💰 You're set up. The fastest way to start earning sBTC is the AIBTC bounty " +
+  "board — call bounty_list to see open bounties, or earning_opportunities for " +
+  "the full menu of ways to put your assets to work.";
+
+/** Resolve the hint text for a tool, or null if the tool gets no hint. */
+function hintFor(name: string): string | null {
+  if (SPEND_TOOLS.has(name)) return SPEND_HINT;
+  if (ONBOARDING_TOOLS.has(name)) return ONBOARDING_HINT;
+  return null;
+}
 
 type ToolResult = {
   content?: Array<{ type: string; [k: string]: unknown }>;
@@ -78,20 +102,20 @@ type ToolResult = {
   [k: string]: unknown;
 };
 
-function appendHint(result: ToolResult): ToolResult {
+function appendHint(result: ToolResult, hint: string): ToolResult {
   // Never annotate an error result — the agent should see the failure cleanly.
   if (!result || result.isError) return result;
   const content = Array.isArray(result.content) ? result.content : [];
   return {
     ...result,
-    content: [...content, { type: "text", text: BOUNTY_HINT }],
+    content: [...content, { type: "text", text: hint }],
   };
 }
 
 /**
- * Monkey-patch `server.registerTool` so that any tool in SPEND_TOOLS has a bounty
- * hint appended to its (successful) output. Must be called BEFORE registering the
- * tools. No-op for every tool not in the set.
+ * Monkey-patch `server.registerTool` so that any tool in SPEND_TOOLS or
+ * ONBOARDING_TOOLS has the relevant bounty hint appended to its (successful)
+ * output. Must be called BEFORE registering the tools. No-op for every other tool.
  */
 export function installBountyHint(server: McpServer): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -99,13 +123,14 @@ export function installBountyHint(server: McpServer): void {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (server as any).registerTool = (name: string, config: any, cb: any) => {
-    if (!SPEND_TOOLS.has(name)) {
+    const hint = hintFor(name);
+    if (!hint) {
       return original(name, config, cb);
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const wrapped = async (...args: any[]) => {
       const result = await cb(...args);
-      return appendHint(result as ToolResult);
+      return appendHint(result as ToolResult, hint);
     };
     return original(name, config, wrapped);
   };
