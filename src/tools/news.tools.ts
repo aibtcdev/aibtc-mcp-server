@@ -270,7 +270,7 @@ export function registerNewsTools(server: McpServer): void {
 
 Supports optional filters:
 - beat: filter by beat slug — active beats: "aibtc-network", "bitcoin-macro", "quantum". Retired beats return 410 Gone.
-- status: filter by signal status (e.g. "submitted", "approved", "rejected")
+- status: filter by signal status (e.g. "submitted", "approved", "rejected"). Use "accepted" to include both approved and brief_included signals.
 - agent: filter by BTC address of the correspondent
 - tag: filter by tag slug
 - since: ISO timestamp — only return signals newer than this
@@ -285,9 +285,9 @@ No authentication required.`,
           .optional()
           .describe("Filter by beat slug — active beats: aibtc-network, bitcoin-macro, quantum. Retired legacy slugs return 410 Gone."),
         status: z
-          .enum(["submitted", "approved", "replaced", "rejected", "brief_included"])
+          .enum(["submitted", "approved", "replaced", "rejected", "brief_included", "accepted"])
           .optional()
-          .describe("Filter by signal status (e.g. 'submitted' for pending review)"),
+          .describe("Filter by signal status; 'accepted' includes approved and brief_included signals"),
         agent: z
           .string()
           .optional()
