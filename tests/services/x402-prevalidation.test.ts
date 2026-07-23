@@ -32,6 +32,7 @@ const {
   generateDedupKey,
   checkDedupCache,
   recordTransaction,
+  X402_DEDUP_TTL_MS,
   detectTokenType,
   formatPaymentAmount,
   createApiClient,
@@ -289,17 +290,27 @@ describe("checkDedupCache / recordTransaction", () => {
     expect(checkDedupCache(key)).toBe("0xabc123");
   });
 
-  it("returns null after 60 second TTL expires", () => {
+  it("returns null after the dedup TTL expires", () => {
     const key = "test-key-ttl";
     recordTransaction(key, "0xexpired");
 
-    // Still valid at 59 seconds
-    vi.advanceTimersByTime(59_000);
+    // Still valid just inside the window
+    vi.advanceTimersByTime(X402_DEDUP_TTL_MS - 1_000);
     expect(checkDedupCache(key)).toBe("0xexpired");
 
-    // Expired at 61 seconds
+    // Expired just past it
     vi.advanceTimersByTime(2_000);
     expect(checkDedupCache(key)).toBeNull();
+  });
+
+  it("holds the entry well past the old 60s window (#630)", () => {
+    const key = "test-key-retry-latency";
+    recordTransaction(key, "0xbroadcast");
+
+    // The incident behind #630 retried 362s after the first payment. The old
+    // 60s TTL had long expired by then, so the duplicate was not suppressed.
+    vi.advanceTimersByTime(362_000);
+    expect(checkDedupCache(key)).toBe("0xbroadcast");
   });
 
   it("overwrites previous entry for the same key", () => {

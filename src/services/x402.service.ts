@@ -153,6 +153,23 @@ export class X402RateLimitError extends Error {
   }
 }
 
+/**
+ * How long a completed x402 request suppresses an identical repeat.
+ *
+ * This was 60s, which is shorter than a realistic agent retry: an agent that
+ * reports a failure to its operator and retries takes minutes, not seconds.
+ * In the incident behind #630 the two payments landed 362s apart — 6x the old
+ * window — so the guard never engaged and the endpoint was paid twice.
+ *
+ * The asymmetry favours a long window: a false dedup hit costs a wait (and
+ * still returns the prior txid so the caller can verify), while a miss costs a
+ * duplicate on-chain payment that cannot be reversed. Deliberate repeat
+ * purchases of the same endpoint with the same params must wait it out or vary
+ * a param; raise or lower via X402_DEDUP_TTL_SECONDS.
+ */
+export const X402_DEDUP_TTL_MS =
+  parseSatsCap("X402_DEDUP_TTL_SECONDS", 900) * 1000; // 15 minutes
+
 // Transaction deduplication cache: {dedupKey -> {txid, timestamp}}
 const dedupCache: Map<string, { txid: string; timestamp: number }> = new Map();
 
@@ -160,7 +177,7 @@ const dedupCache: Map<string, { txid: string; timestamp: number }> = new Map();
 setInterval(() => {
   const now = Date.now();
   for (const [key, value] of dedupCache) {
-    if (now - value.timestamp > 60000) {
+    if (now - value.timestamp > X402_DEDUP_TTL_MS) {
       dedupCache.delete(key);
     }
   }
@@ -1186,7 +1203,7 @@ export function generateDedupKey(
 }
 
 /**
- * Check if a request was recently processed (within 60s)
+ * Check if a request was recently processed (within X402_DEDUP_TTL_MS)
  * @returns txid if duplicate found, null otherwise
  */
 export function checkDedupCache(key: string): string | null {
@@ -1195,7 +1212,7 @@ export function checkDedupCache(key: string): string | null {
     return null;
   }
   const now = Date.now();
-  if (now - cached.timestamp > 60000) {
+  if (now - cached.timestamp > X402_DEDUP_TTL_MS) {
     dedupCache.delete(key);
     return null;
   }
