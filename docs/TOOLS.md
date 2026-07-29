@@ -124,8 +124,14 @@ Embedded, self-custodial Lightning wallet backed by the [Spark SDK](https://www.
 **Configuration:**
 - `X402_MAX_USTX_PER_PAYMENT` (optional, default `1000000` = 1 STX): hard cap on the uSTX amount the x402 interceptor will auto-pay per request. Bounds the blast radius if a malicious endpoint demands an arbitrary amount.
 - `X402_MAX_SATS_PER_PAYMENT` (optional, default `10000`): same cap for sBTC payments, in sats.
+- `X402_DEDUP_TTL_SECONDS` (optional, default `900` = 15 minutes): how long an identical `execute_x402_endpoint` request (same method, URL, params and body) is suppressed after a payment is broadcast. Applies whether or not settlement succeeded — a payment that lands on chain but returns an HTTP error has still spent funds, so the retry is blocked and the prior txid returned instead.
+- `X402_DEDUP_STATE_FILE` (optional, default `~/.aibtc/x402-dedup.json`): where the dedup cache is persisted.
 
 Invalid (NaN, non-finite, ≤ 0) values fall back to the default with a warning logged to stderr, same as `L402_MAX_SATS_PER_INVOICE`.
+
+**Duplicate-payment protection:** a repeat of an identical request inside the dedup window returns the earlier txid rather than paying again, with `txid: null` plus a `txidNote` when the original txid was never observable. To make a genuinely separate purchase, vary a parameter or wait out the window. Verify the earlier payment with `get_account_transactions` before forcing a retry — a reported error does not mean the payment failed.
+
+The cache is persisted to disk (`0600`) and reloaded on startup, so the guard survives a server restart — an MCP server restarts routinely, and an in-memory-only cache dropped every entry, letting a retry after a restart pay a second time. Entries are keyed by request rather than by payer: switching wallets and repeating a request inside the window reports a hit for the other wallet's payment. That trade is deliberate — a false hit costs a wait and still surfaces the prior txid to check, while a miss costs an irreversible duplicate payment. Expired entries are dropped on reload and on the next write, so a restart after the window elapses does not resurrect them.
 
 ### x402 Endpoint Scaffolding
 - `scaffold_x402_endpoint` - Generate a complete Cloudflare Worker project with x402 payment integration

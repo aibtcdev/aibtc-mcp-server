@@ -140,3 +140,83 @@ describe("execute_x402_endpoint canonical error handling", () => {
     expect(mockPollTransactionConfirmation).toHaveBeenCalledWith("txid_123", "mainnet");
   });
 });
+
+describe("execute_x402_endpoint dedup recording on failed settlement (#630)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGenerateDedupKey.mockReturnValue("dedup-key");
+    mockCheckDedupCache.mockReturnValue(null);
+  });
+
+  async function runFailing(rejection: unknown) {
+    mockCreateApiClient.mockResolvedValue({
+      request: vi.fn().mockRejectedValue(rejection),
+    });
+    const { server, tools } = createTrackingServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerEndpointTools(server as any);
+    return tools.get("execute_x402_endpoint")!.handler({
+      method: "GET",
+      url: "https://aibtc.com/api/inbox/bc1example",
+      autoApprove: true,
+    });
+  }
+
+  it("records the broadcast txid when settlement fails with canonical status", async () => {
+    mockExtractTxidFromPaymentSignature.mockReturnValue("txid_broadcast");
+
+    await runFailing({
+      message: "Payment retry limit exceeded",
+      config: { headers: { "payment-signature": "encoded-payment" } },
+      response: { status: 402, data: { error: "still processing" } },
+      x402PaymentStatus: { paymentId: "pay_1", status: "queued" },
+    });
+
+    // The payment was signed and broadcast, so an identical retry must be
+    // suppressed even though the HTTP call reported an error.
+    expect(mockRecordTransaction).toHaveBeenCalledWith("dedup-key", "txid_broadcast");
+  });
+
+  it("records the broadcast txid on the txid-recovery path", async () => {
+    mockExtractTxidFromPaymentSignature.mockReturnValue("txid_123");
+    mockPollTransactionConfirmation.mockResolvedValue({
+      txid: "txid_123",
+      status: "pending",
+      explorer: "https://explorer.example/txid_123",
+    });
+
+    await runFailing({
+      message: "socket hang up",
+      config: { headers: { "payment-signature": "encoded-payment" } },
+    });
+
+    expect(mockRecordTransaction).toHaveBeenCalledWith("dedup-key", "txid_123");
+  });
+
+  it("records a pending marker when the broadcast txid is not observable", async () => {
+    mockExtractTxidFromPaymentSignature.mockReturnValue(null);
+
+    await runFailing({
+      message: "socket hang up",
+      config: { headers: { "payment-signature": "encoded-payment" } },
+    });
+
+    // Funds still moved, so the entry must exist. The marker cannot be
+    // mistaken for a chain txid.
+    expect(mockRecordTransaction).toHaveBeenCalledWith("dedup-key", "pending:dedup-key");
+  });
+
+  it("does NOT record when the request failed before any payment was signed", async () => {
+    mockExtractTxidFromPaymentSignature.mockReturnValue(null);
+
+    // No payment-signature header => the interceptor never signed anything.
+    // Blocking the retry here would strand the caller on a transient error.
+    await runFailing({
+      message: "Not Found",
+      config: { headers: {} },
+      response: { status: 404, data: { error: "no such endpoint" } },
+    });
+
+    expect(mockRecordTransaction).not.toHaveBeenCalled();
+  });
+});

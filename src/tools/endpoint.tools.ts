@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { createApiClient, API_URL, probeEndpoint, formatPaymentAmount, type ProbeResult, checkSufficientBalance, generateDedupKey, checkDedupCache, recordTransaction, NETWORK } from "../services/x402.service.js";
+import { createApiClient, API_URL, probeEndpoint, formatPaymentAmount, type ProbeResult, checkSufficientBalance, generateDedupKey, checkDedupCache, recordTransaction, X402_DEDUP_TTL_MS, NETWORK } from "../services/x402.service.js";
 import {
   ALL_ENDPOINTS,
   searchEndpoints,
@@ -331,6 +331,9 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
     },
     async ({ method, url, path, apiUrl, params, data, autoApprove, asset }) => {
       let fullUrl = "";
+      // Hoisted so the catch can record a broadcast payment for dedup — a
+      // failed settlement still spends real funds (#630).
+      let dedupKey: string | null = null;
 
       try {
         const parsed = parseEndpointUrl({ url, path, apiUrl, params });
@@ -345,14 +348,28 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
         // autoApprove=true: check dedup cache before any network request, then execute
         // with a single request. Balance validation happens inside the onBeforePayment
         // callback when the interceptor receives the 402, eliminating the separate probe.
-        const dedupKey = generateDedupKey(method, fullUrl, params, data);
-        const existingTxid = checkDedupCache(dedupKey);
+        dedupKey = generateDedupKey(method, fullUrl, params, data);
+        const existingTxid = await checkDedupCache(dedupKey);
         if (existingTxid) {
+          const windowSeconds = Math.round(X402_DEDUP_TTL_MS / 1000);
+          const pending = existingTxid.startsWith("pending:");
           return createJsonResponse({
             endpoint: `${method} ${fullUrl}`,
-            message: 'Request already processed within the last 60 seconds. This prevents accidental duplicate payments.',
-            txid: existingTxid,
-            note: 'Wait 60s or use different endpoint/params to force a new transaction.',
+            // Deliberately says "broadcast", not "paid": the entry is written
+            // whenever a payment was signed and broadcast, including when
+            // settlement then reported an error. Claiming it succeeded would
+            // be wrong in exactly the cases the caller most needs to check.
+            message: `An identical request already broadcast a payment within the last ${windowSeconds} seconds. This prevents accidental duplicate payments.`,
+            // A prior attempt whose txid was never observable is recorded with a
+            // synthetic marker. Report it as null rather than leaking the marker,
+            // which is not a chain txid and must not be treated as one.
+            txid: pending ? null : existingTxid,
+            ...(pending && {
+              txidNote:
+                "The earlier payment was broadcast but its txid was not observable in the response. " +
+                "Query get_account_transactions to find the settled txid before paying again.",
+            }),
+            note: `The earlier payment may have settled even if it reported an error — verify it before retrying. Wait ${windowSeconds}s or vary the endpoint/params to force a new transaction.`,
           });
         }
 
@@ -390,7 +407,7 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
         // observable, using a synthetic pending marker that cannot be
         // confused for a real chain txid.
         if (paymentAttempted) {
-          recordTransaction(dedupKey, txid ?? `pending:${dedupKey}`);
+          await recordTransaction(dedupKey, txid ?? `pending:${dedupKey}`);
         }
 
         // Build the txid response fields per the behavior matrix:
@@ -431,9 +448,22 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
         const canonicalStatus = axiosError.x402PaymentStatus as
           | HttpPaymentStatusResponse
           | undefined;
+
+        // The presence of this header means the interceptor signed and
+        // broadcast a payment. That spends real funds whether or not
+        // settlement succeeded, so record it for dedup before returning any
+        // error — otherwise an identical retry passes the dedup guard and pays
+        // a second time for an invoice already settled on chain (#630).
+        // Mirrors the success path, including the synthetic pending marker
+        // used when the txid is not yet observable.
+        const paymentSigHeader = axiosError.config?.headers?.[X402_HEADERS.PAYMENT_SIGNATURE];
+        if (paymentSigHeader && dedupKey) {
+          const broadcastTxid = extractTxidFromPaymentSignature(paymentSigHeader);
+          await recordTransaction(dedupKey, broadcastTxid ?? `pending:${dedupKey}`);
+        }
+
         if (canonicalStatus) {
           const baseError = formatEndpointError(error, label);
-          const paymentSigHeader = axiosError.config?.headers?.[X402_HEADERS.PAYMENT_SIGNATURE];
           const fallbackTxid = paymentSigHeader
             ? extractTxidFromPaymentSignature(paymentSigHeader)
             : null;
@@ -468,7 +498,6 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
           };
         }
 
-        const paymentSigHeader = axiosError.config?.headers?.[X402_HEADERS.PAYMENT_SIGNATURE];
         if (paymentSigHeader) {
           const txid = extractTxidFromPaymentSignature(paymentSigHeader);
           const fallbackPaymentId = extractPaymentIdFromPaymentSignature(paymentSigHeader);

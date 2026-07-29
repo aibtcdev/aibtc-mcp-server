@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { promises as fsPromises } from "fs";
+import os from "os";
+import path from "path";
 
 // ============================================================================
 // Mocks — must be declared before importing the module under test
@@ -32,6 +35,8 @@ const {
   generateDedupKey,
   checkDedupCache,
   recordTransaction,
+  X402_DEDUP_TTL_MS,
+  setDedupStateFile,
   detectTokenType,
   formatPaymentAmount,
   createApiClient,
@@ -271,42 +276,105 @@ describe("generateDedupKey", () => {
 });
 
 describe("checkDedupCache / recordTransaction", () => {
-  beforeEach(() => {
+  let stateFile: string;
+
+  beforeEach(async () => {
+    // Never touch the real ~/.aibtc/x402-dedup.json from tests.
+    stateFile = path.join(
+      await fsPromises.mkdtemp(path.join(os.tmpdir(), "x402-dedup-")),
+      "state.json"
+    );
+    setDedupStateFile(stateFile);
     vi.useFakeTimers();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.useRealTimers();
+    await fsPromises.rm(path.dirname(stateFile), { recursive: true, force: true });
   });
 
-  it("returns null for unknown keys", () => {
-    expect(checkDedupCache("nonexistent-key")).toBeNull();
+  it("returns null for unknown keys", async () => {
+    expect(await checkDedupCache("nonexistent-key")).toBeNull();
   });
 
-  it("returns txid for recently recorded transactions", () => {
+  it("returns txid for recently recorded transactions", async () => {
     const key = "test-key-1";
-    recordTransaction(key, "0xabc123");
-    expect(checkDedupCache(key)).toBe("0xabc123");
+    await recordTransaction(key, "0xabc123");
+    expect(await checkDedupCache(key)).toBe("0xabc123");
   });
 
-  it("returns null after 60 second TTL expires", () => {
+  it("returns null after the dedup TTL expires", async () => {
     const key = "test-key-ttl";
-    recordTransaction(key, "0xexpired");
+    await recordTransaction(key, "0xexpired");
 
-    // Still valid at 59 seconds
-    vi.advanceTimersByTime(59_000);
-    expect(checkDedupCache(key)).toBe("0xexpired");
+    // Still valid just inside the window
+    vi.advanceTimersByTime(X402_DEDUP_TTL_MS - 1_000);
+    expect(await checkDedupCache(key)).toBe("0xexpired");
 
-    // Expired at 61 seconds
+    // Expired just past it
     vi.advanceTimersByTime(2_000);
-    expect(checkDedupCache(key)).toBeNull();
+    expect(await checkDedupCache(key)).toBeNull();
   });
 
-  it("overwrites previous entry for the same key", () => {
+  it("holds the entry well past the old 60s window (#630)", async () => {
+    const key = "test-key-retry-latency";
+    await recordTransaction(key, "0xbroadcast");
+
+    // The incident behind #630 retried 362s after the first payment. The old
+    // 60s TTL had long expired by then, so the duplicate was not suppressed.
+    vi.advanceTimersByTime(362_000);
+    expect(await checkDedupCache(key)).toBe("0xbroadcast");
+  });
+
+  it("overwrites previous entry for the same key", async () => {
     const key = "test-key-overwrite";
-    recordTransaction(key, "0xfirst");
-    recordTransaction(key, "0xsecond");
-    expect(checkDedupCache(key)).toBe("0xsecond");
+    await recordTransaction(key, "0xfirst");
+    await recordTransaction(key, "0xsecond");
+    expect(await checkDedupCache(key)).toBe("0xsecond");
+  });
+
+  it("suppresses a retry across a server restart", async () => {
+    const key = "test-key-restart";
+    await recordTransaction(key, "0xbroadcast_before_restart");
+
+    // Re-pointing at the same file drops memory and forces a reload from disk,
+    // which is what a fresh server process does. Without persistence the guard
+    // was lost here and the retry paid a second time.
+    setDedupStateFile(stateFile);
+
+    expect(await checkDedupCache(key)).toBe("0xbroadcast_before_restart");
+  });
+
+  it("does not resurrect entries that expired while the server was down", async () => {
+    const key = "test-key-restart-expired";
+    await recordTransaction(key, "0xstale");
+
+    vi.advanceTimersByTime(X402_DEDUP_TTL_MS + 1_000);
+    setDedupStateFile(stateFile);
+
+    expect(await checkDedupCache(key)).toBeNull();
+  });
+
+  it("keeps entries written by another server instance", async () => {
+    // Simulate a second process that recorded a payment we never saw.
+    await fsPromises.writeFile(
+      stateFile,
+      JSON.stringify({ "other-instance-key": { txid: "0xother", timestamp: Date.now() } })
+    );
+
+    await recordTransaction("our-key", "0xours");
+    setDedupStateFile(stateFile);
+
+    expect(await checkDedupCache("other-instance-key")).toBe("0xother");
+    expect(await checkDedupCache("our-key")).toBe("0xours");
+  });
+
+  it("survives a corrupt state file instead of failing the payment path", async () => {
+    await fsPromises.writeFile(stateFile, "{not json");
+
+    await expect(checkDedupCache("any-key")).resolves.toBeNull();
+    await recordTransaction("post-corruption", "0xrecovered");
+    expect(await checkDedupCache("post-corruption")).toBe("0xrecovered");
   });
 });
 
