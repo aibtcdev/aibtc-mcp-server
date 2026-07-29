@@ -349,7 +349,7 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
         // with a single request. Balance validation happens inside the onBeforePayment
         // callback when the interceptor receives the 402, eliminating the separate probe.
         dedupKey = generateDedupKey(method, fullUrl, params, data);
-        const existingTxid = checkDedupCache(dedupKey);
+        const existingTxid = await checkDedupCache(dedupKey);
         if (existingTxid) {
           const windowSeconds = Math.round(X402_DEDUP_TTL_MS / 1000);
           const pending = existingTxid.startsWith("pending:");
@@ -407,7 +407,7 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
         // observable, using a synthetic pending marker that cannot be
         // confused for a real chain txid.
         if (paymentAttempted) {
-          recordTransaction(dedupKey, txid ?? `pending:${dedupKey}`);
+          await recordTransaction(dedupKey, txid ?? `pending:${dedupKey}`);
         }
 
         // Build the txid response fields per the behavior matrix:
@@ -459,7 +459,7 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
         const paymentSigHeader = axiosError.config?.headers?.[X402_HEADERS.PAYMENT_SIGNATURE];
         if (paymentSigHeader && dedupKey) {
           const broadcastTxid = extractTxidFromPaymentSignature(paymentSigHeader);
-          recordTransaction(dedupKey, broadcastTxid ?? `pending:${dedupKey}`);
+          await recordTransaction(dedupKey, broadcastTxid ?? `pending:${dedupKey}`);
         }
 
         if (canonicalStatus) {

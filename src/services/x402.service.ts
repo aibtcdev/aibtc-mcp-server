@@ -26,6 +26,9 @@ import { formatStx, formatSbtc } from "../utils/formatting.js";
 import { getSbtcService } from "./sbtc.service.js";
 import { getHiroApi } from "./hiro-api.js";
 import { createHash } from "crypto";
+import { promises as fs } from "fs";
+import os from "os";
+import path from "path";
 import { InsufficientBalanceError } from "../utils/errors.js";
 import { getContracts, parseContractId } from "../config/contracts.js";
 import { resolveDefaultFee } from "../utils/fee.js";
@@ -170,14 +173,170 @@ export class X402RateLimitError extends Error {
 export const X402_DEDUP_TTL_MS =
   parseSatsCap("X402_DEDUP_TTL_SECONDS", 900) * 1000; // 15 minutes
 
+interface DedupEntry {
+  txid: string;
+  timestamp: number;
+}
+type PersistedDedup = Record<string, DedupEntry>;
+
 // Transaction deduplication cache: {dedupKey -> {txid, timestamp}}
-const dedupCache: Map<string, { txid: string; timestamp: number }> = new Map();
+const dedupCache: Map<string, DedupEntry> = new Map();
+
+/**
+ * Where the dedup cache is persisted.
+ *
+ * Memory alone left the guard open to the same double-pay it exists to stop: an
+ * MCP server restarts routinely (client reconnect, config change, crash), and a
+ * restart inside the TTL window dropped every entry. An agent retrying after one
+ * sailed past the guard and paid a second time — #630's outcome reached by a
+ * different route.
+ *
+ * Keys are SHA-256 digests (see generateDedupKey) and values are chain txids, so
+ * no request content reaches disk. The file is still written 0600 under a 0700
+ * directory to match the wallet store.
+ *
+ * Caveat: entries are keyed by request, not by payer. Switching wallets and
+ * repeating a request inside the window reports a hit for the other wallet's
+ * payment. That is the asymmetry the TTL already takes — a false hit costs a
+ * wait and still surfaces the prior txid to verify, while a miss costs an
+ * irreversible duplicate payment.
+ *
+ * Override the location with X402_DEDUP_STATE_FILE.
+ */
+let dedupStateFile =
+  process.env.X402_DEDUP_STATE_FILE ||
+  path.join(os.homedir(), ".aibtc", "x402-dedup.json");
+
+let dedupLoad: Promise<void> | null = null;
+let dedupWriteLock: Promise<void> = Promise.resolve();
+
+/**
+ * Point the dedup cache at a different state file and drop what is in memory.
+ *
+ * Also the seam tests use to simulate a restart: re-pointing at the same file
+ * clears memory and forces the next read to come off disk.
+ */
+export function setDedupStateFile(file: string): void {
+  dedupStateFile = file;
+  dedupLoad = null;
+  dedupCache.clear();
+}
+
+function isFresh(entry: DedupEntry, now: number): boolean {
+  return now - entry.timestamp <= X402_DEDUP_TTL_MS;
+}
+
+/** Read persisted entries. A missing file is the normal first-run case. */
+async function readDedupState(): Promise<PersistedDedup> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(dedupStateFile, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.error(
+        `[x402-dedup] Could not read ${dedupStateFile}: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw) as PersistedDedup;
+    if (!parsed || typeof parsed !== "object") return {};
+    return parsed;
+  } catch {
+    // A corrupt file must not brick every x402 call. Report it and continue
+    // with the in-memory guard; the next write replaces the file.
+    console.error(`[x402-dedup] Ignoring corrupt state at ${dedupStateFile}`);
+    return {};
+  }
+}
+
+/**
+ * Load persisted entries into memory once per state file.
+ *
+ * Must be awaited before any dedup read: answering from a not-yet-loaded cache
+ * would report "no prior payment" for one that is sitting on disk, which is the
+ * exact miss this persistence closes.
+ */
+async function ensureDedupLoaded(): Promise<void> {
+  if (!dedupLoad) {
+    dedupLoad = (async () => {
+      const persisted = await readDedupState();
+      const now = Date.now();
+      for (const [key, entry] of Object.entries(persisted)) {
+        if (
+          !entry ||
+          typeof entry.txid !== "string" ||
+          typeof entry.timestamp !== "number"
+        ) {
+          continue;
+        }
+        if (!isFresh(entry, now)) continue;
+        // Anything recorded in this process is at least as fresh as disk.
+        const existing = dedupCache.get(key);
+        if (!existing || existing.timestamp < entry.timestamp) {
+          dedupCache.set(key, entry);
+        }
+      }
+    })();
+  }
+  return dedupLoad;
+}
+
+/**
+ * Merge memory over disk and write atomically, dropping expired entries.
+ *
+ * Re-reads inside the lock so a second server instance sharing the file does not
+ * lose the entries this one never saw. A failure here is logged rather than
+ * thrown: the caller records *after* funds have already moved, so rejecting
+ * would turn a recorded payment into a reported error while leaving the
+ * in-memory guard intact.
+ */
+async function persistDedupCache(): Promise<void> {
+  dedupWriteLock = dedupWriteLock
+    .then(async () => {
+      const onDisk = await readDedupState();
+      const now = Date.now();
+      const merged: PersistedDedup = {};
+      for (const [key, entry] of Object.entries(onDisk)) {
+        if (
+          entry &&
+          typeof entry.txid === "string" &&
+          typeof entry.timestamp === "number" &&
+          isFresh(entry, now)
+        ) {
+          merged[key] = entry;
+        }
+      }
+      for (const [key, entry] of dedupCache) {
+        if (!isFresh(entry, now)) continue;
+        const existing = merged[key];
+        if (!existing || existing.timestamp <= entry.timestamp) {
+          merged[key] = entry;
+        }
+      }
+      await fs.mkdir(path.dirname(dedupStateFile), {
+        recursive: true,
+        mode: 0o700,
+      });
+      // pid-suffixed so concurrent servers do not clobber each other's temp.
+      const tmp = `${dedupStateFile}.${process.pid}.tmp`;
+      await fs.writeFile(tmp, JSON.stringify(merged), { mode: 0o600 });
+      await fs.rename(tmp, dedupStateFile);
+    })
+    .catch((err) => {
+      console.error(
+        `[x402-dedup] Could not persist ${dedupStateFile}: ${err instanceof Error ? err.message : String(err)}`
+      );
+    });
+  return dedupWriteLock;
+}
 
 // Cleanup expired dedup entries every 5 minutes
 setInterval(() => {
   const now = Date.now();
   for (const [key, value] of dedupCache) {
-    if (now - value.timestamp > X402_DEDUP_TTL_MS) {
+    if (!isFresh(value, now)) {
       dedupCache.delete(key);
     }
   }
@@ -1203,16 +1362,21 @@ export function generateDedupKey(
 }
 
 /**
- * Check if a request was recently processed (within X402_DEDUP_TTL_MS)
+ * Check if a request was recently processed (within X402_DEDUP_TTL_MS).
+ *
+ * Loads persisted entries first so a payment broadcast before a server restart
+ * still suppresses the retry that follows it.
+ *
  * @returns txid if duplicate found, null otherwise
  */
-export function checkDedupCache(key: string): string | null {
+export async function checkDedupCache(key: string): Promise<string | null> {
+  await ensureDedupLoaded();
   const cached = dedupCache.get(key);
   if (!cached) {
     return null;
   }
   const now = Date.now();
-  if (now - cached.timestamp > X402_DEDUP_TTL_MS) {
+  if (!isFresh(cached, now)) {
     dedupCache.delete(key);
     return null;
   }
@@ -1220,10 +1384,15 @@ export function checkDedupCache(key: string): string | null {
 }
 
 /**
- * Record a transaction in the dedup cache
+ * Record a transaction in the dedup cache and persist it.
+ *
+ * Awaits the write so the entry survives a crash immediately after a payment —
+ * the window where losing it costs a duplicate payment.
  */
-export function recordTransaction(key: string, txid: string): void {
+export async function recordTransaction(key: string, txid: string): Promise<void> {
+  await ensureDedupLoaded();
   dedupCache.set(key, { txid, timestamp: Date.now() });
+  await persistDedupCache();
 }
 
 /**
