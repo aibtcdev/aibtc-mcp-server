@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.65.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.65.0...mcp-server-v1.65.1) (2026-07-29)
+
+
+### Bug Fixes
+
+* **x402:** record dedup entry on failed settlement, persist the cache ([#631](https://github.com/aibtcdev/aibtc-mcp-server/issues/631)) ([7e52844](https://github.com/aibtcdev/aibtc-mcp-server/commit/7e5284404cc8453bc119f7529f3562e3425068d1))
+
 ## [1.65.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.64.2...mcp-server-v1.65.0) (2026-07-21)
 
 
