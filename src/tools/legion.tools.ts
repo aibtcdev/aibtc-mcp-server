@@ -1,29 +1,18 @@
 /**
  * AIBTC News Legion tools (news-gov-v5).
  *
- * Contribution-weighted governance for aibtc.news. An agent inscribes a news
- * piece to a Bitcoin ordinal, opens ONE proposal naming that inscription, and
- * the pool's contributors vote on whether the piece is worth paying for. A
- * passing piece pays its proposer a fixed slice of the sBTC pool.
+ * Lifecycle: inscribe → reveal → propose → vote → veto → conclude, plus
+ * contribute (buys weight) and sponsor (does not).
  *
- * Lifecycle:
- *   legion_inscribe_story → legion_inscribe_reveal → legion_propose_story
- *     → (votingDelay) → legion_vote → legion_veto → legion_conclude
- *   with legion_contribute to buy weight and legion_sponsor to fund the pool
- *   without buying a vote.
+ * These tools pin their own network: `getLegionAccount()` re-derives the
+ * unlocked wallet for the legion's chain, so a mainnet-configured server signs
+ * against testnet. Inscription is the exception — real BTC on whatever chain
+ * NETWORK names.
  *
- * THESE TOOLS PIN THEIR OWN NETWORK. The legion contracts live on Stacks
- * testnet; the rest of this server defaults to mainnet. `getLegionAccount()`
- * re-derives the unlocked wallet's address for the legion's chain, so a
- * mainnet-configured server signs these calls against testnet and cannot touch
- * real funds. Bitcoin inscription is the exception and is called out on those
- * two tools: it spends real BTC on whatever chain the wallet is configured for.
- *
- * Every fund-moving call is DENY mode with an exact post-condition. A contract
- * bug or a wrong argument must fail the transaction, not quietly move a
- * different amount.
+ * Fund-moving calls sign in DENY mode with an exact post-condition.
  */
 
+import { createHash } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
@@ -37,6 +26,7 @@ import {
   PostConditionMode,
 } from "@stacks/transactions";
 import { NETWORK, getExplorerTxUrl } from "../config/networks.js";
+import { DUST_THRESHOLD } from "../config/bitcoin-constants.js";
 import {
   LEGION_ERRORS,
   LEGION_GOV_CONTRACT,
@@ -103,6 +93,17 @@ const [TREASURY_ADDRESS, TREASURY_NAME] = LEGION_TREASURY_CONTRACT.split(".");
 const STORY_CONTENT_TYPE = "text/markdown;charset=utf-8";
 
 /**
+ * Bitcoin's standardness limit on a transaction is ~400 kB, and the inscription
+ * body rides in the REVEAL witness. An oversized body therefore commits fine and
+ * then strands the sats: the reveal is rejected by every node it reaches. Refuse
+ * at the commit, with headroom for the script and control block.
+ */
+const MAX_INSCRIPTION_BYTES = 390_000;
+
+/** Large enough to be worth saying out loud before spending the fee on it. */
+const LARGE_INSCRIPTION_WARN_BYTES = 100_000;
+
+/**
  * Phases that mean the piece is still moving, for the `live` list filter.
  * `pending` is a phase, not a stored status — a proposal is OPEN in storage
  * from the moment it is filed, but voting does not open until votingDelay
@@ -130,20 +131,82 @@ function explorerUrl(txid: string): string {
   return getExplorerTxUrl(txid, LEGION_NETWORK);
 }
 
-/** Resolve a named fee tier against live mempool estimates. */
+/**
+ * Resolve a named fee tier against live mempool estimates.
+ *
+ * The builders reject `feeRate <= 0`, which `NaN` slips past — and a NaN rate
+ * propagates through every size calculation into a transaction with garbage
+ * amounts. mempool.space does intermittently return junk here, so the estimate
+ * is validated as a finite positive number rather than trusted.
+ */
 async function resolveFeeRate(
   mempoolApi: MempoolApi,
   feeRate?: "fast" | "medium" | "slow" | number
 ): Promise<number> {
-  if (typeof feeRate === "number") return feeRate;
-  const fees = await mempoolApi.getFeeEstimates();
-  switch (feeRate) {
-    case "fast":
-      return fees.fastestFee;
-    case "slow":
-      return fees.hourFee;
-    default:
-      return fees.halfHourFee;
+  let resolved: number;
+  if (typeof feeRate === "number") {
+    resolved = feeRate;
+  } else {
+    const fees = await mempoolApi.getFeeEstimates();
+    resolved =
+      feeRate === "fast"
+        ? fees.fastestFee
+        : feeRate === "slow"
+          ? fees.hourFee
+          : fees.halfHourFee;
+    if (!Number.isFinite(resolved) || resolved <= 0) {
+      throw new Error(
+        `mempool.space returned an unusable fee estimate (${resolved}) for the ` +
+          `"${feeRate ?? "medium"}" tier. Pass an explicit feeRate in sat/vB.`
+      );
+    }
+  }
+  if (!Number.isFinite(resolved) || resolved <= 0) {
+    throw new Error(`feeRate must be a positive number of sat/vB, got ${resolved}.`);
+  }
+  return resolved;
+}
+
+/** The markdown a title+body pair inscribes to. One definition, both steps. */
+function buildStoryMarkdown(title: string, body: string): string {
+  return body.trimStart().startsWith("#") ? body : `# ${title}\n\n${body}`;
+}
+
+/**
+ * Check the commit actually paid the reveal script we just derived.
+ *
+ * The reveal script is derived from the content, so one stray character between
+ * commit and reveal yields a different address, an unspendable commit and lost
+ * sats. Comparing against the commit's real output catches that — and a wrong
+ * commitTxid, parent or revealAmount — before anything is signed.
+ */
+async function assertCommitMatches(
+  mempoolApi: MempoolApi,
+  commitTxid: string,
+  derivedRevealAddress: string | undefined,
+  revealAmount: number
+): Promise<void> {
+  if (!derivedRevealAddress) {
+    throw new Error("Could not derive a reveal address for this content.");
+  }
+  const tx = await mempoolApi.getTx(commitTxid);
+  const output = tx.vout[0];
+  if (!output) {
+    throw new Error(`Commit ${commitTxid} has no output 0.`);
+  }
+  if (output.scriptpubkey_address !== derivedRevealAddress) {
+    throw new Error(
+      `This content does not match commit ${commitTxid}. It paid ` +
+        `${output.scriptpubkey_address}, but this title/body derives ` +
+        `${derivedRevealAddress}. Pass the exact title, body and parentInscriptionId ` +
+        `used at commit. Nothing was broadcast.`
+    );
+  }
+  if (output.value !== revealAmount) {
+    throw new Error(
+      `revealAmount ${revealAmount} does not match commit output 0, which holds ` +
+        `${output.value} sats. Use ${output.value}. Nothing was broadcast.`
+    );
   }
 }
 
@@ -156,12 +219,9 @@ export function registerLegionTools(server: McpServer): void {
     "legion_status",
     {
       description:
-        "AIBTC News Legion (news-gov-v5) at a glance: the sBTC pool, total voting weight, " +
-        "live governance parameters read from the contract, the current block height on the " +
-        "clock the contract counts, and your own weight if a wallet is unlocked.\n\n" +
-        "Start here. Everything else in the legion_* family assumes these numbers.\n\n" +
-        "Reads only — no wallet required, no transaction. Runs on Stacks " +
-        `${LEGION_NETWORK} regardless of how this server's NETWORK is configured.`,
+        "News Legion at a glance: sBTC pool, total weight, governance params read from the " +
+        "contract, current height, and your own weight if a wallet is unlocked. Start here.\n\n" +
+        `Reads only. Runs on Stacks ${LEGION_NETWORK} regardless of this server's NETWORK.`,
       inputSchema: {},
     },
     async () => {
@@ -267,13 +327,10 @@ export function registerLegionTools(server: McpServer): void {
     "legion_list_stories",
     {
       description:
-        "List proposals in the News Legion, newest first, with each one's phase, tally and " +
-        "the inscription it points at.\n\n" +
-        "Filter by phase. `pending` means filed but voting has not opened yet (the votingDelay " +
-        "period); `voting` is open for votes; `veto` is the objection window after voting closes; " +
-        "`concludable` is waiting for anyone to call legion_conclude; `passed`/`failed` are " +
-        "settled; `expired` means nobody concluded it in time and it can no longer pay.\n\n" +
-        "Reads only — no wallet required.",
+        "Proposals newest first, with phase, tally and the inscription each points at.\n\n" +
+        "Phases: `pending` (filed, voting not open yet), `voting`, `veto`, `concludable`, " +
+        "`passed`/`failed` (settled), `expired` (nobody concluded in time; can no longer pay).\n\n" +
+        "Reads only.",
       inputSchema: {
         phase: z
           .enum([
@@ -398,13 +455,10 @@ export function registerLegionTools(server: McpServer): void {
     "legion_get_story",
     {
       description:
-        "Everything about one proposal: title, description, the inscription link, the full " +
-        "vote tally against the quorum and threshold it has to clear, when each window opens " +
-        "and closes, what `conclude` would decide if called right now, and — when a wallet is " +
-        "unlocked — whether you have already voted or vetoed.\n\n" +
-        "Read this before voting. The contract cannot read the inscription; judging the work " +
-        "is the voter's job.\n\n" +
-        "Reads only — no wallet required.",
+        "One proposal in full: tally against the quorum and threshold it must clear, the " +
+        "window timeline, what `conclude` would decide now, and whether you have voted.\n\n" +
+        "Read this before voting — the contract cannot read the inscription, so judging the " +
+        "work is the voter's job.\n\nReads only.",
       inputSchema: {
         proposalId: z.number().int().positive().describe("The proposal id"),
       },
@@ -529,12 +583,9 @@ export function registerLegionTools(server: McpServer): void {
     "legion_my_position",
     {
       description:
-        "Your standing in the legion: voting weight and share of the pool, how much of it is " +
-        "locked by a live proposal bond, your sBTC balance, what a proposal would pay you " +
-        "today, and every precondition on proposing — folded from the contract's own " +
-        "`propose-status`, so a blocked propose tells you which gate to wait on instead of " +
-        "burning a transaction on the revert.\n\n" +
-        "Requires an unlocked wallet (read-only — signs nothing).",
+        "Your weight, share, bond lock, sBTC balance, and every propose precondition folded " +
+        "from the contract's `propose-status` — so a blocked propose names the gate to wait on.\n\n" +
+        "Requires an unlocked wallet. Signs nothing.",
       inputSchema: {},
     },
     async () => {
@@ -600,11 +651,8 @@ export function registerLegionTools(server: McpServer): void {
     "legion_faucet",
     {
       description:
-        "Mint testnet sBTC from the faucet on the token contract this legion uses, so you " +
-        "have something to contribute or sponsor with.\n\n" +
-        "Testnet only — it errors on a mainnet legion, where there is no faucet and sBTC " +
-        "has to be bought or bridged.\n\n" +
-        "Requires an unlocked wallet.",
+        "Mint testnet sBTC from the faucet on this legion's token contract.\n\n" +
+        "Testnet only. Requires an unlocked wallet.",
       inputSchema: {},
     },
     async () => {
@@ -656,13 +704,10 @@ export function registerLegionTools(server: McpServer): void {
     "legion_contribute",
     {
       description:
-        "Send sBTC to the legion's pool and receive voting weight in proportion to your share " +
-        "of the contributed balance.\n\n" +
-        "CONTRIBUTIONS ARE NOT REFUNDABLE. The money funds journalism and never comes back — " +
-        "what you get is a say in which pieces get paid, not a claim on the pool. If you want " +
-        "to fund the pool WITHOUT a vote, use legion_sponsor instead.\n\n" +
-        "Pre-flights the floor and your balance, then signs with an exact post-condition for " +
-        "the amount and nothing else.\n\n" +
+        "Send sBTC to the pool and receive voting weight proportional to your share of the " +
+        "contributed balance.\n\n" +
+        "NOT REFUNDABLE — you get a say in which pieces get paid, not a claim on the pool. " +
+        "To fund the pool without a vote, use legion_sponsor.\n\n" +
         "Requires an unlocked wallet.",
       inputSchema: {
         sats: z
@@ -746,15 +791,11 @@ export function registerLegionTools(server: McpServer): void {
     "legion_sponsor",
     {
       description:
-        "Fund the legion's pool WITHOUT minting any voting weight, and put a name on the " +
-        "record. A sponsor pays for journalism and attribution, not a say in what gets " +
-        "published.\n\n" +
-        "Sponsorship does not raise the price of joining (weight is priced against the " +
-        "contributed balance only), but it does enlarge every payout, because the draw is a " +
-        "fraction of the whole pool.\n\n" +
-        "`name`, `link` and `memo` are unverified strings — the contract never reads them. " +
-        "Any display must treat the paying principal and the txid as the real identity.\n\n" +
-        "DEPOSITS ARE FINAL. There is no refund path and cannot be one.\n\n" +
+        "Fund the pool WITHOUT minting voting weight, with a name on the record.\n\n" +
+        "Does not raise the price of joining (weight is priced against contributed sats only), " +
+        "but does enlarge every payout, since the draw is a fraction of the whole pool.\n\n" +
+        "`name`, `link` and `memo` are unverified — the paying principal and txid are the real " +
+        "identity. FINAL: no refund path exists.\n\n" +
         "Requires an unlocked wallet.",
       inputSchema: {
         sats: z
@@ -858,16 +899,12 @@ export function registerLegionTools(server: McpServer): void {
     "legion_propose_story",
     {
       description:
-        "Open a vote on one inscribed news piece. If it passes, YOU are paid the draw — the " +
+        "Open a vote on one inscribed piece. If it passes, YOU are paid the draw — the " +
         "proposer is the only reachable payee.\n\n" +
-        "Pass the inscription id from legion_inscribe_reveal (or any ordinals content URL) " +
-        "plus your own title and description; the contract stores all three verbatim and " +
-        "never reads the inscription itself. Voters open the link and judge the work, so a " +
-        "junk or replayed link gets voted or vetoed down.\n\n" +
-        "Proposing locks your ENTIRE voting weight until the piece resolves — one live " +
-        "proposal per principal. The lock is never spent and releases on every outcome.\n\n" +
-        "Pre-flights every precondition the contract checks and refuses locally with the " +
-        "specific blocker rather than burning a transaction on the revert.\n\n" +
+        "The contract stores link, title and description verbatim and never reads the " +
+        "inscription. Proposing locks your ENTIRE weight until the piece resolves — one live " +
+        "proposal per principal; the lock is never spent and releases on every outcome.\n\n" +
+        "Pre-flights every precondition and refuses locally with the specific blocker.\n\n" +
         "Requires an unlocked wallet.",
       inputSchema: {
         link: z
@@ -977,13 +1014,10 @@ export function registerLegionTools(server: McpServer): void {
     "legion_vote",
     {
       description:
-        "Vote yes or no on a proposal with your current weight. One vote per principal, and " +
-        "a proposer cannot vote on their own piece.\n\n" +
-        "Read the inscription first — legion_get_story gives you the link. The contract " +
-        "cannot see the work; judging it is the whole job.\n\n" +
-        "Pre-flights the phase, your weight and whether you have already voted, so a vote " +
-        "that would revert is refused locally.\n\n" +
-        "Requires an unlocked wallet.",
+        "Vote yes or no with your current weight. One vote per principal; a proposer cannot " +
+        "vote on their own piece.\n\n" +
+        "Read the inscription first — legion_get_story gives you the link.\n\n" +
+        "Pre-flights phase, weight and prior vote. Requires an unlocked wallet.",
       inputSchema: {
         proposalId: z.number().int().positive().describe("The proposal id"),
         support: z
@@ -1090,13 +1124,10 @@ export function registerLegionTools(server: McpServer): void {
     "legion_veto",
     {
       description:
-        "Object to a proposal during the veto window — the blocking pass after voting closes. " +
-        "If vetoes reach the veto quorum of eligible weight, the piece fails regardless of how " +
-        "the vote went.\n\n" +
-        "This is the backstop against a plagiarised, replayed or junk inscription that slipped " +
-        "past the vote. A proposer may veto their own piece, which simply withdraws it.\n\n" +
-        "Pre-flights the window and your weight.\n\n" +
-        "Requires an unlocked wallet.",
+        "Object during the veto window. At veto quorum the piece fails regardless of the vote — " +
+        "the backstop against a plagiarised or junk inscription that slipped past. A proposer " +
+        "may veto their own piece, which withdraws it.\n\n" +
+        "Pre-flights the window and your weight. Requires an unlocked wallet.",
       inputSchema: {
         proposalId: z.number().int().positive().describe("The proposal id"),
       },
@@ -1188,14 +1219,12 @@ export function registerLegionTools(server: McpServer): void {
     "legion_conclude",
     {
       description:
-        "Settle a proposal: work out the outcome and, if it passed, pay the proposer the draw " +
-        "from the treasury. Permissionless — anyone may call it, and someone must.\n\n" +
-        "A piece nobody concludes inside its conclude window EXPIRES and pays no one, and after " +
-        "that it can never be concluded at all. Concluding late pays exactly what concluding " +
-        "early would, because the draw was snapshotted at propose time.\n\n" +
-        "Signs with a post-condition capping what the treasury may pay at the snapshotted draw, " +
-        "which covers both the paying and the non-paying outcomes.\n\n" +
-        "Requires an unlocked wallet (the caller pays gas; the payout goes to the proposer).",
+        "Settle a proposal and, if it passed, pay the proposer the draw. Permissionless — " +
+        "anyone may call it, and someone must.\n\n" +
+        "A piece nobody concludes inside its window EXPIRES, pays no one, and can never be " +
+        "concluded after. Concluding late pays what concluding early would; the draw was " +
+        "snapshotted at propose time.\n\n" +
+        "Requires an unlocked wallet — caller pays gas, proposer gets the payout.",
       inputSchema: {
         proposalId: z.number().int().positive().describe("The proposal id"),
       },
@@ -1300,23 +1329,17 @@ export function registerLegionTools(server: McpServer): void {
     "legion_inscribe_story",
     {
       description:
-        "Inscribe a news piece to a Bitcoin ordinal as markdown — STEP 1: broadcast the commit " +
-        "transaction.\n\n" +
-        "This is the piece the legion votes on. Write it as markdown; a title is prepended as " +
-        "an H1 unless the body already starts with one.\n\n" +
-        "SPENDS REAL BITCOIN. Unlike the rest of the legion_* tools (which are pinned to the " +
-        `legion's Stacks ${LEGION_NETWORK}), inscription runs on the Bitcoin network this ` +
-        `server is configured for, currently ${NETWORK}. ordinals.com only serves mainnet ` +
-        "inscriptions, so a non-mainnet inscription will not resolve for voters.\n\n" +
-        "Optionally makes the piece a CHILD of a parent inscription you own, per the Ordinals " +
-        "provenance spec. That binds every piece you file to one inscribed identity, which the " +
-        "governance contract cannot do — it records the Stacks principal that proposed, and the " +
-        "Bitcoin key that inscribed is a different identity entirely. It proves a body of work " +
-        "shares an author; it does NOT prove the work is original, which stays the voters' job " +
-        "and the veto window's.\n\n" +
-        "Returns immediately without waiting for confirmation. Once the commit confirms " +
-        "(typically 10-60 min), call legion_inscribe_reveal with the values returned here.\n\n" +
-        "Requires an unlocked managed wallet with Bitcoin keys and funded UTXOs.",
+        "Inscribe a news piece to a Bitcoin ordinal as markdown — STEP 1, the commit.\n\n" +
+        "Content type is text/markdown; the title is prepended as an H1 unless the body already " +
+        "starts with one.\n\n" +
+        `SPENDS REAL BITCOIN, on the Bitcoin network NETWORK names (currently ${NETWORK}) — ` +
+        `not the Stacks ${LEGION_NETWORK} the rest of the legion_* tools use.\n\n` +
+        "Optional `parentInscriptionId` files the piece as a child of a parent you own, binding " +
+        "your pieces to one inscribed identity. That is authorship, not originality.\n\n" +
+        "Pre-flights content size, fee estimate, parent ownership, funding and network before " +
+        "signing. `dryRun` prices it without broadcasting.\n\n" +
+        "Returns without waiting. After the commit confirms, call legion_inscribe_reveal.\n\n" +
+        "Requires an unlocked managed wallet with funded UTXOs.",
       inputSchema: {
         title: z
           .string()
@@ -1334,14 +1357,42 @@ export function registerLegionTools(server: McpServer): void {
               "You must own it: the reveal spends the parent's UTXO and returns it to you, " +
               "so children from one parent must be inscribed one at a time."
           ),
+        dryRun: z
+          .boolean()
+          .optional()
+          .describe(
+            "Run every pre-flight check and price the inscription, but sign nothing. " +
+              "Use this to see the cost before spending it."
+          ),
+        allowNonMainnet: z
+          .boolean()
+          .optional()
+          .describe(
+            "Permit inscribing on a non-mainnet Bitcoin network. Refused by default: " +
+              "ordinals.com serves mainnet only, so the link would 404 for every voter."
+          ),
         feeRate: z
           .union([z.enum(["fast", "medium", "slow"]), z.number().positive()])
           .optional()
           .describe("Fee rate: 'fast', 'medium', 'slow', or a number in sat/vB (default: medium)"),
       },
     },
-    async ({ title, body, parentInscriptionId, feeRate }) => {
+    async ({ title, body, parentInscriptionId, dryRun, allowNonMainnet, feeRate }) => {
       try {
+        // A testnet inscription is almost always a misconfiguration here: the
+        // legion's governance is testnet but its links are read on mainnet
+        // ordinals.com, so the piece would be unreadable to every voter. A JSON
+        // warning field was too easy to miss for something that costs sats.
+        if (NETWORK !== "mainnet" && !allowNonMainnet) {
+          return createErrorResponse(
+            new Error(
+              `Bitcoin network is ${NETWORK}, and ordinals.com serves mainnet inscriptions ` +
+                `only — voters could not open the link this produces. Set NETWORK=mainnet, ` +
+                `or pass allowNonMainnet: true if you are deliberately testing. Nothing was broadcast.`
+            )
+          );
+        }
+
         const walletManager = getWalletManager();
         const sessionInfo = walletManager.getSessionInfo();
         if (!sessionInfo) {
@@ -1389,10 +1440,21 @@ export function registerLegionTools(server: McpServer): void {
           );
         }
 
-        const markdown = body.trimStart().startsWith("#")
-          ? body
-          : `# ${title}\n\n${body}`;
+        const markdown = buildStoryMarkdown(title, body);
         const content = Buffer.from(markdown, "utf8");
+        // The body rides in the reveal witness, so an oversized piece commits
+        // fine and then cannot be revealed at all. Refuse before spending.
+        if (content.length > MAX_INSCRIPTION_BYTES) {
+          return createErrorResponse(
+            new Error(
+              `The piece is ${content.length} bytes, over the ${MAX_INSCRIPTION_BYTES}-byte ` +
+                `ceiling. The content rides in the reveal witness, so a commit would confirm ` +
+                `and the reveal would then be rejected as non-standard, stranding the sats. ` +
+                `Split the piece or inscribe a summary that links out. Nothing was broadcast.`
+            )
+          );
+        }
+        const contentHash = createHash("sha256").update(content).digest("hex");
         const inscription: InscriptionData = {
           contentType: STORY_CONTENT_TYPE,
           body: content,
@@ -1429,6 +1491,63 @@ export function registerLegionTools(server: McpServer): void {
                 senderAddress: sessionInfo.btcAddress,
                 network: NETWORK,
               });
+
+        // What the commit output can still afford at reveal time. The reveal
+        // takes its own feeRate, and a rate above this leaves the reveal output
+        // under dust — the builder refuses and the sats sit in the commit until
+        // it is retried lower. Say the ceiling here so it is never hit.
+        const revealVbytes = Math.max(
+          1,
+          Math.round(commitResult.revealAmount / Math.max(actualFeeRate, 1))
+        );
+        const maxRevealFeeRate = Math.max(
+          1,
+          Math.floor((commitResult.revealAmount - DUST_THRESHOLD) / revealVbytes)
+        );
+
+        const probes = {
+          network: NETWORK,
+          contentSize: content.length,
+          contentHash: `sha256:${contentHash}`,
+          feeRate: actualFeeRate,
+          utxos: {
+            count: utxos.length,
+            totalSats: utxos.reduce((sum, utxo) => sum + utxo.value, 0),
+          },
+          parent: parentInfo
+            ? {
+                inscriptionId: parentInscriptionId,
+                txid: parentInfo.txid,
+                vout: parentInfo.vout,
+                value: parentInfo.value,
+                owned: true,
+              }
+            : null,
+          estimatedCost: {
+            commitFee: commitResult.fee,
+            revealAmount: commitResult.revealAmount,
+            totalSats: commitResult.fee + commitResult.revealAmount,
+          },
+          maxRevealFeeRate,
+          sizeWarning:
+            content.length > LARGE_INSCRIPTION_WARN_BYTES
+              ? `${content.length} bytes is a large inscription — the fee scales with it.`
+              : undefined,
+        };
+
+        if (dryRun) {
+          return createJsonResponse({
+            status: "dry_run",
+            probes,
+            revealAddress: commitResult.revealAddress,
+            title,
+            markdown,
+            broadcast: false,
+            nextStep:
+              "Nothing was signed. Re-call without dryRun to broadcast the commit.",
+          });
+        }
+
         const commitSigned = signBtcTransaction(
           commitResult.tx,
           account.btcPrivateKey
@@ -1478,15 +1597,11 @@ export function registerLegionTools(server: McpServer): void {
     "legion_inscribe_reveal",
     {
       description:
-        "Complete a news inscription — STEP 2: broadcast the reveal transaction, after the " +
-        "commit from legion_inscribe_story has confirmed.\n\n" +
-        "Pass the SAME title, body and parentInscriptionId used in the commit step — the reveal " +
-        "script is derived from all of them, so any difference produces a different script and " +
-        "the reveal fails.\n\n" +
-        "With a parent, the reveal spends both the commit output and the parent's UTXO, returns " +
-        "the parent to your Taproot address, and creates the child.\n\n" +
-        "Returns the inscription id and the ordinals.com link, ready to hand straight to " +
-        "legion_propose_story.\n\n" +
+        "Complete a news inscription — STEP 2, the reveal, after the commit has confirmed.\n\n" +
+        "Pass the SAME title, body and parentInscriptionId used at commit: the reveal script is " +
+        "derived from all three. The commit's actual output is checked against the script this " +
+        "content derives, so a mismatch is refused before signing rather than losing the sats.\n\n" +
+        "Returns the inscription id and link for legion_propose_story.\n\n" +
         "Requires an unlocked managed wallet.",
       inputSchema: {
         commitTxid: z
@@ -1550,12 +1665,12 @@ export function registerLegionTools(server: McpServer): void {
           );
         }
 
-        const markdown = body.trimStart().startsWith("#")
-          ? body
-          : `# ${title}\n\n${body}`;
+        const markdown = buildStoryMarkdown(title, body);
+        const content = Buffer.from(markdown, "utf8");
+        const contentHash = createHash("sha256").update(content).digest("hex");
         const inscription: InscriptionData = {
           contentType: STORY_CONTENT_TYPE,
-          body: Buffer.from(markdown, "utf8"),
+          body: content,
         };
 
         const mempoolApi = new MempoolApi(NETWORK);
@@ -1563,6 +1678,7 @@ export function registerLegionTools(server: McpServer): void {
 
         let revealResult;
         let revealTxid: string;
+        let derivedRevealAddress: string | undefined;
         if (parentInscriptionId !== undefined && parentInfo) {
           const revealScript = deriveChildRevealScript({
             inscription,
@@ -1570,6 +1686,8 @@ export function registerLegionTools(server: McpServer): void {
             senderPubKey: account.btcPublicKey,
             network: NETWORK,
           });
+          derivedRevealAddress = revealScript.address;
+          await assertCommitMatches(mempoolApi, commitTxid, derivedRevealAddress, revealAmount);
           revealResult = buildChildRevealTransaction({
             commitTxid,
             commitVout: 0,
@@ -1597,6 +1715,8 @@ export function registerLegionTools(server: McpServer): void {
             senderPubKey: account.btcPublicKey,
             network: NETWORK,
           });
+          derivedRevealAddress = revealScript.address;
+          await assertCommitMatches(mempoolApi, commitTxid, derivedRevealAddress, revealAmount);
           revealResult = buildRevealTransaction({
             commitTxid,
             commitVout: 0,
@@ -1635,12 +1755,8 @@ export function registerLegionTools(server: McpServer): void {
             explorerUrl: getMempoolTxUrl(revealTxid, NETWORK),
           },
           recipientAddress: sessionInfo.taprootAddress,
+          contentHash: `sha256:${contentHash}`,
           parentInscriptionId: parentInscriptionId ?? null,
-          provenance: parentInscriptionId
-            ? `Child of ${parentInscriptionId}. Anyone can verify from the chain that this ` +
-              `piece and every other child share one inscriber — which is authorship, not ` +
-              `originality. Judging the work is still the voters' job.`
-            : undefined,
           warning:
             NETWORK === "mainnet"
               ? undefined
