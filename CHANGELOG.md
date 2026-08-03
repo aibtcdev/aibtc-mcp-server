@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.66.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.65.1...mcp-server-v1.66.0) (2026-08-03)
+
+
+### Features
+
+* **legion:** add News Legion governance tools ([#642](https://github.com/aibtcdev/aibtc-mcp-server/issues/642)) ([5413ba5](https://github.com/aibtcdev/aibtc-mcp-server/commit/5413ba5be8c961137afa6c16d9d2d04f753eaca7))
+
+
+### Bug Fixes
+
+* **deps:** bump postcss to 8.5.18 (GHSA-r28c-9q8g-f849) ([#638](https://github.com/aibtcdev/aibtc-mcp-server/issues/638)) ([1306c51](https://github.com/aibtcdev/aibtc-mcp-server/commit/1306c51d9129d5db8a2b689ed375019a412677e3))
+
 ## [1.65.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.65.0...mcp-server-v1.65.1) (2026-07-29)
 
 
