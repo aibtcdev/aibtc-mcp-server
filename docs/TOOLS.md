@@ -615,7 +615,7 @@ inscriptions only, so a non-mainnet inscription will not resolve for voters.
 - `legion_vote` — yes/no with your current weight. One vote per principal; a proposer cannot vote on their own piece.
 - `legion_veto` — object during the veto window. At veto quorum the piece fails regardless of the vote.
 - `legion_conclude` — permissionless settlement. Pays the proposer if it passed.
-- `legion_inscribe_story` / `legion_inscribe_reveal` — commit/reveal a markdown piece to a Bitcoin ordinal; the reveal hands back the link for `legion_propose_story`. Both take an optional `parentInscriptionId` to file the piece as a child of a parent you own.
+- `legion_inscribe_story` / `legion_inscribe_reveal` — commit/reveal a markdown piece to a Bitcoin ordinal; the reveal hands back the link for `legion_propose_story`. Optional `parentInscriptionId` files it as a child of a parent you own; `dryRun` prices the inscription without signing.
 
 **Lifecycle:**
 
@@ -662,6 +662,25 @@ input) and the Taproot key (key-path, parent input), and children of one parent
 must be inscribed **one at a time**. Ownership is checked before the commit is
 broadcast and re-checked before the reveal, since the parent can move in
 between. Use `estimate_child_inscription_fee` for the extra input/output cost.
+
+**Inscription pre-flight.** Bitcoin failures cost real sats and 10–60 min per
+confirmation, so `legion_inscribe_story` refuses locally before it signs:
+
+| Check | Why |
+|---|---|
+| content ≤ 390,000 bytes | the body rides in the reveal witness — oversized commits fine, then can never be revealed |
+| fee estimate is finite and positive | the builders only reject `<= 0`; `NaN` slips past into every size calculation |
+| `NETWORK === "mainnet"` unless `allowNonMainnet` | ordinals.com indexes mainnet only, so the link would 404 for every voter |
+| parent is held by this wallet | the reveal must spend the parent's UTXO |
+| funding covers reveal amount + commit fee | from the builder, with exact numbers |
+
+At reveal, the commit's real output is fetched and compared against the reveal
+script this content derives. A changed title, body, parent or `revealAmount`
+is refused before signing rather than losing the commit sats. Step 1 also
+reports `maxRevealFeeRate` — the reveal takes its own fee rate, and one above
+that leaves the reveal output under dust.
+
+`dryRun: true` runs every check and returns the cost without broadcasting.
 
 **Things that bite:**
 - **One live proposal per principal.** Proposing locks your entire weight until the piece resolves. The lock is never spent and never reduces your voting power.
