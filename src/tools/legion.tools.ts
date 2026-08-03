@@ -87,6 +87,12 @@ import {
   deriveRevealScript,
   type InscriptionData,
 } from "../transactions/inscription-builder.js";
+import {
+  buildChildCommitTransaction,
+  buildChildRevealTransaction,
+  deriveChildRevealScript,
+  lookupParentInscription,
+} from "../transactions/child-inscription-builder.js";
 import { signBtcTransaction } from "../transactions/bitcoin-builder.js";
 import { createErrorResponse, createJsonResponse } from "../utils/index.js";
 
@@ -1302,6 +1308,12 @@ export function registerLegionTools(server: McpServer): void {
         `legion's Stacks ${LEGION_NETWORK}), inscription runs on the Bitcoin network this ` +
         `server is configured for, currently ${NETWORK}. ordinals.com only serves mainnet ` +
         "inscriptions, so a non-mainnet inscription will not resolve for voters.\n\n" +
+        "Optionally makes the piece a CHILD of a parent inscription you own, per the Ordinals " +
+        "provenance spec. That binds every piece you file to one inscribed identity, which the " +
+        "governance contract cannot do — it records the Stacks principal that proposed, and the " +
+        "Bitcoin key that inscribed is a different identity entirely. It proves a body of work " +
+        "shares an author; it does NOT prove the work is original, which stays the voters' job " +
+        "and the veto window's.\n\n" +
         "Returns immediately without waiting for confirmation. Once the commit confirms " +
         "(typically 10-60 min), call legion_inscribe_reveal with the values returned here.\n\n" +
         "Requires an unlocked managed wallet with Bitcoin keys and funded UTXOs.",
@@ -1314,13 +1326,21 @@ export function registerLegionTools(server: McpServer): void {
           .string()
           .min(1)
           .describe("The piece itself, as markdown."),
+        parentInscriptionId: z
+          .string()
+          .optional()
+          .describe(
+            "Optional parent inscription id (e.g. 'abc…i0') to file this piece under. " +
+              "You must own it: the reveal spends the parent's UTXO and returns it to you, " +
+              "so children from one parent must be inscribed one at a time."
+          ),
         feeRate: z
           .union([z.enum(["fast", "medium", "slow"]), z.number().positive()])
           .optional()
           .describe("Fee rate: 'fast', 'medium', 'slow', or a number in sat/vB (default: medium)"),
       },
     },
-    async ({ title, body, feeRate }) => {
+    async ({ title, body, parentInscriptionId, feeRate }) => {
       try {
         const walletManager = getWalletManager();
         const sessionInfo = walletManager.getSessionInfo();
@@ -1340,6 +1360,32 @@ export function registerLegionTools(server: McpServer): void {
         if (!account?.btcPrivateKey || !account.btcPublicKey) {
           return createErrorResponse(
             new Error("Bitcoin keys not available. Wallet may not be unlocked.")
+          );
+        }
+        // Provenance is signed by the Taproot key that holds the parent, not by
+        // the funding key, so a parented piece needs both.
+        if (parentInscriptionId && (!account.taprootPrivateKey || !account.taprootPublicKey)) {
+          return createErrorResponse(
+            new Error(
+              "Taproot keys not available, so this wallet cannot spend a parent inscription. " +
+                "Inscribe without parentInscriptionId, or use a managed wallet."
+            )
+          );
+        }
+
+        // Verify ownership before spending anything: the reveal must spend the
+        // parent's UTXO, so a parent someone else holds is unusable and the
+        // commit fee would be burned discovering that later.
+        const parentInfo = parentInscriptionId
+          ? await lookupParentInscription(parentInscriptionId)
+          : null;
+        if (parentInfo && parentInfo.address !== sessionInfo.taprootAddress) {
+          return createErrorResponse(
+            new Error(
+              `Parent inscription ${parentInscriptionId} is held by ${parentInfo.address}, ` +
+                `not by your Taproot address ${sessionInfo.taprootAddress}. ` +
+                `You must own a parent to file children under it. Nothing was broadcast.`
+            )
           );
         }
 
@@ -1364,14 +1410,25 @@ export function registerLegionTools(server: McpServer): void {
           );
         }
 
-        const commitResult = buildCommitTransaction({
-          utxos,
-          inscription,
-          feeRate: actualFeeRate,
-          senderPubKey: account.btcPublicKey,
-          senderAddress: sessionInfo.btcAddress,
-          network: NETWORK,
-        });
+        const commitResult =
+          parentInscriptionId !== undefined
+            ? buildChildCommitTransaction({
+                utxos,
+                inscription,
+                parentInscriptionId,
+                feeRate: actualFeeRate,
+                senderPubKey: account.btcPublicKey,
+                senderAddress: sessionInfo.btcAddress,
+                network: NETWORK,
+              })
+            : buildCommitTransaction({
+                utxos,
+                inscription,
+                feeRate: actualFeeRate,
+                senderPubKey: account.btcPublicKey,
+                senderAddress: sessionInfo.btcAddress,
+                network: NETWORK,
+              });
         const commitSigned = signBtcTransaction(
           commitResult.tx,
           account.btcPrivateKey
@@ -1393,6 +1450,10 @@ export function registerLegionTools(server: McpServer): void {
           contentSize: content.length,
           title,
           markdown,
+          parentInscriptionId: parentInscriptionId ?? null,
+          parentUtxo: parentInfo
+            ? { txid: parentInfo.txid, vout: parentInfo.vout, value: parentInfo.value }
+            : undefined,
           warning:
             NETWORK === "mainnet"
               ? undefined
@@ -1400,7 +1461,8 @@ export function registerLegionTools(server: McpServer): void {
                 `link it produces will not resolve for legion voters.`,
           nextStep:
             "Wait for the commit to confirm, then call legion_inscribe_reveal with this " +
-            "commitTxid and revealAmount plus the same title and body.",
+            "commitTxid and revealAmount plus the same title and body" +
+            (parentInscriptionId ? " and the same parentInscriptionId." : "."),
         });
       } catch (error) {
         return createErrorResponse(error);
@@ -1418,8 +1480,11 @@ export function registerLegionTools(server: McpServer): void {
       description:
         "Complete a news inscription — STEP 2: broadcast the reveal transaction, after the " +
         "commit from legion_inscribe_story has confirmed.\n\n" +
-        "Pass the SAME title and body used in the commit step — the reveal script is derived " +
-        "from the content, so any difference produces a different script and the reveal fails.\n\n" +
+        "Pass the SAME title, body and parentInscriptionId used in the commit step — the reveal " +
+        "script is derived from all of them, so any difference produces a different script and " +
+        "the reveal fails.\n\n" +
+        "With a parent, the reveal spends both the commit output and the parent's UTXO, returns " +
+        "the parent to your Taproot address, and creates the child.\n\n" +
         "Returns the inscription id and the ordinals.com link, ready to hand straight to " +
         "legion_propose_story.\n\n" +
         "Requires an unlocked managed wallet.",
@@ -1434,13 +1499,17 @@ export function registerLegionTools(server: McpServer): void {
           .describe("revealAmount from the legion_inscribe_story response"),
         title: z.string().min(1).describe("Same title used in the commit step"),
         body: z.string().min(1).describe("Same body used in the commit step"),
+        parentInscriptionId: z
+          .string()
+          .optional()
+          .describe("Same parentInscriptionId used in the commit step, if any"),
         feeRate: z
           .union([z.enum(["fast", "medium", "slow"]), z.number().positive()])
           .optional()
           .describe("Fee rate for the reveal tx (default: medium)"),
       },
     },
-    async ({ commitTxid, revealAmount, title, body, feeRate }) => {
+    async ({ commitTxid, revealAmount, title, body, parentInscriptionId, feeRate }) => {
       try {
         const walletManager = getWalletManager();
         const sessionInfo = walletManager.getSessionInfo();
@@ -1457,6 +1526,29 @@ export function registerLegionTools(server: McpServer): void {
             new Error("Bitcoin keys not available. Wallet may not be unlocked.")
           );
         }
+        if (parentInscriptionId && (!account.taprootPrivateKey || !account.taprootPublicKey)) {
+          return createErrorResponse(
+            new Error(
+              "Taproot keys not available, so the parent's UTXO cannot be spent. " +
+                "Wallet may not be unlocked."
+            )
+          );
+        }
+
+        // Re-check ownership: the parent can have moved between commit and
+        // reveal, and a reveal that tries to spend a UTXO someone else now holds
+        // fails on broadcast after the fee is already committed.
+        const parentInfo = parentInscriptionId
+          ? await lookupParentInscription(parentInscriptionId)
+          : null;
+        if (parentInfo && parentInfo.address !== sessionInfo.taprootAddress) {
+          return createErrorResponse(
+            new Error(
+              `Parent inscription ${parentInscriptionId} is no longer held by your wallet — ` +
+                `current holder is ${parentInfo.address}. Nothing was broadcast.`
+            )
+          );
+        }
 
         const markdown = body.trimStart().startsWith("#")
           ? body
@@ -1469,27 +1561,57 @@ export function registerLegionTools(server: McpServer): void {
         const mempoolApi = new MempoolApi(NETWORK);
         const actualFeeRate = await resolveFeeRate(mempoolApi, feeRate);
 
-        const revealScript = deriveRevealScript({
-          inscription,
-          senderPubKey: account.btcPublicKey,
-          network: NETWORK,
-        });
-        const revealResult = buildRevealTransaction({
-          commitTxid,
-          commitVout: 0,
-          commitAmount: revealAmount,
-          revealScript,
-          recipientAddress: sessionInfo.taprootAddress,
-          feeRate: actualFeeRate,
-          network: NETWORK,
-        });
-        const revealSigned = signBtcTransaction(
-          revealResult.tx,
-          account.btcPrivateKey
-        );
-        const revealTxid = await mempoolApi.broadcastTransaction(
-          revealSigned.txHex
-        );
+        let revealResult;
+        let revealTxid: string;
+        if (parentInscriptionId !== undefined && parentInfo) {
+          const revealScript = deriveChildRevealScript({
+            inscription,
+            parentInscriptionId,
+            senderPubKey: account.btcPublicKey,
+            network: NETWORK,
+          });
+          revealResult = buildChildRevealTransaction({
+            commitTxid,
+            commitVout: 0,
+            commitAmount: revealAmount,
+            revealScript,
+            parentUtxo: {
+              txid: parentInfo.txid,
+              vout: parentInfo.vout,
+              value: parentInfo.value,
+            },
+            parentOwnerTaprootInternalPubKey: account.taprootPublicKey!,
+            recipientAddress: sessionInfo.taprootAddress,
+            feeRate: actualFeeRate,
+            network: NETWORK,
+          });
+          // Two inputs, two keys: the commit output spends script-path with the
+          // funding key, the parent spends key-path with the Taproot key.
+          revealResult.tx.sign(account.btcPrivateKey);
+          revealResult.tx.sign(account.taprootPrivateKey!);
+          revealResult.tx.finalize();
+          revealTxid = await mempoolApi.broadcastTransaction(revealResult.tx.hex);
+        } else {
+          const revealScript = deriveRevealScript({
+            inscription,
+            senderPubKey: account.btcPublicKey,
+            network: NETWORK,
+          });
+          revealResult = buildRevealTransaction({
+            commitTxid,
+            commitVout: 0,
+            commitAmount: revealAmount,
+            revealScript,
+            recipientAddress: sessionInfo.taprootAddress,
+            feeRate: actualFeeRate,
+            network: NETWORK,
+          });
+          const revealSigned = signBtcTransaction(
+            revealResult.tx,
+            account.btcPrivateKey
+          );
+          revealTxid = await mempoolApi.broadcastTransaction(revealSigned.txHex);
+        }
 
         const inscriptionId = `${revealTxid}i0`;
         const link = `${ORDINALS_INSCRIPTION_BASE}${inscriptionId}`;
@@ -1513,6 +1635,12 @@ export function registerLegionTools(server: McpServer): void {
             explorerUrl: getMempoolTxUrl(revealTxid, NETWORK),
           },
           recipientAddress: sessionInfo.taprootAddress,
+          parentInscriptionId: parentInscriptionId ?? null,
+          provenance: parentInscriptionId
+            ? `Child of ${parentInscriptionId}. Anyone can verify from the chain that this ` +
+              `piece and every other child share one inscriber — which is authorship, not ` +
+              `originality. Judging the work is still the voters' job.`
+            : undefined,
           warning:
             NETWORK === "mainnet"
               ? undefined
