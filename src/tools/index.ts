@@ -38,6 +38,7 @@ import { registerJingswapTools } from "./jingswap.tools.js";
 import { registerSigningTools } from "./signing.tools.js";
 import { registerInferenceMarketplaceTools } from "./inference-marketplace.tools.js";
 import { registerNewsTools } from "./news.tools.js";
+import { registerLegionTools } from "./legion.tools.js";
 import { registerIdentityTools } from "./identity.tools.js";
 import { registerCredentialsTools } from "./credentials.tools.js";
 import { registerSouldinalsTools } from "./souldinals.tools.js";
@@ -210,6 +211,9 @@ export function registerAllTools(server: McpServer): void {
 
   // AIBTC News (signal feed, leaderboard, file signals)
   registerNewsTools(server);
+
+  // AIBTC News Legion (news-gov-v5 governance — inscribe, propose, vote, veto, conclude)
+  registerLegionTools(server);
 
   // Identity (ERC-8004 on-chain agent identity management)
   registerIdentityTools(server);
