@@ -663,6 +663,17 @@ must be inscribed **one at a time**. Ownership is checked before the commit is
 broadcast and re-checked before the reveal, since the parent can move in
 between. Use `estimate_child_inscription_fee` for the extra input/output cost.
 
+**Only two of these tools can reach mainnet.** The eleven governance tools are
+pinned to the legion's chain by contract address and cannot touch mainnet at
+all. `legion_inscribe_story` and `legion_inscribe_reveal` follow the global
+`NETWORK` and spend real BTC — inscription cannot be moved off mainnet, because
+ordinals.com indexes mainnet only.
+
+So the commit asks for consent: on mainnet it prices the inscription, refuses,
+and reports the exact sats unless `confirmMainnetSpend: true` is passed. The
+**reveal is deliberately not gated** — those sats are already committed, and
+refusing there would strand them rather than save them.
+
 **Inscription pre-flight.** Bitcoin failures cost real sats and 10–60 min per
 confirmation, so `legion_inscribe_story` refuses locally before it signs:
 
@@ -671,6 +682,7 @@ confirmation, so `legion_inscribe_story` refuses locally before it signs:
 | content ≤ 390,000 bytes | the body rides in the reveal witness — oversized commits fine, then can never be revealed |
 | fee estimate is finite and positive | the builders only reject `<= 0`; `NaN` slips past into every size calculation |
 | `NETWORK === "mainnet"` unless `allowNonMainnet` | ordinals.com indexes mainnet only, so the link would 404 for every voter |
+| `confirmMainnetSpend: true` on mainnet | the only step that moves real money; quoted and consented to, never implicit |
 | parent is held by this wallet | the reveal must spend the parent's UTXO |
 | funding covers reveal amount + commit fee | from the builder, with exact numbers |
 

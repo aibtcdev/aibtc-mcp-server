@@ -1333,7 +1333,9 @@ export function registerLegionTools(server: McpServer): void {
         "Content type is text/markdown; the title is prepended as an H1 unless the body already " +
         "starts with one.\n\n" +
         `SPENDS REAL BITCOIN, on the Bitcoin network NETWORK names (currently ${NETWORK}) — ` +
-        `not the Stacks ${LEGION_NETWORK} the rest of the legion_* tools use.\n\n` +
+        `not the Stacks ${LEGION_NETWORK} the rest of the legion_* tools use. A mainnet ` +
+        "inscription therefore needs `confirmMainnetSpend: true`; without it the tool prices " +
+        "the piece and refuses, so real BTC is never spent by accident.\n\n" +
         "Optional `parentInscriptionId` files the piece as a child of a parent you own, binding " +
         "your pieces to one inscribed identity. That is authorship, not originality.\n\n" +
         "Pre-flights content size, fee estimate, parent ownership, funding and network before " +
@@ -1364,6 +1366,13 @@ export function registerLegionTools(server: McpServer): void {
             "Run every pre-flight check and price the inscription, but sign nothing. " +
               "Use this to see the cost before spending it."
           ),
+        confirmMainnetSpend: z
+          .boolean()
+          .optional()
+          .describe(
+            "Acknowledge that this spends real BTC. Required on mainnet — without it the " +
+              "tool returns the exact cost and refuses."
+          ),
         allowNonMainnet: z
           .boolean()
           .optional()
@@ -1377,7 +1386,7 @@ export function registerLegionTools(server: McpServer): void {
           .describe("Fee rate: 'fast', 'medium', 'slow', or a number in sat/vB (default: medium)"),
       },
     },
-    async ({ title, body, parentInscriptionId, dryRun, allowNonMainnet, feeRate }) => {
+    async ({ title, body, parentInscriptionId, dryRun, confirmMainnetSpend, allowNonMainnet, feeRate }) => {
       try {
         // A testnet inscription is almost always a misconfiguration here: the
         // legion's governance is testnet but its links are read on mainnet
@@ -1548,6 +1557,24 @@ export function registerLegionTools(server: McpServer): void {
           });
         }
 
+        // The legion itself is testnet, so an agent working through it has no
+        // reason to expect real money to move. Inscription is the one step that
+        // does, and it cannot be moved off mainnet (ordinals.com indexes mainnet
+        // only), so the cost is quoted and consent taken instead.
+        if (NETWORK === "mainnet" && !confirmMainnetSpend) {
+          const total = commitResult.fee + commitResult.revealAmount;
+          return createErrorResponse(
+            new Error(
+              `This would spend ${total} sats of REAL BITCOIN on mainnet — ` +
+                `${commitResult.fee} commit fee plus ${commitResult.revealAmount} locked for ` +
+                `the reveal. The legion's governance is Stacks ${LEGION_NETWORK}, but the ` +
+                `inscription is mainnet Bitcoin because ordinals.com indexes mainnet only. ` +
+                `Nothing was signed. Re-call with confirmMainnetSpend: true to proceed, or ` +
+                `dryRun: true for the full breakdown.`
+            )
+          );
+        }
+
         const commitSigned = signBtcTransaction(
           commitResult.tx,
           account.btcPrivateKey
@@ -1602,6 +1629,8 @@ export function registerLegionTools(server: McpServer): void {
         "derived from all three. The commit's actual output is checked against the script this " +
         "content derives, so a mismatch is refused before signing rather than losing the sats.\n\n" +
         "Returns the inscription id and link for legion_propose_story.\n\n" +
+        "No mainnet confirmation is asked for here, unlike the commit: those sats are already " +
+        "committed, and refusing the reveal would strand them rather than save them.\n\n" +
         "Requires an unlocked managed wallet.",
       inputSchema: {
         commitTxid: z
