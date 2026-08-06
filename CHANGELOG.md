@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.67.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.66.0...mcp-server-v1.67.0) (2026-08-05)
+
+
+### Features
+
+* **legion:** require explicit consent before spending mainnet BTC ([#647](https://github.com/aibtcdev/aibtc-mcp-server/issues/647)) ([6300405](https://github.com/aibtcdev/aibtc-mcp-server/commit/6300405976591952b621d038139fdeb91a1b9dc9))
+
 ## [1.66.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.65.1...mcp-server-v1.66.0) (2026-08-03)
 
 
