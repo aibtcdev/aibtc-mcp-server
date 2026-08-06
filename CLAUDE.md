@@ -219,7 +219,7 @@ The allowlist is re-enforced at `tools/call` time, so the model can't reach a to
 | Competition | `competition_submit_trade/status/list_trades/allowlist` | Mainnet only; requires identity registration; Bitflow swaps only score today |
 | Pillar | `pillar_connect/disconnect/status/send/fund/supply/boost/unwind/auto_compound/position/create_wallet/add_admin/invite` | Browser handoff for passkey signing |
 | AIBTC News | `news_list_signals/front_page/leaderboard/check_status/list_beats` (read) + `news_file_signal/claim_beat` (BIP-322 auth) | bc1q addresses only |
-| News Legion | `legion_status/list_stories/get_story/my_position` (read) + `legion_contribute/sponsor/propose_story/vote/veto/conclude/faucet` + `legion_inscribe_story/inscribe_reveal` | news-gov-v5 on Stacks **testnet**, pinned by contract address — never follows global `NETWORK`. Inscription is the exception: real BTC on whatever `NETWORK` names |
+| News Legion | `legion_status/list_stories/get_story/my_position` (read) + `legion_contribute/sponsor/propose_story/vote/veto/conclude/faucet` + `legion_inscribe_story/inscribe_reveal` | Multi-era: **v6 live** (writes), v5 readable via `era: 5`. Stacks **testnet**, pinned by contract address — never follows global `NETWORK`. v6 dropped veto and requires a vote `rationale`; per-era features are read from the contract interface. Inscription is the exception: real BTC on whatever `NETWORK` names, and needs `confirmMainnetSpend` |
 | Inbox | `send_inbox_message_direct` | Mainnet only; non-sponsored sBTC transfer, sender pays STX gas. `send_inbox_message` (sponsored relay path) is **deprecated** — it no longer sends and just redirects here (relay queue could wedge, #540/#592) |
 
 ## Agent Behavior Guidelines

@@ -28,13 +28,14 @@ import {
 import { NETWORK, getExplorerTxUrl } from "../config/networks.js";
 import { DUST_THRESHOLD } from "../config/bitcoin-constants.js";
 import {
+  LEGION_ERAS,
   LEGION_ERRORS,
-  LEGION_GOV_CONTRACT,
   LEGION_NETWORK,
   LEGION_SITE_URL,
-  LEGION_TREASURY_CONTRACT,
+  LIVE_ERA,
   MAX_DESCRIPTION_LENGTH,
   MAX_LINK_LENGTH,
+  MAX_RATIONALE_LENGTH,
   MAX_SPONSOR_LINK_LENGTH,
   MAX_SPONSOR_MEMO_LENGTH,
   MAX_SPONSOR_NAME_LENGTH,
@@ -42,12 +43,15 @@ import {
   ORDINALS_CONTENT_BASE,
   ORDINALS_INSCRIPTION_BASE,
   STORY_STATUS,
+  resolveEra,
+  type LegionEra,
 } from "../config/legion.js";
 import {
   assertAscii,
   buildTimeline,
   contentUrlFromLink,
   explainError,
+  getCapabilities,
   getClockHeight,
   getLastProposalId,
   getLegionAccount,
@@ -86,8 +90,22 @@ import {
 import { signBtcTransaction } from "../transactions/bitcoin-builder.js";
 import { createErrorResponse, createJsonResponse } from "../utils/index.js";
 
-const [GOV_ADDRESS, GOV_NAME] = LEGION_GOV_CONTRACT.split(".");
-const [TREASURY_ADDRESS, TREASURY_NAME] = LEGION_TREASURY_CONTRACT.split(".");
+// Writes always target the live era. A retired contract still answers reads,
+// but proposing or voting into one would govern a deployment nothing watches.
+const [GOV_ADDRESS, GOV_NAME] = LIVE_ERA.gov.split(".");
+const [TREASURY_ADDRESS, TREASURY_NAME] = LIVE_ERA.treasury.split(".");
+
+/** The `era` input shared by every read tool. */
+const eraInput = z
+  .number()
+  .int()
+  .positive()
+  .optional()
+  .describe(
+    `Which legion deployment to read: ${LEGION_ERAS.map(
+      (e) => `${e.version}${e.live ? " (live, default)" : " (retired)"}`
+    ).join(", ")}. Proposal ids restart at 1 each era, so an id alone is ambiguous.`
+  );
 
 /** Markdown, so the inscription renders as a story rather than a wall of text. */
 const STORY_CONTENT_TYPE = "text/markdown;charset=utf-8";
@@ -117,8 +135,11 @@ function legionError(error: unknown) {
 }
 
 /** An sBTC balance on the legion's chain, in sats. */
-async function sbtcBalance(address: string): Promise<number> {
-  const token = await getLegionToken();
+async function sbtcBalance(
+  address: string,
+  era: LegionEra = LIVE_ERA
+): Promise<number> {
+  const token = await getLegionToken(era);
   return num(
     await readLegionContract(token.contract, "get-balance", [
       principalCV(address),
@@ -222,10 +243,11 @@ export function registerLegionTools(server: McpServer): void {
         "News Legion at a glance: sBTC pool, total weight, governance params read from the " +
         "contract, current height, and your own weight if a wallet is unlocked. Start here.\n\n" +
         `Reads only. Runs on Stacks ${LEGION_NETWORK} regardless of this server's NETWORK.`,
-      inputSchema: {},
+      inputSchema: { era: eraInput },
     },
-    async () => {
+    async ({ era: eraArg }) => {
       try {
+        const era = resolveEra(eraArg);
         const [
           params,
           clock,
@@ -238,27 +260,28 @@ export function registerLegionTools(server: McpServer): void {
           minSponsor,
           govWiring,
         ] = await Promise.all([
-          getParams(),
-          getClockHeight(),
-          readTreasury("get-balance"),
-          readTreasury("get-weighted-balance"),
-          readGov("get-total-weight"),
-          getLastProposalId(),
-          readGov("get-next-propose-height"),
-          readGov("quote-draw"),
-          readTreasury("get-min-sponsor"),
-          readTreasury("get-gov"),
+          getParams(era),
+          getClockHeight(era),
+          readTreasury("get-balance", [], era),
+          readTreasury("get-weighted-balance", [], era),
+          readGov("get-total-weight", [], era),
+          getLastProposalId(era),
+          readGov("get-next-propose-height", [], era),
+          readGov("quote-draw", [], era),
+          readTreasury("get-min-sponsor", [], era),
+          readTreasury("get-gov", [], era),
         ]);
+        const caps = await getCapabilities(era);
 
         const walletManager = getWalletManager();
         let you: Record<string, unknown> | undefined;
         if (walletManager.isUnlocked() || process.env.CLIENT_MNEMONIC) {
           const account = await getLegionAccount();
           const [weight, freeWeight, liveProposal, balance] = await Promise.all([
-            readGov("get-weight", [principalCV(account.address)]),
-            readGov("get-free-weight", [principalCV(account.address)]),
-            readGov("get-live-proposal", [principalCV(account.address)]),
-            sbtcBalance(account.address),
+            readGov("get-weight", [principalCV(account.address)], era),
+            readGov("get-free-weight", [principalCV(account.address)], era),
+            readGov("get-live-proposal", [principalCV(account.address)], era),
+            sbtcBalance(account.address, era),
           ]);
           you = {
             address: account.address,
@@ -275,10 +298,20 @@ export function registerLegionTools(server: McpServer): void {
 
         return createJsonResponse({
           network: LEGION_NETWORK,
+          era: {
+            version: era.version,
+            live: era.live,
+            supportsVeto: caps.supportsVeto,
+            voteNeedsRationale: caps.voteNeedsRationale,
+            known: LEGION_ERAS.map((e) => ({ version: e.version, live: e.live })),
+            note: era.live
+              ? undefined
+              : `v${era.version} is retired — it still answers reads, but every write goes to v${LIVE_ERA.version}.`,
+          },
           contracts: {
-            governance: LEGION_GOV_CONTRACT,
-            treasury: LEGION_TREASURY_CONTRACT,
-            sbtcToken: (await getLegionToken()).contract,
+            governance: era.gov,
+            treasury: era.treasury,
+            sbtcToken: (await getLegionToken(era)).contract,
             treasuryWiredTo: govWiring,
           },
           site: LEGION_SITE_URL,
@@ -355,23 +388,26 @@ export function registerLegionTools(server: McpServer): void {
           .max(50)
           .optional()
           .describe("How many proposals to scan back from the newest (default 10)"),
+        era: eraInput,
       },
     },
-    async ({ phase = "all", limit = 10 }) => {
+    async ({ phase = "all", limit = 10, era: eraArg }) => {
       try {
+        const era = resolveEra(eraArg);
         const [params, clock, lastProposalId, pool] = await Promise.all([
-          getParams(),
-          getClockHeight(),
-          getLastProposalId(),
-          readTreasury("get-balance"),
+          getParams(era),
+          getClockHeight(era),
+          getLastProposalId(era),
+          readTreasury("get-balance", [], era),
         ]);
 
         if (lastProposalId === 0) {
           return createJsonResponse({
             network: LEGION_NETWORK,
+            era: era.version,
             totalProposals: 0,
             stories: [],
-            message: "No proposals have been filed in this legion yet.",
+            message: `No proposals have been filed in legion v${era.version} yet.`,
           });
         }
 
@@ -382,9 +418,9 @@ export function registerLegionTools(server: McpServer): void {
         const rows = await Promise.all(
           ids.map(async (proposalId) => {
             const [story, meta, storyPhase] = await Promise.all([
-              getStory(proposalId),
-              getStoryMeta(proposalId),
-              getPhase(proposalId),
+              getStory(proposalId, era),
+              getStoryMeta(proposalId, era),
+              getPhase(proposalId, era),
             ]);
             if (!story) return null;
             const timeline = buildTimeline(story, params, clock.height, clock.clock);
@@ -396,6 +432,7 @@ export function registerLegionTools(server: McpServer): void {
             );
             return {
               proposalId,
+              era: era.version,
               phase: storyPhase,
               status: STORY_STATUS[story.status],
               reason: story.reason || undefined,
@@ -430,6 +467,7 @@ export function registerLegionTools(server: McpServer): void {
 
         return createJsonResponse({
           network: LEGION_NETWORK,
+          era: { version: era.version, live: era.live, gov: era.gov },
           currentHeight: clock.height,
           clock: `${clock.clock} blocks`,
           totalProposals: lastProposalId,
@@ -461,23 +499,26 @@ export function registerLegionTools(server: McpServer): void {
         "work is the voter's job.\n\nReads only.",
       inputSchema: {
         proposalId: z.number().int().positive().describe("The proposal id"),
+        era: eraInput,
       },
     },
-    async ({ proposalId }) => {
+    async ({ proposalId, era: eraArg }) => {
       try {
+        const era = resolveEra(eraArg);
+        const caps = await getCapabilities(era);
         const [params, clock, story, meta, storyPhase, pool] = await Promise.all([
-          getParams(),
-          getClockHeight(),
-          getStory(proposalId),
-          getStoryMeta(proposalId),
-          getPhase(proposalId),
-          readTreasury("get-balance"),
+          getParams(era),
+          getClockHeight(era),
+          getStory(proposalId, era),
+          getStoryMeta(proposalId, era),
+          getPhase(proposalId, era),
+          readTreasury("get-balance", [], era),
         ]);
 
         if (!story) {
           return createErrorResponse(
             new Error(
-              `No proposal ${proposalId} in ${LEGION_GOV_CONTRACT}. ` +
+              `No proposal ${proposalId} in ${era.gov} (v${era.version}). ` +
                 `Call legion_list_stories to see what exists.`
             )
           );
@@ -491,9 +532,9 @@ export function registerLegionTools(server: McpServer): void {
         if (walletManager.isUnlocked() || process.env.CLIENT_MNEMONIC) {
           const account = await getLegionAccount();
           const [voteRecord, vetoRecord, weight] = await Promise.all([
-            getVoteRecord(proposalId, account.address),
-            getVetoRecord(proposalId, account.address),
-            readGov("get-weight", [principalCV(account.address)]),
+            getVoteRecord(proposalId, account.address, era),
+            getVetoRecord(proposalId, account.address, era),
+            readGov("get-weight", [principalCV(account.address)], era),
           ]);
           you = {
             address: account.address,
@@ -507,6 +548,7 @@ export function registerLegionTools(server: McpServer): void {
               account.address !== story.proposer &&
               num(weight) >= params.minWeight,
             canVetoNow:
+              caps.supportsVeto &&
               storyPhase === "veto" &&
               !vetoRecord &&
               num(weight) >= params.minWeight,
@@ -517,6 +559,7 @@ export function registerLegionTools(server: McpServer): void {
         return createJsonResponse({
           proposalId,
           network: LEGION_NETWORK,
+          era: { version: era.version, live: era.live, supportsVeto: caps.supportsVeto },
           phase: storyPhase,
           status: STORY_STATUS[story.status],
           reason: story.reason || undefined,
@@ -531,7 +574,7 @@ export function registerLegionTools(server: McpServer): void {
           tally: {
             yesWeight: story.yesWeight,
             noWeight: story.noWeight,
-            vetoWeight: story.vetoWeight,
+            vetoWeight: caps.supportsVeto ? story.vetoWeight : undefined,
             castWeight: prediction.cast,
             voterCount: story.voterCount,
             eligibleSnapshot: story.eligibleSnapshot,
@@ -543,9 +586,9 @@ export function registerLegionTools(server: McpServer): void {
             yesPct: prediction.yesPct,
             thresholdRequiredPct: params.votingThreshold,
             thresholdMet: prediction.thresholdMet,
-            vetoPct: prediction.vetoPct,
+            vetoPct: caps.supportsVeto ? prediction.vetoPct : undefined,
             vetoQuorumPct: params.vetoQuorum,
-            vetoed: prediction.vetoed,
+            vetoed: caps.supportsVeto ? prediction.vetoed : undefined,
             participants: `${story.voterCount}/${params.minParticipants}`,
             participantsMet: prediction.participantsMet,
           },
@@ -553,7 +596,10 @@ export function registerLegionTools(server: McpServer): void {
             ...timeline,
             explanation:
               `Filed at ${timeline.createdAt}. Voting opens at ${timeline.votingOpensAt} ` +
-              `and closes at ${timeline.voteEnd}. Veto runs until ${timeline.vetoEnd}. ` +
+              `and closes at ${timeline.voteEnd}. ` +
+              (timeline.vetoEnd === undefined
+                ? `This era has no veto window, so conclude opens as soon as voting closes. `
+                : `Veto runs until ${timeline.vetoEnd}. `) +
               `Conclude must be called before ${timeline.concludeDeadline} — after that ` +
               `the piece has expired and can no longer be concluded at all.`,
           },
@@ -586,23 +632,24 @@ export function registerLegionTools(server: McpServer): void {
         "Your weight, share, bond lock, sBTC balance, and every propose precondition folded " +
         "from the contract's `propose-status` — so a blocked propose names the gate to wait on.\n\n" +
         "Requires an unlocked wallet. Signs nothing.",
-      inputSchema: {},
+      inputSchema: { era: eraInput },
     },
-    async () => {
+    async ({ era: eraArg }) => {
       try {
+        const era = resolveEra(eraArg);
         const account = await getLegionAccount();
         const [params, clock, weight, freeWeight, locked, liveProposal, totalWeight, proposeStatus, balance, quoteDraw] =
           await Promise.all([
-            getParams(),
-            getClockHeight(),
-            readGov("get-weight", [principalCV(account.address)]),
-            readGov("get-free-weight", [principalCV(account.address)]),
-            readGov("locked-of", [principalCV(account.address)]),
-            readGov("get-live-proposal", [principalCV(account.address)]),
-            readGov("get-total-weight"),
-            getProposeStatus(account.address),
-            sbtcBalance(account.address),
-            readGov("quote-draw"),
+            getParams(era),
+            getClockHeight(era),
+            readGov("get-weight", [principalCV(account.address)], era),
+            readGov("get-free-weight", [principalCV(account.address)], era),
+            readGov("locked-of", [principalCV(account.address)], era),
+            readGov("get-live-proposal", [principalCV(account.address)], era),
+            readGov("get-total-weight", [], era),
+            getProposeStatus(account.address, era),
+            sbtcBalance(account.address, era),
+            readGov("quote-draw", [], era),
           ]);
 
         const blockers = proposeBlockers(proposeStatus, params.minWeight);
@@ -610,6 +657,7 @@ export function registerLegionTools(server: McpServer): void {
         return createJsonResponse({
           address: account.address,
           network: LEGION_NETWORK,
+          era: { version: era.version, live: era.live },
           currentHeight: clock.height,
           weight: num(weight),
           freeWeight: num(freeWeight),
@@ -989,9 +1037,12 @@ export function registerLegionTools(server: McpServer): void {
             filedAtAbout: clock.height,
             votingOpensAbout: votingOpensAt,
             voteEndsAbout: voteEnd,
-            vetoEndsAbout: voteEnd + params.vetoWindow,
+            vetoEndsAbout:
+              params.vetoWindow === undefined
+                ? undefined
+                : voteEnd + params.vetoWindow,
             concludeDeadlineAbout:
-              voteEnd + params.vetoWindow + params.concludeWindow,
+              voteEnd + (params.vetoWindow ?? 0) + params.concludeWindow,
             clock: `${clock.clock} blocks`,
           },
           nextSteps: [
@@ -1017,17 +1068,28 @@ export function registerLegionTools(server: McpServer): void {
         "Vote yes or no with your current weight. One vote per principal; a proposer cannot " +
         "vote on their own piece.\n\n" +
         "Read the inscription first — legion_get_story gives you the link.\n\n" +
+        "v6 and later require a non-empty `rationale` recorded on chain with the vote; on " +
+        "earlier eras the contract has no such argument and it is ignored.\n\n" +
         "Pre-flights phase, weight and prior vote. Requires an unlocked wallet.",
       inputSchema: {
         proposalId: z.number().int().positive().describe("The proposal id"),
         support: z
           .boolean()
           .describe("true = yes (pay this piece), false = no"),
+        rationale: z
+          .string()
+          .max(MAX_RATIONALE_LENGTH)
+          .optional()
+          .describe(
+            `Why you voted this way, recorded on chain (ASCII, ≤${MAX_RATIONALE_LENGTH} chars). ` +
+              "Required on v6 and later; ignored on eras whose vote takes no rationale."
+          ),
       },
     },
-    async ({ proposalId, support }) => {
+    async ({ proposalId, support, rationale }) => {
       try {
         const account = await getLegionAccount();
+        const caps = await getCapabilities();
         const [params, story, storyPhase, weight, existingVote, clock] =
           await Promise.all([
             getParams(),
@@ -1037,6 +1099,19 @@ export function registerLegionTools(server: McpServer): void {
             getVoteRecord(proposalId, account.address),
             getClockHeight(),
           ]);
+
+        if (caps.voteNeedsRationale) {
+          if (!rationale || rationale.trim().length === 0) {
+            return createErrorResponse(
+              new Error(
+                `Legion v${LIVE_ERA.version} records a rationale with every vote and rejects ` +
+                  `an empty one (u440). Pass rationale — a sentence on why this piece is or ` +
+                  `is not worth paying for. Nothing was signed.`
+              )
+            );
+          }
+          assertAscii(rationale, "rationale", MAX_RATIONALE_LENGTH);
+        }
 
         if (!story) {
           return createErrorResponse(
@@ -1091,7 +1166,9 @@ export function registerLegionTools(server: McpServer): void {
           contractAddress: GOV_ADDRESS,
           contractName: GOV_NAME,
           functionName: "vote",
-          functionArgs: [uintCV(proposalId), boolCV(support)],
+          functionArgs: caps.voteNeedsRationale
+            ? [uintCV(proposalId), boolCV(support), stringAsciiCV(rationale ?? "")]
+            : [uintCV(proposalId), boolCV(support)],
           // Voting moves nothing.
           postConditionMode: PostConditionMode.Deny,
           postConditions: [],
@@ -1102,7 +1179,9 @@ export function registerLegionTools(server: McpServer): void {
           txid: result.txid,
           explorerUrl: explorerUrl(result.txid),
           proposalId,
+          era: LIVE_ERA.version,
           support,
+          rationale: caps.voteNeedsRationale ? rationale : undefined,
           votedWith: num(weight),
           voter: account.address,
           network: LEGION_NETWORK,
@@ -1135,6 +1214,7 @@ export function registerLegionTools(server: McpServer): void {
     async ({ proposalId }) => {
       try {
         const account = await getLegionAccount();
+        const caps = await getCapabilities();
         const [params, story, storyPhase, weight, existingVeto, clock] =
           await Promise.all([
             getParams(),
@@ -1157,8 +1237,17 @@ export function registerLegionTools(server: McpServer): void {
             )
           );
         }
+        if (!caps.supportsVeto) {
+          return createErrorResponse(
+            new Error(
+              `Legion v${LIVE_ERA.version} has no veto — the function does not exist on ` +
+                `${LIVE_ERA.gov}. Vote no with legion_vote while voting is open; that is the ` +
+                `only way to stop a piece in this era. Nothing was signed.`
+            )
+          );
+        }
         if (storyPhase !== "veto") {
-          const vetoEnd = story.voteEnd + params.vetoWindow;
+          const vetoEnd = story.voteEnd + (params.vetoWindow ?? 0);
           return createErrorResponse(
             new Error(
               `Proposal ${proposalId} is in the "${storyPhase}" phase — the veto window is ` +
@@ -1186,7 +1275,7 @@ export function registerLegionTools(server: McpServer): void {
           postConditions: [],
         });
 
-        const vetoWeightAfter = story.vetoWeight + num(weight);
+        const vetoWeightAfter = (story.vetoWeight ?? 0) + num(weight);
         const vetoPctAfter =
           story.eligibleSnapshot > 0
             ? Math.floor((vetoWeightAfter * 100) / story.eligibleSnapshot)
@@ -1201,9 +1290,9 @@ export function registerLegionTools(server: McpServer): void {
           vetoWeightAfter,
           vetoPctAfter,
           vetoQuorumPct: params.vetoQuorum,
-          wouldBlock: vetoPctAfter >= params.vetoQuorum,
+          wouldBlock: vetoPctAfter >= (params.vetoQuorum ?? 0),
           network: LEGION_NETWORK,
-          vetoEnd: story.voteEnd + params.vetoWindow,
+          vetoEnd: story.voteEnd + (params.vetoWindow ?? 0),
         });
       } catch (error) {
         return legionError(error);
@@ -1258,14 +1347,14 @@ export function registerLegionTools(server: McpServer): void {
           return createErrorResponse(
             new Error(
               `Proposal ${proposalId} has expired — its conclude window closed at height ` +
-                `${story.voteEnd + params.vetoWindow + params.concludeWindow} and the tip is ` +
+                `${story.voteEnd + (params.vetoWindow ?? 0) + params.concludeWindow} and the tip is ` +
                 `${clock.height} (u435). It can no longer be concluded and pays nobody. ` +
                 `The proposer's bond has already released itself.`
             )
           );
         }
         if (storyPhase !== "concludable") {
-          const vetoEnd = story.voteEnd + params.vetoWindow;
+          const vetoEnd = story.voteEnd + (params.vetoWindow ?? 0);
           return createErrorResponse(
             new Error(
               `Proposal ${proposalId} is in the "${storyPhase}" phase — conclude opens at height ` +
@@ -1286,7 +1375,7 @@ export function registerLegionTools(server: McpServer): void {
           // all, and the outcome is decided on chain at mining time. A cap of
           // the draw covers both, and covers nothing larger.
           postConditions: [
-            Pc.principal(LEGION_TREASURY_CONTRACT)
+            Pc.principal(LIVE_ERA.treasury)
               .willSendLte(story.draw)
               .ft(token.contract as `${string}.${string}`, token.assetName),
           ],

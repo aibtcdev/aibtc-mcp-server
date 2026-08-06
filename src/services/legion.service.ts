@@ -1,11 +1,18 @@
 /**
- * AIBTC News Legion (news-gov-v5) chain reads.
+ * AIBTC News Legion chain reads.
  *
  * Everything here reads the deployed contracts rather than trusting constants:
- * governance parameters, the timing mode (which clock the windows count on),
- * and the sBTC token the treasury actually holds all come off chain and are
- * cached per process. A doc that drifts from the contract is a doc; a read that
- * drifts from the contract is a bug, so there is nothing to drift.
+ * governance parameters, the timing mode, the sBTC token the treasury holds,
+ * and which FEATURES an era has. A doc that drifts from the contract is a doc;
+ * a read that drifts from the contract is a bug, so there is nothing to drift.
+ *
+ * ERAS DIFFER. v6 dropped veto entirely and made `vote` take a rationale, so
+ * "does this era have veto" and "how many arguments does vote take" are read
+ * from the contract interface, never inferred from the version number. A future
+ * era that changes again needs no code here.
+ *
+ * Every cache is keyed by era, because two eras answer the same question
+ * differently and a shared cache would serve one era's answer for the other.
  */
 
 import {
@@ -18,11 +25,11 @@ import {
   type ClarityValue,
 } from "@stacks/transactions";
 import {
-  LEGION_GOV_CONTRACT,
   LEGION_NETWORK,
-  LEGION_TREASURY_CONTRACT,
+  LIVE_ERA,
   ORDINALS_CONTENT_BASE,
   ORDINALS_INSCRIPTION_BASE,
+  type LegionEra,
 } from "../config/legion.js";
 import { getHiroApi } from "./hiro-api.js";
 import { getAccount } from "./x402.service.js";
@@ -114,16 +121,18 @@ export async function readLegionContract(
 
 export function readGov(
   functionName: string,
-  functionArgs: ClarityValue[] = []
+  functionArgs: ClarityValue[] = [],
+  era: LegionEra = LIVE_ERA
 ): Promise<unknown> {
-  return readLegionContract(LEGION_GOV_CONTRACT, functionName, functionArgs);
+  return readLegionContract(era.gov, functionName, functionArgs);
 }
 
 export function readTreasury(
   functionName: string,
-  functionArgs: ClarityValue[] = []
+  functionArgs: ClarityValue[] = [],
+  era: LegionEra = LIVE_ERA
 ): Promise<unknown> {
-  return readLegionContract(LEGION_TREASURY_CONTRACT, functionName, functionArgs);
+  return readLegionContract(era.treasury, functionName, functionArgs);
 }
 
 // ---------------------------------------------------------------------------
@@ -133,41 +142,81 @@ export function readTreasury(
 export interface LegionParams {
   votingQuorum: number;
   votingThreshold: number;
-  vetoQuorum: number;
   minParticipants: number;
   minWeight: number;
   minContribution: number;
   drawBps: number;
   votingDelay: number;
   voteWindow: number;
-  vetoWindow: number;
   concludeWindow: number;
   proposeInterval: number;
+  /** v5 only — v6 removed veto, and `get-params` no longer carries these. */
+  vetoQuorum?: number;
+  vetoWindow?: number;
 }
 
-let paramsCache: LegionParams | null = null;
-let timingModeCache: string | null = null;
-let tokenCache: { contract: string; assetName: string } | null = null;
+/** What an era's contract can actually do, read from its interface. */
+export interface EraCapabilities {
+  /** v5 has a `veto` public function; v6 does not. */
+  supportsVeto: boolean;
+  /** v6's `vote` takes (proposalId, support, rationale); v5's takes two. */
+  voteNeedsRationale: boolean;
+  /** v6 added `vote-power (proposalId who)`. */
+  hasVotePower: boolean;
+}
+
+const paramsCache = new Map<string, LegionParams>();
+const timingModeCache = new Map<string, string>();
+const tokenCache = new Map<string, { contract: string; assetName: string }>();
+const capabilitiesCache = new Map<string, EraCapabilities>();
+
+/**
+ * What this era supports, from its published contract interface.
+ *
+ * Read rather than derived from `version`, so an era that keeps veto or changes
+ * the vote signature again is handled without touching this file.
+ */
+export async function getCapabilities(
+  era: LegionEra = LIVE_ERA
+): Promise<EraCapabilities> {
+  const cached = capabilitiesCache.get(era.gov);
+  if (cached) return cached;
+  const iface = await getHiroApi(LEGION_NETWORK).getContractInterface(era.gov);
+  const fn = (name: string) => iface.functions.find((f) => f.name === name);
+  const caps: EraCapabilities = {
+    supportsVeto: Boolean(fn("veto")),
+    voteNeedsRationale: (fn("vote")?.args.length ?? 2) >= 3,
+    hasVotePower: Boolean(fn("vote-power")),
+  };
+  capabilitiesCache.set(era.gov, caps);
+  return caps;
+}
 
 /** Every governance parameter, straight from `get-params`. */
-export async function getParams(): Promise<LegionParams> {
-  if (paramsCache) return paramsCache;
-  const raw = (await readGov("get-params")) as Record<string, unknown>;
-  paramsCache = {
+export async function getParams(era: LegionEra = LIVE_ERA): Promise<LegionParams> {
+  const cached = paramsCache.get(era.gov);
+  if (cached) return cached;
+  const raw = (await readGov("get-params", [], era)) as Record<string, unknown>;
+  // veto keys are absent from v6 entirely; `undefined` must stay undefined
+  // rather than becoming NaN, or every quorum comparison silently goes false.
+  const optional = (value: unknown) =>
+    value === undefined || value === null ? undefined : num(value);
+  const params: LegionParams = {
     votingQuorum: num(raw.votingQuorum),
     votingThreshold: num(raw.votingThreshold),
-    vetoQuorum: num(raw.vetoQuorum),
     minParticipants: num(raw.minParticipants),
     minWeight: num(raw.minWeight),
     minContribution: num(raw.minContribution),
     drawBps: num(raw.drawBps),
     votingDelay: num(raw.votingDelay),
     voteWindow: num(raw.voteWindow),
-    vetoWindow: num(raw.vetoWindow),
     concludeWindow: num(raw.concludeWindow),
     proposeInterval: num(raw.proposeInterval),
+    vetoQuorum: optional(raw.vetoQuorum),
+    vetoWindow: optional(raw.vetoWindow),
   };
-  return paramsCache;
+  paramsCache.set(era.gov, params);
+  return params;
 }
 
 /**
@@ -175,10 +224,12 @@ export async function getParams(): Promise<LegionParams> {
  * blocks; `"PROD-BURN"` counts Bitcoin burn blocks. Never assume — a window
  * measured against the wrong tip is off by a factor of ten.
  */
-export async function getTimingMode(): Promise<string> {
-  if (timingModeCache) return timingModeCache;
-  timingModeCache = (await readGov("get-timing-mode")) as string;
-  return timingModeCache;
+export async function getTimingMode(era: LegionEra = LIVE_ERA): Promise<string> {
+  const cached = timingModeCache.get(era.gov);
+  if (cached) return cached;
+  const mode = (await readGov("get-timing-mode", [], era)) as string;
+  timingModeCache.set(era.gov, mode);
+  return mode;
 }
 
 /**
@@ -186,12 +237,13 @@ export async function getTimingMode(): Promise<string> {
  * name — both needed to write an exact post-condition. Read from the treasury
  * and its contract interface so a post-condition can never name the wrong asset.
  */
-export async function getLegionToken(): Promise<{
+export async function getLegionToken(era: LegionEra = LIVE_ERA): Promise<{
   contract: string;
   assetName: string;
 }> {
-  if (tokenCache) return tokenCache;
-  const contract = (await readTreasury("get-token")) as string;
+  const cached = tokenCache.get(era.treasury);
+  if (cached) return cached;
+  const contract = (await readTreasury("get-token", [], era)) as string;
   const iface = await getHiroApi(LEGION_NETWORK).getContractInterface(contract);
   const assetName = iface.fungible_tokens?.[0]?.name;
   if (!assetName) {
@@ -199,21 +251,22 @@ export async function getLegionToken(): Promise<{
       `${contract} declares no fungible token — cannot build a post-condition for it.`
     );
   }
-  tokenCache = { contract, assetName };
-  return tokenCache;
+  const token = { contract, assetName };
+  tokenCache.set(era.treasury, token);
+  return token;
 }
 
 /**
  * The height the contract's windows are measured against, on the clock
  * `get-timing-mode` names.
  */
-export async function getClockHeight(): Promise<{
+export async function getClockHeight(era: LegionEra = LIVE_ERA): Promise<{
   height: number;
   clock: "stacks" | "burn";
   timingMode: string;
 }> {
   const [timingMode, info] = await Promise.all([
-    getTimingMode(),
+    getTimingMode(era),
     getHiroApi(LEGION_NETWORK).getCoreApiInfo(),
   ]);
   const clock = timingMode === "PROD-BURN" ? "burn" : "stacks";
@@ -258,10 +311,13 @@ export interface StoryRecord {
   eligibleSnapshot: number;
   yesWeight: number;
   noWeight: number;
-  vetoWeight: number;
   voterCount: number;
   status: number;
   reason: string;
+  /** v5 only — v6 has no veto, so the field is absent from the tuple. */
+  vetoWeight?: number;
+  /** v6 only — the height it was concluded at. */
+  concluded?: number;
 }
 
 export interface StoryMeta {
@@ -270,8 +326,11 @@ export interface StoryMeta {
   link: string;
 }
 
-export async function getStory(proposalId: number): Promise<StoryRecord | null> {
-  const raw = (await readGov("get-story", [uintCV(proposalId)])) as Record<
+export async function getStory(
+  proposalId: number,
+  era: LegionEra = LIVE_ERA
+): Promise<StoryRecord | null> {
+  const raw = (await readGov("get-story", [uintCV(proposalId)], era)) as Record<
     string,
     unknown
   > | null;
@@ -285,17 +344,19 @@ export async function getStory(proposalId: number): Promise<StoryRecord | null> 
     eligibleSnapshot: num(raw.eligibleSnapshot),
     yesWeight: num(raw.yesWeight),
     noWeight: num(raw.noWeight),
-    vetoWeight: num(raw.vetoWeight),
     voterCount: num(raw.voterCount),
     status: num(raw.status),
     reason: String(raw.reason ?? ""),
+    vetoWeight: raw.vetoWeight === undefined ? undefined : num(raw.vetoWeight),
+    concluded: raw.concluded === undefined ? undefined : num(raw.concluded),
   };
 }
 
 export async function getStoryMeta(
-  proposalId: number
+  proposalId: number,
+  era: LegionEra = LIVE_ERA
 ): Promise<StoryMeta | null> {
-  const raw = (await readGov("get-story-meta", [uintCV(proposalId)])) as Record<
+  const raw = (await readGov("get-story-meta", [uintCV(proposalId)], era)) as Record<
     string,
     unknown
   > | null;
@@ -311,34 +372,45 @@ export async function getStoryMeta(
  * `"none" | "pending" | "voting" | "veto" | "concludable" | "expired" |
  * "passed" | "failed"` — the contract's own view of where a piece stands.
  */
-export async function getPhase(proposalId: number): Promise<string> {
-  return (await readGov("get-phase", [uintCV(proposalId)])) as string;
+export async function getPhase(
+  proposalId: number,
+  era: LegionEra = LIVE_ERA
+): Promise<string> {
+  return (await readGov("get-phase", [uintCV(proposalId)], era)) as string;
 }
 
-export async function getLastProposalId(): Promise<number> {
-  return num(await readGov("get-last-proposal-id"));
+export async function getLastProposalId(era: LegionEra = LIVE_ERA): Promise<number> {
+  return num(await readGov("get-last-proposal-id", [], era));
 }
 
 export async function getVoteRecord(
   proposalId: number,
-  voter: string
+  voter: string,
+  era: LegionEra = LIVE_ERA
 ): Promise<{ support: boolean; weight: number } | null> {
   const raw = (await readGov("get-vote-record", [
     uintCV(proposalId),
     principalCV(voter),
-  ])) as Record<string, unknown> | null;
+  ], era)) as Record<string, unknown> | null;
   if (!raw) return null;
   return { support: Boolean(raw.support), weight: num(raw.weight) };
 }
 
+/**
+ * A veto record, or null. Returns null on an era without veto rather than
+ * calling a function that is not there.
+ */
 export async function getVetoRecord(
   proposalId: number,
-  voter: string
+  voter: string,
+  era: LegionEra = LIVE_ERA
 ): Promise<{ weight: number } | null> {
+  const caps = await getCapabilities(era);
+  if (!caps.supportsVeto) return null;
   const raw = (await readGov("get-veto-record", [
     uintCV(proposalId),
     principalCV(voter),
-  ])) as Record<string, unknown> | null;
+  ], era)) as Record<string, unknown> | null;
   if (!raw) return null;
   return { weight: num(raw.weight) };
 }
@@ -356,8 +428,11 @@ export interface ProposeStatus {
 }
 
 /** Every propose precondition folded into one read, with the individual gates. */
-export async function getProposeStatus(who: string): Promise<ProposeStatus> {
-  const raw = (await readGov("propose-status", [principalCV(who)])) as Record<
+export async function getProposeStatus(
+  who: string,
+  era: LegionEra = LIVE_ERA
+): Promise<ProposeStatus> {
+  const raw = (await readGov("propose-status", [principalCV(who)], era)) as Record<
     string,
     unknown
   >;
@@ -406,7 +481,8 @@ export interface StoryTimeline {
   createdAt: number;
   votingOpensAt: number;
   voteEnd: number;
-  vetoEnd: number;
+  /** Absent on an era without veto — conclude opens straight after the vote. */
+  vetoEnd?: number;
   concludeDeadline: number;
   currentHeight: number;
   clock: "stacks" | "burn";
@@ -421,11 +497,17 @@ export function buildTimeline(
   clock: "stacks" | "burn"
 ): StoryTimeline {
   const votingOpensAt = story.createdAt + params.votingDelay;
-  const vetoEnd = story.voteEnd + params.vetoWindow;
-  const concludeDeadline = vetoEnd + params.concludeWindow;
-  const nextBoundary = [votingOpensAt, story.voteEnd, vetoEnd, concludeDeadline].find(
-    (boundary) => boundary > height
-  );
+  // Without a veto window, conclude opens the moment voting closes.
+  const vetoEnd =
+    params.vetoWindow === undefined ? undefined : story.voteEnd + params.vetoWindow;
+  const concludeOpensAt = vetoEnd ?? story.voteEnd;
+  const concludeDeadline = concludeOpensAt + params.concludeWindow;
+  const nextBoundary = [
+    votingOpensAt,
+    story.voteEnd,
+    ...(vetoEnd === undefined ? [] : [vetoEnd]),
+    concludeDeadline,
+  ].find((boundary) => boundary > height);
   return {
     createdAt: story.createdAt,
     votingOpensAt,
@@ -475,13 +557,20 @@ export function predictOutcome(
   const eligible = story.eligibleSnapshot;
   const quorumPct = eligible > 0 ? Math.floor((cast * 100) / eligible) : 0;
   const yesPct = cast > 0 ? Math.floor((story.yesWeight * 100) / cast) : 0;
+  // An era without veto has no veto weight and no veto quorum: the whole branch
+  // must be skipped, not compared against an absent threshold.
+  const vetoSupported =
+    params.vetoQuorum !== undefined && story.vetoWeight !== undefined;
   const vetoPct =
-    eligible > 0 ? Math.floor((story.vetoWeight * 100) / eligible) : 0;
+    vetoSupported && eligible > 0
+      ? Math.floor(((story.vetoWeight ?? 0) * 100) / eligible)
+      : 0;
 
   const participantsMet = story.voterCount >= params.minParticipants;
   const quorumMet = eligible > 0 && participantsMet && quorumPct >= params.votingQuorum;
   const thresholdMet = cast > 0 && yesPct >= params.votingThreshold;
-  const vetoed = eligible > 0 && vetoPct >= params.vetoQuorum;
+  const vetoed =
+    vetoSupported && eligible > 0 && vetoPct >= (params.vetoQuorum ?? 0);
 
   const base = {
     cast,
@@ -507,7 +596,8 @@ export function predictOutcome(
     };
   }
 
-  const concludeDeadline = story.voteEnd + params.vetoWindow + params.concludeWindow;
+  const concludeDeadline =
+    story.voteEnd + (params.vetoWindow ?? 0) + params.concludeWindow;
   if (height >= concludeDeadline) {
     return {
       ...base,
