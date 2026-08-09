@@ -12,6 +12,7 @@
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { NETWORK } from "../config/networks.js";
 import {
@@ -293,9 +294,11 @@ export function registerOrdinalsTools(server: McpServer): void {
           feeRate: actualFeeRate,
           contentType,
           contentSize: body.length,
+          contentSha256: createHash("sha256").update(body).digest("hex"),
           nextStep:
             "After commit confirms, call inscribe_reveal with the same contentType, contentBase64, " +
-            "plus commitTxid and revealAmount from this response.",
+            "plus commitTxid and revealAmount from this response. Pass contentSha256 back to inscribe_reveal " +
+            "to have the server abort before the reveal fee is spent if the decoded body differs by even one byte.",
         });
       } catch (error) {
         return createErrorResponse(error);
@@ -327,13 +330,23 @@ export function registerOrdinalsTools(server: McpServer): void {
         contentBase64: z
           .string()
           .describe("Content as base64-encoded string (must match the commit step)"),
+        contentSha256: z
+          .string()
+          .regex(/^[0-9a-f]{64}$/i)
+          .optional()
+          .describe(
+            "Optional: sha256 hex digest of the decoded body from the inscribe commit response. " +
+              "If provided, the server computes sha256 over the locally-decoded body and aborts before " +
+              "broadcasting the reveal if they differ — prevents burning the reveal fee on a witness-hash " +
+              "mismatch when the base64 param drifts between the inscribe and inscribe_reveal calls."
+          ),
         feeRate: z
           .union([z.enum(["fast", "medium", "slow"]), z.number().positive()])
           .optional()
           .describe("Fee rate for reveal tx (default: medium)"),
       },
     },
-    async ({ commitTxid, revealAmount, contentType, contentBase64, feeRate }) => {
+    async ({ commitTxid, revealAmount, contentType, contentBase64, contentSha256, feeRate }) => {
       try {
         // Check wallet session
         const walletManager = getWalletManager();
@@ -364,6 +377,27 @@ export function registerOrdinalsTools(server: McpServer): void {
 
         // Reconstruct the inscription and reveal script
         const body = Buffer.from(contentBase64, "base64");
+
+        // If the caller supplied the sha256 digest from the commit response, verify the
+        // decoded body matches BEFORE we spend the reveal fee. Silent byte drift between
+        // the two calls would otherwise commit a tapscript hash that Bitcoin Core rejects
+        // as witness-hash-mismatch, burning the reveal-address sats permanently.
+        if (contentSha256) {
+          const localSha256 = createHash("sha256").update(body).digest("hex");
+          if (localSha256.toLowerCase() !== contentSha256.toLowerCase()) {
+            return createErrorResponse(
+              new Error(
+                `contentSha256 mismatch: the decoded body's sha256 (${localSha256}) does not match ` +
+                  `the digest from the inscribe commit response (${contentSha256}). This means the ` +
+                  `base64 payload passed to inscribe_reveal is not the exact bytes committed on-chain. ` +
+                  `Aborting BEFORE broadcasting the reveal so the reveal-address sats are not burned. ` +
+                  `Re-send the exact base64 from the successful inscribe call (or fix the transport / ` +
+                  `serialization layer that mutated it).`
+              )
+            );
+          }
+        }
+
         const inscription: InscriptionData = {
           contentType,
           body,
