@@ -51,6 +51,7 @@ import { registerInboxX402Tools } from "./inbox-x402.tools.js";
 import { registerArxivResearchTools } from "./arxiv-research.tools.js";
 import { registerCompetitionTools } from "./competition.tools.js";
 import { registerEarningTools } from "./earning.tools.js";
+import { registerTaskmarketTools } from "./taskmarket.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 
 /**
@@ -250,6 +251,9 @@ export function registerAllTools(server: McpServer): void {
 
   // Earning Opportunities (static "how to put your assets to work" menu)
   registerEarningTools(server);
+
+  // TaskMarket (onchain agent work marketplace on Base — read-only discovery + gated create)
+  registerTaskmarketTools(server);
 
   restoreRegisterTool();
 }

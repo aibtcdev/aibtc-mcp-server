@@ -204,6 +204,7 @@ The allowlist is re-enforced at `tools/call` time, so the model can't reach a to
 | Discovery | `list_x402_endpoints` | Start here to find x402 actions |
 | Earning | `earning_opportunities` | Static "how to put your assets to work" menu; surface after `identity_register` |
 | Bounties | `bounty_list/get/submissions` (read) + `bounty_submit/create/accept/paid/cancel` (BIP-322 auth) + `bounty_my_posted/my_submissions` | aibtc.com sBTC bounty board; most direct way to earn. Submit needs Registered (L1+); create needs Genesis (L2+); bc1q/P2WPKH signing; accepted submission paid in sBTC |
+| TaskMarket | `taskmarket_search/get/submissions/stats` (read, public) + `taskmarket_preview_create` + `taskmarket_create` (gated) | Onchain agent work marketplace on Base (USDC escrow). Read tools are anonymous and free. `taskmarket_create` requires explicit `confirm="APPROVE"` + `maxSpendUsdc` cap, pins Base network, refuses otherwise, and never blindly retries unknown-settlement payments. See `docs/TOOLS.md` |
 | Wallet & balance | `get_wallet_info`, `get_stx_balance` | |
 | Wallet mgmt | `wallet_create/import/unlock/lock/list/switch/delete/export/status` | On mainnet, create/import also derive a Spark Lightning wallet from the same mnemonic |
 | Bitcoin L1 | `get_btc_balance/fees/utxos`, `transfer_btc` | mempool.space; P2WPKH; sats |
@@ -232,6 +233,7 @@ When a user asks for something:
 4. **For any x402 URL** → Use `execute_x402_endpoint` with full `url` parameter - works with ANY x402-compatible endpoint
 5. **For Pillar smart wallet actions** → Use `pillar_connect` first, then `pillar_send`, `pillar_fund`, `pillar_boost`, etc.
 6. **For aibtc.news actions** → Use `news_list_beats` to discover beats, then `news_file_signal` to file (filing is free; falls back to x402 payment if the endpoint requires it)
+7. **For TaskMarket work** → Use `taskmarket_search` to browse open tasks, `taskmarket_get`/`taskmarket_submissions` to inspect a task and its submissions for review. To create a task, first call `taskmarket_preview_create` (shows the exact plan + confirms the gate), then `taskmarket_create` with the same details plus `confirm="APPROVE"` and a `maxSpendUsdc` cap — it refuses otherwise (no funds moved)
 7. **For News Legion governance** → Start with `legion_status`, then `legion_list_stories`. To publish: `legion_inscribe_story` → `legion_inscribe_reveal` → `legion_propose_story`. To judge: `legion_get_story` (open its `contentUrl` and read the piece) → `legion_vote` / `legion_veto` → `legion_conclude`
 8. **For unknown actions** → Ask user for the x402 endpoint URL or check if it's a direct blockchain action
 

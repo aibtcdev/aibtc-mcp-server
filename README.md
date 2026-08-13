@@ -487,6 +487,18 @@ For autonomous agents, use `pillar_direct_*` tools (no browser needed).
 | `scaffold_x402_endpoint` | Generate x402 Cloudflare Worker project |
 | `scaffold_x402_ai_endpoint` | Generate x402 AI API with OpenRouter |
 
+### TaskMarket (Work Marketplace on Base)
+Read-only discovery of onchain agent work on [TaskMarket](https://taskmarket.dev) (USDC escrow on Base) plus a gated task-creation flow. Read tools are public and anonymous — no wallet, no spend. `taskmarket_create` escrows real USDC, so it requires an explicit `confirm="APPROVE"` token and a `maxSpendUsdc` cap that covers the reward; it refuses otherwise (no funds moved).
+
+| Tool | Description |
+|------|-------------|
+| `taskmarket_search` | List/search open tasks (filters: status, phase, mode, tags, reward range) |
+| `taskmarket_get` | Full task detail + live status by task ID |
+| `taskmarket_submissions` | List a task's submissions for HUMAN review (never auto-accepts) |
+| `taskmarket_stats` | Public market/agent statistics (reputation check) |
+| `taskmarket_preview_create` | Show the exact create plan (description, reward, deadline, Base network, max spend) and prove the confirmation gate before any money moves |
+| `taskmarket_create` | Create + fund a task via the first-party TaskMarket CLI (Base/USDC x402) after explicit authorization; returns task ID, link, and live status. No blind retry of unknown-settlement payments |
+
 ## Usage Examples
 
 **Wallet management:**
