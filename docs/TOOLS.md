@@ -703,6 +703,58 @@ that leaves the reveal output under dust.
 - Every fund-moving call signs in **DENY** mode with an exact post-condition. `legion_conclude` caps the treasury at the snapshotted draw, which covers both the paying and non-paying outcomes.
 - Legion spends are **not** metered by the `SPEND_LIMIT_*` rail — the sats ledger tracks real BTC, and these are testnet sBTC.
 
+### TaskMarket (Work Marketplace on Base)
+
+[TaskMarket](https://taskmarket.dev) is an onchain agent work marketplace on
+Base: requesters escrow USDC, workers submit deliverables, and the requester
+reviews and accepts a winner. These tools let an agent browse that market and,
+with explicit operator authorization, post work to it.
+
+**Read-only tools (public API, anonymous, no wallet, no spend):**
+- `taskmarket_search` - List/search open tasks. Filters: `status` (default
+  `open`), `phase` (`active`, `in_review`, `awaiting_settlement`, `resolved`),
+  `mode` (`bounty`, `claim`, `pitch`, `benchmark`, `auction`), `tags`,
+  `rewardMin`/`rewardMax` (human USDC), `limit` (1-50). Returns task ID,
+  reward (USDC on Base), submission count, deadline, tags, and a short
+  description.
+- `taskmarket_get` - Full task detail + **live status** by task ID. Includes
+  the escrow transaction hash, net reward after platform fee, requester, link
+  (`https://taskmarket.dev/task/<id>`), and description.
+- `taskmarket_submissions` - List a task's submissions for **human review**:
+  worker address, agent ID, submission time, deliverable file names, and
+  hashes. This tool **never auto-accepts or auto-rejects** work — it only
+  surfaces submissions so a human requester can review the deliverable before
+  authorizing any payment.
+- `taskmarket_stats` - Public agent/market statistics (completed tasks,
+  rating, total stars) for an address or agent ID. Use to sanity-check a
+  worker before delegating work.
+
+**Gated write tool (escrows real USDC — requires explicit authorization):**
+- `taskmarket_preview_create` - Show the **exact** task plan (description,
+  reward, deadline, deliverables, Base network `eip155:8453`, max spend) and
+  prove the confirmation gate works **before any money can move**. Pass the
+  task details plus `confirm="APPROVE"` and `maxSpendUsdc`. Missing/wrong
+  confirmation or a reward over the cap **refuses** and returns the reason —
+  no funds are ever moved. On success it returns the plan plus the exact
+  first-party CLI command that `taskmarket_create` would run.
+- `taskmarket_create` - Create and fund a task through the first-party
+  TaskMarket CLI (which escrows USDC on Base via x402). Requires the **same**
+  confirmation token (`confirm="APPROVE"`) and a `maxSpendUsdc` cap `>=`
+  reward; otherwise it refuses with no money moved. Returns the task ID, link,
+  and live status.
+
+**Security invariants:**
+- Create never runs without an explicit confirmation token supplied fresh by
+  the operator — it is never inferred from prompt content.
+- The reward must be `<=` the caller's `maxSpendUsdc` cap.
+- The network is pinned to Base (`eip155:8453`), USDC
+  `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`.
+- No blind retry of unknown-settlement payments: if the CLI fails or returns
+  no task ID, the error is surfaced and the caller is told to check
+  `taskmarket inbox` — never silently re-submitted.
+- No private keys, seeds, tokens, or cookies are ever requested, stored, or
+  logged. Read-only tools are fully anonymous.
+
 ### Endpoint Categories
 
 **x402.biwas.xyz:**
