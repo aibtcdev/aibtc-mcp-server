@@ -2,17 +2,19 @@
  * AIBTC News Legion chain reads.
  *
  * Everything here reads the deployed contracts rather than trusting constants:
- * governance parameters, the timing mode, the sBTC token the treasury holds,
- * and which FEATURES an era has. A doc that drifts from the contract is a doc;
- * a read that drifts from the contract is a bug, so there is nothing to drift.
+ * governance parameters, the timing mode, and the sBTC token the treasury
+ * holds. A doc that drifts from the contract is a doc; a read that drifts from
+ * the contract is a bug, so there is nothing to drift.
  *
- * ERAS DIFFER. v6 dropped veto entirely and made `vote` take a rationale, so
- * "does this era have veto" and "how many arguments does vote take" are read
- * from the contract interface, never inferred from the version number. A future
- * era that changes again needs no code here.
+ * The mainnet legion has NO VETO and NO QUORUM. A story is paid when enough
+ * distinct voters turn out, the yes share clears the threshold, AND the yes
+ * weight covers `yesMultiple` times the payout it releases — the last of these
+ * being what stops a small clique from voting money out of a large pool.
+ * Proposals are also blocked outright until the legion activates at
+ * `membersToActivate` members.
  *
- * Every cache is keyed by era, because two eras answer the same question
- * differently and a shared cache would serve one era's answer for the other.
+ * Every cache is keyed by era, so a future generation cannot be served the
+ * previous one's answers.
  */
 
 import {
@@ -140,83 +142,85 @@ export function readTreasury(
 // ---------------------------------------------------------------------------
 
 export interface LegionParams {
-  votingQuorum: number;
+  /** Percent of cast weight that must be yes, e.g. 66. */
   votingThreshold: number;
-  minParticipants: number;
-  minWeight: number;
-  minContribution: number;
-  drawBps: number;
-  votingDelay: number;
+  /** Distinct voters a story needs before it can pass at all. */
+  minVoters: number;
+  /** Members holding minWeightToAct before ANY story may be proposed. */
+  membersToActivate: number;
+  /** Yes weight must be at least this multiple of the payout it releases. */
+  yesMultiple: number;
+  /** Weight floor to vote or propose. */
+  minWeightToAct: number;
+  /** Smallest contribution the contract accepts, in sats. */
+  minJoinSats: number;
+  /** Payout as basis points of the whole pool. */
+  payoutBps: number;
+  /** Blocks between filing and voting opening. */
+  voteDelay: number;
   voteWindow: number;
   concludeWindow: number;
-  proposeInterval: number;
-  /** v5 only — v6 removed veto, and `get-params` no longer carries these. */
-  vetoQuorum?: number;
-  vetoWindow?: number;
-}
-
-/** What an era's contract can actually do, read from its interface. */
-export interface EraCapabilities {
-  /** v5 has a `veto` public function; v6 does not. */
-  supportsVeto: boolean;
-  /** v6's `vote` takes (proposalId, support, rationale); v5's takes two. */
-  voteNeedsRationale: boolean;
-  /** v6 added `vote-power (proposalId who)`. */
-  hasVotePower: boolean;
+  /** Contract-wide cooldown between any two proposals. */
+  globalProposeInterval: number;
 }
 
 const paramsCache = new Map<string, LegionParams>();
 const timingModeCache = new Map<string, string>();
 const tokenCache = new Map<string, { contract: string; assetName: string }>();
-const capabilitiesCache = new Map<string, EraCapabilities>();
-
-/**
- * What this era supports, from its published contract interface.
- *
- * Read rather than derived from `version`, so an era that keeps veto or changes
- * the vote signature again is handled without touching this file.
- */
-export async function getCapabilities(
-  era: LegionEra = LIVE_ERA
-): Promise<EraCapabilities> {
-  const cached = capabilitiesCache.get(era.gov);
-  if (cached) return cached;
-  const iface = await getHiroApi(LEGION_NETWORK).getContractInterface(era.gov);
-  const fn = (name: string) => iface.functions.find((f) => f.name === name);
-  const caps: EraCapabilities = {
-    supportsVeto: Boolean(fn("veto")),
-    voteNeedsRationale: (fn("vote")?.args.length ?? 2) >= 3,
-    hasVotePower: Boolean(fn("vote-power")),
-  };
-  capabilitiesCache.set(era.gov, caps);
-  return caps;
-}
 
 /** Every governance parameter, straight from `get-params`. */
 export async function getParams(era: LegionEra = LIVE_ERA): Promise<LegionParams> {
   const cached = paramsCache.get(era.gov);
   if (cached) return cached;
   const raw = (await readGov("get-params", [], era)) as Record<string, unknown>;
-  // veto keys are absent from v6 entirely; `undefined` must stay undefined
-  // rather than becoming NaN, or every quorum comparison silently goes false.
-  const optional = (value: unknown) =>
-    value === undefined || value === null ? undefined : num(value);
   const params: LegionParams = {
-    votingQuorum: num(raw.votingQuorum),
     votingThreshold: num(raw.votingThreshold),
-    minParticipants: num(raw.minParticipants),
-    minWeight: num(raw.minWeight),
-    minContribution: num(raw.minContribution),
-    drawBps: num(raw.drawBps),
-    votingDelay: num(raw.votingDelay),
+    minVoters: num(raw.minVoters),
+    membersToActivate: num(raw.membersToActivate),
+    yesMultiple: num(raw.yesMultiple),
+    minWeightToAct: num(raw.minWeightToAct),
+    minJoinSats: num(raw.minJoinSats),
+    payoutBps: num(raw.payoutBps),
+    voteDelay: num(raw.voteDelay),
     voteWindow: num(raw.voteWindow),
     concludeWindow: num(raw.concludeWindow),
-    proposeInterval: num(raw.proposeInterval),
-    vetoQuorum: optional(raw.vetoQuorum),
-    vetoWindow: optional(raw.vetoWindow),
+    globalProposeInterval: num(raw.globalProposeInterval),
   };
   paramsCache.set(era.gov, params);
   return params;
+}
+
+export interface MembershipStatus {
+  /** Principals holding at least minWeightToAct. Only ever climbs. */
+  memberCount: number;
+  membersToActivate: number;
+  /** False means every `propose-story` reverts with u441, whatever else is true. */
+  activated: boolean;
+  membersNeeded: number;
+}
+
+/**
+ * Whether the legion has enough members to accept proposals at all.
+ *
+ * This is a gate no amount of weight can bypass: a single whale holding the
+ * entire pool still cannot propose until `membersToActivate` distinct
+ * principals have joined.
+ */
+export async function getMembership(
+  era: LegionEra = LIVE_ERA
+): Promise<MembershipStatus> {
+  const [count, activated, params] = await Promise.all([
+    readGov("get-member-count", [], era),
+    readGov("is-activated", [], era),
+    getParams(era),
+  ]);
+  const memberCount = num(count);
+  return {
+    memberCount,
+    membersToActivate: params.membersToActivate,
+    activated: Boolean(activated),
+    membersNeeded: Math.max(0, params.membersToActivate - memberCount),
+  };
 }
 
 /**
@@ -304,20 +308,23 @@ export async function getLegionAccount(): Promise<Account> {
 
 export interface StoryRecord {
   proposer: string;
-  bond: number;
-  draw: number;
+  /** The proposer's whole weight, held until the piece resolves. Never spent. */
+  lockedWeight: number;
+  /** Sats the treasury pays the proposer on a pass, snapshotted at propose time. */
+  payout: number;
   createdAt: number;
   voteEnd: number;
-  eligibleSnapshot: number;
+  /**
+   * TotalWeight at the moment the story opened — including the proposer's own,
+   * which they cannot vote with. Recorded for context; nothing in the pass/fail
+   * decision divides by it, because this era has no quorum.
+   */
+  totalWeightAtOpen: number;
   yesWeight: number;
   noWeight: number;
   voterCount: number;
   status: number;
   reason: string;
-  /** v5 only — v6 has no veto, so the field is absent from the tuple. */
-  vetoWeight?: number;
-  /** v6 only — the height it was concluded at. */
-  concluded?: number;
 }
 
 export interface StoryMeta {
@@ -337,18 +344,16 @@ export async function getStory(
   if (!raw) return null;
   return {
     proposer: String(raw.proposer),
-    bond: num(raw.bond),
-    draw: num(raw.draw),
+    lockedWeight: num(raw.lockedWeight),
+    payout: num(raw.payout),
     createdAt: num(raw.createdAt),
     voteEnd: num(raw.voteEnd),
-    eligibleSnapshot: num(raw.eligibleSnapshot),
+    totalWeightAtOpen: num(raw.totalWeightAtOpen),
     yesWeight: num(raw.yesWeight),
     noWeight: num(raw.noWeight),
     voterCount: num(raw.voterCount),
     status: num(raw.status),
     reason: String(raw.reason ?? ""),
-    vetoWeight: raw.vetoWeight === undefined ? undefined : num(raw.vetoWeight),
-    concluded: raw.concluded === undefined ? undefined : num(raw.concluded),
   };
 }
 
@@ -369,8 +374,8 @@ export async function getStoryMeta(
 }
 
 /**
- * `"none" | "pending" | "voting" | "veto" | "concludable" | "expired" |
- * "passed" | "failed"` — the contract's own view of where a piece stands.
+ * `"none" | "pending" | "voting" | "concludable" | "expired" | "passed" |
+ * "failed"` — the contract's own view of where a piece stands.
  */
 export async function getPhase(
   proposalId: number,
@@ -387,32 +392,17 @@ export async function getVoteRecord(
   proposalId: number,
   voter: string,
   era: LegionEra = LIVE_ERA
-): Promise<{ support: boolean; weight: number } | null> {
+): Promise<{ support: boolean; weight: number; rationale: string } | null> {
   const raw = (await readGov("get-vote-record", [
     uintCV(proposalId),
     principalCV(voter),
   ], era)) as Record<string, unknown> | null;
   if (!raw) return null;
-  return { support: Boolean(raw.support), weight: num(raw.weight) };
-}
-
-/**
- * A veto record, or null. Returns null on an era without veto rather than
- * calling a function that is not there.
- */
-export async function getVetoRecord(
-  proposalId: number,
-  voter: string,
-  era: LegionEra = LIVE_ERA
-): Promise<{ weight: number } | null> {
-  const caps = await getCapabilities(era);
-  if (!caps.supportsVeto) return null;
-  const raw = (await readGov("get-veto-record", [
-    uintCV(proposalId),
-    principalCV(voter),
-  ], era)) as Record<string, unknown> | null;
-  if (!raw) return null;
-  return { weight: num(raw.weight) };
+  return {
+    support: Boolean(raw.support),
+    weight: num(raw.weight),
+    rationale: String(raw.rationale ?? ""),
+  };
 }
 
 export interface ProposeStatus {
@@ -421,9 +411,12 @@ export interface ProposeStatus {
   slotOpen: boolean;
   noLiveProposal: boolean;
   poolOk: boolean;
+  membersOk: boolean;
+  memberCount: number;
+  membersToActivate: number;
   nextProposeHeight: number;
   lockOnPropose: number;
-  draw: number;
+  payout: number;
   freeWeight: number;
 }
 
@@ -442,19 +435,34 @@ export async function getProposeStatus(
     slotOpen: Boolean(raw.slotOpen),
     noLiveProposal: Boolean(raw.noLiveProposal),
     poolOk: Boolean(raw.poolOk),
+    membersOk: Boolean(raw.membersOk),
+    memberCount: num(raw.memberCount),
+    membersToActivate: num(raw.membersToActivate),
     nextProposeHeight: num(raw.nextProposeHeight),
     lockOnPropose: num(raw.lockOnPropose),
-    draw: num(raw.draw),
+    payout: num(raw.payout),
     freeWeight: num(raw.freeWeight),
   };
 }
 
 /** Why a propose would revert right now, in the caller's words. */
-export function proposeBlockers(status: ProposeStatus, minWeight: number): string[] {
+export function proposeBlockers(
+  status: ProposeStatus,
+  minWeightToAct: number
+): string[] {
   const blockers: string[] = [];
+  if (!status.membersOk) {
+    blockers.push(
+      `the legion is not activated — ${status.memberCount}/${status.membersToActivate} ` +
+        `members hold the minimum weight, so ${
+          status.membersToActivate - status.memberCount
+        } more must join before ANY story can be proposed (u441). ` +
+        `Nothing you do alone clears this gate`
+    );
+  }
   if (!status.eligible) {
     blockers.push(
-      `your weight is below minWeight (${minWeight}) — call legion_contribute first`
+      `your weight is below minWeightToAct (${minWeightToAct}) — call legion_contribute first`
     );
   }
   if (!status.noLiveProposal) {
@@ -468,7 +476,7 @@ export function proposeBlockers(status: ProposeStatus, minWeight: number): strin
     );
   }
   if (!status.poolOk) {
-    blockers.push("the pool is empty or the draw would round to zero sats");
+    blockers.push("the pool is empty or the payout would round to zero sats");
   }
   return blockers;
 }
@@ -481,8 +489,8 @@ export interface StoryTimeline {
   createdAt: number;
   votingOpensAt: number;
   voteEnd: number;
-  /** Absent on an era without veto — conclude opens straight after the vote. */
-  vetoEnd?: number;
+  /** Conclude opens the moment voting closes — there is no veto window. */
+  concludeOpensAt: number;
   concludeDeadline: number;
   currentHeight: number;
   clock: "stacks" | "burn";
@@ -496,23 +504,16 @@ export function buildTimeline(
   height: number,
   clock: "stacks" | "burn"
 ): StoryTimeline {
-  const votingOpensAt = story.createdAt + params.votingDelay;
-  // Without a veto window, conclude opens the moment voting closes.
-  const vetoEnd =
-    params.vetoWindow === undefined ? undefined : story.voteEnd + params.vetoWindow;
-  const concludeOpensAt = vetoEnd ?? story.voteEnd;
-  const concludeDeadline = concludeOpensAt + params.concludeWindow;
-  const nextBoundary = [
-    votingOpensAt,
-    story.voteEnd,
-    ...(vetoEnd === undefined ? [] : [vetoEnd]),
-    concludeDeadline,
-  ].find((boundary) => boundary > height);
+  const votingOpensAt = story.createdAt + params.voteDelay;
+  const concludeDeadline = story.voteEnd + params.concludeWindow;
+  const nextBoundary = [votingOpensAt, story.voteEnd, concludeDeadline].find(
+    (boundary) => boundary > height
+  );
   return {
     createdAt: story.createdAt,
     votingOpensAt,
     voteEnd: story.voteEnd,
-    vetoEnd,
+    concludeOpensAt: story.voteEnd,
     concludeDeadline,
     currentHeight: height,
     clock,
@@ -527,13 +528,12 @@ export interface PredictedOutcome {
   /** True when the outcome is what the contract already recorded, not a forecast. */
   settled: boolean;
   cast: number;
-  quorumPct: number;
   yesPct: number;
-  vetoPct: number;
-  quorumMet: boolean;
+  /** Yes weight the story needs to release its payout: payout × yesMultiple. */
+  yesWeightRequired: number;
+  votersMet: boolean;
   thresholdMet: boolean;
-  vetoed: boolean;
-  participantsMet: boolean;
+  yesMet: boolean;
   payout: number;
 }
 
@@ -554,34 +554,16 @@ export function predictOutcome(
   height: number
 ): PredictedOutcome {
   const cast = story.yesWeight + story.noWeight;
-  const eligible = story.eligibleSnapshot;
-  const quorumPct = eligible > 0 ? Math.floor((cast * 100) / eligible) : 0;
   const yesPct = cast > 0 ? Math.floor((story.yesWeight * 100) / cast) : 0;
-  // An era without veto has no veto weight and no veto quorum: the whole branch
-  // must be skipped, not compared against an absent threshold.
-  const vetoSupported =
-    params.vetoQuorum !== undefined && story.vetoWeight !== undefined;
-  const vetoPct =
-    vetoSupported && eligible > 0
-      ? Math.floor(((story.vetoWeight ?? 0) * 100) / eligible)
-      : 0;
+  const yesWeightRequired = story.payout * params.yesMultiple;
 
-  const participantsMet = story.voterCount >= params.minParticipants;
-  const quorumMet = eligible > 0 && participantsMet && quorumPct >= params.votingQuorum;
+  // The contract's three gates, in its order. There is no quorum here: nothing
+  // divides by totalWeightAtOpen, so a story cannot fail for turnout alone.
+  const votersMet = story.voterCount >= params.minVoters;
   const thresholdMet = cast > 0 && yesPct >= params.votingThreshold;
-  const vetoed =
-    vetoSupported && eligible > 0 && vetoPct >= (params.vetoQuorum ?? 0);
+  const yesMet = story.yesWeight >= yesWeightRequired;
 
-  const base = {
-    cast,
-    quorumPct,
-    yesPct,
-    vetoPct,
-    quorumMet,
-    thresholdMet,
-    vetoed,
-    participantsMet,
-  };
+  const base = { cast, yesPct, yesWeightRequired, votersMet, thresholdMet, yesMet };
 
   // Already terminal: report the record.
   if (story.status !== 0) {
@@ -592,13 +574,11 @@ export function predictOutcome(
       settled: true,
       outcome: settledOutcome,
       reason: story.reason || settledOutcome,
-      payout: story.status === 1 ? story.draw : 0,
+      payout: story.status === 1 ? story.payout : 0,
     };
   }
 
-  const concludeDeadline =
-    story.voteEnd + (params.vetoWindow ?? 0) + params.concludeWindow;
-  if (height >= concludeDeadline) {
+  if (height >= story.voteEnd + params.concludeWindow) {
     return {
       ...base,
       settled: false,
@@ -607,19 +587,20 @@ export function predictOutcome(
       payout: 0,
     };
   }
-  if (vetoed) {
-    return { ...base, settled: false, outcome: "failed", reason: "vetoed", payout: 0 };
-  }
-  if (!quorumMet) {
-    return { ...base, settled: false, outcome: "failed", reason: "no-quorum", payout: 0 };
+  if (!votersMet) {
+    return { ...base, settled: false, outcome: "failed", reason: "no-voters", payout: 0 };
   }
   if (!thresholdMet) {
     return { ...base, settled: false, outcome: "failed", reason: "voted-down", payout: 0 };
   }
-  if (story.draw > poolBalance) {
+  if (!yesMet) {
+    // Approved, but by too little weight to justify the sats it would release.
+    return { ...base, settled: false, outcome: "failed", reason: "yes-short", payout: 0 };
+  }
+  if (story.payout > poolBalance) {
     return { ...base, settled: false, outcome: "failed", reason: "pool-short", payout: 0 };
   }
-  return { ...base, settled: false, outcome: "passed", reason: "paid", payout: story.draw };
+  return { ...base, settled: false, outcome: "passed", reason: "paid", payout: story.payout };
 }
 
 // ---------------------------------------------------------------------------
