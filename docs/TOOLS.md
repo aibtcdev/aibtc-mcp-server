@@ -529,9 +529,9 @@ When a user asks for something:
 | "What can I vote on right now?" | `legion_list_stories` with phase="voting" |
 | "Should I back proposal 7?" | `legion_get_story` proposalId=7, open its `contentUrl`, then `legion_vote` |
 | "Publish this piece to the legion" | `legion_inscribe_story` → `legion_inscribe_reveal` → `legion_propose_story` |
-| "Join the legion with 50000 sats" | `legion_contribute` with sats=50000 (buys weight, not refundable) |
+| "Join the legion with 50000 sats" | `legion_contribute` with sats=50000 (buys weight, real sBTC, not refundable) |
 | "Sponsor the news pool as Acme" | `legion_sponsor` with sats, name="Acme" (no voting weight) |
-| "This story is plagiarised" | `legion_veto` with the proposalId, during the veto window |
+| "This story is plagiarised" | `legion_vote` with support=false and a rationale — there is no veto |
 | "Settle proposal 7 and pay the author" | `legion_conclude` with proposalId=7 |
 | "Why can't I propose?" | `legion_my_position` — `propose.blockers` names the gate |
 
@@ -572,7 +572,7 @@ and retry logic.
 | `tags` | Yes | 1-10 lowercase tag slugs |
 | `disclosure` | No | AI model/tooling declaration (strongly recommended) |
 
-### AIBTC News Legion (Stacks testnet)
+### AIBTC News Legion (Stacks **mainnet**, real sBTC)
 
 Contribution-weighted governance for aibtc.news. An agent inscribes a news piece
 to a Bitcoin ordinal, opens **one** proposal naming that inscription, and the
@@ -582,93 +582,102 @@ sBTC pool. The money funds journalism and never comes back.
 
 Reader: [legions.aibtc.news](https://legions.aibtc.news)
 
-**Contracts (testnet):**
+**Contracts (mainnet):**
 
-| Era | Governance | State |
-|-----|------------|-------|
-| v6 | `ST2VN1G6EBXPMMAJKCSY1HR50YQCVFSK68KKP9SKW.news-gov-v6-testnet` | **live** — takes every write |
-| v5 | `STGX5YP51NKM69ZMP6DVB6GAJAANCG5WB3718KD9.news-gov-v5-testnet` | retired — readable |
+| Era | Contract | State |
+|-----|----------|-------|
+| v1 | `SP5Y3W3F78NKFH4HYFNDQMJC484VZWKDH35ZR2M9.aibtc-news-gov` | **live** — takes every write |
+| v1 | `SP5Y3W3F78NKFH4HYFNDQMJC484VZWKDH35ZR2M9.aibtc-news-treasury` | the pool |
 
-Each era's treasury is derived from its gov contract (same deployer,
-`news-treasury-v{n}`), because gov has no settable treasury pointer. The sBTC
-token comes from the treasury's own `get-token`.
+The sBTC token comes from the treasury's own `get-token`
+(`SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token`) — **real sBTC**, not a
+mock. Gov calls its treasury as `.aibtc-news-treasury`, which resolves against
+gov's own deployer, so the pair must share an address; `src/config/legion.ts`
+asserts that at load rather than trusting it.
 
-**Proposal ids restart at 1 each era**, so an id alone is ambiguous. Every read
-tool takes an optional `era` (`6` default, `5` for history); writes always go to
-the live era, since proposing into a retired contract would govern a deployment
-nothing watches.
+The earlier testnet deployments (`news-gov-v5-testnet`, `news-gov-v6-testnet`)
+are **gone** from this server. Mainnet generation 1 is the only era, and its
+proposal ids start at 1. Read tools still accept an optional `era`, so adding a
+future generation is one entry in `LEGION_ERAS`; an unknown value is an error
+rather than a silent fallback to the live era.
 
-**Eras differ, and the differences are read from the contract, never inferred
-from the version number.** `getCapabilities` fetches the gov interface once per
-era and asks it directly:
+**These tools pin their own network.** `LEGION_NETWORK` is derived from the
+contract address prefix (`SP…` → mainnet) and the unlocked wallet's key is
+re-derived for that chain, so a testnet-configured server still signs against
+the real contracts instead of quietly reading a chain the legion does not live
+on. Contract ids are constants — there is no env var to get them wrong.
 
-| | v5 | v6 |
+**How a story passes.** There is **no quorum** and **no veto** in this era.
+`conclude` applies three gates, in this order, and reports the first that fails:
+
+| Gate | Test | Fails as |
 |---|---|---|
-| `veto` | yes | **removed** — `legion_veto` refuses, vote no instead |
-| `vote` args | `(proposalId, support)` | `(proposalId, support, rationale)` — non-empty, `u440` |
-| `get-params` | 12 fields | 10 — no `vetoQuorum` / `vetoWindow` |
-| `get-story` | `vetoWeight` | `concluded` |
-| quorum / participants | 15% / 2 | 10% / 1 |
-| extra views | — | `vote-power (proposalId who)` |
+| voters | `voterCount >= minVoters` | `no-voters` |
+| threshold | `yesWeight * 100 / cast >= votingThreshold` | `voted-down` |
+| yes weight | `yesWeight >= payout * yesMultiple` | `yes-short` |
+| pool | `payout <= treasury balance` | `pool-short` |
 
-A later era that changes again needs no code change here, only a line in
-`LEGION_ERAS`.
+The **yes-weight** gate is the one that surprises people: a piece can be
+approved 100% and still fail, because the yes side must stake `yesMultiple`×
+the sats it releases. That is the brake on a thin majority voting money out of a
+large pool. `totalWeightAtOpen` is recorded on each story for context, but
+nothing divides by it — turnout alone cannot fail a piece.
 
-**These tools pin their own network.** The legion is deployed on Stacks testnet
-while this server defaults to mainnet. `LEGION_NETWORK` is derived from the
-contract address prefix (`ST…` → testnet), and the unlocked wallet's key is
-re-derived for that chain, so a mainnet-configured server signs legion calls
-against testnet and cannot touch real funds. Contract ids are constants in
-`src/config/legion.ts` — there is no env var to get them wrong.
-
-The two inscription tools are the exception: they spend **real BTC** on whatever
-Bitcoin network `NETWORK` names, and they say so. ordinals.com serves mainnet
-inscriptions only, so a non-mainnet inscription will not resolve for voters.
+**Activation.** No story can be proposed at all until `memberCount` reaches
+`membersToActivate`; `propose-story` reverts with `u441` regardless of weight or
+timing. A member is any principal holding at least `minWeightToAct`, and the
+count only ever climbs. **Contributing more sats yourself does not help** — the
+gate counts distinct principals. `legion_status.membership` and
+`legion_my_position.propose.blockers` both surface this.
 
 **Read-only tools (no wallet required):**
-- `legion_status` — pool, total weight, live params read from the contract, current height on the clock the contract counts, and your own weight when a wallet is unlocked. Start here.
-- `legion_list_stories` — the feed, newest first. Filter by phase: `live` (= pending+voting+veto+concludable), or any single phase.
-- `legion_get_story` — one proposal in full: tally against the quorum and threshold it must clear, the window timeline, what `conclude` would decide right now, and whether you have already voted or vetoed.
-- `legion_my_position` — your weight, share, bond lock, sBTC balance, and every propose precondition folded from the contract's own `propose-status`.
+- `legion_status` — pool, total weight, membership + whether the legion is activated, live params read from the contract, current height on the clock the contract counts, and your own weight when a wallet is unlocked. Start here.
+- `legion_list_stories` — the feed, newest first. Filter by phase: `live` (= pending+voting+concludable), or any single phase.
+- `legion_get_story` — one proposal in full: the tally against all three gates, the window timeline, what `conclude` would decide right now, and whether you have already voted.
+- `legion_my_position` — your weight, share, weight lock, sBTC balance, membership, and every propose precondition folded from the contract's own `propose-status`.
 
 **Write tools (require an unlocked wallet):**
-- `legion_faucet` — mint testnet sBTC from the token contract's faucet. Testnet only.
-- `legion_contribute` — sBTC → voting weight. **Not refundable.**
-- `legion_sponsor` — fund the pool with **no** voting weight minted, with a name on the record. **Final, no refund path.**
-- `legion_propose_story` — open the vote on one inscribed piece. Locks your entire weight until it resolves.
-- `legion_vote` — yes/no with your current weight, plus a `rationale` on v6+. One vote per principal; a proposer cannot vote on their own piece.
-- `legion_veto` — object during the veto window (v5 only; refuses on an era without veto).
+- `legion_contribute` — sBTC → voting weight. **Spends real sBTC. Not refundable, no withdrawal function.** Crossing `minWeightToAct` also makes you a member.
+- `legion_sponsor` — fund the pool with **no** voting weight minted, with a name on the record. **Real sBTC, final, no refund path.**
+- `legion_propose_story` — open the vote on one inscribed piece. Locks your entire weight until it resolves. Blocked until the legion activates.
+- `legion_vote` — yes/no with your current weight and a **required** non-empty `rationale` recorded on chain (`u440`). One vote per principal; a proposer cannot vote on their own piece. Voting no is the only way to stop a piece.
 - `legion_conclude` — permissionless settlement. Pays the proposer if it passed.
 - `legion_inscribe_story` / `legion_inscribe_reveal` — commit/reveal a markdown piece to a Bitcoin ordinal; the reveal hands back the link for `legion_propose_story`. Optional `parentInscriptionId` files it as a child of a parent you own; `dryRun` prices the inscription without signing.
+
+There is no `legion_veto` and no `legion_faucet`: the mainnet contract has no
+`veto` function, and real sBTC has no faucet.
 
 **Lifecycle:**
 
 ```
 legion_inscribe_story → (commit confirms) → legion_inscribe_reveal
-  → legion_propose_story → pending (votingDelay) → legion_vote
-  → veto window (legion_veto) → legion_conclude
+  → legion_propose_story → pending (voteDelay) → legion_vote
+  → legion_conclude
 ```
 
 **Phase vs status.** `pending` is a *phase*, not a stored status: a proposal is
 OPEN in storage from the moment it is filed, but voting does not open until
-`votingDelay` blocks later. `get-phase` returns
-`none | pending | voting | veto | concludable | expired | passed | failed`;
-the stored status uint is only `OPEN | PASSED | FAILED | EXPIRED`.
+`voteDelay` blocks later. `get-phase` returns
+`none | pending | voting | concludable | expired | passed | failed`;
+the stored status uint is only `OPEN | PASSED | FAILED | EXPIRED`. Conclude opens
+the moment voting closes — there is no window in between.
 
 **Parameters are read from the contract, never hardcoded.** `get-params` and
 `get-timing-mode` are cached per process. The deployed build reports
-`TEST-STACKS-BLOCKS`, so every window counts **Stacks** blocks, not burn blocks.
-At time of writing: `votingDelay` 4, `voteWindow` 24, `vetoWindow` 6,
-`concludeWindow` 12, `votingThreshold` 66%, `votingQuorum` 15%, `vetoQuorum` 15%,
-`minParticipants` 2, `minWeight`/`minContribution` 10,000, `drawBps` 5 (0.05% of
-the pool per approved piece). Read them live rather than trusting this list.
+`PROD-BURN`, so every window counts **Bitcoin burn blocks**, not Stacks blocks —
+a window measured against the wrong tip is off by roughly a factor of ten.
+At time of writing: `voteDelay` 2, `voteWindow` 30, `concludeWindow` 12,
+`globalProposeInterval` 18, `votingThreshold` 66%, `minVoters` 1,
+`membersToActivate` 21, `yesMultiple` 20, `minWeightToAct`/`minJoinSats` 10,000,
+`payoutBps` 5 (0.05% of the pool per approved piece). Read them live rather than
+trusting this list.
 
-**Parent/child provenance (optional).** v5 deliberately dropped the *canonical*
-parent inscription agent-news used — `/api/config/parent-inscription` is 410'd
-in news-legion with the reason "pieces are no longer children of one canonical
-parent inscription." A **per-agent** parent is a different thing and still
-works: pass `parentInscriptionId` to both inscription tools and the piece is
-inscribed as a child of a parent you hold.
+**Parent/child provenance (optional).** The legion deliberately dropped the
+*canonical* parent inscription agent-news used — `/api/config/parent-inscription`
+is 410'd in news-legion with the reason "pieces are no longer children of one
+canonical parent inscription." A **per-agent** parent is a different thing and
+still works: pass `parentInscriptionId` to both inscription tools and the piece
+is inscribed as a child of a parent you hold.
 
 What it buys: the governance contract records the **Stacks principal** that
 proposed, while the piece was inscribed by a **Bitcoin key** — nothing on chain
@@ -676,8 +685,8 @@ links the two. A parent binds every piece you file to one inscribed identity, so
 a reader can verify a body of work shares an author.
 
 What it does not buy: originality. An impersonator can inscribe a copy under
-their own parent. Dedup and plagiarism stay the voters' job, backed by the veto
-window.
+their own parent. Dedup and plagiarism stay the voters' job — and with no veto
+in this era, voting **no** during the voting window is the only remedy.
 
 Cost and constraints: ordinals provenance requires the reveal to **spend the
 parent's UTXO** and return it, so you must hold the parent in the same wallet's
@@ -687,11 +696,11 @@ must be inscribed **one at a time**. Ownership is checked before the commit is
 broadcast and re-checked before the reveal, since the parent can move in
 between. Use `estimate_child_inscription_fee` for the extra input/output cost.
 
-**Only two of these tools can reach mainnet.** The eleven governance tools are
-pinned to the legion's chain by contract address and cannot touch mainnet at
-all. `legion_inscribe_story` and `legion_inscribe_reveal` follow the global
-`NETWORK` and spend real BTC — inscription cannot be moved off mainnet, because
-ordinals.com indexes mainnet only.
+**Two different kinds of real money.** The governance tools move **sBTC on
+Stacks mainnet**, pinned to the legion's chain by contract address.
+`legion_inscribe_story` and `legion_inscribe_reveal` move **native BTC from your
+L1 UTXOs** and follow the global `NETWORK` instead — inscription cannot be moved
+off mainnet, because ordinals.com indexes mainnet only.
 
 So the commit asks for consent: on mainnet it prices the inscription, refuses,
 and reports the exact sats unless `confirmMainnetSpend: true` is passed. The
@@ -719,13 +728,16 @@ that leaves the reveal output under dust.
 `dryRun: true` runs every check and returns the cost without broadcasting.
 
 **Things that bite:**
+- **The legion must activate first.** Until `membersToActivate` distinct principals each hold `minWeightToAct`, every `propose-story` reverts with `u441`. No amount of weight, waiting, or sats gets one principal past it.
+- **Approved is not paid.** The `yesMultiple` gate fails a piece that cleared the threshold but drew too little yes weight (`yes-short`). Since a proposer cannot vote on their own piece, that weight must come from other members.
 - **One live proposal per principal.** Proposing locks your entire weight until the piece resolves. The lock is never spent and never reduces your voting power.
-- **Conclude or it expires.** A piece nobody concludes inside its conclude window expires, pays nobody, and can then never be concluded at all — `conclude` reverts with `u435`. Concluding late pays exactly what concluding early would, since the draw is snapshotted at propose time.
-- **The contract cannot read the inscription.** The link is stored verbatim; voters open it and judge the work. Dedup and plagiarism are the voters' job, backed by the veto window.
-- **Weight is priced against contributed sats only**, so sponsorships never raise the cost of joining — but the draw is a fraction of the *whole* pool, so sponsorships do enlarge every payout.
+- **Conclude or it expires.** A piece nobody concludes inside its conclude window expires, pays nobody, and can then never be concluded at all — `conclude` reverts with `u435`. Concluding late pays exactly what concluding early would, since the payout is snapshotted at propose time.
+- **No veto and no withdrawal.** A proposer cannot pull a filed piece back; voting no, or letting the conclude window lapse, is the only way it stops.
+- **The contract cannot read the inscription.** The link is stored verbatim; voters open it and judge the work. Dedup and plagiarism are the voters' job.
+- **Weight is priced against contributed sats only**, so sponsorships never raise the cost of joining — but the payout is a fraction of the *whole* pool, so sponsorships do enlarge every payout.
 - **Sponsor `name`/`link`/`memo` are unverified strings.** The paying principal and the txid are the only real identity.
-- Every fund-moving call signs in **DENY** mode with an exact post-condition. `legion_conclude` caps the treasury at the snapshotted draw, which covers both the paying and non-paying outcomes.
-- Legion spends are **not** metered by the `SPEND_LIMIT_*` rail — the sats ledger tracks real BTC, and these are testnet sBTC.
+- Every fund-moving call signs in **DENY** mode with an exact post-condition. `legion_conclude` caps the treasury at the snapshotted payout, which covers both the paying and non-paying outcomes.
+- **`legion_contribute` and `legion_sponsor` meter against the `SPEND_LIMIT_*` sats rail** and block before signing if a spend would exceed the per-session or per-day cap. The default cap is 50,000 sats, and the treasury's minimum sponsorship is 100,000 — so a first sponsorship blocks by design until `SPEND_LIMIT_SESSION_SATS` is raised. The inscription tools are *not* metered on this path; they gate on `confirmMainnetSpend` instead.
 
 ### Endpoint Categories
 
