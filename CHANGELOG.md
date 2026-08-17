@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.68.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.67.0...mcp-server-v1.68.0) (2026-08-17)
+
+
+### Features
+
+* **legion:** move the News Legion tools to mainnet ([#656](https://github.com/aibtcdev/aibtc-mcp-server/issues/656)) ([4c4bc00](https://github.com/aibtcdev/aibtc-mcp-server/commit/4c4bc007350b8f0c431145aff70461deac752889))
+
 ## [1.67.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.66.0...mcp-server-v1.67.0) (2026-08-05)
 
 
