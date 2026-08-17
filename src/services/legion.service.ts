@@ -121,19 +121,126 @@ export async function readLegionContract(
   return simplifyCV(deserializeCV(Buffer.from(hex, "hex")));
 }
 
-export function readGov(
+// ---------------------------------------------------------------------------
+// Contract shape assertion
+// ---------------------------------------------------------------------------
+
+/**
+ * Gov functions the tools call, with the arity they are called with.
+ *
+ * Contract ids are constants, so nothing stops a redeploy under the same name
+ * from having a different shape — the reason this legion moved chains in the
+ * first place. Without this check a renamed read surfaces as `undefined` deep
+ * inside a tally, and a changed `vote` arity surfaces as a broadcast that
+ * reverts after paying gas. Checked once per contract per process.
+ */
+const REQUIRED_GOV_FUNCTIONS: Readonly<Record<string, number>> = {
+  // reads
+  "get-params": 0,
+  "get-timing-mode": 0,
+  "get-phase": 1,
+  "get-story": 1,
+  "get-story-meta": 1,
+  "get-last-proposal-id": 0,
+  "get-vote-record": 2,
+  "get-weight": 1,
+  "get-free-weight": 1,
+  "get-locked-weight": 1,
+  "get-locked-until": 1,
+  "get-live-proposal": 1,
+  "get-total-weight": 0,
+  "get-next-propose-height": 0,
+  "get-member-count": 0,
+  "is-activated": 0,
+  "propose-status": 1,
+  "quote-payout": 0,
+  "quote-weight": 1,
+  // writes — arity mismatches here cost gas to discover on chain
+  contribute: 1,
+  "propose-story": 3,
+  vote: 3,
+  conclude: 1,
+};
+
+/** Treasury functions the tools call. `execute-payout` is gov's to call, not ours. */
+const REQUIRED_TREASURY_FUNCTIONS: Readonly<Record<string, number>> = {
+  "get-balance": 0,
+  "get-weighted-balance": 0,
+  "get-min-sponsor": 0,
+  "get-gov": 0,
+  "get-token": 0,
+  "sponsor-in": 4,
+};
+
+/**
+ * Which required functions a published interface fails to satisfy.
+ *
+ * Pure, so the comparison is testable without a chain. Extra functions are
+ * fine — a contract may offer more than we call. Only missing names and
+ * changed arities matter.
+ */
+export function diffContractShape(
+  functions: Array<{ name: string; args: unknown[] }>,
+  required: Readonly<Record<string, number>>
+): string[] {
+  const found = new Map(functions.map((f) => [f.name, f.args.length]));
+  const problems: string[] = [];
+  for (const [name, arity] of Object.entries(required)) {
+    const actual = found.get(name);
+    if (actual === undefined) {
+      problems.push(`missing "${name}"`);
+    } else if (actual !== arity) {
+      problems.push(`"${name}" takes ${actual} args, expected ${arity}`);
+    }
+  }
+  return problems;
+}
+
+/** One in-flight or settled check per contract id. */
+const shapeChecks = new Map<string, Promise<void>>();
+
+async function assertContractShape(
+  contractId: string,
+  required: Readonly<Record<string, number>>,
+  label: string
+): Promise<void> {
+  const cached = shapeChecks.get(contractId);
+  if (cached) return cached;
+  const check = (async () => {
+    const iface = await getHiroApi(LEGION_NETWORK).getContractInterface(contractId);
+    const problems = diffContractShape(iface.functions, required);
+    if (problems.length > 0) {
+      throw new Error(
+        `${contractId} is not the ${label} contract these tools expect: ` +
+          `${problems.join("; ")}. The contract id is a constant in ` +
+          `src/config/legion.ts — either it points at the wrong deployment, or the ` +
+          `legion redeployed with a changed interface and the tools need updating. ` +
+          `Nothing was read or signed.`
+      );
+    }
+  })();
+  shapeChecks.set(contractId, check);
+  // A transient interface fetch failure must not poison the process; only a
+  // successful check is worth keeping.
+  check.catch(() => shapeChecks.delete(contractId));
+  return check;
+}
+
+export async function readGov(
   functionName: string,
   functionArgs: ClarityValue[] = [],
   era: LegionEra = LIVE_ERA
 ): Promise<unknown> {
+  await assertContractShape(era.gov, REQUIRED_GOV_FUNCTIONS, "governance");
   return readLegionContract(era.gov, functionName, functionArgs);
 }
 
-export function readTreasury(
+export async function readTreasury(
   functionName: string,
   functionArgs: ClarityValue[] = [],
   era: LegionEra = LIVE_ERA
 ): Promise<unknown> {
+  await assertContractShape(era.treasury, REQUIRED_TREASURY_FUNCTIONS, "treasury");
   return readLegionContract(era.treasury, functionName, functionArgs);
 }
 
