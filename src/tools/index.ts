@@ -212,7 +212,7 @@ export function registerAllTools(server: McpServer): void {
   // AIBTC News (signal feed, leaderboard, file signals)
   registerNewsTools(server);
 
-  // AIBTC News Legion (news-gov-v5 governance — inscribe, propose, vote, veto, conclude)
+  // AIBTC News Legion (mainnet aibtc-news-gov — inscribe, propose, vote, conclude)
   registerLegionTools(server);
 
   // Identity (ERC-8004 on-chain agent identity management)
