@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildTimeline,
+  diffContractShape,
   predictOutcome,
   proposeBlockers,
   normalizeOrdinalsLink,
@@ -284,6 +285,50 @@ describe("proposeBlockers", () => {
     expect(blockers.join(" ")).toMatch(/already have a live proposal/);
     expect(blockers.join(" ")).toMatch(/height 500/);
     expect(blockers.join(" ")).toMatch(/pool is empty/);
+  });
+});
+
+describe("diffContractShape", () => {
+  /** Shaped like a Hiro contract interface's `functions` array. */
+  const fn = (name: string, argCount: number) => ({
+    name,
+    args: Array.from({ length: argCount }, (_, i) => ({ name: `a${i}` })),
+  });
+
+  it("accepts a contract that satisfies every requirement", () => {
+    const iface = [fn("vote", 3), fn("conclude", 1), fn("get-params", 0)];
+    expect(diffContractShape(iface, { vote: 3, conclude: 1 })).toEqual([]);
+  });
+
+  it("tolerates extra functions the tools do not call", () => {
+    const iface = [fn("conclude", 1), fn("veto", 1), fn("some-future-view", 2)];
+    expect(diffContractShape(iface, { conclude: 1 })).toEqual([]);
+  });
+
+  it("reports a renamed or absent function", () => {
+    // The exact failure mode of the mainnet migration: quote-draw -> quote-payout.
+    const iface = [fn("quote-draw", 0)];
+    expect(diffContractShape(iface, { "quote-payout": 0 })).toEqual([
+      'missing "quote-payout"',
+    ]);
+  });
+
+  it("reports an arity change, which a name check alone would miss", () => {
+    // v6 added the rationale argument to vote; calling the old 2-arg form
+    // broadcasts and reverts after paying gas.
+    const iface = [fn("vote", 2)];
+    expect(diffContractShape(iface, { vote: 3 })).toEqual([
+      '"vote" takes 2 args, expected 3',
+    ]);
+  });
+
+  it("reports every problem at once rather than the first", () => {
+    const problems = diffContractShape([fn("vote", 2)], {
+      vote: 3,
+      conclude: 1,
+      contribute: 1,
+    });
+    expect(problems).toHaveLength(3);
   });
 });
 
