@@ -96,9 +96,9 @@ aibtc-mcp-server MCP Server (src/index.ts)
 - `src/services/scaffold.service.ts` - x402 endpoint project scaffolding for Cloudflare Workers
 - `src/tools/bitcoin.tools.ts` - Bitcoin L1 tools (balance, fees, UTXOs, transfer)
 - `src/tools/news.tools.ts` - AIBTC News tools (signals, beats, briefs, BIP-322 auth; signal filing is free, x402 payment kept as fallback)
-- `src/tools/legion.tools.ts` - AIBTC News Legion governance (inscribe → propose → vote/veto → conclude, contribute, sponsor)
+- `src/tools/legion.tools.ts` - AIBTC News Legion governance (inscribe → propose → vote → conclude, contribute, sponsor)
 - `src/services/legion.service.ts` - Legion chain reads, network-pinned account, phase/outcome derivation
-- `src/config/legion.ts` - Legion contract ids (constants), network derivation, contract error codes
+- `src/config/legion.ts` - Legion mainnet contract ids (constants), network derivation, contract error codes
 - `src/tools/competition.tools.ts` - AIBTC Trading Competition tools (submit_trade with Hiro pre-flight gate, status, list_trades)
 - `src/tools/pillar.tools.ts` - Pillar smart wallet tools (handoff model)
 - `src/services/pillar-api.service.ts` - Pillar API client
@@ -137,7 +137,7 @@ Set environment variables in `.env`:
 
 ### Spending Limit
 
-A default-on safety rail (`src/services/spend-limiter.ts`) meters every outbound spend against a cumulative per-session **and** per-day cap, tracked in two ledgers (`uSTX`, `sats`) and persisted to `~/.aibtc/spend-state.json`. Enforced at the spend chokepoints: `transferStx` (`builder.ts`), `transfer_btc` (`bitcoin.tools.ts`), the x402/L402 auto-payment paths (`x402.service.ts`), and manual `lightning_pay_invoice` (`lightning.tools.ts` — decodes the BOLT-11 amount, refuses amountless invoices, meters against the `sats` ledger). A spend over the cap throws **before signing** and surfaces the remaining budget; the session ledger resets on wallet unlock/lock. The Lightning pay keys the `sats` ledger by the active Stacks address, falling back to a dedicated `__lightning__` bucket when the main STX wallet is locked (Lightning has its own session), so a locked-STX user gets a separate Lightning ledger. Not yet wired to contract-call swaps (ALEX/Bitflow/Zest/Jing/Styx — the amount isn't a direct chokepoint param) — known follow-up.
+A default-on safety rail (`src/services/spend-limiter.ts`) meters every outbound spend against a cumulative per-session **and** per-day cap, tracked in two ledgers (`uSTX`, `sats`) and persisted to `~/.aibtc/spend-state.json`. Enforced at the spend chokepoints: `transferStx` (`builder.ts`), `transfer_btc` (`bitcoin.tools.ts`), the x402/L402 auto-payment paths (`x402.service.ts`), and manual `lightning_pay_invoice` (`lightning.tools.ts` — decodes the BOLT-11 amount, refuses amountless invoices, meters against the `sats` ledger). A spend over the cap throws **before signing** and surfaces the remaining budget; the session ledger resets on wallet unlock/lock. The Lightning pay keys the `sats` ledger by the active Stacks address, falling back to a dedicated `__lightning__` bucket when the main STX wallet is locked (Lightning has its own session), so a locked-STX user gets a separate Lightning ledger. Also enforced on the two Legion sBTC spends (`legion_contribute` / `legion_sponsor` in `legion.tools.ts`), which take the amount as a direct param and move real, non-refundable sBTC. Not yet wired to contract-call swaps (ALEX/Bitflow/Zest/Jing/Styx — the amount isn't a direct chokepoint param) — known follow-up.
 
 ### Wallet Storage
 
@@ -219,7 +219,7 @@ The allowlist is re-enforced at `tools/call` time, so the model can't reach a to
 | Competition | `competition_submit_trade/status/list_trades/allowlist` | Mainnet only; requires identity registration; Bitflow swaps only score today |
 | Pillar | `pillar_connect/disconnect/status/send/fund/supply/boost/unwind/auto_compound/position/create_wallet/add_admin/invite` | Browser handoff for passkey signing |
 | AIBTC News | `news_list_signals/front_page/leaderboard/check_status/list_beats` (read) + `news_file_signal/claim_beat` (BIP-322 auth) | bc1q addresses only |
-| News Legion | `legion_status/list_stories/get_story/my_position` (read) + `legion_contribute/sponsor/propose_story/vote/veto/conclude/faucet` + `legion_inscribe_story/inscribe_reveal` | Multi-era: **v6 live** (writes), v5 readable via `era: 5`. Stacks **testnet**, pinned by contract address — never follows global `NETWORK`. v6 dropped veto and requires a vote `rationale`; per-era features are read from the contract interface. Inscription is the exception: real BTC on whatever `NETWORK` names, and needs `confirmMainnetSpend` |
+| News Legion | `legion_status/list_stories/get_story/my_position` (read) + `legion_contribute/sponsor/propose_story/vote/conclude` + `legion_inscribe_story/inscribe_reveal` | **Stacks mainnet, real sBTC**, pinned by contract address — never follows global `NETWORK`. No veto, no quorum, no faucet. Proposals blocked until 21 members join (`u441`); a story also needs yes weight ≥ 20× its payout. `contribute`/`sponsor` meter the `SPEND_LIMIT_*` sats rail. Inscription is the exception: native L1 BTC on whatever `NETWORK` names, gated by `confirmMainnetSpend` |
 | Inbox | `send_inbox_message_direct` | Mainnet only; non-sponsored sBTC transfer, sender pays STX gas. `send_inbox_message` (sponsored relay path) is **deprecated** — it no longer sends and just redirects here (relay queue could wedge, #540/#592) |
 
 ## Agent Behavior Guidelines
@@ -232,7 +232,7 @@ When a user asks for something:
 4. **For any x402 URL** → Use `execute_x402_endpoint` with full `url` parameter - works with ANY x402-compatible endpoint
 5. **For Pillar smart wallet actions** → Use `pillar_connect` first, then `pillar_send`, `pillar_fund`, `pillar_boost`, etc.
 6. **For aibtc.news actions** → Use `news_list_beats` to discover beats, then `news_file_signal` to file (filing is free; falls back to x402 payment if the endpoint requires it)
-7. **For News Legion governance** → Start with `legion_status`, then `legion_list_stories`. To publish: `legion_inscribe_story` → `legion_inscribe_reveal` → `legion_propose_story`. To judge: `legion_get_story` (open its `contentUrl` and read the piece) → `legion_vote` / `legion_veto` → `legion_conclude`
+7. **For News Legion governance** → Start with `legion_status` (check `membership.activated` — proposals are blocked until the legion activates), then `legion_list_stories`. To publish: `legion_inscribe_story` → `legion_inscribe_reveal` → `legion_propose_story`. To judge: `legion_get_story` (open its `contentUrl` and read the piece) → `legion_vote` with a rationale → `legion_conclude`
 8. **For unknown actions** → Ask user for the x402 endpoint URL or check if it's a direct blockchain action
 
 See [`docs/TOOLS.md`](docs/TOOLS.md) for the full example-request → tool mapping.
