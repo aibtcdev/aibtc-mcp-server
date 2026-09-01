@@ -7,9 +7,10 @@
  *
  * EVERYTHING HERE MOVES REAL VALUE. The legion is on Stacks mainnet holding
  * real sBTC, and neither `contribute` nor `sponsor` has a withdrawal path, so
- * both meter against the wallet's `sats` spending rail before signing —
- * `callContract` is not itself a metered chokepoint, but these two take the
- * amount as a direct parameter, which is what the rail needs.
+ * both meter against the wallet's `sats` spending rail before signing. That
+ * metering happens inside `callContract`, which reads the exact sBTC
+ * post-condition these calls already sign in DENY mode — so it must NOT be
+ * repeated here, or every contribute would bill the rail twice.
  *
  * These tools pin their own network: `getLegionAccount()` re-derives the
  * unlocked wallet for the legion's chain, so a testnet-configured server still
@@ -80,7 +81,6 @@ import {
   readTreasury,
 } from "../services/legion.service.js";
 import { callContract } from "../transactions/builder.js";
-import { getSpendLimiter } from "../services/spend-limiter.js";
 import { getWalletManager } from "../services/wallet-manager.js";
 import { MempoolApi, getMempoolTxUrl } from "../services/mempool-api.js";
 import {
@@ -777,11 +777,9 @@ export function registerLegionTools(server: McpServer): void {
           );
         }
 
-        // Real, unrecoverable sBTC leaves the wallet here. callContract is not
-        // itself a metered chokepoint, but the amount is a direct parameter, so
-        // the rail applies cleanly — and must, before anything is signed.
-        await getSpendLimiter().check("sats", BigInt(sats), account.address);
-
+        // Real, unrecoverable sBTC leaves the wallet here. The `sats` rail is
+        // metered by callContract off the willSendEq post-condition below —
+        // metering again here would double-bill the cap.
         const quotedWeight = num(await readGov("quote-weight", [uintCV(sats)]));
 
         const result = await callContract(account, {
@@ -796,8 +794,6 @@ export function registerLegionTools(server: McpServer): void {
               .ft(token.contract as `${string}.${string}`, token.assetName),
           ],
         });
-
-        await getSpendLimiter().record("sats", BigInt(sats), account.address);
 
         const weightAfter = num(weightBefore) + quotedWeight;
         const wasMember = num(weightBefore) >= params.minWeightToAct;
@@ -902,9 +898,8 @@ export function registerLegionTools(server: McpServer): void {
           );
         }
 
-        // Same rail as contribute: real sBTC, no refund, amount is a direct param.
-        await getSpendLimiter().check("sats", BigInt(sats), account.address);
-
+        // Same rail as contribute: real sBTC, no refund, metered by callContract
+        // off the post-condition below.
         const result = await callContract(account, {
           contractAddress: TREASURY_ADDRESS,
           contractName: TREASURY_NAME,
@@ -922,8 +917,6 @@ export function registerLegionTools(server: McpServer): void {
               .ft(token.contract as `${string}.${string}`, token.assetName),
           ],
         });
-
-        await getSpendLimiter().record("sats", BigInt(sats), account.address);
 
         return createJsonResponse({
           success: true,

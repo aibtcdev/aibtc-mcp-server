@@ -5,7 +5,8 @@
  * single poisoned instruction (or a malicious x402 endpoint) could otherwise
  * drain the wallet. This module is the safety rail: every outbound spend path
  * (native STX transfer, BTC L1 transfer, x402/L402 auto-payments, Lightning
- * pays) routes through it, and the limiter blocks once cumulative outflow would
+ * pays, and contract calls carrying a bounded caller-owned post condition)
+ * routes through it, and the limiter blocks once cumulative outflow would
  * exceed a per-session OR per-day cap.
  *
  * Two independent ledgers are tracked — micro-STX (`ustx`) and satoshis
@@ -21,11 +22,86 @@
  * Disable entirely with SPEND_LIMIT_ENABLED=false. Override caps with
  * SPEND_LIMIT_DAILY_USTX / _SESSION_USTX / _DAILY_SATS / _SESSION_SATS.
  */
+import type { PostCondition } from "@stacks/transactions";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
+import { MAINNET_CONTRACTS, TESTNET_CONTRACTS } from "../config/contracts.js";
 
 export type SpendUnit = "ustx" | "sats";
+
+/** Asset ids this rail can meter. Any other FT has no ledger to bill. */
+const SBTC_ASSETS = new Set([
+  `${MAINNET_CONTRACTS.SBTC_TOKEN}::sbtc-token`,
+  `${TESTNET_CONTRACTS.SBTC_TOKEN}::sbtc-token`,
+]);
+
+/**
+ * Read spend ceilings out of a contract call's post conditions.
+ *
+ * A post condition already says "at most N of asset A leaves principal P", in
+ * native units, enforced by the chain — which is exactly the bound this rail
+ * wants, without taking a price-oracle dependency inside a safety rail.
+ *
+ * Only conditions that BOUND THE SPEND FROM ABOVE count: `eq`, `lt` and `lte`.
+ * A `gt`/`gte` condition is a floor, not a cap, so metering it would invent a
+ * ceiling that does not exist. Conditions on another principal are somebody
+ * else's funds, and an FT that is not sBTC has no ledger here — both are
+ * skipped rather than guessed at.
+ *
+ * `lt` is metered at its face value (one micro-unit above the true ceiling).
+ * Over-metering by one is the safe direction for a cap.
+ */
+export function boundedPostConditionSpends(
+  postConditions: PostCondition[] | undefined,
+  accountAddress: string
+): Array<{ unit: SpendUnit; amount: bigint }> {
+  const spends: Array<{ unit: SpendUnit; amount: bigint }> = [];
+
+  for (const condition of postConditions ?? []) {
+    const pc = condition as unknown as {
+      type?: string;
+      address?: string;
+      condition?: string;
+      amount?: string | number | bigint;
+      asset?: string;
+    };
+
+    if (pc.address !== accountAddress) continue;
+    if (pc.condition !== "eq" && pc.condition !== "lt" && pc.condition !== "lte") continue;
+    if (pc.amount === undefined) continue;
+
+    const amount = BigInt(pc.amount);
+    if (amount < 0n) continue;
+
+    if (pc.type === "stx-postcondition") {
+      spends.push({ unit: "ustx", amount });
+    } else if (
+      pc.type === "ft-postcondition" &&
+      pc.asset !== undefined &&
+      SBTC_ASSETS.has(pc.asset)
+    ) {
+      spends.push({ unit: "sats", amount });
+    }
+  }
+
+  return spends;
+}
+
+/**
+ * Collapse per-unit so one contract call is metered once per ledger, not once
+ * per post condition.
+ */
+export function totalBoundedSpends(
+  postConditions: PostCondition[] | undefined,
+  accountAddress: string
+): Array<{ unit: SpendUnit; amount: bigint }> {
+  const totals = new Map<SpendUnit, bigint>();
+  for (const { unit, amount } of boundedPostConditionSpends(postConditions, accountAddress)) {
+    totals.set(unit, (totals.get(unit) ?? 0n) + amount);
+  }
+  return [...totals].map(([unit, amount]) => ({ unit, amount }));
+}
 
 const STORAGE_DIR = path.join(os.homedir(), ".aibtc");
 const DEFAULT_STATE_FILE = path.join(STORAGE_DIR, "spend-state.json");

@@ -3,9 +3,13 @@ import os from "os";
 import path from "path";
 import { promises as fs } from "fs";
 import {
+  boundedPostConditionSpends,
   getSpendLimiter,
   SpendLimitError,
+  totalBoundedSpends,
 } from "../../src/services/spend-limiter.js";
+import { Pc } from "@stacks/transactions";
+import { MAINNET_CONTRACTS, TESTNET_CONTRACTS } from "../../src/config/contracts.js";
 
 // Unique address per test so the shared singleton's session map and the daily
 // state file don't bleed across tests.
@@ -187,5 +191,80 @@ describe("persistence + status", () => {
       expect(err.scope).toBe("session");
       expect(err.remaining).toBe(1000);
     }
+  });
+});
+
+describe("bounded post-condition spends", () => {
+  const me = "SP000000000000000000002Q6VF78";
+  const other = "SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7";
+
+  it("meters eq/lt/lte STX conditions and ignores lower bounds", () => {
+    expect(
+      boundedPostConditionSpends(
+        [
+          Pc.principal(me).willSendEq(100).ustx(),
+          Pc.principal(me).willSendLte(200).ustx(),
+          Pc.principal(me).willSendLt(300).ustx(),
+          Pc.principal(me).willSendGte(999).ustx(),
+          Pc.principal(me).willSendGt(999).ustx(),
+        ],
+        me
+      )
+    ).toEqual([
+      { unit: "ustx", amount: 100n },
+      { unit: "ustx", amount: 200n },
+      { unit: "ustx", amount: 300n },
+    ]);
+  });
+
+  it("meters sBTC on both networks and ignores other fungible tokens", () => {
+    expect(
+      boundedPostConditionSpends(
+        [
+          Pc.principal(me)
+            .willSendEq(456)
+            .ft(MAINNET_CONTRACTS.SBTC_TOKEN as `${string}.${string}`, "sbtc-token"),
+          Pc.principal(me)
+            .willSendEq(789)
+            .ft(TESTNET_CONTRACTS.SBTC_TOKEN as `${string}.${string}`, "sbtc-token"),
+          // Not sBTC: no ledger to bill it against, so it must not be metered.
+          Pc.principal(me)
+            .willSendEq(1_000_000)
+            .ft("SP102V8P0F7JX67ARQ77WEA3D3CFB5XW39REDT0AM.token-alex", "alex"),
+        ],
+        me
+      )
+    ).toEqual([
+      { unit: "sats", amount: 456n },
+      { unit: "sats", amount: 789n },
+    ]);
+  });
+
+  it("ignores conditions on a principal that is not the caller", () => {
+    expect(
+      boundedPostConditionSpends([Pc.principal(other).willSendEq(500).ustx()], me)
+    ).toEqual([]);
+  });
+
+  it("handles a missing post-condition list", () => {
+    expect(boundedPostConditionSpends(undefined, me)).toEqual([]);
+  });
+
+  it("collapses multiple conditions into one charge per ledger", () => {
+    expect(
+      totalBoundedSpends(
+        [
+          Pc.principal(me).willSendEq(100).ustx(),
+          Pc.principal(me).willSendLte(50).ustx(),
+          Pc.principal(me)
+            .willSendEq(7)
+            .ft(MAINNET_CONTRACTS.SBTC_TOKEN as `${string}.${string}`, "sbtc-token"),
+        ],
+        me
+      )
+    ).toEqual([
+      { unit: "ustx", amount: 150n },
+      { unit: "sats", amount: 7n },
+    ]);
   });
 });
