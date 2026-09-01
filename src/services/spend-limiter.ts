@@ -25,8 +25,14 @@ import type { PostCondition } from "@stacks/transactions";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
+import { MAINNET_CONTRACTS, TESTNET_CONTRACTS } from "../config/contracts.js";
 
 export type SpendUnit = "ustx" | "sats";
+
+const SBTC_ASSETS = new Set([
+  `${MAINNET_CONTRACTS.SBTC_TOKEN}::sbtc-token`,
+  `${TESTNET_CONTRACTS.SBTC_TOKEN}::sbtc-token`,
+]);
 
 /**
  * Convert the bounded value in caller-supplied post conditions into the
@@ -48,7 +54,9 @@ export function boundedPostConditionSpends(
     };
     if (
       candidate.address !== accountAddress ||
-      (candidate.condition !== "eq" && candidate.condition !== "lte") ||
+      (candidate.condition !== "eq" &&
+        candidate.condition !== "lt" &&
+        candidate.condition !== "lte") ||
       candidate.amount === undefined
     ) {
       continue;
@@ -59,7 +67,8 @@ export function boundedPostConditionSpends(
       spends.push({ unit: "ustx", amount });
     } else if (
       candidate.type === "ft-postcondition" &&
-      candidate.asset?.endsWith(".sbtc-token::sbtc-token")
+      candidate.asset !== undefined &&
+      SBTC_ASSETS.has(candidate.asset)
     ) {
       spends.push({ unit: "sats", amount });
     }

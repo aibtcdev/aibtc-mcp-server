@@ -8,20 +8,13 @@ const { check, makeContractCall } = vi.hoisted(() => ({
   makeContractCall: vi.fn(),
 }));
 
-vi.mock("../../src/services/spend-limiter.js", () => ({
-  boundedPostConditionSpends: (
-    conditions: unknown[] | undefined,
-    address: string,
-  ) =>
-    (conditions ?? []).flatMap((condition: any) =>
-      condition.address === address &&
-      (condition.condition === "eq" || condition.condition === "lte") &&
-      condition.type === "stx-postcondition"
-        ? [{ unit: "ustx", amount: BigInt(condition.amount) }]
-        : [],
-    ),
-  getSpendLimiter: () => ({ check, record: vi.fn() }),
-}));
+vi.mock("../../src/services/spend-limiter.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../../src/services/spend-limiter.js")
+    >();
+  return { ...actual, getSpendLimiter: () => ({ check, record: vi.fn() }) };
+});
 
 vi.mock("@stacks/transactions", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@stacks/transactions")>();

@@ -57,6 +57,7 @@ describe("default caps (Conservative)", () => {
     const spends = boundedPostConditionSpends(
       [
         Pc.principal(address).willSendLte(123).ustx(),
+        Pc.principal(address).willSendLt(122).ustx(),
         Pc.principal(address).willSendGte(999).ustx(),
         Pc.principal(address)
           .willSendEq(456)
@@ -67,14 +68,15 @@ describe("default caps (Conservative)", () => {
         Pc.principal(address)
           .willSendEq(789)
           .ft(
-            "ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT.other-token",
-            "other-token",
+            "ST000000000000000000002AMW42H.sbtc-token",
+            "sbtc-token",
           ),
       ],
       address,
     );
     expect(spends).toEqual([
       { unit: "ustx", amount: 123n },
+      { unit: "ustx", amount: 122n },
       { unit: "sats", amount: 456n },
     ]);
   });

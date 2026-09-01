@@ -5,6 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 aibtc-mcp-server is an MCP (Model Context Protocol) server that enables Claude to:
+
 1. **Discover and execute x402 API endpoints** - Paid API calls for DeFi analytics, AI services, market data
 2. **Execute Stacks blockchain transactions** - Transfer STX, call smart contracts, deploy contracts
 
@@ -14,10 +15,10 @@ The plugin automatically handles x402 payment challenges when accessing paid end
 
 The agent supports two x402 API sources:
 
-| Source | URL | Endpoints |
-|--------|-----|-----------|
-| x402.biwas.xyz | https://x402.biwas.xyz | DeFi analytics, market data, wallet analysis |
-| stx402.com | https://stx402.com | AI services, cryptography, storage, utilities, agent registry |
+| Source         | URL                    | Endpoints                                                     |
+| -------------- | ---------------------- | ------------------------------------------------------------- |
+| x402.biwas.xyz | https://x402.biwas.xyz | DeFi analytics, market data, wallet analysis                  |
+| stx402.com     | https://stx402.com     | AI services, cryptography, storage, utilities, agent registry |
 
 ## Build Commands
 
@@ -38,11 +39,13 @@ git push && git push --tags
 ```
 
 This triggers GitHub Actions to automatically:
+
 1. Build the project
 2. Publish to npm
 3. Create a GitHub release with changelog
 
 **Version Guidelines:**
+
 - `patch` (2.6.0 → 2.6.1): Bug fixes, CI changes, docs
 - `minor` (2.6.0 → 2.7.0): New features, new tools
 - `major` (2.6.0 → 3.0.0): Breaking changes
@@ -108,10 +111,10 @@ aibtc-mcp-server MCP Server (src/index.ts)
 
 The agent supports both BNS naming systems:
 
-| System | API | Usage |
-|--------|-----|-------|
+| System | API                           | Usage                              |
+| ------ | ----------------------------- | ---------------------------------- |
 | BNS V1 | `api.hiro.so/v1/names/{name}` | Legacy names (older registrations) |
-| BNS V2 | `api.bnsv2.com/names/{name}` | Current system (most .btc names) |
+| BNS V2 | `api.bnsv2.com/names/{name}`  | Current system (most .btc names)   |
 
 BNS tools automatically check V2 first for `.btc` names, falling back to V1 for legacy support.
 
@@ -127,6 +130,7 @@ BNS tools automatically check V2 first for `.btc` names, falling back to V1 for 
 ## Configuration
 
 Set environment variables in `.env`:
+
 - `CLIENT_MNEMONIC` - 24-word Stacks wallet mnemonic (optional - can use managed wallets instead)
 - `NETWORK` - "mainnet" or "testnet" (default: mainnet)
 - `API_URL` - Default x402 API base URL (default: https://x402.biwas.xyz)
@@ -137,11 +141,12 @@ Set environment variables in `.env`:
 
 ### Spending Limit
 
-A default-on safety rail (`src/services/spend-limiter.ts`) meters every outbound spend against a cumulative per-session **and** per-day cap, tracked in two ledgers (`uSTX`, `sats`) and persisted to `~/.aibtc/spend-state.json`. Enforced at the spend chokepoints: `transferStx` (`builder.ts`), `transfer_btc` (`bitcoin.tools.ts`), the x402/L402 auto-payment paths (`x402.service.ts`), and manual `lightning_pay_invoice` (`lightning.tools.ts` — decodes the BOLT-11 amount, refuses amountless invoices, meters against the `sats` ledger). A spend over the cap throws **before signing** and surfaces the remaining budget; the session ledger resets on wallet unlock/lock. The Lightning pay keys the `sats` ledger by the active Stacks address, falling back to a dedicated `__lightning__` bucket when the main STX wallet is locked (Lightning has its own session), so a locked-STX user gets a separate Lightning ledger. Also enforced on the two Legion sBTC spends (`legion_contribute` / `legion_sponsor` in `legion.tools.ts`), which take the amount as a direct param and move real, non-refundable sBTC. Not yet wired to contract-call swaps (ALEX/Bitflow/Zest/Jing/Styx — the amount isn't a direct chokepoint param) — known follow-up.
+A default-on safety rail (`src/services/spend-limiter.ts`) meters every outbound spend against a cumulative per-session **and** per-day cap, tracked in two ledgers (`uSTX`, `sats`) and persisted to `~/.aibtc/spend-state.json`. Enforced at the spend chokepoints: `transferStx` (`builder.ts`), `transfer_btc` (`bitcoin.tools.ts`), the x402/L402 auto-payment paths (`x402.service.ts`), and manual `lightning_pay_invoice` (`lightning.tools.ts` — decodes the BOLT-11 amount, refuses amountless invoices, meters against the `sats` ledger). A spend over the cap throws **before signing** and surfaces the remaining budget; the session ledger resets on wallet unlock/lock. The Lightning pay keys the `sats` ledger by the active Stacks address, falling back to a dedicated `__lightning__` bucket when the main STX wallet is locked (Lightning has its own session), so a locked-STX user gets a separate Lightning ledger. Also enforced on the two Legion sBTC spends (`legion_contribute` / `legion_sponsor` in `legion.tools.ts`), which take the amount as a direct param and move real, non-refundable sBTC. Contract calls with caller-owned bounded STX/sBTC postconditions are metered at the shared `callContract` boundary: `eq`, `lt`, and `lte` values are spend ceilings, while lower-bound and unknown-token conditions are not spend caps.
 
 ### Wallet Storage
 
 Managed wallets are stored encrypted in `~/.aibtc/`:
+
 ```
 ~/.aibtc/
 ├── wallets.json       # Wallet index (metadata only)
@@ -170,6 +175,7 @@ Each installer merges into the existing config rather than overwriting it. Zed a
 **For testnet:** Add `--testnet` to any install command, e.g. `npx @aibtc/mcp-server@latest --install --cursor --testnet`
 
 **Note:** `CLIENT_MNEMONIC` is optional. Users can either:
+
 1. **Managed wallets (recommended)**: Use `wallet_create` or `wallet_import` to generate/import wallets with password protection
 2. **Environment mnemonic**: Set `CLIENT_MNEMONIC` in env (for power users)
 
@@ -183,6 +189,7 @@ npx @aibtc/mcp-server@latest bridge "what's the STX balance of SP3..."
 ```
 
 Safety flags (default exposes all tools; constrain with these):
+
 - `--read-only` — heuristic allowlist; never includes a transfer/swap/deploy/spend tool
 - `--allow a,b` / `--block a,b` — explicit overrides (`--block` wins)
 - `--max-spend-ustx <n>` / `--max-spend-sats <n>` — forwarded to the spawned server's `SPEND_LIMIT_SESSION_*` rail
@@ -199,28 +206,28 @@ The allowlist is re-enforced at `tools/call` time, so the model can't reach a to
 > table below is just a discovery map. Read the reference doc before working on a tool's
 > behavior.
 
-| Domain | Key tools | Notes |
-|--------|-----------|-------|
-| Discovery | `list_x402_endpoints` | Start here to find x402 actions |
-| Earning | `earning_opportunities` | Static "how to put your assets to work" menu; surface after `identity_register` |
-| Bounties | `bounty_list/get/submissions` (read) + `bounty_submit/create/accept/paid/cancel` (BIP-322 auth) + `bounty_my_posted/my_submissions` | aibtc.com sBTC bounty board; most direct way to earn. Submit needs Registered (L1+); create needs Genesis (L2+); bc1q/P2WPKH signing; accepted submission paid in sBTC |
-| Wallet & balance | `get_wallet_info`, `get_stx_balance` | |
-| Wallet mgmt | `wallet_create/import/unlock/lock/list/switch/delete/export/status` | On mainnet, create/import also derive a Spark Lightning wallet from the same mnemonic |
-| Bitcoin L1 | `get_btc_balance/fees/utxos`, `transfer_btc` | mempool.space; P2WPKH; sats |
-| Mempool watch | `get_btc_mempool_info`, `get_btc_transaction_status`, `get_btc_address_txs` | |
-| Lightning (L402) | `lightning_create/import/unlock/lock/status/fund_from_btc/claim_deposit/pay_invoice/create_invoice` | Mainnet only; Spark SDK; `L402_MAX_SATS_PER_INVOICE` cap |
-| Stacks tx | `transfer_stx`, `call_contract`, `deploy_contract`, `get_transaction_status`, `broadcast_transaction` | |
-| x402 | `execute_x402_endpoint` | Any x402 URL, auto-payment |
-| Scaffolding | `scaffold_x402_endpoint`, `scaffold_x402_ai_endpoint` | Cloudflare Worker projects |
-| OpenRouter | `openrouter_integration_guide`, `openrouter_models` | AI feature integration |
-| ALEX DEX | `alex_list_pools/get_swap_quote/swap/get_pool_info` | Mainnet only; `alex-sdk` |
-| Zest | `zest_list_assets/get_position/supply/withdraw/borrow/repay` | Mainnet only; 10 assets |
-| Bitflow DEX | `bitflow_get_ticker/tokens/swap_targets/quote/routes/swap` + Keeper tools | Mainnet only; ticker is public, rest need `BITFLOW_API_KEY` |
-| Competition | `competition_submit_trade/status/list_trades/allowlist` | Mainnet only; requires identity registration; Bitflow swaps only score today |
-| Pillar | `pillar_connect/disconnect/status/send/fund/supply/boost/unwind/auto_compound/position/create_wallet/add_admin/invite` | Browser handoff for passkey signing |
-| AIBTC News | `news_list_signals/front_page/leaderboard/check_status/list_beats` (read) + `news_file_signal/claim_beat` (BIP-322 auth) | bc1q addresses only |
-| News Legion | `legion_status/list_stories/get_story/my_position` (read) + `legion_contribute/sponsor/propose_story/vote/conclude` + `legion_inscribe_story/inscribe_reveal` | **Stacks mainnet, real sBTC**, pinned by contract address — never follows global `NETWORK`. No veto, no quorum, no faucet. Proposals blocked until 21 members join (`u441`); a story also needs yes weight ≥ 20× its payout. `contribute`/`sponsor` meter the `SPEND_LIMIT_*` sats rail. Inscription is the exception: native L1 BTC on whatever `NETWORK` names, gated by `confirmMainnetSpend` |
-| Inbox | `send_inbox_message_direct` | Mainnet only; non-sponsored sBTC transfer, sender pays STX gas. `send_inbox_message` (sponsored relay path) is **deprecated** — it no longer sends and just redirects here (relay queue could wedge, #540/#592) |
+| Domain           | Key tools                                                                                                                                                     | Notes                                                                                                                                                                                                                                                                                                                                                                                            |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Discovery        | `list_x402_endpoints`                                                                                                                                         | Start here to find x402 actions                                                                                                                                                                                                                                                                                                                                                                  |
+| Earning          | `earning_opportunities`                                                                                                                                       | Static "how to put your assets to work" menu; surface after `identity_register`                                                                                                                                                                                                                                                                                                                  |
+| Bounties         | `bounty_list/get/submissions` (read) + `bounty_submit/create/accept/paid/cancel` (BIP-322 auth) + `bounty_my_posted/my_submissions`                           | aibtc.com sBTC bounty board; most direct way to earn. Submit needs Registered (L1+); create needs Genesis (L2+); bc1q/P2WPKH signing; accepted submission paid in sBTC                                                                                                                                                                                                                           |
+| Wallet & balance | `get_wallet_info`, `get_stx_balance`                                                                                                                          |                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Wallet mgmt      | `wallet_create/import/unlock/lock/list/switch/delete/export/status`                                                                                           | On mainnet, create/import also derive a Spark Lightning wallet from the same mnemonic                                                                                                                                                                                                                                                                                                            |
+| Bitcoin L1       | `get_btc_balance/fees/utxos`, `transfer_btc`                                                                                                                  | mempool.space; P2WPKH; sats                                                                                                                                                                                                                                                                                                                                                                      |
+| Mempool watch    | `get_btc_mempool_info`, `get_btc_transaction_status`, `get_btc_address_txs`                                                                                   |                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Lightning (L402) | `lightning_create/import/unlock/lock/status/fund_from_btc/claim_deposit/pay_invoice/create_invoice`                                                           | Mainnet only; Spark SDK; `L402_MAX_SATS_PER_INVOICE` cap                                                                                                                                                                                                                                                                                                                                         |
+| Stacks tx        | `transfer_stx`, `call_contract`, `deploy_contract`, `get_transaction_status`, `broadcast_transaction`                                                         |                                                                                                                                                                                                                                                                                                                                                                                                  |
+| x402             | `execute_x402_endpoint`                                                                                                                                       | Any x402 URL, auto-payment                                                                                                                                                                                                                                                                                                                                                                       |
+| Scaffolding      | `scaffold_x402_endpoint`, `scaffold_x402_ai_endpoint`                                                                                                         | Cloudflare Worker projects                                                                                                                                                                                                                                                                                                                                                                       |
+| OpenRouter       | `openrouter_integration_guide`, `openrouter_models`                                                                                                           | AI feature integration                                                                                                                                                                                                                                                                                                                                                                           |
+| ALEX DEX         | `alex_list_pools/get_swap_quote/swap/get_pool_info`                                                                                                           | Mainnet only; `alex-sdk`                                                                                                                                                                                                                                                                                                                                                                         |
+| Zest             | `zest_list_assets/get_position/supply/withdraw/borrow/repay`                                                                                                  | Mainnet only; 10 assets                                                                                                                                                                                                                                                                                                                                                                          |
+| Bitflow DEX      | `bitflow_get_ticker/tokens/swap_targets/quote/routes/swap` + Keeper tools                                                                                     | Mainnet only; ticker is public, rest need `BITFLOW_API_KEY`                                                                                                                                                                                                                                                                                                                                      |
+| Competition      | `competition_submit_trade/status/list_trades/allowlist`                                                                                                       | Mainnet only; requires identity registration; Bitflow swaps only score today                                                                                                                                                                                                                                                                                                                     |
+| Pillar           | `pillar_connect/disconnect/status/send/fund/supply/boost/unwind/auto_compound/position/create_wallet/add_admin/invite`                                        | Browser handoff for passkey signing                                                                                                                                                                                                                                                                                                                                                              |
+| AIBTC News       | `news_list_signals/front_page/leaderboard/check_status/list_beats` (read) + `news_file_signal/claim_beat` (BIP-322 auth)                                      | bc1q addresses only                                                                                                                                                                                                                                                                                                                                                                              |
+| News Legion      | `legion_status/list_stories/get_story/my_position` (read) + `legion_contribute/sponsor/propose_story/vote/conclude` + `legion_inscribe_story/inscribe_reveal` | **Stacks mainnet, real sBTC**, pinned by contract address — never follows global `NETWORK`. No veto, no quorum, no faucet. Proposals blocked until 21 members join (`u441`); a story also needs yes weight ≥ 20× its payout. `contribute`/`sponsor` meter the `SPEND_LIMIT_*` sats rail. Inscription is the exception: native L1 BTC on whatever `NETWORK` names, gated by `confirmMainnetSpend` |
+| Inbox            | `send_inbox_message_direct`                                                                                                                                   | Mainnet only; non-sponsored sBTC transfer, sender pays STX gas. `send_inbox_message` (sponsored relay path) is **deprecated** — it no longer sends and just redirects here (relay queue could wedge, #540/#592)                                                                                                                                                                                  |
 
 ## Agent Behavior Guidelines
 
@@ -244,6 +251,7 @@ See [`docs/TOOLS.md`](docs/TOOLS.md) for the full example-request → tool mappi
 Use the local knowledge base for Stacks/Clarity and protocol guidance: `/Users/biwas/claudex402/claude-knowledge`
 
 ### Quick Reference (Nuggets)
+
 Fast lookups for common facts and gotchas:
 
 - `nuggets/stacks.md` - Tenero API, SIWS, SIP-018 signing standards quick reference
@@ -252,6 +260,7 @@ Fast lookups for common facts and gotchas:
 - `nuggets/github.md` - GitHub API, Actions, and Pages workflows
 
 ### Deep Reference (Context)
+
 Comprehensive documentation for detailed guidance:
 
 - `context/clarity-reference.md` - Complete Clarity language reference
@@ -260,6 +269,7 @@ Comprehensive documentation for detailed guidance:
 - `context/tenero-api.md` and `downloads/2025-01-06-tenero-openapi-spec.json` - Market data APIs
 
 ### Patterns & Best Practices
+
 Reusable code patterns and architectural guidance:
 
 - `patterns/clarity-patterns.md` - Comprehensive Clarity code patterns (public functions, events, error handling, bit flags, multi-send, whitelisting, DAO proposals, fixed-point math, treasury patterns)
@@ -267,12 +277,14 @@ Reusable code patterns and architectural guidance:
 - `patterns/skill-organization.md` - Three-layer pattern (SKILL → RUNBOOK → HELPERS) for maintainable workflows
 
 ### Architectural Decisions
+
 Design principles and workflow patterns:
 
 - `decisions/0002-clarity-design-principles.md` - Contract design rules, security patterns, Clarity 4 features
 - `decisions/0001-workflow-component-design.md` - Development workflow component patterns (OODA loop, planning flows, composable workflows)
 
 ### Runbooks
+
 Step-by-step operational guides:
 
 - `runbook/clarity-development.md` - Clarity dev workflows and checklists
