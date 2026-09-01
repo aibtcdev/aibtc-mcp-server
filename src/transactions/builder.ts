@@ -8,10 +8,17 @@ import {
   PostCondition,
 } from "@stacks/transactions";
 import { hexToBytes } from "@stacks/common";
-import { getStacksNetwork, getApiBaseUrl, type Network } from "../config/networks.js";
+import {
+  getStacksNetwork,
+  getApiBaseUrl,
+  type Network,
+} from "../config/networks.js";
 import { getHiroApi } from "../services/hiro-api.js";
 import { resolveDefaultFee } from "../utils/fee.js";
-import { getSpendLimiter } from "../services/spend-limiter.js";
+import {
+  boundedPostConditionSpends,
+  getSpendLimiter,
+} from "../services/spend-limiter.js";
 import type { WalletAddresses } from "../utils/storage.js";
 import {
   getTrackedNonce,
@@ -56,7 +63,10 @@ export async function forceResyncNonce(address: string): Promise<void> {
  *    get strictly increasing nonces even before the mempool reflects the first tx.
  * 5. Warn if the network reports missing nonces.
  */
-async function getNextNonce(address: string, network: Network): Promise<bigint> {
+async function getNextNonce(
+  address: string,
+  network: Network,
+): Promise<bigint> {
   // Read local tracker state (no network call)
   const localNext = await getTrackedNonce(address);
 
@@ -69,10 +79,13 @@ async function getNextNonce(address: string, network: Network): Promise<bigint> 
     await reconcileWithChain(address, nonceInfo.possible_next_nonce);
 
     // Warn about detected nonce gaps that could stall the queue.
-    if (nonceInfo.detected_missing_nonces && nonceInfo.detected_missing_nonces.length > 0) {
+    if (
+      nonceInfo.detected_missing_nonces &&
+      nonceInfo.detected_missing_nonces.length > 0
+    ) {
       console.warn(
         `[nonce] detected_missing_nonces for ${address}: [${nonceInfo.detected_missing_nonces.join(", ")}]. ` +
-        `These gaps may stall pending transactions. Use recover_sponsor_nonce with action=fill-gaps to resolve.`
+          `These gaps may stall pending transactions. Use recover_sponsor_nonce with action=fill-gaps to resolve.`,
       );
     }
 
@@ -82,7 +95,10 @@ async function getNextNonce(address: string, network: Network): Promise<bigint> 
     // Fallback: if we have a fresh local counter, use it to keep the queue moving
     // even when Hiro is temporarily unreachable (e.g., between rapid sequential calls).
     if (localNext !== null && localNext > 0) {
-      console.warn(`[nonce] API call failed, using local tracked nonce (${localNext}) for ${address}:`, err);
+      console.warn(
+        `[nonce] API call failed, using local tracked nonce (${localNext}) for ${address}:`,
+        err,
+      );
       return BigInt(localNext);
     }
     throw err;
@@ -96,10 +112,17 @@ async function getNextNonce(address: string, network: Network): Promise<bigint> 
  * @param txid - Optional transaction ID for the pending log. Pass empty string
  *               if not available (e.g., legacy callers).
  */
-export function advancePendingNonce(address: string, nonce: bigint, txid = ""): void {
+export function advancePendingNonce(
+  address: string,
+  nonce: bigint,
+  txid = "",
+): void {
   // Delegate to shared tracker (fire-and-forget since callers are sync)
   recordNonceUsed(address, Number(nonce), txid).catch((err) => {
-    console.error(`[nonce] Failed to record nonce ${nonce} for ${address}:`, err);
+    console.error(
+      `[nonce] Failed to record nonce ${nonce} for ${address}:`,
+      err,
+    );
   });
 }
 
@@ -174,7 +197,7 @@ export async function transferStx(
   recipient: string,
   amount: bigint,
   memo?: string,
-  fee?: bigint
+  fee?: bigint,
 ): Promise<TransferResult> {
   // Safety rail: block before signing if this would exceed the wallet's
   // cumulative spending limit (per-session or per-day).
@@ -184,7 +207,8 @@ export async function transferStx(
   const nonce = await getNextNonce(account.address, account.network);
 
   // Always resolve a clamped fee — prevents @stacks/transactions from over-estimating.
-  const resolvedFee = fee ?? await resolveDefaultFee(account.network, "token_transfer");
+  const resolvedFee =
+    fee ?? (await resolveDefaultFee(account.network, "token_transfer"));
 
   const transaction = await makeSTXTokenTransfer({
     recipient,
@@ -203,7 +227,7 @@ export async function transferStx(
 
   if ("error" in broadcastResponse) {
     throw new Error(
-      `Broadcast failed: ${broadcastResponse.error} - ${broadcastResponse.reason}`
+      `Broadcast failed: ${broadcastResponse.error} - ${broadcastResponse.reason}`,
     );
   }
 
@@ -221,13 +245,34 @@ export async function transferStx(
  */
 export async function callContract(
   account: Account,
-  options: ContractCallOptions
+  options: ContractCallOptions,
 ): Promise<TransferResult> {
+  // Meter only the amount the post-condition actually bounds. This check is
+  // deliberately before makeContractCall so an over-cap request cannot sign
+  // (or broadcast) anything. Lower-bound and unknown-token conditions are not
+  // spend caps and are ignored by boundedPostConditionSpends.
+  const boundedSpends = boundedPostConditionSpends(
+    options.postConditions,
+    account.address,
+  );
+  const meteredSpends = [
+    ...new Set(boundedSpends.map((spend) => spend.unit)),
+  ].map((unit) => ({
+    unit,
+    amount: boundedSpends
+      .filter((spend) => spend.unit === unit)
+      .reduce((total, spend) => total + spend.amount, 0n),
+  }));
+  for (const spend of meteredSpends) {
+    await getSpendLimiter().check(spend.unit, spend.amount, account.address);
+  }
+
   const networkName = getStacksNetwork(account.network);
   const nonce = await getNextNonce(account.address, account.network);
 
   // Always resolve a clamped fee — prevents @stacks/transactions from over-estimating.
-  const resolvedFee = options.fee ?? await resolveDefaultFee(account.network, "contract_call");
+  const resolvedFee =
+    options.fee ?? (await resolveDefaultFee(account.network, "contract_call"));
 
   const transaction = await makeContractCall({
     contractAddress: options.contractAddress,
@@ -249,11 +294,15 @@ export async function callContract(
 
   if ("error" in broadcastResponse) {
     throw new Error(
-      `Broadcast failed: ${broadcastResponse.error} - ${broadcastResponse.reason}`
+      `Broadcast failed: ${broadcastResponse.error} - ${broadcastResponse.reason}`,
     );
   }
 
   advancePendingNonce(account.address, nonce, broadcastResponse.txid);
+
+  for (const spend of meteredSpends) {
+    await getSpendLimiter().record(spend.unit, spend.amount, account.address);
+  }
 
   return {
     txid: broadcastResponse.txid,
@@ -266,13 +315,14 @@ export async function callContract(
  */
 export async function deployContract(
   account: Account,
-  options: ContractDeployOptions
+  options: ContractDeployOptions,
 ): Promise<TransferResult> {
   const networkName = getStacksNetwork(account.network);
   const nonce = await getNextNonce(account.address, account.network);
 
   // Always resolve a clamped fee — prevents @stacks/transactions from over-estimating.
-  const resolvedFee = options.fee ?? await resolveDefaultFee(account.network, "smart_contract");
+  const resolvedFee =
+    options.fee ?? (await resolveDefaultFee(account.network, "smart_contract"));
 
   const transaction = await makeContractDeploy({
     contractName: options.contractName,
@@ -290,7 +340,7 @@ export async function deployContract(
 
   if ("error" in broadcastResponse) {
     throw new Error(
-      `Broadcast failed: ${broadcastResponse.error} - ${broadcastResponse.reason}`
+      `Broadcast failed: ${broadcastResponse.error} - ${broadcastResponse.reason}`,
     );
   }
 
@@ -310,7 +360,7 @@ export async function signStxTransfer(
   recipient: string,
   amount: bigint,
   memo?: string,
-  fee?: bigint
+  fee?: bigint,
 ): Promise<{ signedTx: string; txid: string }> {
   const networkName = getStacksNetwork(account.network);
 
@@ -334,7 +384,7 @@ export async function signStxTransfer(
  */
 export async function signContractCall(
   account: Account,
-  options: ContractCallOptions
+  options: ContractCallOptions,
 ): Promise<{ signedTx: string; txid: string }> {
   const networkName = getStacksNetwork(account.network);
 
@@ -361,7 +411,7 @@ export async function signContractCall(
  */
 export async function broadcastSignedTransaction(
   signedTx: string,
-  network: Network
+  network: Network,
 ): Promise<{ txid: string }> {
   const baseUrl = getApiBaseUrl(network);
   const txBytes = Buffer.from(hexToBytes(signedTx));

@@ -21,11 +21,51 @@
  * Disable entirely with SPEND_LIMIT_ENABLED=false. Override caps with
  * SPEND_LIMIT_DAILY_USTX / _SESSION_USTX / _DAILY_SATS / _SESSION_SATS.
  */
+import type { PostCondition } from "@stacks/transactions";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
 
 export type SpendUnit = "ustx" | "sats";
+
+/**
+ * Convert the bounded value in caller-supplied post conditions into the
+ * ledgers used by SpendLimiter. Only equality and upper-bound conditions are
+ * safe limits: lower-bound conditions do not cap what a contract may spend.
+ */
+export function boundedPostConditionSpends(
+  postConditions: PostCondition[] | undefined,
+  accountAddress: string,
+): Array<{ unit: SpendUnit; amount: bigint }> {
+  const spends: Array<{ unit: SpendUnit; amount: bigint }> = [];
+  for (const condition of postConditions ?? []) {
+    const candidate = condition as unknown as {
+      type?: string;
+      address?: string;
+      condition?: string;
+      amount?: string | number | bigint;
+      asset?: string;
+    };
+    if (
+      candidate.address !== accountAddress ||
+      (candidate.condition !== "eq" && candidate.condition !== "lte") ||
+      candidate.amount === undefined
+    ) {
+      continue;
+    }
+    const amount = BigInt(candidate.amount);
+    if (amount < 0n) continue;
+    if (candidate.type === "stx-postcondition") {
+      spends.push({ unit: "ustx", amount });
+    } else if (
+      candidate.type === "ft-postcondition" &&
+      candidate.asset?.endsWith(".sbtc-token::sbtc-token")
+    ) {
+      spends.push({ unit: "sats", amount });
+    }
+  }
+  return spends;
+}
 
 const STORAGE_DIR = path.join(os.homedir(), ".aibtc");
 const DEFAULT_STATE_FILE = path.join(STORAGE_DIR, "spend-state.json");
@@ -41,7 +81,7 @@ function parseLimit(envName: string, fallback: number): number {
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     console.error(
-      `[spend-limit] Invalid ${envName}="${raw}", falling back to ${fallback}`
+      `[spend-limit] Invalid ${envName}="${raw}", falling back to ${fallback}`,
     );
     return fallback;
   }
@@ -95,7 +135,7 @@ export class SpendLimitError extends Error {
     public readonly unit: SpendUnit,
     public readonly attempted: number,
     public readonly remaining: number,
-    public readonly scope: "session" | "day"
+    public readonly scope: "session" | "day",
   ) {
     super(message);
     this.name = "SpendLimitError";
@@ -175,7 +215,7 @@ class SpendLimiter {
         unit,
         amt,
         remaining,
-        "session"
+        "session",
       );
     }
 
@@ -188,7 +228,7 @@ class SpendLimiter {
         unit,
         amt,
         remaining,
-        "day"
+        "day",
       );
     }
   }
@@ -244,7 +284,7 @@ class SpendLimiter {
     attempted: number,
     remaining: number,
     scope: "session" | "day",
-    cap: number
+    cap: number,
   ): string {
     const envVar =
       unit === "ustx"

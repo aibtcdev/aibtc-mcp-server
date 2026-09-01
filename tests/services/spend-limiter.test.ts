@@ -3,9 +3,11 @@ import os from "os";
 import path from "path";
 import { promises as fs } from "fs";
 import {
+  boundedPostConditionSpends,
   getSpendLimiter,
   SpendLimitError,
 } from "../../src/services/spend-limiter.js";
+import { Pc } from "@stacks/transactions";
 
 // Unique address per test so the shared singleton's session map and the daily
 // state file don't bleed across tests.
@@ -35,10 +37,7 @@ beforeEach(async () => {
     savedEnv[k] = process.env[k];
     delete process.env[k];
   }
-  stateFile = path.join(
-    os.tmpdir(),
-    `spend-state-${runId}-${testId}.json`
-  );
+  stateFile = path.join(os.tmpdir(), `spend-state-${runId}-${testId}.json`);
   limiter.setStateFile(stateFile);
   limiter.resetSession(addr());
 });
@@ -53,22 +52,51 @@ afterEach(async () => {
 });
 
 describe("default caps (Conservative)", () => {
+  it("derives only bounded STX and sBTC post conditions", () => {
+    const address = "SP000000000000000000002Q6VF78";
+    const spends = boundedPostConditionSpends(
+      [
+        Pc.principal(address).willSendLte(123).ustx(),
+        Pc.principal(address).willSendGte(999).ustx(),
+        Pc.principal(address)
+          .willSendEq(456)
+          .ft(
+            "ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT.sbtc-token",
+            "sbtc-token",
+          ),
+        Pc.principal(address)
+          .willSendEq(789)
+          .ft(
+            "ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT.other-token",
+            "other-token",
+          ),
+      ],
+      address,
+    );
+    expect(spends).toEqual([
+      { unit: "ustx", amount: 123n },
+      { unit: "sats", amount: 456n },
+    ]);
+  });
+
   it("allows a spend under the default 10 STX cap", async () => {
     await expect(
-      limiter.check("ustx", 5_000_000n, addr())
+      limiter.check("ustx", 5_000_000n, addr()),
     ).resolves.toBeUndefined();
   });
 
   it("blocks a single spend over the default 10 STX cap", async () => {
     await expect(limiter.check("ustx", 11_000_000n, addr())).rejects.toThrow(
-      SpendLimitError
+      SpendLimitError,
     );
   });
 
   it("allows a sats spend under the default 50k cap, blocks over", async () => {
-    await expect(limiter.check("sats", 40_000n, addr())).resolves.toBeUndefined();
+    await expect(
+      limiter.check("sats", 40_000n, addr()),
+    ).resolves.toBeUndefined();
     await expect(limiter.check("sats", 60_000n, addr())).rejects.toThrow(
-      SpendLimitError
+      SpendLimitError,
     );
   });
 });
@@ -89,7 +117,7 @@ describe("cumulative tracking", () => {
 
     // 0.9 STX spent; a 4th 0.3 STX would hit 1.2 > 1 STX → blocked.
     await expect(limiter.check("ustx", 300_000n, a)).rejects.toThrow(
-      SpendLimitError
+      SpendLimitError,
     );
   });
 
@@ -131,7 +159,7 @@ describe("disable + overrides", () => {
   it("SPEND_LIMIT_ENABLED=false disables all checks", async () => {
     process.env.SPEND_LIMIT_ENABLED = "false";
     await expect(
-      limiter.check("ustx", 999_000_000_000n, addr())
+      limiter.check("ustx", 999_000_000_000n, addr()),
     ).resolves.toBeUndefined();
   });
 
@@ -139,7 +167,7 @@ describe("disable + overrides", () => {
     process.env.SPEND_LIMIT_SESSION_USTX = "50000000"; // 50 STX
     process.env.SPEND_LIMIT_DAILY_USTX = "50000000";
     await expect(
-      limiter.check("ustx", 40_000_000n, addr())
+      limiter.check("ustx", 40_000_000n, addr()),
     ).resolves.toBeUndefined();
   });
 
@@ -147,7 +175,7 @@ describe("disable + overrides", () => {
     process.env.SPEND_LIMIT_DAILY_USTX = "not-a-number";
     // Falls back to 10 STX default → 11 STX still blocked.
     await expect(limiter.check("ustx", 11_000_000n, addr())).rejects.toThrow(
-      SpendLimitError
+      SpendLimitError,
     );
   });
 
