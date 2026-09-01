@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.69.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.68.0...mcp-server-v1.69.0) (2026-09-01)
+
+
+### Features
+
+* **ordinals:** return contentSha256 from inscribe + validate on inscribe_reveal ([#653](https://github.com/aibtcdev/aibtc-mcp-server/issues/653)) ([1a64995](https://github.com/aibtcdev/aibtc-mcp-server/commit/1a6499592d08bbb438cd28cb863f0af5ac78b67f))
+
+
+### Bug Fixes
+
+* meter contract-call spends against the spending limit ([#663](https://github.com/aibtcdev/aibtc-mcp-server/issues/663)) ([f715878](https://github.com/aibtcdev/aibtc-mcp-server/commit/f715878c288d1f808a88394e4c9995f808487cda))
+
 ## [1.68.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.67.0...mcp-server-v1.68.0) (2026-08-17)
 
 
