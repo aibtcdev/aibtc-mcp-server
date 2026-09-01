@@ -11,7 +11,7 @@ import { hexToBytes } from "@stacks/common";
 import { getStacksNetwork, getApiBaseUrl, type Network } from "../config/networks.js";
 import { getHiroApi } from "../services/hiro-api.js";
 import { resolveDefaultFee } from "../utils/fee.js";
-import { getSpendLimiter } from "../services/spend-limiter.js";
+import { getSpendLimiter, totalBoundedSpends } from "../services/spend-limiter.js";
 import type { WalletAddresses } from "../utils/storage.js";
 import {
   getTrackedNonce,
@@ -223,6 +223,17 @@ export async function callContract(
   account: Account,
   options: ContractCallOptions
 ): Promise<TransferResult> {
+  // Safety rail. Swaps, lending and pot entries all funnel through here, and
+  // their amounts are denominated in whatever token the call moves — there is no
+  // ledger to bill 1,000 ALEX against. The post conditions are the way in: they
+  // already bound, in native units, how much of each asset may leave this
+  // address. Meter the ones this rail has a ledger for and ignore the rest.
+  // Deliberately before makeContractCall, so an over-cap call never signs.
+  const meteredSpends = totalBoundedSpends(options.postConditions, account.address);
+  for (const spend of meteredSpends) {
+    await getSpendLimiter().check(spend.unit, spend.amount, account.address);
+  }
+
   const networkName = getStacksNetwork(account.network);
   const nonce = await getNextNonce(account.address, account.network);
 
@@ -254,6 +265,10 @@ export async function callContract(
   }
 
   advancePendingNonce(account.address, nonce, broadcastResponse.txid);
+
+  for (const spend of meteredSpends) {
+    await getSpendLimiter().record(spend.unit, spend.amount, account.address);
+  }
 
   return {
     txid: broadcastResponse.txid,
