@@ -13,11 +13,6 @@ vi.mock("../../src/services/wallet-manager.js", () => ({
   }),
 }));
 
-const mockGetTransactionStatus = vi.fn();
-vi.mock("../../src/services/hiro-api.js", () => ({
-  getTransactionStatus: mockGetTransactionStatus,
-}));
-
 const { registerCompetitionTools } = await import(
   "../../src/tools/competition.tools.js"
 );
@@ -53,60 +48,47 @@ function jsonResponse(body: unknown, init: { status?: number } = {}): Response {
   });
 }
 
-const VALID_TXID =
-  "0xabcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
-
 describe("competition tools", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    // Default tx-status mock: tx is confirmed (success) so the pre-flight
-    // gate passes and submission proceeds. Tests that need pending semantics
-    // override this in-place.
-    mockGetTransactionStatus.mockResolvedValue({
-      status: "success",
-      block_height: 7929497,
-    });
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
-    mockGetTransactionStatus.mockReset();
   });
 
-  it("submit_trade is idempotent: two calls with same txid return the same shape", async () => {
-    const verifiedBody = {
-      txid: VALID_TXID,
-      sender: "SP000000000000000000002Q6VF78",
-      tx_status: "success",
-      source: "agent",
-    };
-    fetchMock.mockImplementation(async () => jsonResponse(verifiedBody));
+  it("exposes only the read-only tools (submission and allowlist are retired)", () => {
+    const { server, tools } = createTrackingServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerCompetitionTools(server as any);
+
+    expect([...tools.keys()].sort()).toEqual([
+      "competition_list_trades",
+      "competition_status",
+    ]);
+  });
+
+  it("reads trade history for the active wallet", async () => {
+    const body = { trades: [{ txid: "0xabc", tx_status: "success" }], next_cursor: null };
+    fetchMock.mockResolvedValue(jsonResponse(body));
 
     const { server, tools } = createTrackingServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     registerCompetitionTools(server as any);
-    const submit = tools.get("competition_submit_trade")!;
+    const listTrades = tools.get("competition_list_trades")!;
 
-    const first = await submit.handler({ txid: VALID_TXID });
-    const second = await submit.handler({ txid: VALID_TXID });
+    const result = await listTrades.handler({});
+    expect(result.isError).toBeUndefined();
+    expect(JSON.parse(result.content[0].text)).toEqual(body);
 
-    expect(first.isError).toBeUndefined();
-    expect(second.isError).toBeUndefined();
-    expect(first.content[0].text).toEqual(second.content[0].text);
-    expect(JSON.parse(first.content[0].text)).toEqual(verifiedBody);
-
-    // Both calls hit POST /trades with the normalized txid in the body.
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    for (const call of fetchMock.mock.calls) {
-      const [url, init] = call as [string, RequestInit];
-      expect(url).toBe("https://test.aibtc.com/api/competition/trades");
-      expect(init.method).toBe("POST");
-      expect(JSON.parse(init.body as string)).toEqual({ txid: VALID_TXID });
-    }
+    const [url] = fetchMock.mock.calls[0] as [string];
+    expect(url).toBe(
+      "https://test.aibtc.com/api/competition/trades?address=SP000000000000000000002Q6VF78"
+    );
   });
 
   it("propagates 5xx errors as MCP error responses with status code", async () => {
@@ -117,9 +99,9 @@ describe("competition tools", () => {
     const { server, tools } = createTrackingServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     registerCompetitionTools(server as any);
-    const submit = tools.get("competition_submit_trade")!;
+    const listTrades = tools.get("competition_list_trades")!;
 
-    const result = await submit.handler({ txid: VALID_TXID });
+    const result = await listTrades.handler({});
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("503");
     expect(result.content[0].text).toContain("indexer offline");
@@ -144,72 +126,14 @@ describe("competition tools", () => {
     const { server, tools } = createTrackingServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     registerCompetitionTools(server as any);
-    const submit = tools.get("competition_submit_trade")!;
+    const listTrades = tools.get("competition_list_trades")!;
 
-    const pending = submit.handler({ txid: VALID_TXID });
+    const pending = listTrades.handler({});
     await vi.advanceTimersByTimeAsync(10_001);
     const result = await pending;
 
     expect(result.isError).toBe(true);
     expect(abortError).toBeDefined();
     expect(result.content[0].text.toLowerCase()).toContain("abort");
-  });
-
-  it("gates submission when the tx is still pending on Stacks", async () => {
-    mockGetTransactionStatus.mockResolvedValue({ status: "pending" });
-
-    const { server, tools } = createTrackingServer();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerCompetitionTools(server as any);
-    const submit = tools.get("competition_submit_trade")!;
-
-    const result = await submit.handler({ txid: VALID_TXID });
-
-    expect(result.isError).toBeUndefined();
-    const body = JSON.parse(result.content[0].text);
-    expect(body).toMatchObject({
-      accepted: false,
-      txid: VALID_TXID,
-      tx_status: "pending",
-    });
-    expect(body.message).toContain("pending");
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("forwards terminal-failure txs to the verifier (backend records them)", async () => {
-    mockGetTransactionStatus.mockResolvedValue({
-      status: "abort_by_post_condition",
-    });
-    fetchMock.mockImplementation(async () =>
-      jsonResponse({
-        txid: VALID_TXID,
-        tx_status: "abort_by_post_condition",
-        source: "agent",
-      })
-    );
-
-    const { server, tools } = createTrackingServer();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerCompetitionTools(server as any);
-    const submit = tools.get("competition_submit_trade")!;
-
-    const result = await submit.handler({ txid: VALID_TXID });
-    expect(result.isError).toBeUndefined();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(JSON.parse(result.content[0].text).tx_status).toBe(
-      "abort_by_post_condition"
-    );
-  });
-
-  it("rejects malformed txids before any network call", async () => {
-    const { server, tools } = createTrackingServer();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerCompetitionTools(server as any);
-    const submit = tools.get("competition_submit_trade")!;
-
-    const result = await submit.handler({ txid: "not-a-real-txid" });
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("Invalid Stacks txid");
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
