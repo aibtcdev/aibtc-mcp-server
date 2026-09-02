@@ -99,7 +99,7 @@ aibtc-mcp-server MCP Server (src/index.ts)
 - `src/tools/legion.tools.ts` - AIBTC News Legion governance (inscribe → propose → vote → conclude, contribute, sponsor)
 - `src/services/legion.service.ts` - Legion chain reads, network-pinned account, phase/outcome derivation
 - `src/config/legion.ts` - Legion mainnet contract ids (constants), network derivation, contract error codes
-- `src/tools/competition.tools.ts` - AIBTC Trading Competition tools (submit_trade with Hiro pre-flight gate, status, list_trades)
+- `src/tools/competition.tools.ts` - AIBTC Trading Competition (concluded; **not registered** — module kept for the `computeCampaignStats` P&L reference, exposes no MCP tools)
 - `src/tools/pillar.tools.ts` - Pillar smart wallet tools (handoff model)
 - `src/services/pillar-api.service.ts` - Pillar API client
 - `src/config/pillar.ts` - Pillar configuration (API URL, API key)
@@ -194,8 +194,7 @@ The allowlist is re-enforced at `tools/call` time, so the model can't reach a to
 ## Available Tools
 
 > **Full tool reference:** [`docs/TOOLS.md`](docs/TOOLS.md) — per-tool parameters,
-> examples, contract addresses, asset tables, the competition allowlist, and P&L
-> methodology. The MCP server also exposes each tool's description at runtime, so the
+> examples, contract addresses, asset tables, and P&L methodology. The MCP server also exposes each tool's description at runtime, so the
 > table below is just a discovery map. Read the reference doc before working on a tool's
 > behavior.
 
@@ -216,7 +215,6 @@ The allowlist is re-enforced at `tools/call` time, so the model can't reach a to
 | ALEX DEX | `alex_list_pools/get_swap_quote/swap/get_pool_info` | Mainnet only; `alex-sdk` |
 | Zest | `zest_list_assets/get_position/supply/withdraw/borrow/repay` | Mainnet only; 10 assets |
 | Bitflow DEX | `bitflow_get_ticker/tokens/swap_targets/quote/routes/swap` + Keeper tools | Mainnet only; ticker is public, rest need `BITFLOW_API_KEY` |
-| Competition | `competition_submit_trade/status/list_trades/allowlist` | Mainnet only; requires identity registration; Bitflow swaps only score today |
 | Pillar | `pillar_connect/disconnect/status/send/fund/supply/boost/unwind/auto_compound/position/create_wallet/add_admin/invite` | Browser handoff for passkey signing |
 | AIBTC News | `news_list_signals/front_page/leaderboard/check_status/list_beats` (read) + `news_file_signal/claim_beat` (BIP-322 auth) | bc1q addresses only |
 | News Legion | `legion_status/list_stories/get_story/my_position` (read) + `legion_contribute/sponsor/propose_story/vote/conclude` + `legion_inscribe_story/inscribe_reveal` | **Stacks mainnet, real sBTC**, pinned by contract address — never follows global `NETWORK`. No veto, no quorum, no faucet. Proposals blocked until 21 members join (`u441`); a story also needs yes weight ≥ 20× its payout. `contribute`/`sponsor` meter the `SPEND_LIMIT_*` sats rail. Inscription is the exception: native L1 BTC on whatever `NETWORK` names, gated by `confirmMainnetSpend` |
