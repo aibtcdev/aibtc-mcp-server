@@ -50,6 +50,7 @@ import { registerInboxTools } from "./inbox.tools.js";
 import { registerInboxX402Tools } from "./inbox-x402.tools.js";
 import { registerArxivResearchTools } from "./arxiv-research.tools.js";
 import { registerEarningTools } from "./earning.tools.js";
+import { registerAgentAccountTools } from "./agent-account.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 
 /**
@@ -246,6 +247,9 @@ export function registerAllTools(server: McpServer): void {
 
   // Earning Opportunities (static "how to put your assets to work" menu)
   registerEarningTools(server);
+
+  // Agent Account (two-role smart wallet — deploy + owner actions via landing-page handoff)
+  registerAgentAccountTools(server);
 
   restoreRegisterTool();
 }
