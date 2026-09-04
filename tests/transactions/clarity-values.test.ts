@@ -210,6 +210,20 @@ describe("parseArgToClarityValue", () => {
       expect(cv.type).toBe(ClarityType.Buffer);
     });
 
+    it("should accept 0x-prefixed hex and produce the same bytes as raw hex", () => {
+      const raw = parseArgToClarityValue({ type: "buffer", value: "deadbeef" });
+      const prefixed = parseArgToClarityValue({ type: "buffer", value: "0xdeadbeef" });
+      expect(prefixed.type).toBe(ClarityType.Buffer);
+      expect(cvToString(prefixed)).toBe(cvToString(raw));
+    });
+
+    it("should accept 0X-prefixed hex (uppercase prefix)", () => {
+      const raw = parseArgToClarityValue({ type: "buffer", value: "deadbeef" });
+      const prefixed = parseArgToClarityValue({ type: "buffer", value: "0Xdeadbeef" });
+      expect(prefixed.type).toBe(ClarityType.Buffer);
+      expect(cvToString(prefixed)).toBe(cvToString(raw));
+    });
+
     it("should convert Buffer instance", () => {
       const buffer = Buffer.from([0xde, 0xad, 0xbe, 0xef]);
       const cv = parseArgToClarityValue(buffer);
