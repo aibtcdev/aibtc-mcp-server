@@ -99,6 +99,10 @@ aibtc-mcp-server MCP Server (src/index.ts)
 - `src/tools/legion.tools.ts` - AIBTC News Legion governance (inscribe → propose → vote → conclude, contribute, sponsor)
 - `src/services/legion.service.ts` - Legion chain reads, network-pinned account, phase/outcome derivation
 - `src/config/legion.ts` - Legion mainnet contract ids (constants), network derivation, contract error codes
+- `src/tools/at-stake.tools.ts` - At Stake market (elsalvadorstakesbtc.com — complete-set mint/merge, bids, transfer, redeem, resolve-idle)
+- `src/tools/at-stake-legion.tools.ts` - At Stake side legions (aibtc.com/legions — propose, vote, conclude, vault settlement)
+- `src/services/at-stake.service.ts` - At Stake chain reads, network-pinned account, conclude-outcome prediction
+- `src/config/at-stake.ts` - At Stake contract ids, side mapping (BONDED=yes, IDLE=no), contract error codes
 - `src/tools/competition.tools.ts` - AIBTC Trading Competition (concluded; **not registered** — module kept for the `computeCampaignStats` P&L reference, exposes no MCP tools)
 - `src/tools/pillar.tools.ts` - Pillar smart wallet tools (handoff model)
 - `src/services/pillar-api.service.ts` - Pillar API client
