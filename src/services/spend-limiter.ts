@@ -26,6 +26,7 @@ import type { PostCondition } from "@stacks/transactions";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
+import { withSharedStateLock } from "./state-lock.js";
 import { MAINNET_CONTRACTS, TESTNET_CONTRACTS } from "../config/contracts.js";
 
 export type SpendUnit = "ustx" | "sats";
@@ -277,21 +278,45 @@ class SpendLimiter {
 
     this.getSession(addr)[unit] += amt;
 
-    // Serialize read-modify-write to avoid lost updates under concurrency.
+    // Two locks, for two different races.
+    //
+    // The promise chain serializes concurrent record() calls INSIDE this
+    // process. The file lease excludes the OTHER process writing this file:
+    // the skills engine's direct x402 path shares spend-state.json so one
+    // wallet has one daily cap. Without the lease, its writes and ours
+    // overwrite each other and the day total under-counts, which is the
+    // direction that permits spending past the cap.
+    //
+    // Note the prune below walks EVERY address, so an unlocked concurrent
+    // write can lose another wallet's day too, not just this one's.
     this.writeLock = this.writeLock.then(async () => {
-      const state = await this.readState();
-      const today = todayKey();
-      // Prune stale days so the file does not grow unbounded.
-      for (const a of Object.keys(state)) {
-        for (const day of Object.keys(state[a])) {
-          if (day !== today) delete state[a][day];
+      const run = await withSharedStateLock(this.stateFile, async () => {
+        const state = await this.readState();
+        const today = todayKey();
+        // Prune stale days so the file does not grow unbounded.
+        for (const a of Object.keys(state)) {
+          for (const day of Object.keys(state[a])) {
+            if (day !== today) delete state[a][day];
+          }
+          if (Object.keys(state[a]).length === 0) delete state[a];
         }
-        if (Object.keys(state[a]).length === 0) delete state[a];
+        if (!state[addr]) state[addr] = {};
+        if (!state[addr][today]) state[addr][today] = { ustx: 0, sats: 0 };
+        state[addr][today][unit] += amt;
+        await this.writeState(state);
+      });
+
+      // The spend already happened on chain by the time record() is called, so
+      // an unavailable lease must not throw: that would turn a broadcast
+      // transaction into an unrecorded one. Write anyway and say so, because a
+      // silent under-count is the failure this whole lease exists to prevent.
+      if (!run.held) {
+        console.error(
+          `[spend-limit] Recorded ${amt} ${unit} for ${addr} WITHOUT the shared lock: ` +
+            `${run.unavailable} The daily total may under-count if another tool wrote ` +
+            `concurrently.`
+        );
       }
-      if (!state[addr]) state[addr] = {};
-      if (!state[addr][today]) state[addr][today] = { ustx: 0, sats: 0 };
-      state[addr][today][unit] += amt;
-      await this.writeState(state);
     });
     await this.writeLock;
   }
