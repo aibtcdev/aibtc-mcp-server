@@ -39,6 +39,8 @@ import { registerSigningTools } from "./signing.tools.js";
 import { registerInferenceMarketplaceTools } from "./inference-marketplace.tools.js";
 import { registerNewsTools } from "./news.tools.js";
 import { registerLegionTools } from "./legion.tools.js";
+import { registerAtStakeTools } from "./at-stake.tools.js";
+import { registerAtStakeLegionTools } from "./at-stake-legion.tools.js";
 import { registerIdentityTools } from "./identity.tools.js";
 import { registerCredentialsTools } from "./credentials.tools.js";
 import { registerSouldinalsTools } from "./souldinals.tools.js";
@@ -213,6 +215,12 @@ export function registerAllTools(server: McpServer): void {
 
   // AIBTC News Legion (mainnet aibtc-news-gov — inscribe, propose, vote, conclude)
   registerLegionTools(server);
+
+  // At Stake (elsalvadorstakesbtc.com — complete-set prediction market)
+  registerAtStakeTools(server);
+
+  // At Stake side legions (aibtc.com/legions — weight is the share balance)
+  registerAtStakeLegionTools(server);
 
   // Identity (ERC-8004 on-chain agent identity management)
   registerIdentityTools(server);
