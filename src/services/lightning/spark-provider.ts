@@ -50,6 +50,10 @@ interface SparkCurrencyAmount {
   originalUnit: string;
 }
 
+type SparkWalletBalance =
+  | { balance: bigint | number | string }
+  | { satsBalance: { available: bigint | number | string } };
+
 /**
  * Convert a Spark `CurrencyAmount` to whole satoshis.
  *
@@ -169,9 +173,12 @@ export class SparkLightningProvider implements LightningProvider {
   }
 
   async getBalance(): Promise<{ balanceSats: number }> {
-    const balance = await this.wallet.getBalance();
+    const balance = (await this.wallet.getBalance()) as SparkWalletBalance;
+    const balanceSats =
+      "satsBalance" in balance ? balance.satsBalance.available : balance.balance;
+
     return {
-      balanceSats: Number(balance.satsBalance.available),
+      balanceSats: Number(balanceSats),
     };
   }
 
