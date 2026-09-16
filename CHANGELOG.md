@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.70.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.70.0...mcp-server-v1.70.1) (2026-09-16)
+
+
+### Bug Fixes
+
+* deprecate news tools (aibtc.news API returns 410) ([#675](https://github.com/aibtcdev/aibtc-mcp-server/issues/675)) ([d650f90](https://github.com/aibtcdev/aibtc-mcp-server/commit/d650f9030615a3efc73fc123f2a51663fd5fb1ce))
+* recover x402 V2 settlement txid ([#667](https://github.com/aibtcdev/aibtc-mcp-server/issues/667)) ([02dcd68](https://github.com/aibtcdev/aibtc-mcp-server/commit/02dcd681d1071f010907248042dd266999368d42))
+* restore psbt and settings tools, correct stale config and docs ([#676](https://github.com/aibtcdev/aibtc-mcp-server/issues/676)) ([b72301b](https://github.com/aibtcdev/aibtc-mcp-server/commit/b72301bf31b720feea48b276da181b8a4c1f7c28))
+
 ## [1.70.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.69.0...mcp-server-v1.70.0) (2026-09-16)
 
 
