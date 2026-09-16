@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.70.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.69.0...mcp-server-v1.70.0) (2026-09-16)
+
+
+### Features
+
+* **at-stake:** add El Salvador prediction market and side-legion tools ([#670](https://github.com/aibtcdev/aibtc-mcp-server/issues/670)) ([d48b17a](https://github.com/aibtcdev/aibtc-mcp-server/commit/d48b17a7f61d9c413accce54010743d9fe374609))
+
+
+### Bug Fixes
+
+* **spend-limiter:** lock the shared day ledger against the skills engine's writer ([#671](https://github.com/aibtcdev/aibtc-mcp-server/issues/671)) ([4bcadaf](https://github.com/aibtcdev/aibtc-mcp-server/commit/4bcadaf75d0f2a67aa7a9a4b615c0c67a8744be3))
+
 ## [1.69.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.68.0...mcp-server-v1.69.0) (2026-09-01)
 
 
