@@ -344,25 +344,6 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   get_rune_utxos: "runes",
   transfer_rune: "runes",
 
-  // aibtc-news skill — aibtc.news signal filing and browsing
-  news_check_status: "aibtc-news",
-  news_claim_beat: "aibtc-news",
-  news_file_signal: "aibtc-news",
-  news_front_page: "aibtc-news",
-  news_leaderboard: "aibtc-news",
-  news_list_beats: "aibtc-news",
-  news_list_signals: "aibtc-news",
-  news_editor_review_signal: "aibtc-news",
-  news_editor_file_review: "aibtc-news",
-  news_editor_check_earnings: "aibtc-news",
-  news_publisher_compile_brief: "aibtc-news",
-  news_publisher_set_beat_config: "aibtc-news",
-  news_register_editor: "aibtc-news",
-  news_deactivate_editor: "aibtc-news",
-  news_list_editors: "aibtc-news",
-  news_file_correction: "aibtc-news",
-  news_record_editor_payout: "aibtc-news",
-
   // nostr skill — Nostr protocol social network
   nostr_get_profile: "nostr",
   nostr_get_pubkey: "nostr",

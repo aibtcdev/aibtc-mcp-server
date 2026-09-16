@@ -7,9 +7,8 @@
  *
  * Spec: https://github.com/bitcoin/bips/blob/master/bip-0322.mediawiki
  *
- * These primitives are shared across:
- * - src/tools/signing.tools.ts (btc_sign_message / btc_verify_message)
- * - src/tools/news.tools.ts (news_file_signal auth headers)
+ * Used by src/tools/signing.tools.ts (btc_sign_message / btc_verify_message)
+ * and the BIP-322-authenticated aibtc.com tools.
  */
 
 import {

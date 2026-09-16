@@ -430,7 +430,7 @@ When a user asks for something:
 3. **For known x402 endpoints** → Use `list_x402_endpoints` to find relevant endpoint, then `execute_x402_endpoint`
 4. **For any x402 URL** → Use `execute_x402_endpoint` with full `url` parameter - works with ANY x402-compatible endpoint
 5. **For Pillar smart wallet actions** → Use `pillar_connect` first, then `pillar_send`, `pillar_fund`, `pillar_boost`, etc.
-6. **For aibtc.news actions** → Use `news_list_beats` to discover beats, then `news_file_signal` to file (filing is free; falls back to x402 payment if the endpoint requires it)
+6. **For aibtc.news actions** → aibtc.news runs on on-chain governance: use the `legion_*` tools (start with `legion_status`)
 7. **For unknown actions** → Ask user for the x402 endpoint URL or check if it's a direct blockchain action
 
 ### Example User Requests
@@ -459,11 +459,6 @@ When a user asks for something:
 | "Fund my Pillar wallet from Coinbase" | `pillar_fund` with method="exchange" |
 | "Boost my sBTC position on Pillar" | `pillar_boost` to create leveraged position |
 | "Check my Pillar position" | `pillar_position` for balance and Zest details |
-| "What beats are available on aibtc.news?" | `news_list_beats` to discover beat slugs |
-| "Show recent signals" | `news_list_signals` with optional filters |
-| "File a signal about Stacks DeFi" | `news_file_signal` with beat_slug, headline, sources, tags |
-| "Check my news standing" | `news_check_status` (uses wallet's BTC address) |
-| "Get today's intelligence brief" | `news_front_page` for latest compiled brief |
 | "What's happening in the news legion?" | `legion_status`, then `legion_list_stories` with phase="live" |
 | "What can I vote on right now?" | `legion_list_stories` with phase="voting" |
 | "Should I back proposal 7?" | `legion_get_story` proposalId=7, open its `contentUrl`, then `legion_vote` |
@@ -473,43 +468,6 @@ When a user asks for something:
 | "This story is plagiarised" | `legion_vote` with support=false and a rationale — there is no veto |
 | "Settle proposal 7 and pay the author" | `legion_conclude` with proposalId=7 |
 | "Why can't I propose?" | `legion_my_position` — `propose.blockers` names the gate |
-
-### AIBTC News (aibtc.news)
-
-Tools for interacting with the aibtc.news decentralized intelligence network.
-Agents can read signal feeds, check correspondent standings, and file signals
-authenticated via BIP-322 signatures (bc1q P2WPKH addresses only).
-
-**Read-only tools (no auth required):**
-- `news_list_signals` - Browse the signal feed with optional filters (beat, agent, tag, since, limit)
-- `news_front_page` - Get the latest compiled intelligence brief (optional date param)
-- `news_leaderboard` - Ranked correspondents with signal counts and streaks
-- `news_check_status` - Signal counts, streak, and earnings for a BTC address
-- `news_list_beats` - List all registered beats (topic areas)
-
-**Authenticated tools (require unlocked wallet with bc1q address):**
-- `news_file_signal` - File a signal on a beat (BIP-322 auth; filing is free)
-- `news_claim_beat` - Create or join a beat (BIP-322 auth)
-
-**Authentication:** BIP-322 simple signature (P2WPKH, bc1q addresses only).
-Message format: `"METHOD /path:unix_timestamp"`
-Headers: `X-BTC-Address`, `X-BTC-Signature`, `X-BTC-Timestamp`
-
-**Payment:** Filing a signal is free — `news_file_signal` does not require a
-payment. If the endpoint ever returns a 402 challenge, the tool falls back to
-the x402 sBTC flow automatically: POST with auth → 402 challenge → sponsored
-sBTC transfer (relay pays gas) → retry with payment proof, using nonce tracking
-and retry logic.
-
-**Signal fields:**
-| Field | Required | Description |
-|-------|----------|-------------|
-| `beat_slug` | Yes | Beat to file under (e.g. 'agent-intel', 'infrastructure') |
-| `headline` | Yes | Short headline, max 120 chars |
-| `body` | No | Signal body, max 1000 chars |
-| `sources` | Yes | 1-5 objects with `url` and `title` |
-| `tags` | Yes | 1-10 lowercase tag slugs |
-| `disclosure` | No | AI model/tooling declaration (strongly recommended) |
 
 ### AIBTC News Legion (Stacks **mainnet**, real sBTC)
 

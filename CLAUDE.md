@@ -95,7 +95,6 @@ aibtc-mcp-server MCP Server (src/index.ts)
 - `src/config/contracts.ts` - Contract addresses and Zest asset configuration (LP tokens, oracles, decimals)
 - `src/services/scaffold.service.ts` - x402 endpoint project scaffolding for Cloudflare Workers
 - `src/tools/bitcoin.tools.ts` - Bitcoin L1 tools (balance, fees, UTXOs, transfer)
-- `src/tools/news.tools.ts` - AIBTC News tools (signals, beats, briefs, BIP-322 auth; signal filing is free, x402 payment kept as fallback)
 - `src/tools/legion.tools.ts` - AIBTC News Legion governance (inscribe → propose → vote → conclude, contribute, sponsor)
 - `src/services/legion.service.ts` - Legion chain reads, network-pinned account, phase/outcome derivation
 - `src/config/legion.ts` - Legion mainnet contract ids (constants), network derivation, contract error codes
@@ -220,7 +219,6 @@ The allowlist is re-enforced at `tools/call` time, so the model can't reach a to
 | Zest | `zest_list_assets/get_position/supply/withdraw/borrow/repay` | Mainnet only; 10 assets |
 | Bitflow DEX | `bitflow_get_ticker/tokens/swap_targets/quote/routes/swap` + Keeper tools | Mainnet only; ticker is public, rest need `BITFLOW_API_KEY` |
 | Pillar | `pillar_connect/disconnect/status/send/fund/supply/boost/unwind/auto_compound/position/create_wallet/add_admin/invite` | Browser handoff for passkey signing |
-| AIBTC News | `news_list_signals/front_page/leaderboard/check_status/list_beats` (read) + `news_file_signal/claim_beat` (BIP-322 auth) | bc1q addresses only |
 | News Legion | `legion_status/list_stories/get_story/my_position` (read) + `legion_contribute/sponsor/propose_story/vote/conclude` + `legion_inscribe_story/inscribe_reveal` | **Stacks mainnet, real sBTC**, pinned by contract address — never follows global `NETWORK`. No veto, no quorum, no faucet. Proposals blocked until 21 members join (`u441`); a story also needs yes weight ≥ 20× its payout. `contribute`/`sponsor` meter the `SPEND_LIMIT_*` sats rail. Inscription is the exception: native L1 BTC on whatever `NETWORK` names, gated by `confirmMainnetSpend` |
 | Inbox | `send_inbox_message_direct` | Mainnet only; non-sponsored sBTC transfer, sender pays STX gas. `send_inbox_message` (sponsored relay path) is **deprecated** — it no longer sends and just redirects here (relay queue could wedge, #540/#592) |
 
@@ -233,9 +231,8 @@ When a user asks for something:
 3. **For known x402 endpoints** → Use `list_x402_endpoints` to find relevant endpoint, then `execute_x402_endpoint`
 4. **For any x402 URL** → Use `execute_x402_endpoint` with full `url` parameter - works with ANY x402-compatible endpoint
 5. **For Pillar smart wallet actions** → Use `pillar_connect` first, then `pillar_send`, `pillar_fund`, `pillar_boost`, etc.
-6. **For aibtc.news actions** → Use `news_list_beats` to discover beats, then `news_file_signal` to file (filing is free; falls back to x402 payment if the endpoint requires it)
-7. **For News Legion governance** → Start with `legion_status` (check `membership.activated` — proposals are blocked until the legion activates), then `legion_list_stories`. To publish: `legion_inscribe_story` → `legion_inscribe_reveal` → `legion_propose_story`. To judge: `legion_get_story` (open its `contentUrl` and read the piece) → `legion_vote` with a rationale → `legion_conclude`
-8. **For unknown actions** → Ask user for the x402 endpoint URL or check if it's a direct blockchain action
+6. **For aibtc.news / News Legion governance** → Start with `legion_status` (check `membership.activated` — proposals are blocked until the legion activates), then `legion_list_stories`. To publish: `legion_inscribe_story` → `legion_inscribe_reveal` → `legion_propose_story`. To judge: `legion_get_story` (open its `contentUrl` and read the piece) → `legion_vote` with a rationale → `legion_conclude`
+7. **For unknown actions** → Ask user for the x402 endpoint URL or check if it's a direct blockchain action
 
 See [`docs/TOOLS.md`](docs/TOOLS.md) for the full example-request → tool mapping.
 
