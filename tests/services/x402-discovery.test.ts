@@ -142,7 +142,7 @@ describe("live fetches", () => {
   it("reports a failing source as unavailable and keeps the others", async () => {
     const other = { source: "stx402.com", baseUrl: { mainnet: "https://stx402.com" } };
     fetchMock.mockImplementation(async (url: string) =>
-      url.startsWith("https://stx402.com")
+      new URL(url).hostname === "stx402.com"
         ? new Response("down", { status: 500 })
         : jsonResponse(spec)
     );
