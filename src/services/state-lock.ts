@@ -30,6 +30,7 @@
  * its pid and left for an operator, who can see whether it is really dead.
  */
 
+import os from "os";
 import path from "path";
 import {
   mkdirSync,
@@ -83,11 +84,18 @@ function tryLock(dir: string, token: string): boolean {
     mkdirSync(path.dirname(dir), { recursive: true, mode: 0o700 });
     // mkdir of an existing directory throws: that is the atomic test-and-set.
     mkdirSync(dir);
+  } catch {
+    return false;
+  }
+  try {
     writeFileSync(path.join(dir, "owner"), `${process.pid} ${token}`, {
       mode: 0o600,
     });
     return true;
   } catch {
+    // We created the directory but could not claim it. Remove it rather than
+    // strand an ownerless lease that every writer would wait on.
+    rmSync(dir, { recursive: true, force: true });
     return false;
   }
 }
@@ -163,7 +171,11 @@ function installExitHooks(): void {
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
     process.once(signal, () => {
       releaseAll();
-      process.exit(130);
+      // Leave shutdown to any other handler (e.g. yield-hunter's graceful
+      // stop); only exit ourselves when we displaced the default behaviour.
+      if (process.listenerCount(signal) === 0) {
+        process.exit(128 + os.constants.signals[signal]);
+      }
     });
   }
 }

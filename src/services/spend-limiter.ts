@@ -289,7 +289,7 @@ class SpendLimiter {
     //
     // Note the prune below walks EVERY address, so an unlocked concurrent
     // write can lose another wallet's day too, not just this one's.
-    this.writeLock = this.writeLock.then(async () => {
+    const write = this.writeLock.then(async () => {
       const run = await withSharedStateLock(this.stateFile, async () => {
         const state = await this.readState();
         const today = todayKey();
@@ -318,7 +318,9 @@ class SpendLimiter {
         );
       }
     });
-    await this.writeLock;
+    // A failed write must not poison the chain for every later record().
+    this.writeLock = write.catch(() => {});
+    await write;
   }
 
   /** Remaining session/day budget for status reporting. */
