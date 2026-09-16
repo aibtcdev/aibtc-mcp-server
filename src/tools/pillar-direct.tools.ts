@@ -120,6 +120,24 @@ function formatSigAuthForApi(sigAuth: SigAuth) {
   };
 }
 
+/**
+ * The Pillar smart wallet's Fast Pool functions are hardcoded to pox-4
+ * (`pox-4.allow-contract-caller` + `pox4-fast-pool-v3.delegate-stx`, and
+ * `pox-4.revoke-delegate-stx`). Once PoX has moved past pox-4 those calls abort
+ * on chain, so refuse before signing instead of burning gas on a sure failure.
+ */
+async function assertFastPoolPoxActive(action: string): Promise<void> {
+  const pox = await getHiroApi(NETWORK).getPoxInfo();
+  if (!pox.contract_id.endsWith(".pox-4")) {
+    throw new Error(
+      `${action} is unavailable: the Pillar smart wallet's Fast Pool path calls pox-4, but the ` +
+        `active PoX contract is ${pox.contract_id}, so the transaction would abort on chain. ` +
+        `This needs a Pillar wallet contract update. For STX staking on PoX-5, use stack_stx ` +
+        `with a signer manager (see list_stacking_signers).`
+    );
+  }
+}
+
 // ============================================================================
 // Tool Registration
 // ============================================================================
@@ -1436,7 +1454,8 @@ export function registerPillarDirectTools(server: McpServer): void {
       description:
         "Stack STX from your Pillar smart wallet via Fast Pool or Stacking DAO. " +
         "Agent-signed, no browser needed. Backend sponsors gas. " +
-        "Fast Pool delegates STX to the pox4-fast-pool-v3 contract. " +
+        "Fast Pool delegates STX to the pox4-fast-pool-v3 contract through pox-4, and is refused while " +
+        "pox-4 is not the active PoX contract (PoX-5 is live; use stack_stx for PoX-5 staking). " +
         "Stacking DAO deposits STX into Stacking DAO core for stSTX yield. " +
         "Your wallet must be enrolled in dual stacking first (automatic for v2 wallets with sBTC).",
       inputSchema: {
@@ -1454,6 +1473,9 @@ export function registerPillarDirectTools(server: McpServer): void {
     },
     async ({ stxAmount, pool }) => {
       try {
+        if (pool === "fast-pool") {
+          await assertFastPoolPoxActive("Fast Pool stacking");
+        }
         const { keyService, session } = await requireActiveKey();
         const authId = generateAuthId();
 
@@ -1509,13 +1531,15 @@ export function registerPillarDirectTools(server: McpServer): void {
     "pillar_direct_revoke_fast_pool",
     {
       description:
-        "Revoke Fast Pool STX delegation from your Pillar smart wallet. " +
+        "Revoke Fast Pool STX delegation from your Pillar smart wallet (pox-4 revoke-delegate-stx; " +
+        "refused while pox-4 is not the active PoX contract). " +
         "Agent-signed, no browser needed. Backend sponsors gas. " +
         "After revoking, STX stays locked until the current PoX cycle ends, then returns to liquid.",
       inputSchema: {},
     },
     async () => {
       try {
+        await assertFastPoolPoxActive("Revoking Fast Pool");
         const { keyService, session } = await requireActiveKey();
         const authId = generateAuthId();
 

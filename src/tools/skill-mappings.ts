@@ -75,6 +75,10 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   get_stacking_status: "stacking",
   stack_stx: "stacking",
   extend_stacking: "stacking",
+  list_stacking_signers: "stacking",
+  unstake_stx: "stacking",
+  get_stacking_rewards: "stacking",
+  claim_stacking_rewards: "stacking",
 
   // dual-stacking skill — sBTC Dual Stacking yield protocol
   dual_stacking_status: "dual-stacking",

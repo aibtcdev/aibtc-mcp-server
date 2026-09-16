@@ -1,5 +1,4 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import * as btc from "@scure/btc-signer";
 import { z } from "zod";
 import { getAccount, getWalletAddress, NETWORK } from "../services/x402.service.js";
 import { getSbtcService } from "../services/sbtc.service.js";
@@ -9,34 +8,8 @@ import { getContracts, parseContractId } from "../config/contracts.js";
 import { createJsonResponse, createErrorResponse, resolveFee } from "../utils/index.js";
 import { getWalletManager } from "../services/wallet-manager.js";
 import { MempoolApi, getMempoolTxUrl } from "../services/mempool-api.js";
-import { getBtcNetwork } from "../transactions/bitcoin-builder.js";
 import { sponsoredSchema } from "./schemas.js";
-
-function parseBtcRecipientTuple(btcRecipientAddress: string): {
-  version: number;
-  hashbytesHex: string;
-} {
-  const decoded = btc.Address(getBtcNetwork(NETWORK)).decode(btcRecipientAddress);
-
-  if (decoded.type === "tr" && decoded.pubkey) {
-    return { version: 0x06, hashbytesHex: Buffer.from(decoded.pubkey).toString("hex") };
-  }
-
-  switch (decoded.type) {
-    case "pkh":
-      return { version: 0x00, hashbytesHex: Buffer.from(decoded.hash).toString("hex") };
-    case "sh":
-      return { version: 0x01, hashbytesHex: Buffer.from(decoded.hash).toString("hex") };
-    case "wpkh":
-      return { version: 0x04, hashbytesHex: Buffer.from(decoded.hash).toString("hex") };
-    case "wsh":
-      return { version: 0x05, hashbytesHex: Buffer.from(decoded.hash).toString("hex") };
-    default:
-      throw new Error(
-        "Unsupported BTC recipient address type. Supported: P2PKH, P2SH, P2WPKH, P2WSH, P2TR."
-      );
-  }
-}
+import { btcAddressToPoxAddr } from "../utils/bitcoin.js";
 
 function getReadonlySenderAddress(): string {
   const contracts = getContracts(NETWORK);
@@ -139,7 +112,7 @@ Example: To send 0.001 sBTC, use amount "100000" (satoshis).`,
     const sbtcService = getSbtcService(NETWORK);
     const account = await getAccount();
     const resolvedFee = await resolveFee(fee, NETWORK, "contract_call");
-    const recipientTuple = parseBtcRecipientTuple(btcRecipientAddress);
+    const recipientTuple = btcAddressToPoxAddr(btcRecipientAddress, NETWORK);
 
     const result = await sbtcService.initiateWithdrawal(
       account,

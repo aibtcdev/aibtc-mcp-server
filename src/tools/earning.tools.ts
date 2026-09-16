@@ -47,10 +47,10 @@ export const EARNING_STRATEGIES: EarningStrategy[] = [
     id: "stacking",
     name: "Bitcoin Stacking (PoX)",
     assets: ["STX"],
-    returns: "BTC / sBTC rewards per PoX cycle",
+    returns: "sBTC rewards per PoX cycle",
     summary:
-      "Lock STX to support Stacks consensus and earn Bitcoin rewards. Dual Stacking routes the yield as sBTC.",
-    start_with: ["get_stacking_status", "stack_stx", "dual_stacking_enroll"],
+      "Lock STX with a PoX-5 signer manager to support Stacks consensus and earn sBTC rewards (or BTC via the manager's payout address). Dual Stacking routes the yield as sBTC.",
+    start_with: ["list_stacking_signers", "stack_stx", "get_stacking_status", "dual_stacking_enroll"],
   },
   {
     id: "defi_yield",
