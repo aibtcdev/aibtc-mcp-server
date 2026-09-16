@@ -12,12 +12,14 @@ The plugin automatically handles x402 payment challenges when accessing paid end
 
 ## API Sources
 
-The agent supports two x402 API sources:
+The known-endpoint registry (`src/endpoints/registry.ts`) covers these x402 API sources; `execute_x402_endpoint` also accepts any x402 URL:
 
 | Source | URL | Endpoints |
 |--------|-----|-----------|
 | x402.biwas.xyz | https://x402.biwas.xyz | DeFi analytics, market data, wallet analysis |
-| stx402.com | https://stx402.com | AI services, cryptography, storage, utilities, agent registry |
+| x402.aibtc.com | https://x402.aibtc.com | Inference, Stacks utilities, hashing, storage ([openapi](https://x402.aibtc.com/openapi.json)) |
+| stx402.com | https://stx402.com | x402 endpoint registry, agent registry (ERC-8004), links ([openapi](https://stx402.com/openapi.json)) |
+| aibtc.com | https://aibtc.com | Inbox messaging |
 
 ## Build Commands
 

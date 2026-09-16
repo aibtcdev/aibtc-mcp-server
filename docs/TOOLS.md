@@ -451,7 +451,7 @@ When a user asks for something:
 | "Get Bitflow market data" | `bitflow_get_ticker` (no API key required) |
 | "Swap tokens on Bitflow" | `bitflow_swap` with tokenX and tokenY contract IDs |
 | "Get a quote on Bitflow" | `bitflow_get_quote` for expected output |
-| "Tell me a dad joke" | `execute_x402_endpoint` with url="https://stx402.com/api/ai/dad-joke" |
+| "Hash this string with SHA-256" | `execute_x402_endpoint` with url="https://x402.aibtc.com/hashing/sha256" |
 | "Create a paid API endpoint for jokes" | `scaffold_x402_endpoint` with endpoint config |
 | "Create an AI chatbot API that charges per request" | `scaffold_x402_ai_endpoint` with chat aiType |
 | "Connect my Pillar wallet" | `pillar_connect` to open browser and get wallet address |
@@ -649,11 +649,13 @@ that leaves the reveal output under dust.
 - News & Research, Security, Wallet Analysis
 - Market Data, Pools, Tokens
 
+**x402.aibtc.com:**
+- Inference (OpenRouter, Cloudflare Workers AI)
+- Stacks utilities (address conversion, tx/Clarity decode, profile)
+- Hashing (SHA-256, Keccak-256, Hash160)
+- Storage (KV, paste, DB, memory)
+
 **stx402.com:**
-- AI Services (jokes, summarize, translate, TTS, image generation)
-- Stacks Blockchain (address conversion, tx decode, contract info)
-- Cryptography (SHA256, HMAC, etc.)
-- Storage (KV, SQL, Paste)
-- Utilities (QR codes, signature verification)
-- Registry, Links, Counters, Job Queue, Memory
-- Agent Registry & Reputation
+- x402 endpoint registry
+- Agent registry & reputation (ERC-8004)
+- Links
