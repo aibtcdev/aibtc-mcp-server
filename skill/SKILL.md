@@ -256,8 +256,8 @@ what they found. Chips are sBTC; there is no admin key and no oracle.
 
 Complete sets are the thing to understand first: **1 sat mints 1 BONDED (yes)
 share AND 1 IDLE (no) share**, and the pair merges back to 1 sat before resolve.
-Minting is therefore a hedge, not a bet — a position exists only once you sell
-one side. Minting is also how you buy legion voting weight, because **weight is
+Minting is therefore a hedge, not a bet — a directional position comes from
+`atstake_place_bid` on the side you believe. Minting is also how you buy legion voting weight, because **weight is
 the share balance**, read live on every call.
 
 | Tool | Description | Wallet |

@@ -8,9 +8,9 @@
  *   merge — hand back a matched pair for its sat, any time before resolve.
  *   redeem— after resolve, the winning side pays 1 sat per share.
  *
- * TAKING A SIDE IS MINT THEN SELL, NOT A SINGLE CALL. There is no buy-yes.
- * Minting leaves a caller flat; the position appears when they sell or bid for
- * the side they do not believe. A caller who mints and stops has spent sBTC to
+ * THERE IS NO BUY-YES. Minting leaves a caller flat. The directional trade
+ * these tools expose is a resting bid on the side they believe, which fills when
+ * a keeper matches it against an opposite-side bid. A caller who mints and stops has spent sBTC to
  * take no view at all, so `atstake_mint_complete_set` says so in its result.
  *
  * EVERYTHING HERE MOVES REAL VALUE on Stacks mainnet. `mint` and `place_bid`
@@ -274,8 +274,8 @@ export function registerAtStakeTools(server: McpServer): void {
         "Spend sBTC to mint a matched pair: each sat buys 1 BONDED (yes) share AND " +
         "1 IDLE (no) share.\n\n" +
         "THIS DOES NOT TAKE A SIDE. It leaves the caller flat and fully hedged — the " +
-        "pair is worth exactly what it cost, whatever happens. A directional bet is two " +
-        "steps: mint, then sell or transfer away the side you do not believe.\n\n" +
+        "pair is worth exactly what it cost, whatever happens. To take a view at a " +
+        "price, use atstake_place_bid on the side you believe instead.\n\n" +
         "It is also how you buy legion voting weight, because weight is the share " +
         "balance. Minting 1,000 sats clears the minimum on BOTH legions at once.\n\n" +
         "Reversible before the market resolves: atstake_merge_complete_set hands any " +
@@ -334,14 +334,14 @@ export function registerAtStakeTools(server: McpServer): void {
           explorerUrl: explorerUrl(result.txid),
           spentSats: sats,
           minted: { bonded_yes: sats, idle_no: sats },
-          netExposure: "flat — this pair is hedged until you sell one side",
+          netExposure: "flat — this pair is hedged",
           legionWeightGained: {
             yes: sats,
             no: sats,
             clearsMinimum: sats >= 1000,
           },
           nextStep:
-            "To take a view, sell or transfer one side. To undo, " +
+            "To take a view, atstake_place_bid. To undo, " +
             "atstake_merge_complete_set. To govern, atstake_legion_propose.",
           network: AT_STAKE_NETWORK,
         });
@@ -665,8 +665,8 @@ export function registerAtStakeTools(server: McpServer): void {
     {
       description:
         "Send shares of one side to another principal.\n\n" +
-        "This is how a minted pair becomes a directional position without an order " +
-        "book: keep the side you believe, send away the side you do not. It also moves " +
+        "Transfers are free: the recipient pays nothing, so sending shares away gives " +
+        "their value away. Do not use this to take a side. It also moves " +
         "legion voting weight, since weight is the balance — sending 1,000 bonded " +
         "shares hands the recipient a vote in the yes legion and costs you yours.\n\n" +
         "Shares are map entries, not a SIP-010 token, so no fungible-token " +

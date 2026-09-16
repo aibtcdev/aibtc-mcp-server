@@ -569,4 +569,29 @@ describe("at stake legion tools", () => {
     const [, options] = callContract.mock.calls[0];
     expect(options.postConditions[0].amount).toBe("1000");
   });
+
+  it("guards a vault redeem on the market, which is the principal that pays", async () => {
+    chain.getMarket.mockResolvedValue(
+      openMarket({ status: 1, statusLabel: "resolved-bonded" })
+    );
+    chain.getSettlement.mockResolvedValue({
+      redeemed: false,
+      redeemedSats: 0,
+      paidSats: 0,
+      unpaidSats: 0,
+      totalCredits: 3000,
+      won: true,
+    });
+
+    const result = await legionTools()
+      .get("atstake_legion_redeem_vault")!
+      .handler({ side: "yes" });
+
+    expect(result.isError).toBeUndefined();
+    const [, options] = callContract.mock.calls[0];
+    expect(options.postConditions[0].address).toBe(
+      "SP5Y3W3F78NKFH4HYFNDQMJC484VZWKDH35ZR2M9.elsalvador-stakes-btc-v2"
+    );
+    expect(options.postConditions[0].amount).toBe("992000");
+  });
 });

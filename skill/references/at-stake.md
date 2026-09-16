@@ -56,16 +56,16 @@ two functions, both permissionless:
 why `vault == idle-circ == bonded-circ` holds across every mint and merge.
 
 **Minting is not a bet.** It leaves you flat and fully hedged — the pair is worth
-exactly what it cost whatever happens. Taking a side is two steps:
+exactly what it cost whatever happens. To take a side at a price, bid for it:
 
 ```
-1. atstake_mint_complete_set  { sats: 2000 }     -> 2000 bonded + 2000 idle
-2. atstake_transfer_shares    { side: "yes", amount: 2000, to: <buyer> }
-   (or atstake_place_bid / sell into someone else's bid)
+atstake_place_bid  { side: "no", amount: 2000, total_sats: 1200 }
 ```
 
-After step 2 you are long NO by 2,000 shares. After step 1 alone you have spent
-sBTC to take no view at all.
+The bid rests with its escrow locked until a keeper matches it against an
+opposite-side bid (the two must together cover one sat per share), or until you
+cancel it. `atstake_transfer_shares` is not a sale: the recipient pays nothing,
+so sending a side away gives its value away.
 
 **BONDED is YES and IDLE is NO**, and the raw constants do not line up
 (`SIDE_IDLE` is `u0` while `STATUS_IDLE` is `u2`). Every tool takes the side by

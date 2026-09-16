@@ -48,6 +48,7 @@ import {
   MAX_LINK_LENGTH,
   MAX_RATIONALE_LENGTH,
   MAX_TITLE_LENGTH,
+  MARKET_CONTRACT,
   SBTC_ASSET_NAME,
   SBTC_CONTRACT,
   resolveSide,
@@ -931,11 +932,11 @@ export function registerAtStakeLegionTools(server: McpServer): void {
           functionName: "redeem-vault",
           functionArgs: [],
           postConditionMode: PostConditionMode.Deny,
-          // A winning vault redeems its shares at one sat each, so the market
+          // A winning vault redeems its shares at one sat each, so the MARKET
           // sends the legion at most the vault's share count. A losing vault
           // moves nothing, which a cap also covers.
           postConditions: [
-            Pc.principal(chosen.legion)
+            Pc.principal(MARKET_CONTRACT)
               .willSendLte(status.vault)
               .ft(SBTC_FT, SBTC_ASSET_NAME),
           ],
