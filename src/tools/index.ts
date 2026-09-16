@@ -210,7 +210,7 @@ export function registerAllTools(server: McpServer): void {
   // AIBTC Inference Marketplace (list/manage a paid model endpoint via wallet signature)
   registerInferenceMarketplaceTools(server);
 
-  // AIBTC News (signal feed, leaderboard, file signals)
+  // AIBTC News (deprecated — API retired; each tool redirects to legion_*)
   registerNewsTools(server);
 
   // AIBTC News Legion (mainnet aibtc-news-gov — inscribe, propose, vote, conclude)
