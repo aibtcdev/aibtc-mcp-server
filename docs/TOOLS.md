@@ -263,6 +263,47 @@ Tools for implementing AI features using OpenRouter in any project:
 3. If needed, Claude searches web for latest OpenRouter API docs
 4. Claude implements the feature using the templates
 
+### Stacking (PoX-5)
+
+PoX-5 replaced pox-4 (mainnet cycle 141). It is not a rename: there is no
+`stack-stx` / `delegate-stx`, and no reward address on the stake itself.
+
+- **Every stake names a signer manager**: a contract implementing pox-5's
+  `signer-manager-trait`. Its `validate-stake!` decides who may join (allowlists,
+  minimums, required calldata). `list_stacking_signers` lists the next cycle's
+  signer set; any registered manager can be staked with by contract id.
+- **Rewards are sBTC paid to the manager**, which pays stakers. For a staker that is
+  `manager.claim-rewards(bond-periods, cycle)` (pull from pox-5, permissionless) then
+  `manager.claim-staker-rewards`. The second step differs per manager, so
+  `claim_stacking_rewards` reads it from the manager's interface:
+  `staker-arg` (reference managers, e.g. Xverse, Fast Pool), `caller` (e.g. native-pool),
+  or `none` (pays off-chain, e.g. PlanBetter — not claimable here).
+- **Payout calldata**: `btcRewardAddress` (+ `maxWithdrawalFeeSats`) encodes
+  `{ pox-addr, max-fee }`, which reference managers use to pay rewards to BTC through
+  an sBTC withdrawal. `signerCalldataHex` passes raw calldata for other formats.
+- **Prepare phase**: `stake`, `stake-update` and `unstake` are refused during the
+  last `prepare-cycle-length` (100) blocks of a cycle; the tools check first.
+- **Post-conditions**: locks are not transfers. `stack_stx` / `extend_stacking` sign a
+  staking post-condition equal to the resulting total lock; `unstake_stx` signs a
+  "performs PoX" condition. Deny mode. Not metered by the spend limit.
+
+| Tool | What it does |
+|------|--------------|
+| `get_pox_info` | Cycle, burn height, next cycle start, prepare phase |
+| `get_stacking_status` | Stake (amount, signer manager, lock, unlock height), bond membership, locked/unlocked STX |
+| `list_stacking_signers` | Signer set for a cycle with delegated STX; `withPayoutInfo` adds each manager's claim path |
+| `stack_stx` | `stake(signerManager, amount, numCycles 1-96)`; lock starts next cycle |
+| `extend_stacking` | `stake-update`: extend cycles, add STX, switch signer manager, change payout calldata |
+| `unstake_stx` | `unstake`: STX unlocks at the start of the next cycle |
+| `get_stacking_rewards` | Unclaimed sats for a cycle, whether the manager still has to pull, claim path |
+| `claim_stacking_rewards` | Pulls for the manager if needed (extra tx), then claims for the staker |
+
+**Pillar Fast Pool:** the Pillar smart wallet contract hardcodes pox-4
+(`pox-4.allow-contract-caller` + `pox4-fast-pool-v3.delegate-stx`, and
+`pox-4.revoke-delegate-stx`), so `pillar_direct_stack_stx` with `pool: "fast-pool"` and
+`pillar_direct_revoke_fast_pool` refuse while pox-4 is not the active PoX contract.
+Stacking DAO via `pillar_direct_stack_stx` is unaffected.
+
 ### DeFi - ALEX DEX (Mainnet Only)
 
 Uses the official `alex-sdk` for swap operations. The SDK handles:

@@ -25,6 +25,7 @@ import {
 import { NETWORK } from "../services/x402.service.js";
 import { getWalletAddress } from "../services/x402.service.js";
 import { getHiroApi } from "../services/hiro-api.js";
+import { getStackingService } from "../services/stacking.service.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 
 // ============================================================================
@@ -54,11 +55,6 @@ const ALEX_FACTOR = 100_000_000;
 
 // Bitflow public API
 const BITFLOW_API = "https://app.bitflow.finance/api";
-
-// Stacking (PoX-4)
-const POX_CONTRACT = "SP000000000000000000002Q6VF78";
-const POX_NAME = "pox-4";
-const POX_CONTRACT_ID = `${POX_CONTRACT}.${POX_NAME}`;
 
 // Mainnet Hiro API base URL (direct — not network-switched, this skill is mainnet-only)
 const MAINNET_HIRO_API = "https://api.hiro.so";
@@ -288,30 +284,18 @@ async function readStackingPosition(walletAddress: string): Promise<ProtocolPosi
   };
 
   try {
-    const hiro = getHiroApi("mainnet");
-    const res = await hiro.callReadOnlyFunction(
-      POX_CONTRACT_ID,
-      "get-stacker-info",
-      [standardPrincipalCV(walletAddress)],
-      POX_CONTRACT
-    );
-
-    if (res.okay && res.result) {
-      const hex = res.result.startsWith("0x") ? res.result.slice(2) : res.result;
-      const cv = hexToCV(hex);
-      const val = cvToValue(cv, true);
-      if (val && typeof val === "object" && "lock-amount" in (val as object)) {
-        const lockAmount = (val as Record<string, unknown>)["lock-amount"];
-        pos.valueSats =
-          typeof lockAmount === "bigint"
-            ? Number(lockAmount)
-            : typeof lockAmount === "number"
-              ? lockAmount
-              : 0;
-        pos.apyPct = 8.0;
-        pos.details.apySource = "static estimate, not live";
-        pos.details.stackerInfo = val;
-      }
+    const info = await getStackingService("mainnet").getStakerInfo(walletAddress);
+    if (info) {
+      pos.valueSats = Number(info.amountUstx);
+      pos.apyPct = 8.0;
+      pos.details.apySource = "static estimate, not live";
+      pos.details.stakerInfo = {
+        signerManager: info.signerManager,
+        firstRewardCycle: info.firstRewardCycle,
+        numCycles: info.numCycles,
+        unlockCycle: info.unlockCycle,
+        unlockBurnHeight: info.unlockBurnHeight,
+      };
     }
   } catch (e) {
     pos.details.error = String(e);

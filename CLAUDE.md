@@ -99,6 +99,7 @@ aibtc-mcp-server MCP Server (src/index.ts)
 - `src/config/contracts.ts` - Contract addresses and Zest asset configuration (LP tokens, oracles, decimals)
 - `src/services/scaffold.service.ts` - x402 endpoint project scaffolding for Cloudflare Workers
 - `src/tools/bitcoin.tools.ts` - Bitcoin L1 tools (balance, fees, UTXOs, transfer)
+- `src/services/stacking.service.ts` / `src/tools/stacking.tools.ts` - PoX-5 staking (signer managers, stake/stake-update/unstake, reward claims)
 - `src/tools/news.tools.ts` - AIBTC News tools (**deprecated** — aibtc.news API returns 410; each `news_*` tool returns a redirect to `legion_*`)
 - `src/tools/legion.tools.ts` - AIBTC News Legion governance (inscribe → propose → vote → conclude, contribute, sponsor)
 - `src/services/legion.service.ts` - Legion chain reads, network-pinned account, phase/outcome derivation
@@ -219,6 +220,7 @@ The allowlist is re-enforced at `tools/call` time, so the model can't reach a to
 | Mempool watch | `get_btc_mempool_info`, `get_btc_transaction_status`, `get_btc_address_txs` | |
 | Lightning (L402) | `lightning_create/import/unlock/lock/status/fund_from_btc/claim_deposit/pay_invoice/create_invoice` | Mainnet only; Spark SDK; `L402_MAX_SATS_PER_INVOICE` cap |
 | Stacks tx | `transfer_stx`, `call_contract`, `deploy_contract`, `get_transaction_status`, `broadcast_transaction` | |
+| Stacking (PoX-5) | `get_pox_info`, `get_stacking_status`, `list_stacking_signers`, `get_stacking_rewards` (read) + `stack_stx`, `extend_stacking`, `unstake_stx`, `claim_stacking_rewards` | Every stake names a signer manager contract; rewards are sBTC paid through that manager (claim path read from its interface; some pay off-chain). Stake/update/unstake refused in the prepare phase. Locks carry pox-5 staking / pox post-conditions, not STX transfer ones, and are not spend-metered. `pillar_direct_stack_stx` (fast-pool) and `pillar_direct_revoke_fast_pool` are refused while pox-4 is not active — the Pillar wallet contract hardcodes pox-4 |
 | x402 | `execute_x402_endpoint` | Any x402 URL, auto-payment |
 | Scaffolding | `scaffold_x402_endpoint`, `scaffold_x402_ai_endpoint` | Cloudflare Worker projects |
 | OpenRouter | `openrouter_integration_guide`, `openrouter_models` | AI feature integration |

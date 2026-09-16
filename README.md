@@ -15,7 +15,7 @@ Bitcoin-native MCP server for AI agents: BTC/STX wallets, DeFi yield, sBTC peg, 
 - **Token Operations** - SIP-010 fungible token transfers and queries
 - **NFT Support** - SIP-009 NFT holdings, transfers, and metadata
 - **DeFi Trading** - ALEX DEX swaps and Zest Protocol lending/borrowing
-- **Stacking/PoX** - Stacking status and delegation
+- **Stacking/PoX-5** - Stake STX with a signer manager, extend, unstake, claim sBTC rewards
 - **BNS Domains** - .btc domain lookups and management (V1 + V2)
 - **x402 Payments** - Automatic payment handling for paid APIs
 
@@ -386,10 +386,14 @@ Both addresses are derived from the same recovery phrase, making it easy to mana
 ### Stacking / PoX
 | Tool | Description |
 |------|-------------|
-| `get_pox_info` | Get current PoX cycle info |
-| `get_stacking_status` | Check stacking status |
-| `stack_stx` | Lock STX for stacking |
-| `extend_stacking` | Extend stacking period |
+| `get_pox_info` | Current PoX-5 cycle, burn height, prepare phase |
+| `get_stacking_status` | Locked amount, signer manager, unlock height |
+| `list_stacking_signers` | Signer managers in the next cycle's signer set |
+| `stack_stx` | Lock STX with a signer manager |
+| `extend_stacking` | Extend, increase, switch signer or payout (stake-update) |
+| `unstake_stx` | Stop early; unlocks next cycle |
+| `get_stacking_rewards` | Unclaimed sBTC rewards for a cycle |
+| `claim_stacking_rewards` | Claim a cycle's rewards through the signer manager |
 
 ### BNS Domains (V1 + V2)
 | Tool | Description |
