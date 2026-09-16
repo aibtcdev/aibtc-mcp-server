@@ -14,7 +14,7 @@ deep documentation that was previously inlined in `CLAUDE.md`; it is kept separa
 > disable). See [SECURITY.md](../SECURITY.md#limit-blast-radius).
 
 ### Endpoint Discovery
-- `list_x402_endpoints` - List all available x402 endpoints with search/filter by source, category, or keyword. **Use this first** to discover what actions are available.
+- `list_x402_endpoints` - List all available x402 endpoints with search/filter by source, category, or keyword. **Use this first** to discover what actions are available. x402.aibtc.com and stx402.com are read live from their `openapi.json`; `source: "directory"` lists third-party endpoints registered at stx402.com (verified only unless `includeUnverified: true`). Costs from live specs are tiers — use `probe_x402_endpoint` for the exact price.
 
 ### Wallet & Balance
 - `get_wallet_info` - Get configured wallet address, network, and API URL

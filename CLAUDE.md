@@ -12,14 +12,15 @@ The plugin automatically handles x402 payment challenges when accessing paid end
 
 ## API Sources
 
-The known-endpoint registry (`src/endpoints/registry.ts`) covers these x402 API sources; `execute_x402_endpoint` also accepts any x402 URL:
+`list_x402_endpoints` covers these x402 API sources; `execute_x402_endpoint` also accepts any x402 URL. Hosts that publish `openapi.json` are read live (`src/services/x402-discovery.service.ts`, 10-minute cache, a failed fetch is reported as an unavailable source); the rest are static entries in `src/endpoints/registry.ts`:
 
 | Source | URL | Endpoints |
 |--------|-----|-----------|
-| x402.biwas.xyz | https://x402.biwas.xyz | DeFi analytics, market data, wallet analysis |
-| x402.aibtc.com | https://x402.aibtc.com | Inference, Stacks utilities, hashing, storage ([openapi](https://x402.aibtc.com/openapi.json)) |
-| stx402.com | https://stx402.com | x402 endpoint registry, agent registry (ERC-8004), links ([openapi](https://stx402.com/openapi.json)) |
-| aibtc.com | https://aibtc.com | Inbox messaging |
+| x402.biwas.xyz | https://x402.biwas.xyz | DeFi analytics, market data, wallet analysis (static) |
+| x402.aibtc.com | https://x402.aibtc.com (testnet: x402.aibtc.dev) | Inference, Stacks utilities, hashing, storage (live, [openapi](https://x402.aibtc.com/openapi.json)) |
+| stx402.com | https://stx402.com | x402 endpoint registry, agent registry (ERC-8004), links (live, [openapi](https://stx402.com/openapi.json)) |
+| directory | https://stx402.com/registry/list | Third-party x402 endpoints registered at stx402.com (live, mainnet; verified only unless `includeUnverified`) |
+| aibtc.com | https://aibtc.com | Inbox messaging (static) |
 
 ## Build Commands
 
@@ -91,7 +92,8 @@ aibtc-mcp-server MCP Server (src/index.ts)
 - `src/services/bitflow.service.ts` - Bitflow DEX integration (via @bitflowlabs/core-sdk)
 - `src/services/mempool-api.ts` - mempool.space API client for Bitcoin UTXO, fee, and broadcast
 - `src/transactions/bitcoin-builder.ts` - Bitcoin transaction building and signing (P2WPKH)
-- `src/endpoints/registry.ts` - Known x402 endpoint registry from both API sources
+- `src/endpoints/registry.ts` - Static x402 endpoint entries for hosts without an OpenAPI spec (x402.biwas.xyz, aibtc.com inbox)
+- `src/services/x402-discovery.service.ts` - Live endpoint discovery from x402.aibtc.com / stx402.com `openapi.json` and the stx402.com directory
 - `src/services/bns.service.ts` - BNS name resolution (supports both V1 and V2)
 - `src/services/hiro-api.ts` - Hiro API client + BNS V2 API client
 - `src/config/contracts.ts` - Contract addresses and Zest asset configuration (LP tokens, oracles, decimals)

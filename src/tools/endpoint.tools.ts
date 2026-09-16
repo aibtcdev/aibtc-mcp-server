@@ -1,13 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { createApiClient, API_URL, probeEndpoint, formatPaymentAmount, type ProbeResult, checkSufficientBalance, generateDedupKey, checkDedupCache, recordTransaction, X402_DEDUP_TTL_MS, NETWORK } from "../services/x402.service.js";
+import { STATIC_ENDPOINTS, formatEndpointsTable, type X402Endpoint } from "../endpoints/registry.js";
 import {
-  ALL_ENDPOINTS,
-  searchEndpoints,
-  formatEndpointsTable,
-  getEndpointsBySource,
-  getCategories,
-} from "../endpoints/registry.js";
+  discoverOpenApiEndpoints,
+  fetchDirectoryEntries,
+  type DirectoryEntry,
+  type UnavailableSource,
+} from "../services/x402-discovery.service.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { X402_HEADERS, decodePaymentResponse } from "../utils/x402-protocol.js";
 import type { HttpPaymentStatusResponse } from "@aibtc/tx-schemas/http";
@@ -19,7 +19,6 @@ import {
 import { formatCanonicalPaymentStatus } from "../utils/x402-payment-state.js";
 import { emitPaymentLog } from "../utils/x402-payment-logging.js";
 
-const ALL_SOURCES = "x402.biwas.xyz, x402.aibtc.com, stx402.com, aibtc.com";
 
 interface ParsedEndpointUrl {
   baseUrl: string;
@@ -176,27 +175,26 @@ export function registerEndpointTools(server: McpServer): void {
   server.registerTool(
     "list_x402_endpoints",
     {
-      description: `List known x402 API endpoints from ${ALL_SOURCES}.
-
-The agent can:
-1. Execute x402 endpoints from these sources (paid API calls with automatic payment handling)
-2. Execute direct Stacks transactions (transfer STX, call contracts, deploy contracts)
+      description: `List x402 API endpoints. x402.aibtc.com and stx402.com are read live from their OpenAPI specs; the stx402.com directory lists x402 endpoints registered by third parties.
 
 Sources:
 - x402.biwas.xyz: DeFi analytics, market data, wallet analysis, Zest/ALEX protocols
-- x402.aibtc.com: AI inference, OpenRouter integration, Stacks utilities, hashing, storage
-- stx402.com: x402 endpoint directory, agent registry (ERC-8004), links
-- aibtc.com: Inbox messaging system`,
+- x402.aibtc.com: AI inference, Stacks utilities, hashing, storage (live)
+- stx402.com: x402 endpoint registry, agent registry (ERC-8004), links (live)
+- aibtc.com: Inbox messaging
+- directory: third-party endpoints registered at stx402.com (live, mainnet). Unverified entries are hidden unless includeUnverified is true — probe before paying.
+
+Costs from live specs are tiers ("paid (standard)", "paid (dynamic)"); use probe_x402_endpoint for the exact price.`,
       inputSchema: {
         source: z
-          .enum(["x402.biwas.xyz", "x402.aibtc.com", "stx402.com", "aibtc.com", "all"])
+          .enum(["x402.biwas.xyz", "x402.aibtc.com", "stx402.com", "aibtc.com", "directory", "all"])
           .optional()
           .default("all")
           .describe("Filter by API source"),
         category: z
           .string()
           .optional()
-          .describe("Filter by category (use without value to see available categories)"),
+          .describe("Filter by category (case-insensitive)"),
         search: z
           .string()
           .optional()
@@ -209,14 +207,50 @@ Sources:
           .boolean()
           .optional()
           .describe("Only show paid endpoints (require x402 payment)"),
+        includeUnverified: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Include unverified third-party entries from the stx402.com directory"),
       },
     },
-    async ({ source, category, search, showFreeOnly, showPaidOnly }) => {
+    async ({ source, category, search, showFreeOnly, showPaidOnly, includeUnverified }) => {
       try {
-        let endpoints = ALL_ENDPOINTS;
+        const wanted = source ?? "all";
+        const unavailable: UnavailableSource[] = [];
 
-        if (source && source !== "all") {
-          endpoints = getEndpointsBySource(source);
+        let endpoints: X402Endpoint[] = STATIC_ENDPOINTS.filter(
+          (ep) => wanted === "all" || ep.source === wanted
+        );
+
+        if (wanted === "all" || wanted === "x402.aibtc.com" || wanted === "stx402.com") {
+          const live = await discoverOpenApiEndpoints();
+          endpoints.push(...live.endpoints.filter((ep) => wanted === "all" || ep.source === wanted));
+          unavailable.push(
+            ...live.unavailable.filter((u) => wanted === "all" || u.source === wanted)
+          );
+        }
+
+        let directory: DirectoryEntry[] = [];
+        // Directory entries carry no method or price, so they only answer
+        // unfiltered or keyword/category browsing, not free/paid filters.
+        if ((wanted === "all" || wanted === "directory") && !showFreeOnly && !showPaidOnly) {
+          if (NETWORK !== "mainnet") {
+            if (wanted === "directory") {
+              unavailable.push({ source: "directory", error: "the stx402.com directory lists mainnet endpoints only" });
+            }
+          } else {
+            try {
+              directory = (await fetchDirectoryEntries()).filter(
+                (e) => includeUnverified || e.status === "verified"
+              );
+            } catch (error) {
+              unavailable.push({
+                source: "directory",
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
         }
 
         if (showFreeOnly) {
@@ -226,44 +260,66 @@ Sources:
         }
 
         if (category) {
-          endpoints = endpoints.filter(
-            (ep) => ep.category.toLowerCase() === category.toLowerCase()
-          );
+          const c = category.toLowerCase();
+          endpoints = endpoints.filter((ep) => ep.category.toLowerCase() === c);
+          directory = directory.filter((e) => e.category.toLowerCase() === c);
         }
 
         if (search) {
-          const searchResults = searchEndpoints(search);
-          endpoints = endpoints.filter((ep) => searchResults.includes(ep));
+          const q = search.toLowerCase();
+          endpoints = endpoints.filter(
+            (ep) =>
+              ep.path.toLowerCase().includes(q) ||
+              ep.description.toLowerCase().includes(q) ||
+              ep.category.toLowerCase().includes(q)
+          );
+          directory = directory.filter(
+            (e) =>
+              e.name.toLowerCase().includes(q) ||
+              e.url.toLowerCase().includes(q) ||
+              e.category.toLowerCase().includes(q)
+          );
         }
 
-        if (endpoints.length === 0) {
-          const categories = getCategories();
+        const unavailableText =
+          unavailable.length > 0
+            ? `\n\n## Unavailable sources\n${unavailable.map((u) => `- ${u.source}: ${u.error}`).join("\n")}`
+            : "";
+
+        if (endpoints.length === 0 && directory.length === 0) {
           return {
             content: [
               {
                 type: "text" as const,
-                text: `No endpoints found matching your criteria.
-
-Available categories: ${categories.join(", ")}
-
-Sources: ${ALL_SOURCES}
-
-If you're looking to perform a direct blockchain action (transfer STX, call a contract), those are available via separate tools.`,
+                text:
+                  `No endpoints found matching your criteria (source: ${wanted}).` +
+                  unavailableText +
+                  `\n\nIf you're looking to perform a direct blockchain action (transfer STX, call a contract), those are available via separate tools.`,
               },
             ],
           };
         }
 
-        const formatted = formatEndpointsTable(endpoints);
-        const sourceInfo =
-          source === "all"
-            ? `Sources: ${ALL_SOURCES}`
-            : `Source: ${source}`;
+        const directoryText =
+          directory.length > 0
+            ? `\n\n## Directory (stx402.com, third-party)\n` +
+              directory
+                .map((e) => `- ${e.name} [${e.category}, ${e.status}]\n  ${e.url}`)
+                .join("\n")
+            : "";
+
         return {
           content: [
             {
               type: "text" as const,
-              text: `# Available x402 Endpoints (${endpoints.length} total)\n\n${sourceInfo}\nDefault API: ${API_URL}\n${formatted}\n\n---\nUse execute_x402_endpoint to call any of these endpoints.`,
+              text:
+                `# Available x402 Endpoints (${endpoints.length + directory.length} total)\n\n` +
+                `Source: ${wanted}\nDefault API: ${API_URL}\n` +
+                (endpoints.length > 0 ? `\n${formatEndpointsTable(endpoints)}` : "") +
+                directoryText +
+                unavailableText +
+                `\n\n---\nUse execute_x402_endpoint to call an endpoint (full url for directory entries). ` +
+                `Use probe_x402_endpoint first to see the exact price.`,
             },
           ],
         };
