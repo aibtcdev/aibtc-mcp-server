@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.71.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.70.1...mcp-server-v1.71.0) (2026-09-16)
+
+
+### Features
+
+* **stacking:** move stacking tools to pox-5 ([#682](https://github.com/aibtcdev/aibtc-mcp-server/issues/682)) ([01b9769](https://github.com/aibtcdev/aibtc-mcp-server/commit/01b9769c2e5926d2c4167821db4787d46d10f592))
+* **x402:** discover x402.aibtc.com and stx402.com endpoints live ([#680](https://github.com/aibtcdev/aibtc-mcp-server/issues/680)) ([fa76f0f](https://github.com/aibtcdev/aibtc-mcp-server/commit/fa76f0fa409030bd5bab183fb74e621f794dde96))
+
+
+### Bug Fixes
+
+* **registry:** drop dead stx402.com endpoints and correct x402.aibtc.com routes ([#679](https://github.com/aibtcdev/aibtc-mcp-server/issues/679)) ([91a8c56](https://github.com/aibtcdev/aibtc-mcp-server/commit/91a8c56c9789960ec6ac2596140544bc7b1bd931))
+
 ## [1.70.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.70.0...mcp-server-v1.70.1) (2026-09-16)
 
 
