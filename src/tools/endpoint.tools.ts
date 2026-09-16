@@ -9,7 +9,7 @@ import {
   getCategories,
 } from "../endpoints/registry.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
-import { X402_HEADERS } from "../utils/x402-protocol.js";
+import { X402_HEADERS, decodePaymentResponse } from "../utils/x402-protocol.js";
 import type { HttpPaymentStatusResponse } from "@aibtc/tx-schemas/http";
 import {
   extractPaymentIdFromPaymentSignature,
@@ -384,21 +384,9 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
         });
         const response = await api.request({ method, url: parsed.requestPath, params, data });
 
-        const paymentResponseHeader = response.headers?.["payment-response"];
-        let paymentResponseTxid: string | undefined;
-        if (typeof paymentResponseHeader === "string") {
-          try {
-            const settlement = JSON.parse(
-              Buffer.from(paymentResponseHeader, "base64").toString("utf8")
-            ) as { transaction?: unknown };
-            if (typeof settlement.transaction === "string" && settlement.transaction.length > 0) {
-              paymentResponseTxid = settlement.transaction;
-            }
-          } catch {
-            // Ignore malformed settlement headers and continue with other txid sources.
-          }
-        }
-
+        const paymentResponseTxid =
+          decodePaymentResponse(response.headers?.[X402_HEADERS.PAYMENT_RESPONSE])?.transaction ||
+          undefined;
         const paymentBodyTxid = (response.data as { payment?: { txid?: unknown } })?.payment?.txid;
         const rawTxid = (response.data as { txid?: string; payment_txid?: string })?.txid ||
                      (response.data as { payment_txid?: string })?.payment_txid ||
