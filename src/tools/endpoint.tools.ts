@@ -9,7 +9,7 @@ import {
   getCategories,
 } from "../endpoints/registry.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
-import { X402_HEADERS } from "../utils/x402-protocol.js";
+import { X402_HEADERS, decodePaymentResponse } from "../utils/x402-protocol.js";
 import type { HttpPaymentStatusResponse } from "@aibtc/tx-schemas/http";
 import {
   extractPaymentIdFromPaymentSignature,
@@ -384,8 +384,14 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
         });
         const response = await api.request({ method, url: parsed.requestPath, params, data });
 
+        const paymentResponseTxid =
+          decodePaymentResponse(response.headers?.[X402_HEADERS.PAYMENT_RESPONSE])?.transaction ||
+          undefined;
+        const paymentBodyTxid = (response.data as { payment?: { txid?: unknown } })?.payment?.txid;
         const rawTxid = (response.data as { txid?: string; payment_txid?: string })?.txid ||
                      (response.data as { payment_txid?: string })?.payment_txid ||
+                     paymentResponseTxid ||
+                     (typeof paymentBodyTxid === "string" ? paymentBodyTxid : undefined) ||
                      response.headers?.['x-transaction-id'] ||
                      undefined;
 
