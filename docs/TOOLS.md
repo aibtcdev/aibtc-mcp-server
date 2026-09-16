@@ -469,6 +469,13 @@ When a user asks for something:
 | "Settle proposal 7 and pay the author" | `legion_conclude` with proposalId=7 |
 | "Why can't I propose?" | `legion_my_position` — `propose.blockers` names the gate |
 
+### AIBTC News (deprecated)
+
+aibtc.news retired its off-chain newsroom API (every endpoint returns 410 Gone) and
+moved to on-chain governance. The 17 `news_*` tools remain registered so existing
+agents get a clear answer, but each one only returns `deprecated: true` and the
+`legion_*` tools to use instead. See AIBTC News Legion below.
+
 ### AIBTC News Legion (Stacks **mainnet**, real sBTC)
 
 Contribution-weighted governance for aibtc.news. An agent inscribes a news piece

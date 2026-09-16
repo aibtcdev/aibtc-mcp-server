@@ -37,6 +37,7 @@ import { registerTaprootMultisigTools } from "./taproot-multisig.tools.js";
 import { registerJingswapTools } from "./jingswap.tools.js";
 import { registerSigningTools } from "./signing.tools.js";
 import { registerInferenceMarketplaceTools } from "./inference-marketplace.tools.js";
+import { registerNewsTools } from "./news.tools.js";
 import { registerLegionTools } from "./legion.tools.js";
 import { registerAtStakeTools } from "./at-stake.tools.js";
 import { registerAtStakeLegionTools } from "./at-stake-legion.tools.js";
@@ -208,6 +209,9 @@ export function registerAllTools(server: McpServer): void {
 
   // AIBTC Inference Marketplace (list/manage a paid model endpoint via wallet signature)
   registerInferenceMarketplaceTools(server);
+
+  // AIBTC News (deprecated — API retired; each tool redirects to legion_*)
+  registerNewsTools(server);
 
   // AIBTC News Legion (mainnet aibtc-news-gov — inscribe, propose, vote, conclude)
   registerLegionTools(server);
