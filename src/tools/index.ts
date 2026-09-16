@@ -34,6 +34,8 @@ import { registerTeneroTools } from "./tenero.tools.js";
 import { registerOrdinalsP2PTools } from "./ordinals-p2p.tools.js";
 import { registerOrdinalsMarketplaceTools } from "./ordinals-marketplace.tools.js";
 import { registerTaprootMultisigTools } from "./taproot-multisig.tools.js";
+import { registerPsbtTools } from "./psbt.tools.js";
+import { registerSettingsTools } from "./settings.tools.js";
 import { registerJingswapTools } from "./jingswap.tools.js";
 import { registerSigningTools } from "./signing.tools.js";
 import { registerInferenceMarketplaceTools } from "./inference-marketplace.tools.js";
@@ -200,6 +202,12 @@ export function registerAllTools(server: McpServer): void {
 
   // Taproot Multisig (M-of-N coordination via OP_CHECKSIGADD, BIP-341/342)
   registerTaprootMultisigTools(server);
+
+  // PSBT sign/broadcast/decode (used by the ordinals marketplace, P2P and taproot multisig flows)
+  registerPsbtTools(server);
+
+  // Settings (Hiro API key, custom Stacks API URL, server version)
+  registerSettingsTools(server);
 
   // Jingswap Auction (blind batch auctions for STX/sBTC)
   registerJingswapTools(server);

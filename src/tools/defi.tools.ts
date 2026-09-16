@@ -17,7 +17,7 @@ export function registerDefiTools(server: McpServer): void {
       description: `Get a swap quote from ALEX DEX.
 
 Returns the expected output amount for swapping tokenX to tokenY.
-Use full contract IDs for tokens (e.g., 'SP3K8BC0PPEVCV7NZ6QSRWPQ2JE9E5B6N3PA0KBR9.token-wstx-v2').
+Use full contract IDs for tokens (e.g., 'SP102V8P0F7JX67ARQ77WEA3D3CFB5XW39REDT0AM.token-wstx-v2').
 
 Note: ALEX DEX is only available on mainnet.`,
       inputSchema: {
