@@ -10,7 +10,7 @@ Bitcoin-native MCP server for AI agents: BTC/STX wallets, DeFi yield, sBTC peg, 
 - **Bitcoin L1** - Check balances, send BTC, manage UTXOs via mempool.space
 - **Agent's Own Wallet** - Agents get their own wallet to perform blockchain transactions
 - **Secure Storage** - Wallets encrypted with AES-256-GCM and stored locally
-- **150+ Tools** - Bitcoin L1 + comprehensive Stacks L2 operations
+- **350+ Tools** - Bitcoin L1 + comprehensive Stacks L2 operations
 - **sBTC Support** - Native Bitcoin on Stacks operations
 - **Token Operations** - SIP-010 fungible token transfers and queries
 - **NFT Support** - SIP-009 NFT holdings, transfers, and metadata
@@ -276,7 +276,7 @@ Claude: Done! Transaction broadcast: abc123...
 
 Both addresses are derived from the same recovery phrase, making it easy to manage both Layer 1 (Bitcoin) and Layer 2 (Stacks) assets.
 
-## Available Tools (150+ total)
+## Available Tools (350+ total)
 
 ### Wallet Management
 | Tool | Description |
@@ -542,7 +542,7 @@ Or use any SIP-010 token by contract ID: `SP2X...::token-name`
 
 | Environment Variable | Description | Default |
 |---------------------|-------------|---------|
-| `NETWORK` | `mainnet` or `testnet` | `mainnet` (installer) / `testnet` (if unset) |
+| `NETWORK` | `mainnet` or `testnet` | `mainnet` |
 | `API_URL` | Default x402 API base URL | `https://x402.biwas.xyz` |
 | `CLIENT_MNEMONIC` | (Optional) Pre-configured mnemonic | - |
 | `HIRO_API_KEY` | (Optional) Hiro API key for higher rate limits | - |
@@ -550,7 +550,7 @@ Or use any SIP-010 token by contract ID: `SP2X...::token-name`
 | `SPEND_LIMIT_DAILY_USTX` / `SPEND_LIMIT_SESSION_USTX` | STX spend cap per day / per unlock (micro-STX) | `10000000` (10 STX) |
 | `SPEND_LIMIT_DAILY_SATS` / `SPEND_LIMIT_SESSION_SATS` | BTC spend cap per day / per unlock (sats) | `50000` |
 
-**Note on `NETWORK`:** The `--install` command writes `NETWORK=mainnet` by default (pass `--testnet` to use testnet). If you omit `NETWORK` from your config entirely, the runtime fallback is `testnet`. Most users should set this explicitly.
+**Note on `NETWORK`:** The `--install` command writes `NETWORK=mainnet` by default (pass `--testnet` to use testnet). If you omit `NETWORK` from your config entirely, the runtime fallback is also `mainnet`.
 
 **Note on spending limits:** A default-on safety rail meters every outbound spend (`transfer_stx`, `transfer_btc`, x402/L402 auto-payments) against a cumulative per-session and per-day cap, so a single bad instruction or a malicious endpoint can't drain the wallet. A spend over the cap is blocked and reports the remaining budget. Raise the caps via the env vars above, or disable with `SPEND_LIMIT_ENABLED=false`. See [SECURITY.md](SECURITY.md#limit-blast-radius).
 
@@ -627,11 +627,13 @@ The skill is automatically included when you install the MCP server. Find it at:
 skill/
 ├── SKILL.md                        # Bitcoin L1 core workflows
 └── references/
+    ├── at-stake.md                 # El Salvador prediction market & side legions
     ├── genesis-lifecycle.md        # Agent registration & check-in
     ├── inscription-workflow.md     # Bitcoin inscription guide
     ├── pillar-wallet.md            # Pillar smart wallet guide
     ├── stacks-defi.md              # Stacks L2 / DeFi operations
-    └── troubleshooting.md          # Common issues and solutions
+    ├── troubleshooting.md          # Common issues and solutions
+    └── x402-inbox.md               # x402 inbox messaging
 ```
 
 ## Development

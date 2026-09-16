@@ -283,8 +283,8 @@ Agent identity and reputation on Bitcoin and Stacks:
 - L0: Local agent key generation
 - L1: Dual-chain plain-message signatures (btc_sign_message + stacks_sign_message)
 - L2: X claim + BTC airdrop activation
-- L3: On-chain identity registration via ERC-8004 (register_identity)
-- L4: Reputation bootstrapping (get_reputation, give_feedback)
+- L3: On-chain identity registration via ERC-8004 (identity_register)
+- L4: Reputation bootstrapping (reputation_get_summary, reputation_give_feedback)
 - Active: 5-minute check-ins to maintain reputation and liveness
 
 See: [references/genesis-lifecycle.md](references/genesis-lifecycle.md)

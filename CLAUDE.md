@@ -70,7 +70,7 @@ aibtc-mcp-server MCP Server (src/index.ts)
     ↓
 ┌─────────────────────────────────────────────────────────┐
 │  x402 Endpoints                          Stacks TX      │
-│  (via api.ts)                         (via wallet.ts)   │
+│  (x402.service)                          (builder.ts)   │
 │  ┌─────────────┐  ┌─────────────┐                       │
 │  │x402.biwas.xyz│  │ stx402.com  │                       │
 │  └─────────────┘  └─────────────┘                       │
@@ -82,8 +82,8 @@ aibtc-mcp-server MCP Server (src/index.ts)
 ### Key Files
 
 - `src/index.ts` - MCP server with all tool definitions
-- `src/api.ts` - Axios client with x402-stacks payment interceptor (supports multiple API sources)
-- `src/wallet.ts` - Wallet operations and transaction signing using @stacks/transactions
+- `src/services/x402.service.ts` - x402 API client (`createApiClient`) with automatic 402 payment handling, spend metering, and dedup
+- `src/transactions/builder.ts` - Stacks transaction building and signing (`transferStx`, `callContract`, `deployContract`)
 - `src/services/wallet-manager.ts` - Managed wallet creation, encryption, and session management
 - `src/services/defi.service.ts` - ALEX DEX (via alex-sdk) and Zest Protocol integrations
 - `src/services/bitflow.service.ts` - Bitflow DEX integration (via @bitflowlabs/core-sdk)
@@ -104,6 +104,8 @@ aibtc-mcp-server MCP Server (src/index.ts)
 - `src/services/at-stake.service.ts` - At Stake chain reads, network-pinned account, conclude-outcome prediction
 - `src/config/at-stake.ts` - At Stake contract ids, side mapping (BONDED=yes, IDLE=no), contract error codes
 - `src/tools/competition.tools.ts` - AIBTC Trading Competition (concluded; **not registered** — module kept for the `computeCampaignStats` P&L reference, exposes no MCP tools)
+- `src/tools/psbt.tools.ts` - PSBT create/sign/broadcast/decode (used by ordinals marketplace, P2P and taproot multisig flows)
+- `src/tools/settings.tools.ts` - Hiro API key, custom Stacks API URL, server version
 - `src/tools/pillar.tools.ts` - Pillar smart wallet tools (handoff model)
 - `src/services/pillar-api.service.ts` - Pillar API client
 - `src/config/pillar.ts` - Pillar configuration (API URL, API key)
@@ -123,7 +125,7 @@ BNS tools automatically check V2 first for `.btc` names, falling back to V1 for 
 
 1. Client makes request to x402 endpoint
 2. Endpoint returns HTTP 402 with payment requirements
-3. `withPaymentInterceptor` from x402-stacks intercepts the 402
+3. The response interceptor in `createApiClient` (`src/services/x402.service.ts`) intercepts the 402
 4. Interceptor signs and broadcasts payment transaction
 5. Request is retried with payment proof
 6. Endpoint returns actual response
@@ -222,6 +224,9 @@ The allowlist is re-enforced at `tools/call` time, so the model can't reach a to
 | Pillar | `pillar_connect/disconnect/status/send/fund/supply/boost/unwind/auto_compound/position/create_wallet/add_admin/invite` | Browser handoff for passkey signing |
 | AIBTC News | `news_list_signals/front_page/leaderboard/check_status/list_beats` (read) + `news_file_signal/claim_beat` (BIP-322 auth) | bc1q addresses only |
 | News Legion | `legion_status/list_stories/get_story/my_position` (read) + `legion_contribute/sponsor/propose_story/vote/conclude` + `legion_inscribe_story/inscribe_reveal` | **Stacks mainnet, real sBTC**, pinned by contract address — never follows global `NETWORK`. No veto, no quorum, no faucet. Proposals blocked until 21 members join (`u441`); a story also needs yes weight ≥ 20× its payout. `contribute`/`sponsor` meter the `SPEND_LIMIT_*` sats rail. Inscription is the exception: native L1 BTC on whatever `NETWORK` names, gated by `confirmMainnetSpend` |
+| At Stake | `atstake_market_status/position/subject/get_bid` (read) + `atstake_mint_complete_set/merge_complete_set/place_bid/cancel_bid/transfer_shares/redeem/resolve_idle` + `atstake_legion_status/list_proposals/get_proposal/propose/vote/conclude/redeem_vault/claim_credit` | **Stacks mainnet, real sBTC**, pinned by contract address. Minting is a hedge, not a bet; legion weight is the live share balance (min 1,000) |
+| Settings | `set/get/delete_hiro_api_key`, `set/get/delete_stacks_api_url`, `get_server_version` | Stored in `~/.aibtc/config.json` |
+| PSBT | `psbt_create_ordinal_buy`, `psbt_sign`, `psbt_broadcast`, `psbt_decode` | Signing step for ordinals marketplace / P2P / taproot multisig flows |
 | Inbox | `send_inbox_message_direct` | Mainnet only; non-sponsored sBTC transfer, sender pays STX gas. `send_inbox_message` (sponsored relay path) is **deprecated** — it no longer sends and just redirects here (relay queue could wedge, #540/#592) |
 
 ## Agent Behavior Guidelines

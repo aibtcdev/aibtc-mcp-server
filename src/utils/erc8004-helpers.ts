@@ -1,7 +1,7 @@
 /**
  * Shared helpers for ERC-8004 tool files.
  *
- * Extracted to avoid duplication between erc8004.tools.ts and reputation.tools.ts.
+ * Shared by identity.tools.ts and reputation.tools.ts.
  */
 
 import { NETWORK } from "../config/networks.js";
