@@ -73,8 +73,12 @@ export function parseArgToClarityValue(arg: unknown): ClarityValue {
           return boolCV(typedArg.value as boolean);
         case "principal":
           return principalCV(typedArg.value as string);
-        case "buffer":
-          return bufferCV(Buffer.from(typedArg.value as string, "hex"));
+        case "buffer": {
+          // Strip optional 0x/0X prefix — without this, Buffer.from("0x...", "hex")
+          // silently produces an empty buffer (aibtcdev/landing-page#1012 Finding 2)
+          const hexStr = (typedArg.value as string).replace(/^0x/i, "");
+          return bufferCV(Buffer.from(hexStr, "hex"));
+        }
         case "none":
           return noneCV();
         case "some":
