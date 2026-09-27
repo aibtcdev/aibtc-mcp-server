@@ -73,7 +73,7 @@ Prefer `wallet_create` / `wallet_import`. These store an AES-256-GCM-encrypted
 keystore (scrypt KDF) under `~/.aibtc/` — **outside any git repository** — so a
 plaintext seed never lives in a file that can be committed.
 
-`CLIENT_MNEMONIC` in a `.env` file is a power-user escape hatch only. A seed in a
+`CLIENT_MNEMONIC` is a power-user escape hatch only. The installed server takes it from the MCP client config's `env` block, never from a `.env` file; in this repo, only `npm run dev` / `npm start` read `./.env`. A seed in a
 plaintext file is one `git add` away from being burned forever. If you use it, keep
 it out of version control (`.gitignore` blocks `.env` and `.env.*`).
 
