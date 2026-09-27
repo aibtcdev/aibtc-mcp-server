@@ -20,6 +20,7 @@ export const CORE_TOOLS: ReadonlySet<string> = new Set([
   "wallet_unlock",
   "wallet_lock",
   "wallet_export",
+  "wallet_rotate_password",
   // Balances
   "get_stx_balance",
   "get_btc_balance",

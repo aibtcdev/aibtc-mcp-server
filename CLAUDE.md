@@ -177,7 +177,7 @@ npx @aibtc/mcp-server@latest --install --codex      # OpenAI Codex CLI (TOML)
 npx @aibtc/mcp-server@latest --install --vscode     # VS Code (./.vscode/mcp.json)
 ```
 
-Each installer merges into the existing config rather than overwriting it. Zed and Cline are manual-config only (their schemas/paths vary by version) — see README for snippets. The `@latest` tag ensures users always get the newest features.
+Each installer merges into the existing config rather than overwriting it. After writing the config, `--install` creates a wallet for the target network if none exists (`ensureInstallWallet` in `src/index.ts`): the generated password and mnemonic are printed once, the mnemonic is stored encrypted in `~/.aibtc/`, the password is never persisted. `--no-wallet` skips it. Zed and Cline are manual-config only (their schemas/paths vary by version) — see README for snippets. The `@latest` tag ensures users always get the newest features.
 
 **For testnet:** Add `--testnet` to any install command, e.g. `npx @aibtc/mcp-server@latest --install --cursor --testnet`
 
@@ -205,7 +205,7 @@ The allowlist is re-enforced at `tools/call` time, so the model can't reach a to
 
 ## Available Tools
 
-> **Profiles:** new installs get `AIBTC_TOOLS=core`, which registers only the 24-tool lean core in `src/tools/profiles.ts`; everything else loads by group (`AIBTC_TOOLS=core,defi`) or with `all`. An unset `AIBTC_TOOLS` (configs from before profiles) registers everything. A new tool goes in its module's group automatically; add it to `CORE_TOOLS` only if a fresh install needs it.
+> **Profiles:** new installs get `AIBTC_TOOLS=core`, which registers only the 25-tool lean core in `src/tools/profiles.ts`; everything else loads by group (`AIBTC_TOOLS=core,defi`) or with `all`. An unset `AIBTC_TOOLS` (configs from before profiles) registers everything. A new tool goes in its module's group automatically; add it to `CORE_TOOLS` only if a fresh install needs it.
 
 > **Full tool reference:** [`docs/TOOLS.md`](docs/TOOLS.md) — per-tool parameters,
 > examples, contract addresses, asset tables, and P&L methodology. The MCP server also exposes each tool's description at runtime, so the

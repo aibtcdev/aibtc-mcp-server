@@ -4,6 +4,7 @@ import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import { createRequire } from "module";
+import { randomBytes } from "crypto";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { McpServer } from "@modelcontextprotocol/server";
 
@@ -13,6 +14,9 @@ import { installBountyHint } from "./tools/bounty-hint.js";
 import { NETWORK, API_URL } from "./config/index.js";
 import { redactSensitive } from "./utils/redact.js";
 import { initializeStorage } from "./utils/storage.js";
+import { getWalletManager } from "./services/wallet-manager.js";
+import { getLightningManager } from "./services/lightning-manager.js";
+import type { Network } from "./config/networks.js";
 
 const require = createRequire(import.meta.url);
 const packageJson = require("../package.json");
@@ -211,6 +215,57 @@ function resolveInstallTarget(): InstallTarget {
   return matched[0] ?? INSTALL_TARGETS.find((t) => t.flag === null)!;
 }
 
+/**
+ * Create the agent's wallet during install so a fresh user can fund it right
+ * away. The generated password and the mnemonic are printed once and not
+ * stored in plain text; the password can be changed with wallet_rotate_password.
+ * Returns the Stacks address of the new or already-existing wallet.
+ */
+async function ensureInstallWallet(network: Network): Promise<string> {
+  await initializeStorage();
+  const walletManager = getWalletManager();
+
+  const existing = (await walletManager.listWallets()).find((w) => w.network === network);
+  if (existing) {
+    console.log(`\n👛 Existing ${network} wallet kept: ${existing.name} (${existing.address})`);
+    return existing.address;
+  }
+
+  const password = randomBytes(18).toString("base64url");
+  const wallet = await walletManager.createWallet("main", password, network);
+
+  // Print the credentials before anything else can fail: the wallet is already
+  // on disk, and without the password it can never be unlocked.
+  console.log(`\n👛 Wallet created (${network}), stored encrypted in ~/.aibtc/`);
+  console.log(`   Stacks:    ${wallet.address}`);
+  if (wallet.btcAddress) console.log(`   Bitcoin:   ${wallet.btcAddress}`);
+  console.log(`\n   Password:  ${password}`);
+  console.log(`   Mnemonic:  ${wallet.mnemonic}`);
+  console.log("\n⚠️  Write both down now. They are shown once and the password is not saved anywhere.");
+  console.log("   The password unlocks the wallet; change it any time by asking your agent to rotate it.");
+  console.log("   The mnemonic is the only way to recover the wallet and its funds.");
+
+  // Same unified setup as wallet_create: a Lightning wallet derived from the
+  // same mnemonic (mainnet only). Its failure is reported, the main wallet stands.
+  try {
+    const lightning = await getLightningManager().setupFromMainMnemonic(
+      wallet.mnemonic,
+      password,
+      "main",
+      network
+    );
+    if (lightning.kind === "setup") {
+      console.log(`   Lightning: ${lightning.depositAddress} (deposit address, same mnemonic)`);
+    }
+  } catch (error) {
+    console.error(
+      `   Lightning setup failed: ${redactSensitive(error instanceof Error ? error.message : String(error))}. ` +
+        "Ask your agent to run lightning_create later."
+    );
+  }
+  return wallet.address;
+}
+
 async function runInstall(): Promise<void> {
   const network = process.argv.includes("--testnet") ? "testnet" : "mainnet";
   // Only --profile full installs everything; resolving against AIBTC_TOOLS=core
@@ -232,13 +287,29 @@ async function runInstall(): Promise<void> {
   console.log(
     `   Tools:   ${fullProfile ? "all" : "lean core (set AIBTC_TOOLS=core,defi,ordinals,... in the env, or re-run with --profile full)"}`
   );
+
+  // The wallet's password and mnemonic are printed once, so only create it when
+  // a person is reading the terminal, never into a pipe, file or CI log.
+  let address: string | null = null;
+  if (process.argv.includes("--no-wallet")) {
+    // Explicitly skipped
+  } else if (!process.stdout.isTTY) {
+    console.log("\n👛 Wallet not created: output is not a terminal, and the password and mnemonic");
+    console.log("   are only ever printed to one. Re-run --install in a terminal, or ask the agent to create one.");
+  } else {
+    address = await ensureInstallWallet(network);
+  }
+
   console.log(`\n📋 ${target.restart}, then try:`);
-  console.log(`   1. Ask your agent: "What's your wallet address?"`);
+  const fund = network === "testnet"
+    ? "testnet STX from https://explorer.hiro.so/sandbox/faucet?chain=testnet"
+    : "0.01 STX";
   console.log(
-    network === "testnet"
-      ? "   2. Send it testnet STX: https://explorer.hiro.so/sandbox/faucet?chain=testnet"
-      : "   2. Send it 0.01 STX (the address from step 1)"
+    address
+      ? `   1. Send ${fund} to ${address}`
+      : `   1. Ask your agent: "What's your wallet address?" and send it ${fund}`
   );
+  console.log(`   2. Ask your agent: "Unlock my wallet" and give it the password`);
   const x402Host = network === "testnet" ? "x402.aibtc.dev" : "x402.aibtc.com";
   console.log(`   3. Ask it: "Make a paid inference call on ${x402Host}" (0.001 STX per call)\n`);
 }
