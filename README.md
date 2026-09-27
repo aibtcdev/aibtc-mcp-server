@@ -27,7 +27,9 @@ Bitcoin-native MCP server for AI agents: BTC/STX wallets, DeFi yield, sBTC peg, 
 npx @aibtc/mcp-server@latest --install
 ```
 
-That's it! This automatically configures Claude Code. Restart your terminal and start chatting.
+This configures Claude Code and creates the agent's wallet: it prints the Stacks and Bitcoin addresses, a generated password and the 24-word mnemonic **once**. Write both down. The mnemonic is stored only encrypted (AES-256-GCM) in `~/.aibtc/` on this machine, and the password is not saved anywhere; the agent asks for it to unlock, and you can change it with `wallet_rotate_password`. If a wallet for the network already exists it is kept. Pass `--no-wallet` to skip this and create or import one from the agent instead.
+
+Restart your terminal, send a little STX to the printed address, and ask the agent to unlock the wallet and make a paid inference call.
 
 ### Claude Desktop (App)
 
@@ -116,7 +118,7 @@ npx @aibtc/mcp-server@latest --install --cursor --testnet   # Cursor, testnet
 
 ### Tool Profiles
 
-Every tool definition is loaded into the model's context, so `--install` writes `AIBTC_TOOLS=core`: a lean core of 24 tools: wallet, balances, STX/BTC/sBTC transfers, x402 (`list_x402_endpoints`, `probe_x402_endpoint`, `execute_x402_endpoint`) and earning (`earning_opportunities`, `bounty_list/get/submit`, `identity_register`).
+Every tool definition is loaded into the model's context, so `--install` writes `AIBTC_TOOLS=core`: a lean core of 25 tools: wallet (including `wallet_rotate_password`), balances, STX/BTC/sBTC transfers, x402 (`list_x402_endpoints`, `probe_x402_endpoint`, `execute_x402_endpoint`) and earning (`earning_opportunities`, `bounty_list/get/submit`, `identity_register`).
 
 Add groups with `AIBTC_TOOLS=core,defi,ordinals` in the server's `env` (the core is always included), or load everything with `AIBTC_TOOLS=all` / `--profile full`. If `AIBTC_TOOLS` is not set at all, every tool is loaded, so configs written by earlier versions keep all their tools:
 
@@ -212,7 +214,7 @@ NETWORK = "mainnet"
 
 ## Giving Claude a Wallet
 
-When you first use @aibtc/mcp-server, Claude doesn't have a wallet. Here's the smooth onboarding flow:
+`--install` creates a wallet for you (see [Quick Start](#quick-start)). If you installed with `--no-wallet`, configured the client by hand, or want another wallet, the agent can create or import one:
 
 ### Example Conversation
 
