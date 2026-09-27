@@ -19,7 +19,7 @@
  * API spec + verifier implementation: aibtcdev/landing-page#734 (Phase 3.1).
  * Schema source of truth: docs/rfc-d1-schema.md §swaps (migration 005).
  */
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { AIBTC_CAMPAIGN_API_URL } from "../config/competition.js";
 import { getTokenInfo } from "../services/tenero-api.js";
@@ -399,7 +399,7 @@ over the agent's swaps where \`tx_status === "success"\`. Prices come from Tener
 - \`methodology: "mark_to_current"\`, \`priced_at\`: unix-millis stamp.
 
 To be eligible for scoring, the agent needs **both** an aibtc.com website registration (dual-sig flow at https://aibtc.com) **and** an ERC-8004 agent_id (via \`identity_register\`). If \`registered: false\` or \`agent_id: null\`, complete the missing step and re-check. Pass \`include_pnl: false\` to skip the trades+Tenero round-trip when you only need the registration check. If no address is provided, uses the active wallet's Stacks address.`,
-      inputSchema: {
+      inputSchema: z.object({
         address: stacksAddressSchema
           .optional()
           .describe(
@@ -411,7 +411,7 @@ To be eligible for scoring, the agent needs **both** an aibtc.com website regist
           .describe(
             "Compute and attach `campaign_stats` (mark-to-current P&L over the agent's successful swaps). Defaults to true. Set false to skip the trades + Tenero round-trips when you only need the registration check."
           ),
-      },
+      }),
     },
     async ({ address, include_pnl }) => {
       try {
@@ -444,7 +444,7 @@ To be eligible for scoring, the agent needs **both** an aibtc.com website regist
       description: `List an agent's trades from the concluded AIBTC trading competition.
 
 Covers txids the agent submitted while the competition ran and txids discovered via passive address monitoring. Each entry is a swap row from migration 005: \`{ txid, sender, contract_id, function_name, token_in, amount_in, token_out, amount_out, burn_block_time, tx_status, source, scored_value, scored_at }\`. \`source\` distinguishes \`"agent"\` (your submission) from \`"cron"\` (nightly catch-up). Response: \`{ trades, next_cursor }\` — opaque cursor for pagination. If no address is provided, uses the active wallet's Stacks address.`,
-      inputSchema: {
+      inputSchema: z.object({
         address: stacksAddressSchema
           .optional()
           .describe(
@@ -460,7 +460,7 @@ Covers txids the agent submitted while the competition ran and txids discovered 
           .string()
           .optional()
           .describe("Opaque pagination cursor from a previous response."),
-      },
+      }),
     },
     async ({ address, limit, cursor }) => {
       try {

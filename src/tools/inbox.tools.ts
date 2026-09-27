@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createJsonResponse } from "../utils/index.js";
 
@@ -27,7 +27,7 @@ export function registerInboxTools(server: McpServer): void {
         "Use send_inbox_message_direct instead. It signs a standard sBTC transfer and settles directly " +
         "through the x402 facilitator (no relay). Requires an unlocked wallet holding sBTC (message cost) " +
         "and STX (gas). Mainnet only.",
-      inputSchema: {
+      inputSchema: z.object({
         recipientBtcAddress: z
           .string()
           .describe("Recipient's Bitcoin address (bc1...)"),
@@ -38,7 +38,7 @@ export function registerInboxTools(server: McpServer): void {
           .string()
           .max(500)
           .describe("Message content (max 500 characters)"),
-      },
+      }),
     },
     async () => {
       return createJsonResponse({

@@ -11,7 +11,7 @@
  * Uses micro-ordinals library to parse and create inscriptions.
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { NETWORK } from "../config/networks.js";
@@ -109,7 +109,7 @@ export function registerOrdinalsTools(server: McpServer): void {
         "Calculate the total cost (in satoshis) for creating an inscription. " +
         "Returns breakdown of commit fee, reveal fee, and total cost. " +
         "Content should be provided as base64-encoded string.",
-      inputSchema: {
+      inputSchema: z.object({
         contentType: z
           .string()
           .describe("MIME type (e.g., 'text/plain', 'image/png')"),
@@ -121,7 +121,7 @@ export function registerOrdinalsTools(server: McpServer): void {
           .positive()
           .optional()
           .describe("Fee rate in sat/vB (optional, defaults to current medium fee)"),
-      },
+      }),
     },
     async ({ contentType, contentBase64, feeRate }) => {
       try {
@@ -190,7 +190,7 @@ export function registerOrdinalsTools(server: McpServer): void {
         "After the commit confirms (typically 10-60 min), use `inscribe_reveal` with the same " +
         "contentType and contentBase64 to complete the inscription.\n\n" +
         "Returns: commitTxid, revealAddress, revealAmount, and feeRate (save these for inscribe_reveal)",
-      inputSchema: {
+      inputSchema: z.object({
         contentType: z
           .string()
           .describe("MIME type (e.g., 'text/plain', 'image/png', 'text/html')"),
@@ -201,7 +201,7 @@ export function registerOrdinalsTools(server: McpServer): void {
           .union([z.enum(["fast", "medium", "slow"]), z.number().positive()])
           .optional()
           .describe("Fee rate: 'fast' (~10 min), 'medium' (~30 min), 'slow' (~1 hr), or number in sat/vB (default: medium)"),
-      },
+      }),
     },
     async ({ contentType, contentBase64, feeRate }) => {
       try {
@@ -315,7 +315,7 @@ export function registerOrdinalsTools(server: McpServer): void {
         "Call this AFTER the commit transaction from `inscribe` has confirmed.\n" +
         "You must provide the same contentType and contentBase64 used in the commit step.\n\n" +
         "Returns: inscriptionId ({revealTxid}i0) on success",
-      inputSchema: {
+      inputSchema: z.object({
         commitTxid: z
           .string()
           .length(64)
@@ -344,7 +344,7 @@ export function registerOrdinalsTools(server: McpServer): void {
           .union([z.enum(["fast", "medium", "slow"]), z.number().positive()])
           .optional()
           .describe("Fee rate for reveal tx (default: medium)"),
-      },
+      }),
     },
     async ({ commitTxid, revealAmount, contentType, contentBase64, contentSha256, feeRate }) => {
       try {
@@ -480,14 +480,14 @@ export function registerOrdinalsTools(server: McpServer): void {
         "Get inscription content from a Bitcoin reveal transaction. " +
         "Fetches the transaction from mempool.space and parses inscription data from the witness. " +
         "Returns content type, body (as base64 and text if applicable), and metadata tags.",
-      inputSchema: {
+      inputSchema: z.object({
         txid: z
           .string()
           .length(64)
           .describe(
             "Transaction ID of the reveal transaction containing the inscription"
           ),
-      },
+      }),
     },
     async ({ txid }) => {
       try {

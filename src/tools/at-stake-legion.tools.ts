@@ -27,7 +27,7 @@
  * contracts, different way of getting a vote.
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import {
   Pc,
@@ -177,13 +177,13 @@ export function registerAtStakeLegionTools(server: McpServer): void {
         "shares with atstake_mint_complete_set.\n\n" +
         "Read-only. Defaults to the unlocked wallet, which requires one; pass an address " +
         "to read anyone without unlocking.",
-      inputSchema: {
+      inputSchema: z.object({
         side: SIDE_ARG,
         address: z
           .string()
           .optional()
           .describe("Whose eligibility to report. Defaults to the unlocked wallet."),
-      },
+      }),
     },
     async ({ side, address }) => {
       try {
@@ -290,7 +290,7 @@ export function registerAtStakeLegionTools(server: McpServer): void {
         "detail and the conclude forecast come from atstake_legion_get_proposal, which " +
         "reads the chain directly.\n\n" +
         "Read-only, no wallet needed.",
-      inputSchema: {
+      inputSchema: z.object({
         side: z
           .enum(["yes", "no", "bonded", "idle", "both"])
           .optional()
@@ -303,7 +303,7 @@ export function registerAtStakeLegionTools(server: McpServer): void {
             'Only proposals in this phase: "voting", "concludable", "passed", ' +
               '"failed", "expired", "pending".'
           ),
-      },
+      }),
     },
     async ({ side, phase }) => {
       try {
@@ -387,10 +387,10 @@ export function registerAtStakeLegionTools(server: McpServer): void {
         "this is a forecast, not a promise — but it is the forecast that tells you " +
         "whether a conclude is worth the gas.\n\n" +
         "Read-only, no wallet needed.",
-      inputSchema: {
+      inputSchema: z.object({
         side: SIDE_ARG,
         proposal_id: z.number().int().positive().describe("The proposal id."),
-      },
+      }),
     },
     async ({ side, proposal_id }) => {
       try {
@@ -492,7 +492,7 @@ export function registerAtStakeLegionTools(server: McpServer): void {
         "legion-wide interval between proposals. Requires the minimum share balance, " +
         "which conclude re-reads — selling out before it concludes forfeits the payout. " +
         "All three fields are ASCII-only. Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         side: SIDE_ARG,
         title: z
           .string()
@@ -509,7 +509,7 @@ export function registerAtStakeLegionTools(server: McpServer): void {
             `Public URL a voter can reproduce the claim from. ASCII, max ` +
               `${MAX_LINK_LENGTH} characters.`
           ),
-      },
+      }),
     },
     async ({ side, title, description, link }) => {
       try {
@@ -631,7 +631,7 @@ export function registerAtStakeLegionTools(server: McpServer): void {
         "State what you checked, not that you agree. A proposer cannot vote on their " +
         "own proposal, and each address votes once. Voting opens two blocks after " +
         "propose. Requires the minimum share balance and an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         side: SIDE_ARG,
         proposal_id: z.number().int().positive().describe("The proposal id."),
         support: z
@@ -643,7 +643,7 @@ export function registerAtStakeLegionTools(server: McpServer): void {
             `Why, in your own words — what you checked and what you found. ASCII, max ` +
               `${MAX_RATIONALE_LENGTH} characters. Permanent and public.`
           ),
-      },
+      }),
     },
     async ({ side, proposal_id, support, rationale }) => {
       try {
@@ -762,10 +762,10 @@ export function registerAtStakeLegionTools(server: McpServer): void {
         "The payout is shares of the proposer's own side while the market trades, and " +
         "an sBTC credit once it has resolved. The caller pays gas and receives nothing.\n\n" +
         "Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         side: SIDE_ARG,
         proposal_id: z.number().int().positive().describe("The proposal id."),
-      },
+      }),
     },
     async ({ side, proposal_id }) => {
       try {
@@ -889,7 +889,7 @@ export function registerAtStakeLegionTools(server: McpServer): void {
         "Permissionless, once-only, and callable only after the market resolves and all " +
         "live proposals have settled. Pays the caller nothing. Requires an unlocked " +
         "wallet.",
-      inputSchema: { side: SIDE_ARG },
+      inputSchema: z.object({ side: SIDE_ARG }),
     },
     async ({ side }) => {
       try {
@@ -979,7 +979,7 @@ export function registerAtStakeLegionTools(server: McpServer): void {
         "pays out in claim order until it runs dry, and the unpaid remainder stays on " +
         "your credit.\n\n" +
         "Requires an unlocked wallet.",
-      inputSchema: { side: SIDE_ARG },
+      inputSchema: z.object({ side: SIDE_ARG }),
     },
     async ({ side }) => {
       try {

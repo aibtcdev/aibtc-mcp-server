@@ -111,7 +111,7 @@ export async function resolveFee(
       const multipliers: Record<FeePreset, bigint> = { low: 1n, medium: 2n, high: 3n };
       const fallbackFee = clamps.floor * multipliers[fee.toLowerCase() as FeePreset];
 
-      console.info(
+      console.error(
         `Using fallback fee: ${fallbackFee} uSTX (${fee} preset, ${txType} type)`
       );
 

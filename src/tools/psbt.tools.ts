@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import * as btc from "@scure/btc-signer";
 import { z } from "zod";
 import { NETWORK } from "../config/networks.js";
@@ -92,7 +92,7 @@ export function registerPsbtTools(server: McpServer): void {
       description:
         "Create a PSBT for buying an ordinal: buyer pays seller in BTC, seller's inscription UTXO is transferred to buyer. " +
         "This prepares the PSBT for both parties to sign.",
-      inputSchema: {
+      inputSchema: z.object({
         inscriptionUtxo: z
           .string()
           .describe("Seller inscription outpoint in txid:vout format"),
@@ -112,7 +112,7 @@ export function registerPsbtTools(server: McpServer): void {
           .describe(
             "Fee rate: 'fast' (~10 min), 'medium' (~30 min), 'slow' (~1 hr), or explicit sat/vB"
           ),
-      },
+      }),
     },
     async ({ inscriptionUtxo, sellerAddress, priceSats, buyerReceiveAddress, feeRate }) => {
       try {
@@ -274,7 +274,7 @@ export function registerPsbtTools(server: McpServer): void {
     {
       description:
         "Sign one or more PSBT inputs with the active wallet. Supports buyer (P2WPKH) and taproot keys.",
-      inputSchema: {
+      inputSchema: z.object({
         psbtBase64: z.string().describe("PSBT in base64 format"),
         signInputs: z
           .array(z.number().int().nonnegative())
@@ -285,7 +285,7 @@ export function registerPsbtTools(server: McpServer): void {
           .optional()
           .default(false)
           .describe("Finalize only the inputs signed in this call"),
-      },
+      }),
     },
     async ({ psbtBase64, signInputs, finalizeSignedInputs }) => {
       try {
@@ -375,9 +375,9 @@ export function registerPsbtTools(server: McpServer): void {
     {
       description:
         "Finalize a fully signed PSBT and broadcast it to the Bitcoin network via mempool.space.",
-      inputSchema: {
+      inputSchema: z.object({
         psbtBase64: z.string().describe("Fully signed PSBT in base64 format"),
-      },
+      }),
     },
     async ({ psbtBase64 }) => {
       try {
@@ -408,9 +408,9 @@ export function registerPsbtTools(server: McpServer): void {
     {
       description:
         "Decode a PSBT to inspect inputs, outputs, signatures, and signing status before broadcast.",
-      inputSchema: {
+      inputSchema: z.object({
         psbtBase64: z.string().describe("PSBT in base64 format"),
-      },
+      }),
     },
     async ({ psbtBase64 }) => {
       try {

@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { getAccount, getWalletAddress, NETWORK } from "../services/x402.service.js";
 import { getAlexDexService, getZestProtocolService } from "../services/defi.service.js";
@@ -20,11 +20,11 @@ Returns the expected output amount for swapping tokenX to tokenY.
 Use full contract IDs for tokens (e.g., 'SP102V8P0F7JX67ARQ77WEA3D3CFB5XW39REDT0AM.token-wstx-v2').
 
 Note: ALEX DEX is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         tokenX: z.string().describe("Input token contract ID"),
         tokenY: z.string().describe("Output token contract ID"),
         amountIn: z.string().describe("Amount of tokenX to swap (in smallest units)"),
-      },
+      }),
     },
     async ({ tokenX, tokenY, amountIn }) => {
       try {
@@ -70,7 +70,7 @@ Swaps tokenX for tokenY using the ALEX AMM.
 Use full contract IDs for tokens.
 
 Note: ALEX DEX is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         tokenX: z.string().describe("Input token contract ID"),
         tokenY: z.string().describe("Output token contract ID"),
         amountIn: z.string().describe("Amount of tokenX to swap (in smallest units)"),
@@ -79,7 +79,7 @@ Note: ALEX DEX is only available on mainnet.`,
           .optional()
           .default("0")
           .describe("Minimum acceptable output amount (slippage protection)"),
-      },
+      }),
     },
     async ({ tokenX, tokenY, amountIn, minAmountOut }) => {
       try {
@@ -127,10 +127,10 @@ Note: ALEX DEX is only available on mainnet.`,
 Returns reserve balances and pool details for a token pair.
 
 Note: ALEX DEX is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         tokenX: z.string().describe("First token contract ID"),
         tokenY: z.string().describe("Second token contract ID"),
-      },
+      }),
     },
     async ({ tokenX, tokenY }) => {
       try {
@@ -175,13 +175,13 @@ Returns pool ID, token pair, and factor (fee tier) for each pool.
 Use this to find which tokens can be swapped before calling alex_swap.
 
 Note: ALEX DEX is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         limit: z
           .number()
           .optional()
           .default(50)
           .describe("Maximum number of pools to return (default 50)"),
-      },
+      }),
     },
     async ({ limit }) => {
       try {
@@ -229,7 +229,7 @@ Each asset includes its symbol, name, and contract ID.
 Supported assets: wSTX, sBTC, stSTX, USDC, USDH, stSTXbtc.
 
 Note: Zest Protocol is only available on mainnet.`,
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -271,13 +271,13 @@ Returns collateral, debt, health factor, and LTV data across all assets.
 The position query returns USD-denominated totals.
 
 Note: Zest Protocol is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         asset: z.string().default("sBTC").describe("Asset symbol (e.g., 'sBTC', 'USDC') or full contract ID"),
         address: z
           .string()
           .optional()
           .describe("User address (uses wallet if not specified)"),
-      },
+      }),
     },
     async ({ asset, address }) => {
       try {
@@ -327,10 +327,10 @@ You can use the asset symbol (e.g., 'sBTC', 'USDC') or full contract ID.
 Supported assets: wSTX, sBTC, stSTX, USDC, USDH, stSTXbtc.
 
 Note: Zest Protocol is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         asset: z.string().describe("Asset symbol (e.g., 'sBTC', 'USDC') or full contract ID"),
         amount: z.string().describe("Amount to supply (in smallest units)"),
-      },
+      }),
     },
     async ({ asset, amount }) => {
       try {
@@ -375,10 +375,10 @@ Removes collateral and redeems for underlying assets in one atomic operation.
 You can use the asset symbol (e.g., 'sBTC', 'USDC') or full contract ID.
 
 Note: Amount is in zToken shares. Zest Protocol is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         asset: z.string().describe("Asset symbol (e.g., 'sBTC', 'USDC') or full contract ID"),
         amount: z.string().describe("Amount of zToken shares to withdraw"),
-      },
+      }),
     },
     async ({ asset, amount }) => {
       try {
@@ -422,10 +422,10 @@ You can use the asset symbol (e.g., 'USDC', 'sBTC') or full contract ID.
 Three LTV tiers: ~75% (borrow limit), ~85% (partial liquidation), ~95% (full liquidation).
 
 Note: Zest Protocol is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         asset: z.string().describe("Asset symbol (e.g., 'sBTC', 'USDC') or full contract ID"),
         amount: z.string().describe("Amount to borrow (in smallest units)"),
-      },
+      }),
     },
     async ({ asset, amount }) => {
       try {
@@ -469,10 +469,10 @@ Note: zest_supply already handles this atomically via supply-collateral-add.
 This tool is only needed if you used vault deposit separately.
 
 Mainnet only.`,
-      inputSchema: {
+      inputSchema: z.object({
         asset: z.string().describe("Asset symbol (e.g., 'sBTC', 'USDC') or full contract ID"),
         amount: z.string().describe("Amount of zTokens to add as collateral (in smallest units)"),
-      },
+      }),
     },
     async ({ asset, amount }) => {
       try {
@@ -513,14 +513,14 @@ Repays borrowed assets plus accrued interest.
 You can use the asset symbol (e.g., 'USDC', 'sBTC') or full contract ID.
 
 Note: Zest Protocol is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         asset: z.string().describe("Asset symbol (e.g., 'sBTC', 'USDC') or full contract ID"),
         amount: z.string().describe("Amount to repay (in smallest units)"),
         onBehalfOf: z
           .string()
           .optional()
           .describe("Optional: repay on behalf of another address"),
-      },
+      }),
     },
     async ({ asset, amount, onBehalfOf }) => {
       try {

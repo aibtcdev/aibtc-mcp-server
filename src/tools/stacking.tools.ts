@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { getAccount, getWalletAddress, NETWORK } from "../services/x402.service.js";
 import {
@@ -128,12 +128,12 @@ export function registerStackingTools(server: McpServer): void {
       description:
         "PoX-5 staking status for an address: locked amount, signer manager, lock period, unlock " +
         "cycle and burn height, any protocol bond membership, and locked/unlocked STX balance.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
           .describe("Stacks address to check. Uses the active wallet if omitted."),
-      },
+      }),
     },
     async ({ address }) => {
       try {
@@ -176,7 +176,7 @@ export function registerStackingTools(server: McpServer): void {
         "the STX delegated to each. A signer manager is what stack_stx stakes with. Only signers with " +
         "at least the signer-set minimum delegated appear here; other registered managers can still be " +
         "staked with by contract id. Set withPayoutInfo to see how each manager pays stakers (slower).",
-      inputSchema: {
+      inputSchema: z.object({
         rewardCycle: z
           .number()
           .int()
@@ -188,7 +188,7 @@ export function registerStackingTools(server: McpServer): void {
           .optional()
           .default(false)
           .describe("Also read each manager's claim path (one extra request per signer)."),
-      },
+      }),
     },
     async ({ rewardCycle, withPayoutInfo }) => {
       try {
@@ -238,7 +238,7 @@ export function registerStackingTools(server: McpServer): void {
       description: `Lock STX in PoX-5 with a signer manager to earn sBTC rewards.
 
 The lock starts next reward cycle and lasts numCycles cycles (1-${MAX_STAKE_CYCLES}). Pick a signer manager with list_stacking_signers. Refused during the prepare phase and if the address is already staking (use extend_stacking). Locking is not a transfer: the transaction carries a staking post-condition for exactly the locked amount.`,
-      inputSchema: {
+      inputSchema: z.object({
         signerManager: z
           .string()
           .describe("Signer manager contract id, e.g. SP8HK160YD5GHXP69VGA0TC7AQJ1X4CDW3XVERSE.xverse-signer-manager-2"),
@@ -250,7 +250,7 @@ The lock starts next reward cycle and lasts numCycles cycles (1-${MAX_STAKE_CYCL
           .max(MAX_STAKE_CYCLES)
           .describe(`Reward cycles to lock (1-${MAX_STAKE_CYCLES}; one cycle is about two weeks)`),
         ...payoutInputs,
-      },
+      }),
     },
     async ({ signerManager, amount, numCycles, ...payout }) => {
       try {
@@ -294,7 +294,7 @@ The lock starts next reward cycle and lasts numCycles cycles (1-${MAX_STAKE_CYCL
       description: `Update an existing PoX-5 stake: extend the lock, add STX, switch signer manager, or change payout calldata (pox-5 stake-update).
 
 Any combination in one call. Increasing locks more of the address's unlocked STX. Refused during the prepare phase. The lock may not run more than ${MAX_STAKE_CYCLES} cycles past the next cycle.`,
-      inputSchema: {
+      inputSchema: z.object({
         cyclesToExtend: z
           .number()
           .int()
@@ -312,7 +312,7 @@ Any combination in one call. Increasing locks more of the address's unlocked STX
           .optional()
           .describe("New signer manager contract id. Defaults to the current one."),
         ...payoutInputs,
-      },
+      }),
     },
     async ({ cyclesToExtend, amountIncrease, signerManager, ...payout }) => {
       try {
@@ -350,7 +350,7 @@ Any combination in one call. Increasing locks more of the address's unlocked STX
       description:
         "Stop a PoX-5 stake early (pox-5 unstake). The STX stays locked through the current reward " +
         "cycle and unlocks at the start of the next one. Refused during the prepare phase.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -380,7 +380,7 @@ Any combination in one call. Increasing locks more of the address's unlocked STX
         "PoX-5 sBTC rewards an address has earned from its signer manager for one reward cycle and not " +
         "yet claimed (before the manager's fees), whether the manager still has to pull them from pox-5, " +
         "and whether the manager supports an on-chain staker claim.",
-      inputSchema: {
+      inputSchema: z.object({
         rewardCycle: z.number().int().nonnegative().describe("Reward cycle to check"),
         address: z
           .string()
@@ -390,7 +390,7 @@ Any combination in one call. Increasing locks more of the address's unlocked STX
           .string()
           .optional()
           .describe("Signer manager to check. Defaults to the address's current signer manager."),
-      },
+      }),
     },
     async ({ rewardCycle, address, signerManager }) => {
       try {
@@ -439,13 +439,13 @@ Any combination in one call. Increasing locks more of the address's unlocked STX
         "permissionless claim-rewards (a second transaction, paid by this wallet), then the staker " +
         "claim. Rewards arrive as sBTC, or as a BTC withdrawal if a payout address was set when " +
         "staking. Not available for managers that pay off-chain.",
-      inputSchema: {
+      inputSchema: z.object({
         rewardCycle: z.number().int().nonnegative().describe("Reward cycle to claim"),
         signerManager: z
           .string()
           .optional()
           .describe("Signer manager to claim from. Defaults to the wallet's current signer manager."),
-      },
+      }),
     },
     async ({ rewardCycle, signerManager }) => {
       try {

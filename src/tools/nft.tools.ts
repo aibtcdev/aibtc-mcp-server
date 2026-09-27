@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { getAccount, getWalletAddress, NETWORK } from "../services/x402.service.js";
 import { getNftService } from "../services/nft.service.js";
@@ -11,7 +11,7 @@ export function registerNftTools(server: McpServer): void {
     "get_nft_holdings",
     {
       description: "List all NFTs owned by an address.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
@@ -19,7 +19,7 @@ export function registerNftTools(server: McpServer): void {
         contractId: z.string().optional().describe("Filter by specific NFT collection contract"),
         limit: z.number().optional().default(20).describe("Maximum number of results"),
         offset: z.number().optional().default(0).describe("Offset for pagination"),
-      },
+      }),
     },
     async ({ address, contractId, limit, offset }) => {
       try {
@@ -47,10 +47,10 @@ export function registerNftTools(server: McpServer): void {
     "get_nft_metadata",
     {
       description: "Get metadata for a specific NFT (SIP-016).",
-      inputSchema: {
+      inputSchema: z.object({
         contractId: z.string().describe("NFT collection contract ID"),
         tokenId: z.number().describe("Token ID of the NFT"),
-      },
+      }),
     },
     async ({ contractId, tokenId }) => {
       try {
@@ -74,7 +74,7 @@ export function registerNftTools(server: McpServer): void {
     "transfer_nft",
     {
       description: "Transfer an NFT (SIP-009) to a recipient address.",
-      inputSchema: {
+      inputSchema: z.object({
         contractId: z.string().describe("NFT collection contract ID"),
         tokenId: z.number().describe("Token ID of the NFT to transfer"),
         recipient: z.string().describe("The recipient's Stacks address"),
@@ -82,7 +82,7 @@ export function registerNftTools(server: McpServer): void {
           .string()
           .optional()
           .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount. If omitted, auto-estimated."),
-      },
+      }),
     },
     async ({ contractId, tokenId, recipient, fee }) => {
       try {
@@ -112,10 +112,10 @@ export function registerNftTools(server: McpServer): void {
     "get_nft_owner",
     {
       description: "Get the current owner of a specific NFT.",
-      inputSchema: {
+      inputSchema: z.object({
         contractId: z.string().describe("NFT collection contract ID"),
         tokenId: z.number().describe("Token ID of the NFT"),
-      },
+      }),
     },
     async ({ contractId, tokenId }) => {
       try {
@@ -140,9 +140,9 @@ export function registerNftTools(server: McpServer): void {
     "get_collection_info",
     {
       description: "Get information about an NFT collection.",
-      inputSchema: {
+      inputSchema: z.object({
         contractId: z.string().describe("NFT collection contract ID"),
-      },
+      }),
     },
     async ({ contractId }) => {
       try {
@@ -164,11 +164,11 @@ export function registerNftTools(server: McpServer): void {
     "get_nft_history",
     {
       description: "Get the transfer history of NFTs in a collection.",
-      inputSchema: {
+      inputSchema: z.object({
         contractId: z.string().describe("NFT collection contract ID"),
         limit: z.number().optional().default(20).describe("Maximum number of results"),
         offset: z.number().optional().default(0).describe("Offset for pagination"),
-      },
+      }),
     },
     async ({ contractId, limit, offset }) => {
       try {

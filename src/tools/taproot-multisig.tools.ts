@@ -13,7 +13,7 @@
  *   coordination using OP_CHECKSIGADD (BIP-341/342). Read-only.
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { schnorr } from "@noble/curves/secp256k1.js";
 import { z } from "zod";
 import { getWalletManager } from "../services/wallet-manager.js";
@@ -31,7 +31,7 @@ export function registerTaprootMultisigTools(server: McpServer): void {
         "BIP-86 derivation path m/86'/0'/0'/0/0. " +
         "Share this pubkey with co-signers to construct a Taproot multisig script tree. " +
         "Requires the wallet to be unlocked (use wallet_unlock first).",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -76,7 +76,7 @@ export function registerTaprootMultisigTools(server: McpServer): void {
         "Verify a Schnorr co-signature against a BIP-341 sighash. " +
         "Use this to confirm that a co-signer's signature is valid before combining and broadcasting. " +
         "Read-only — no wallet unlock required.",
-      inputSchema: {
+      inputSchema: z.object({
         sighash: z
           .string()
           .length(64)
@@ -100,7 +100,7 @@ export function registerTaprootMultisigTools(server: McpServer): void {
             "Signer's x-only public key as 32-byte hex string (64 hex chars). " +
               "Obtain via taproot_get_pubkey from each co-signer."
           ),
-      },
+      }),
     },
     async ({ sighash, signature, pubkey }) => {
       try {
@@ -150,7 +150,7 @@ export function registerTaprootMultisigTools(server: McpServer): void {
       description:
         "Return a step-by-step guide for M-of-N Taproot multisig coordination between agents " +
         "using OP_CHECKSIGADD (BIP-341/342). Read-only — no wallet needed.",
-      inputSchema: {
+      inputSchema: z.object({
         m: z
           .number()
           .int()
@@ -167,7 +167,7 @@ export function registerTaprootMultisigTools(server: McpServer): void {
           .optional()
           .default(3)
           .describe("Total number of co-signers (default: 3)."),
-      },
+      }),
     },
     async ({ m, n }) => {
       if (m > n) {

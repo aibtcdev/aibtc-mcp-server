@@ -7,7 +7,7 @@
  * same LightningProvider singleton to auto-pay invoice challenges on 402s.
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { decode as decodeBolt11 } from "light-bolt11-decoder";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
@@ -34,7 +34,7 @@ export function registerLightningTools(server: McpServer): void {
         "Generates a fresh BIP39 mnemonic (shown once), encrypts it with the " +
         "provided password, and stores it at ~/.aibtc/lightning/keystore.json. " +
         "Returns the deposit address for funding the wallet from L1 BTC.",
-      inputSchema: {
+      inputSchema: z.object({
         name: z.string().describe("Name for the Lightning wallet (e.g., 'main')"),
         password: z
           .string()
@@ -42,7 +42,7 @@ export function registerLightningTools(server: McpServer): void {
           .describe(
             "Password to protect the Lightning wallet (minimum 8 characters) - WARNING: sensitive value"
           ),
-      },
+      }),
     },
     async ({ name, password }) => {
       try {
@@ -75,7 +75,7 @@ export function registerLightningTools(server: McpServer): void {
         "Import an existing Lightning wallet into the embedded Spark-backed " +
         "store from a BIP39 mnemonic phrase. Encrypted locally at " +
         "~/.aibtc/lightning/keystore.json.",
-      inputSchema: {
+      inputSchema: z.object({
         name: z.string().describe("Name for the Lightning wallet"),
         mnemonic: z
           .string()
@@ -86,7 +86,7 @@ export function registerLightningTools(server: McpServer): void {
           .describe(
             "Password to protect the Lightning wallet (minimum 8 characters) - WARNING: sensitive value"
           ),
-      },
+      }),
     },
     async ({ name, mnemonic, password }) => {
       try {
@@ -113,9 +113,9 @@ export function registerLightningTools(server: McpServer): void {
         "Unlock the Lightning wallet for the current session. Required before " +
         "paying or creating invoices, and before the L402 interceptor can " +
         "auto-pay challenges.",
-      inputSchema: {
+      inputSchema: z.object({
         password: z.string().describe("Wallet password - WARNING: sensitive value"),
-      },
+      }),
     },
     async ({ password }) => {
       try {
@@ -186,7 +186,7 @@ export function registerLightningTools(server: McpServer): void {
         "claimed to credit the Lightning balance (separate follow-up step; " +
         "not automated in this PR). Requires the main wallet to be unlocked " +
         "AND the Lightning wallet to be unlocked (to fetch the deposit address).",
-      inputSchema: {
+      inputSchema: z.object({
         amountSats: z
           .number()
           .int()
@@ -202,7 +202,7 @@ export function registerLightningTools(server: McpServer): void {
           .describe(
             "Fee rate: 'fast' (~10 min), 'medium' (~30 min), 'slow' (~1 hr), or number in sat/vB"
           ),
-      },
+      }),
     },
     async ({ amountSats, feeRate }) => {
       try {
@@ -306,7 +306,7 @@ export function registerLightningTools(server: McpServer): void {
         "transaction has 3 confirmations. Fetches a signed quote from the " +
         "SSP, submits the claim, and returns the credited sats + Spark " +
         "transfer id. Requires an unlocked Lightning wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         transactionId: z
           .string()
           .describe("Bitcoin txid of the deposit transaction"),
@@ -318,7 +318,7 @@ export function registerLightningTools(server: McpServer): void {
           .describe(
             "Vout index of the deposit output (default: SSP auto-detects)"
           ),
-      },
+      }),
     },
     async ({ transactionId, outputIndex }) => {
       try {
@@ -348,7 +348,7 @@ export function registerLightningTools(server: McpServer): void {
       description:
         "Pay a BOLT-11 Lightning invoice from the embedded Lightning wallet. " +
         "Returns the payment preimage (proof of payment) and fees paid.",
-      inputSchema: {
+      inputSchema: z.object({
         bolt11: z
           .string()
           .describe("BOLT-11 encoded Lightning invoice (starts with lnbc... or lntb...)"),
@@ -360,7 +360,7 @@ export function registerLightningTools(server: McpServer): void {
           .describe(
             "Maximum routing fee to pay in sats (provider default applies when omitted)"
           ),
-      },
+      }),
     },
     async ({ bolt11, maxFeeSats }) => {
       try {
@@ -429,7 +429,7 @@ export function registerLightningTools(server: McpServer): void {
       description:
         "Create a BOLT-11 Lightning invoice that can receive a payment into " +
         "the embedded Lightning wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         amountSats: z
           .number()
           .int()
@@ -439,7 +439,7 @@ export function registerLightningTools(server: McpServer): void {
           .string()
           .optional()
           .describe("Optional description attached to the invoice"),
-      },
+      }),
     },
     async ({ amountSats, memo }) => {
       try {

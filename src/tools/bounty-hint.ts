@@ -15,7 +15,7 @@
  * added to successful results — never to errors, and never touching the tool's
  * own JSON payload.
  */
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 
 /**
  * Tools that move or spend value. A hint is appended to their successful output.

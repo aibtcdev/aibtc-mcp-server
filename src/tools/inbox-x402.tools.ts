@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import axios, { AxiosError } from "axios";
 import {
@@ -113,7 +113,7 @@ export function registerInboxX402Tools(server: McpServer): void {
         "message cost AND your own STX gas fee. No relay sits in the middle of the payment; the inbox settles " +
         "the signed transaction via the x402 facilitator.\n\n" +
         "Requires an unlocked wallet holding sBTC (message cost) and STX (gas). Mainnet only.",
-      inputSchema: {
+      inputSchema: z.object({
         recipientBtcAddress: z
           .string()
           .describe("Recipient's Bitcoin address (bc1...)"),
@@ -124,7 +124,7 @@ export function registerInboxX402Tools(server: McpServer): void {
           .string()
           .max(500)
           .describe("Message content (max 500 characters)"),
-      },
+      }),
     },
     async ({ recipientBtcAddress, recipientStxAddress, content }) => {
       try {

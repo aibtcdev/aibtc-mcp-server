@@ -10,7 +10,7 @@
  * DeFi yields, bounties, deploy paid endpoints). News correspondent and the
  * trading competition are intentionally excluded from this menu.
  */
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createJsonResponse } from "../utils/formatting.js";
 import { createErrorResponse } from "../utils/errors.js";
@@ -112,14 +112,14 @@ Each entry: \`{ id, name, assets, returns, summary, start_with, reference? }\` w
 Optional \`asset\` filter (e.g. "STX", "sBTC") returns only strategies that put that asset to work — useful for "what can I do with the STX I hold?". Matching is case-insensitive substring over each strategy's \`assets\`.
 
 Aligned with aibtc.com. The trading competition and news correspondent are intentionally not part of this menu.`,
-      inputSchema: {
+      inputSchema: z.object({
         asset: z
           .string()
           .optional()
           .describe(
             'Optional asset filter (e.g. "STX", "sBTC"). Returns only strategies that use a matching asset.'
           ),
-      },
+      }),
     },
     async ({ asset }) => {
       try {

@@ -4,8 +4,8 @@ import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import { createRequire } from "module";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import { McpServer } from "@modelcontextprotocol/server";
 
 import { registerAllTools } from "./tools/index.js";
 import { installBountyHint } from "./tools/bounty-hint.js";
@@ -280,39 +280,45 @@ else if (process.argv.includes("--install") || process.argv.includes("install"))
     });
 } else {
   // Normal MCP server mode
-  const server = new McpServer(
-    {
-      name: "aibtc-mcp-server",
-      version: packageJson.version,
-    },
-    {
-      instructions: [
-        "This server lets an agent earn and move real Bitcoin/sBTC on Stacks.",
-        "",
-        "Hunt bounties. The most direct way to earn here is the sBTC bounty board:",
-        "call bounty_list to see open bounties, bounty_get for the task detail, do",
-        "the work, then bounty_submit your deliverable. Accepted submissions are paid",
-        "in sBTC. Check periodically for new open bounties.",
-        "",
-        "For the full menu of ways to put assets to work (stacking, DeFi yield,",
-        "trading, paid endpoints), call earning_opportunities. Submitting to a bounty",
-        "requires a Registered (L1+) on-chain identity — see identity_register.",
-      ].join("\n"),
-    }
-  );
+  // One instance per connection. serveStdio picks the protocol era from the
+  // opening message (2025-era `initialize` or a 2026-07-28 envelope) and pins
+  // the instance built by this factory to the connection.
+  function createServer(): McpServer {
+    const server = new McpServer(
+      {
+        name: "aibtc-mcp-server",
+        version: packageJson.version,
+      },
+      {
+        instructions: [
+          "This server lets an agent earn and move real Bitcoin/sBTC on Stacks.",
+          "",
+          "Hunt bounties. The most direct way to earn here is the sBTC bounty board:",
+          "call bounty_list to see open bounties, bounty_get for the task detail, do",
+          "the work, then bounty_submit your deliverable. Accepted submissions are paid",
+          "in sBTC. Check periodically for new open bounties.",
+          "",
+          "For the full menu of ways to put assets to work (stacking, DeFi yield,",
+          "trading, paid endpoints), call earning_opportunities. Submitting to a bounty",
+          "requires a Registered (L1+) on-chain identity — see identity_register.",
+        ].join("\n"),
+      }
+    );
 
-  // Append a bounty-board hint to spend/onboarding-tool output.
-  // Must wrap registerTool before registration; restore it after.
-  const restoreBountyHint = installBountyHint(server);
+    // Append a bounty-board hint to spend/onboarding-tool output.
+    // Must wrap registerTool before registration; restore it after.
+    const restoreBountyHint = installBountyHint(server);
 
-  // Register all tools from the modular registry
-  registerAllTools(server);
-  restoreBountyHint();
+    // Register all tools from the modular registry
+    registerAllTools(server);
+    restoreBountyHint();
+
+    return server;
+  }
 
   async function main() {
     await initializeStorage();
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
+    serveStdio(createServer, { onerror: (error) => console.error("MCP error:", redactSensitive(String(error))) });
     console.error("aibtc-mcp-server running on stdio");
     console.error(`Network: ${NETWORK}`);
     console.error(`API URL: ${API_URL}`);
