@@ -108,6 +108,7 @@ aibtc-mcp-server MCP Server (src/index.ts)
 - `src/tools/at-stake-legion.tools.ts` - At Stake side legions (aibtc.com/legions — propose, vote, conclude, vault settlement)
 - `src/services/at-stake.service.ts` - At Stake chain reads, network-pinned account, conclude-outcome prediction
 - `src/config/at-stake.ts` - At Stake contract ids, side mapping (BONDED=yes, IDLE=no), contract error codes
+- `src/tools/profiles.ts` - Tool profiles: the lean `CORE_TOOLS` set, `TOOL_GROUPS`, and `AIBTC_TOOLS` / `--profile` resolution (groups are assigned per module in `src/tools/index.ts`)
 - `src/tools/competition.tools.ts` - AIBTC Trading Competition (concluded; **not registered** — module kept for the `computeCampaignStats` P&L reference, exposes no MCP tools)
 - `src/tools/psbt.tools.ts` - PSBT create/sign/broadcast/decode (used by ordinals marketplace, P2P and taproot multisig flows)
 - `src/tools/settings.tools.ts` - Hiro API key, custom Stacks API URL, server version
@@ -140,7 +141,8 @@ BNS tools automatically check V2 first for `.btc` names, falling back to V1 for 
 Set environment variables in `.env`:
 - `CLIENT_MNEMONIC` - 24-word Stacks wallet mnemonic (optional - can use managed wallets instead)
 - `NETWORK` - "mainnet" or "testnet" (default: mainnet)
-- `API_URL` - Default x402 API base URL (default: https://x402.biwas.xyz)
+- `API_URL` - x402 base URL for bare-path calls (default: https://x402.aibtc.com, testnet https://x402.aibtc.dev)
+- `AIBTC_TOOLS` - Tool groups loaded on top of the lean core (comma-separated), or `all`; `--profile full` is the same as `all`
 - `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` - Only used by the `bridge` subcommand (drive tools via an OpenRouter model)
 - `SPEND_LIMIT_ENABLED` - Wallet spending limit on/off (default: true)
 - `SPEND_LIMIT_DAILY_USTX` / `SPEND_LIMIT_SESSION_USTX` - STX spend cap per day / per unlock in micro-STX (default: 10000000 = 10 STX)
@@ -203,6 +205,8 @@ Safety flags (default exposes all tools; constrain with these):
 The allowlist is re-enforced at `tools/call` time, so the model can't reach a tool outside the exposed set. Frameworks with native MCP support (`@openrouter/agent`, OpenAI/Claude Agents SDKs) can point at the server directly instead.
 
 ## Available Tools
+
+> **Profiles:** by default only the 24-tool lean core in `src/tools/profiles.ts` is registered; everything else loads by group via `AIBTC_TOOLS` or `--profile full`. A new tool goes in its module's group automatically; add it to `CORE_TOOLS` only if a fresh install needs it.
 
 > **Full tool reference:** [`docs/TOOLS.md`](docs/TOOLS.md) — per-tool parameters,
 > examples, contract addresses, asset tables, and P&L methodology. The MCP server also exposes each tool's description at runtime, so the

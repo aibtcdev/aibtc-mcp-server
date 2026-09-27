@@ -8,6 +8,7 @@ import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { McpServer } from "@modelcontextprotocol/server";
 
 import { registerAllTools } from "./tools/index.js";
+import { describeSelection, resolveToolSelection, type ToolSelection } from "./tools/profiles.js";
 import { installBountyHint } from "./tools/bounty-hint.js";
 import { NETWORK, API_URL } from "./config/index.js";
 import { redactSensitive } from "./utils/redact.js";
@@ -71,32 +72,32 @@ async function writeJsonConfig(filePath: string, config: Record<string, unknown>
 }
 
 // Standard MCP server entry shared by every JSON-based client config.
-function serverEntry(network: string): Record<string, unknown> {
+function serverEntry(env: Record<string, string>): Record<string, unknown> {
   return {
     command: "npx",
     args: ["-y", SERVER_NPM],
-    env: { NETWORK: network },
+    env,
   };
 }
 
 // Most clients (Claude Code, Claude Desktop, Cursor, Windsurf, Gemini CLI) use
 // the same `{ "mcpServers": { "aibtc": {...} } }` JSON shape.
-async function writeMcpServersJson(configPath: string, network: string): Promise<void> {
+async function writeMcpServersJson(configPath: string, env: Record<string, string>): Promise<void> {
   const config = await readJsonConfig(configPath);
   const servers = (config.mcpServers ??= {}) as Record<string, unknown>;
-  servers["aibtc"] = serverEntry(network);
+  servers["aibtc"] = serverEntry(env);
   await writeJsonConfig(configPath, config);
 }
 
 // VS Code (.vscode/mcp.json) uses a `servers` key and a typed stdio entry.
-async function writeVsCodeJson(configPath: string, network: string): Promise<void> {
+async function writeVsCodeJson(configPath: string, env: Record<string, string>): Promise<void> {
   const config = await readJsonConfig(configPath);
   const servers = (config.servers ??= {}) as Record<string, unknown>;
   servers["aibtc"] = {
     type: "stdio",
     command: "npx",
     args: ["-y", SERVER_NPM],
-    env: { NETWORK: network },
+    env,
   };
   await writeJsonConfig(configPath, config);
 }
@@ -116,7 +117,7 @@ function stripCodexSection(content: string): string {
   return out.join("\n");
 }
 
-async function writeCodexToml(configPath: string, network: string): Promise<void> {
+async function writeCodexToml(configPath: string, env: Record<string, string>): Promise<void> {
   let existing = "";
   try {
     existing = await fs.readFile(configPath, "utf8");
@@ -132,7 +133,7 @@ async function writeCodexToml(configPath: string, network: string): Promise<void
     `args = ["-y", "${SERVER_NPM}"]`,
     "",
     "[mcp_servers.aibtc.env]",
-    `NETWORK = "${network}"`,
+    ...Object.entries(env).map(([key, value]) => `${key} = "${value}"`),
   ].join("\n");
   const content = (preserved ? `${preserved}\n\n` : "") + block + "\n";
   await fs.mkdir(path.dirname(configPath), { recursive: true });
@@ -143,7 +144,7 @@ interface InstallTarget {
   flag: string | null; // null = default target (Claude Code)
   label: string;
   configPath: () => string;
-  write: (configPath: string, network: string) => Promise<void>;
+  write: (configPath: string, env: Record<string, string>) => Promise<void>;
   restart: string;
 }
 
@@ -212,25 +213,32 @@ function resolveInstallTarget(): InstallTarget {
 
 async function runInstall(): Promise<void> {
   const network = process.argv.includes("--testnet") ? "testnet" : "mainnet";
+  const fullProfile = resolveToolSelection(process.argv, {}).all;
   const target = resolveInstallTarget();
   const configPath = target.configPath();
 
   console.log(`🔧 Installing @aibtc/mcp-server to ${target.label}...\n`);
 
-  await target.write(configPath, network);
+  const env: Record<string, string> = { NETWORK: network };
+  if (fullProfile) env.AIBTC_TOOLS = "all";
+  await target.write(configPath, env);
 
   console.log("✅ Successfully installed!\n");
   console.log(`   Client:  ${target.label}`);
   console.log(`   Config:  ${configPath}`);
   console.log(`   Network: ${network}`);
-  console.log("\n📋 Next steps:");
-  console.log(`   1. ${target.restart}`);
-  console.log("   2. Ask the agent: \"What's your wallet address?\"");
-  console.log("   3. The agent will guide you through wallet setup\n");
-
-  if (network === "testnet") {
-    console.log("💡 Tip: Get testnet STX at https://explorer.hiro.so/sandbox/faucet?chain=testnet\n");
-  }
+  console.log(
+    `   Tools:   ${fullProfile ? "all" : "lean core (add AIBTC_TOOLS=defi,ordinals,... to the env, or re-run with --profile full)"}`
+  );
+  console.log(`\n📋 ${target.restart}, then try:`);
+  console.log(`   1. Ask your agent: "What's your wallet address?"`);
+  console.log(
+    network === "testnet"
+      ? "   2. Send it testnet STX: https://explorer.hiro.so/sandbox/faucet?chain=testnet"
+      : "   2. Send it 0.01 STX (the address from step 1)"
+  );
+  const x402Host = network === "testnet" ? "x402.aibtc.dev" : "x402.aibtc.com";
+  console.log(`   3. Ask it: "Make a paid inference call on ${x402Host}" (0.001 STX per call)\n`);
 }
 
 // =============================================================================
@@ -283,7 +291,7 @@ else if (process.argv.includes("--install") || process.argv.includes("install"))
   // One instance per connection. serveStdio picks the protocol era from the
   // opening message (2025-era `initialize` or a 2026-07-28 envelope) and pins
   // the instance built by this factory to the connection.
-  function createServer(): McpServer {
+  function createServer(toolSelection: ToolSelection): McpServer {
     const server = new McpServer(
       {
         name: "aibtc-mcp-server",
@@ -301,6 +309,8 @@ else if (process.argv.includes("--install") || process.argv.includes("install"))
           "For the full menu of ways to put assets to work (stacking, DeFi yield,",
           "trading, paid endpoints), call earning_opportunities. Submitting to a bounty",
           "requires a Registered (L1+) on-chain identity — see identity_register.",
+          "",
+          describeSelection(toolSelection),
         ].join("\n"),
       }
     );
@@ -310,18 +320,20 @@ else if (process.argv.includes("--install") || process.argv.includes("install"))
     const restoreBountyHint = installBountyHint(server);
 
     // Register all tools from the modular registry
-    registerAllTools(server);
+    registerAllTools(server, toolSelection);
     restoreBountyHint();
 
     return server;
   }
 
   async function main() {
+    const toolSelection = resolveToolSelection();
     await initializeStorage();
-    serveStdio(createServer, { onerror: (error) => console.error("MCP error:", redactSensitive(String(error))) });
+    serveStdio(() => createServer(toolSelection), { onerror: (error) => console.error("MCP error:", redactSensitive(String(error))) });
     console.error("aibtc-mcp-server running on stdio");
     console.error(`Network: ${NETWORK}`);
     console.error(`API URL: ${API_URL}`);
+    console.error(`Tools: ${toolSelection.all ? "all" : ["core", ...toolSelection.groups].join(", ")}`);
   }
 
   main().catch((error) => {

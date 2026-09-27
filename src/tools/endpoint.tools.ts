@@ -318,7 +318,8 @@ Costs from live specs are tiers ("paid (standard)", "paid (dynamic)"); use probe
                 (endpoints.length > 0 ? `\n${formatEndpointsTable(endpoints)}` : "") +
                 directoryText +
                 unavailableText +
-                `\n\n---\nUse execute_x402_endpoint to call an endpoint (full url for directory entries). ` +
+                `\n\n---\nUse execute_x402_endpoint to call an endpoint: pass apiUrl="https://<source>" with the path ` +
+                `(the source is in each heading; a bare path goes to ${API_URL}), or the full url for directory entries. ` +
                 `Use probe_x402_endpoint first to see the exact price.`,
             },
           ],
@@ -336,8 +337,8 @@ Costs from live specs are tiers ("paid (standard)", "paid (dynamic)"); use probe
       description: `Execute an x402 API endpoint. Payment is handled automatically.
 
 Supported sources:
-- x402.biwas.xyz (default): Use path like "/api/pools/trending"
-- x402.aibtc.com (mainnet) / x402.aibtc.dev (testnet): Use apiUrl="https://x402.aibtc.com" with path like "/inference/openrouter/chat"
+- x402.aibtc.com (mainnet) / x402.aibtc.dev (testnet), the default: Use path like "/inference/openrouter/chat"
+- x402.biwas.xyz: Use apiUrl="https://x402.biwas.xyz" with path like "/api/pools/trending"
 - stx402.com: Use apiUrl="https://stx402.com" with path like "/registry/list"
 - aibtc.com (mainnet) / aibtc.dev (testnet): Use apiUrl="https://aibtc.com" with path like "/api/inbox/{address}"
 - Any x402-compatible URL: Use url parameter with full endpoint URL
@@ -363,7 +364,7 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
           .string()
           .url()
           .optional()
-          .describe("API base URL. Known sources: x402.biwas.xyz, x402.aibtc.com, stx402.com, aibtc.com. Defaults to configured API_URL."),
+          .describe("API base URL: https:// plus the source host from list_x402_endpoints (x402.aibtc.com, x402.biwas.xyz, stx402.com, aibtc.com). Defaults to the configured API_URL (x402.aibtc.com)."),
         params: z
           .record(z.string(), z.string())
           .optional()
@@ -613,8 +614,8 @@ For paid endpoints, returns payment details (amount, asset, recipient) without e
 After probing a paid endpoint, use execute_x402_endpoint to actually execute and pay.
 
 Supported sources:
-- x402.biwas.xyz (default): Use path like "/api/pools/trending"
-- x402.aibtc.com (mainnet) / x402.aibtc.dev (testnet): Use apiUrl="https://x402.aibtc.com" with path like "/inference/openrouter/chat"
+- x402.aibtc.com (mainnet) / x402.aibtc.dev (testnet), the default: Use path like "/inference/openrouter/chat"
+- x402.biwas.xyz: Use apiUrl="https://x402.biwas.xyz" with path like "/api/pools/trending"
 - stx402.com: Use apiUrl="https://stx402.com" with path like "/registry/list"
 - aibtc.com (mainnet) / aibtc.dev (testnet): Use apiUrl="https://aibtc.com" with path like "/api/inbox/{address}"
 - Any x402-compatible URL: Use url parameter with full endpoint URL`,
@@ -636,7 +637,7 @@ Supported sources:
           .string()
           .url()
           .optional()
-          .describe("API base URL. Known sources: x402.biwas.xyz, x402.aibtc.com, stx402.com, aibtc.com. Defaults to configured API_URL."),
+          .describe("API base URL: https:// plus the source host from list_x402_endpoints (x402.aibtc.com, x402.biwas.xyz, stx402.com, aibtc.com). Defaults to the configured API_URL (x402.aibtc.com)."),
         params: z
           .record(z.string(), z.string())
           .optional()

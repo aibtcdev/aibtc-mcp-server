@@ -5,7 +5,9 @@ export type Network = "mainnet" | "testnet";
 export const NETWORK: Network =
   process.env.NETWORK === "testnet" ? "testnet" : "mainnet";
 
-export const API_URL = process.env.API_URL || "https://x402.biwas.xyz";
+export const API_URL =
+  process.env.API_URL ||
+  (NETWORK === "mainnet" ? "https://x402.aibtc.com" : "https://x402.aibtc.dev");
 
 export function getStacksNetwork(network: Network): StacksNetworkName {
   return network === "mainnet" ? "mainnet" : "testnet";
