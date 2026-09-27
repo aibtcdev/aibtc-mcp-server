@@ -1,11 +1,13 @@
 /**
  * Tool profiles: which tools the server exposes.
  *
- * Every tool definition is sent to the client's model on each session, so the
- * default is a lean set covering wallet, balances, transfers, x402 and earning.
- * The rest is grouped by domain and opted into with `AIBTC_TOOLS=defi,ordinals`
- * (the lean set is always included) or the full surface with `--profile full`
- * / `AIBTC_TOOLS=all`.
+ * Every tool definition is sent to the client's model on each session, so
+ * `--install` writes `AIBTC_TOOLS=core`: a lean set covering wallet, balances,
+ * transfers, x402 and earning. Other groups are added with
+ * `AIBTC_TOOLS=core,defi,ordinals` (the core set is always included).
+ *
+ * An unset AIBTC_TOOLS loads every tool: configs written before profiles
+ * existed have no AIBTC_TOOLS, and their users keep the tools they had.
  */
 
 /** Tools exposed by default, whatever groups are enabled. */
@@ -81,8 +83,8 @@ export function isToolSelected(
 
 /**
  * Resolve the selection from `--profile <lean|full>` and `AIBTC_TOOLS`
- * (comma-separated group names, or `all`). Unknown values throw so a typo
- * doesn't silently hide tools.
+ * (`all`, or `core` and/or comma-separated group names; unset means `all`).
+ * Unknown values throw so a typo doesn't silently hide tools.
  */
 export function resolveToolSelection(
   argv: readonly string[] = process.argv,
@@ -94,18 +96,19 @@ export function resolveToolSelection(
     throw new Error(`Unknown --profile "${profile}". Use "lean" or "full".`);
   }
   if (profile === "full") return ALL_TOOLS;
+  if (profile === "lean") return { all: false, groups: new Set() };
 
-  const names = (env.AIBTC_TOOLS ?? "")
+  const names = (env.AIBTC_TOOLS ?? "all")
     .split(",")
     .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
+    .filter((n) => n && n !== "core");
   if (names.includes("all")) return ALL_TOOLS;
 
   const unknown = names.filter((n) => !isToolGroup(n));
   if (unknown.length > 0) {
     throw new Error(
       `Unknown AIBTC_TOOLS group(s): ${unknown.join(", ")}. ` +
-        `Valid: all, ${Object.keys(TOOL_GROUPS).join(", ")}.`
+        `Valid: all, core, ${Object.keys(TOOL_GROUPS).join(", ")}.`
     );
   }
   return { all: false, groups: new Set(names as ToolGroup[]) };
@@ -119,7 +122,7 @@ export function describeSelection(selection: ToolSelection): string {
   return [
     `Tool profile: lean core${on.length > 0 ? ` + ${on.join(", ")}` : ""}.`,
     "These groups are not loaded; if the user needs one, tell them to set",
-    "AIBTC_TOOLS=<group,...> (or --profile full) in this server's config and restart:",
+    "AIBTC_TOOLS=core,<group,...> (or all) in this server's config and restart:",
     ...off.map((g) => `- ${g}: ${TOOL_GROUPS[g]}`),
   ].join("\n");
 }

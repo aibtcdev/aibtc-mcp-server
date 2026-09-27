@@ -20,9 +20,23 @@ function registeredNames(selection: ToolSelection): string[] {
 }
 
 describe("tool profiles", () => {
-  it("lean default registers exactly the core set", () => {
-    const names = registeredNames(resolveToolSelection([], {}));
-    expect(new Set(names)).toEqual(new Set(CORE_TOOLS));
+  it("AIBTC_TOOLS=core and --profile lean register exactly the core set", () => {
+    for (const selection of [
+      resolveToolSelection([], { AIBTC_TOOLS: "core" }),
+      resolveToolSelection(["--profile", "lean"], {}),
+    ]) {
+      expect(new Set(registeredNames(selection))).toEqual(new Set(CORE_TOOLS));
+    }
+  });
+
+  it("an unset AIBTC_TOOLS (pre-profile configs) loads every tool", () => {
+    expect(resolveToolSelection([], {})).toEqual(ALL_TOOLS);
+  });
+
+  it("core plus a group loads the same as the group alone", () => {
+    expect(registeredNames(resolveToolSelection([], { AIBTC_TOOLS: "core,defi" }))).toEqual(
+      registeredNames(resolveToolSelection([], { AIBTC_TOOLS: "defi" }))
+    );
   });
 
   it("every core tool exists in the full surface", () => {
