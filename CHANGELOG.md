@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.72.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.71.0...mcp-server-v1.72.0) (2026-09-27)
+
+
+### Features
+
+* **install:** create the agent wallet during --install ([#688](https://github.com/aibtcdev/aibtc-mcp-server/issues/688)) ([148029e](https://github.com/aibtcdev/aibtc-mcp-server/commit/148029e152a3bda879923e0132b492c4532f0def))
+* **mcp:** move to MCP TypeScript SDK v2 and serve protocol 2026-07-28 ([#685](https://github.com/aibtcdev/aibtc-mcp-server/issues/685)) ([84e74fa](https://github.com/aibtcdev/aibtc-mcp-server/commit/84e74fa6285e90292bc391d2a98384897d988739))
+* **tools:** lean default tool profile, x402.aibtc.com as default API_URL ([#686](https://github.com/aibtcdev/aibtc-mcp-server/issues/686)) ([b085abf](https://github.com/aibtcdev/aibtc-mcp-server/commit/b085abf1a64b9f7bf60aafeafe2ee823b75d6a7a))
+* **tools:** unset AIBTC_TOOLS loads every tool; --install writes core ([#690](https://github.com/aibtcdev/aibtc-mcp-server/issues/690)) ([30d383b](https://github.com/aibtcdev/aibtc-mcp-server/commit/30d383ba2823f2f136b344a7ff8ba0e4596afd53))
+
+
+### Bug Fixes
+
+* **x402:** hardcode the default x402 base URL per network ([#689](https://github.com/aibtcdev/aibtc-mcp-server/issues/689)) ([c1c770c](https://github.com/aibtcdev/aibtc-mcp-server/commit/c1c770c2d636356460c15bfab5a5c7f45051573a))
+
 ## [1.71.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.70.1...mcp-server-v1.71.0) (2026-09-16)
 
 
