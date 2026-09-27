@@ -138,7 +138,7 @@ BNS tools automatically check V2 first for `.btc` names, falling back to V1 for 
 
 ## Configuration
 
-Set environment variables in `.env`:
+The server never reads a `.env` file: it would load the `.env` of whatever project the MCP client was opened in. Installed users set these in the client config's `env` block (`--install` writes it) or the shell. In this repo, `npm run dev` / `npm start` load `./.env` explicitly (`--env-file-if-exists`):
 - `CLIENT_MNEMONIC` - 24-word Stacks wallet mnemonic (optional - can use managed wallets instead)
 - `NETWORK` - "mainnet" or "testnet" (default: mainnet)
 - `AIBTC_TOOLS` - `core` (lean set, written by `--install`), `core,<group,...>`, or `all`. Unset loads everything so pre-profile configs keep their tools; `--profile full` = `all`, `--profile lean` = `core`

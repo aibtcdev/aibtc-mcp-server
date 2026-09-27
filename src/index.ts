@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import "dotenv/config";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
