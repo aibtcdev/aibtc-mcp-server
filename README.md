@@ -27,7 +27,7 @@ Bitcoin-native MCP server for AI agents: BTC/STX wallets, DeFi yield, sBTC peg, 
 npx @aibtc/mcp-server@latest --install
 ```
 
-This configures Claude Code and creates the agent's wallet: it prints the Stacks and Bitcoin addresses, a generated password and the 24-word mnemonic **once**. Write both down. The mnemonic is stored only encrypted (AES-256-GCM) in `~/.aibtc/` on this machine, and the password is not saved anywhere; the agent asks for it to unlock, and you can change it with `wallet_rotate_password`. If a wallet for the network already exists it is kept. Pass `--no-wallet` to skip this and create or import one from the agent instead.
+This configures Claude Code and creates the agent's wallet: it prints the Stacks and Bitcoin addresses, a generated password and the 24-word mnemonic **once**. Write both down. The mnemonic is stored only encrypted (AES-256-GCM) in `~/.aibtc/` on this machine, and the password is not saved anywhere; the agent asks for it to unlock, and you can change it with `wallet_rotate_password`. If a wallet for the network already exists it is kept. The wallet is only created when the install runs in an interactive terminal (never into a pipe or CI log). Pass `--no-wallet` to skip it and create or import one from the agent instead.
 
 Restart your terminal, send a little STX to the printed address, and ask the agent to unlock the wallet and make a paid inference call.
 

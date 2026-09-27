@@ -288,9 +288,17 @@ async function runInstall(): Promise<void> {
     `   Tools:   ${fullProfile ? "all" : "lean core (set AIBTC_TOOLS=core,defi,ordinals,... in the env, or re-run with --profile full)"}`
   );
 
-  const address = process.argv.includes("--no-wallet")
-    ? null
-    : await ensureInstallWallet(network);
+  // The wallet's password and mnemonic are printed once, so only create it when
+  // a person is reading the terminal, never into a pipe, file or CI log.
+  let address: string | null = null;
+  if (process.argv.includes("--no-wallet")) {
+    // Explicitly skipped
+  } else if (!process.stdout.isTTY) {
+    console.log("\n👛 Wallet not created: output is not a terminal, and the password and mnemonic");
+    console.log("   are only ever printed to one. Re-run --install in a terminal, or ask the agent to create one.");
+  } else {
+    address = await ensureInstallWallet(network);
+  }
 
   console.log(`\n📋 ${target.restart}, then try:`);
   const fund = network === "testnet"
