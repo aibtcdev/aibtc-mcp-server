@@ -5,9 +5,11 @@ export type Network = "mainnet" | "testnet";
 export const NETWORK: Network =
   process.env.NETWORK === "testnet" ? "testnet" : "mainnet";
 
+// Base URL for bare-path x402 calls. Fixed per network, not read from the
+// environment: the server loads the .env of whatever directory the client
+// starts it in, and a project's generic API_URL must not redirect payments.
 export const API_URL =
-  process.env.API_URL ||
-  (NETWORK === "mainnet" ? "https://x402.aibtc.com" : "https://x402.aibtc.dev");
+  NETWORK === "mainnet" ? "https://x402.aibtc.com" : "https://x402.aibtc.dev";
 
 export function getStacksNetwork(network: Network): StacksNetworkName {
   return network === "mainnet" ? "mainnet" : "testnet";

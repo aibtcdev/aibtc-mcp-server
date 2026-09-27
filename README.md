@@ -578,7 +578,6 @@ Or use any SIP-010 token by contract ID: `SP2X...::token-name`
 | Environment Variable | Description | Default |
 |---------------------|-------------|---------|
 | `NETWORK` | `mainnet` or `testnet` | `mainnet` |
-| `API_URL` | x402 base URL for `execute_x402_endpoint` calls that pass a bare `path` | `https://x402.aibtc.com` (testnet: `https://x402.aibtc.dev`) |
 | `AIBTC_TOOLS` | `core`, `core,<group,...>`, or `all` (see [Tool Profiles](#tool-profiles)). `--install` writes `core` | all tools when unset |
 | `CLIENT_MNEMONIC` | (Optional) Pre-configured mnemonic | - |
 | `HIRO_API_KEY` | (Optional) Hiro API key for higher rate limits | - |
