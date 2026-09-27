@@ -18,7 +18,7 @@
  * - stacks_market_get_position  — Check YES/NO share balances for any address
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { NETWORK, getExplorerTxUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
@@ -121,7 +121,7 @@ export function registerStacksMarketTools(server: McpServer): void {
 Returns a paginated list of markets with optional filtering by status, category, or featured flag.
 
 Note: Stacks Market is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         limit: z
           .number()
           .optional()
@@ -141,7 +141,7 @@ Note: Stacks Market is only available on mainnet.`,
           .boolean()
           .optional()
           .describe("When true, return only featured markets"),
-      },
+      }),
     },
     async ({ limit, status, category, featured }) => {
       try {
@@ -179,14 +179,14 @@ Note: Stacks Market is only available on mainnet.`,
 Searches across market titles and descriptions.
 
 Note: Stacks Market is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         query: z.string().describe("Search keyword or phrase"),
         limit: z
           .number()
           .optional()
           .default(20)
           .describe("Maximum number of results to return (default 20)"),
-      },
+      }),
     },
     async ({ query, limit }) => {
       try {
@@ -220,13 +220,13 @@ Note: Stacks Market is only available on mainnet.`,
 Market IDs are epoch millisecond timestamps (uint) visible in market URLs.
 
 Note: Stacks Market is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         market_id: z
           .string()
           .describe(
             "Market ID (epoch ms timestamp, e.g. '1710000000000')"
           ),
-      },
+      }),
     },
     async ({ market_id }) => {
       try {
@@ -258,7 +258,7 @@ Returns the cost in micro-STX to buy the requested number of shares.
 Side: 0 = YES, 1 = NO.
 
 Note: Stacks Market is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         market_id: z
           .string()
           .describe("Market ID (epoch ms timestamp)"),
@@ -270,7 +270,7 @@ Note: Stacks Market is only available on mainnet.`,
           .min(0)
           .max(1)
           .describe("0 = YES shares, 1 = NO shares"),
-      },
+      }),
     },
     async ({ market_id, shares, side }) => {
       try {
@@ -315,7 +315,7 @@ Returns the proceeds in micro-STX for selling the requested number of shares.
 Side: 0 = YES, 1 = NO.
 
 Note: Stacks Market is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         market_id: z
           .string()
           .describe("Market ID (epoch ms timestamp)"),
@@ -327,7 +327,7 @@ Note: Stacks Market is only available on mainnet.`,
           .min(0)
           .max(1)
           .describe("0 = YES shares, 1 = NO shares"),
-      },
+      }),
     },
     async ({ market_id, shares, side }) => {
       try {
@@ -372,7 +372,7 @@ Uses the buy-yes-auto function with slippage protection via a max-cost cap.
 The transaction will fail if the cost exceeds max_cost_ustx.
 
 Requires an unlocked wallet. Only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         market_id: z
           .string()
           .describe("Market ID (epoch ms timestamp)"),
@@ -389,7 +389,7 @@ Requires an unlocked wallet. Only available on mainnet.`,
           .describe(
             "Maximum cost in micro-STX you are willing to pay (slippage protection)"
           ),
-      },
+      }),
     },
     async ({ market_id, shares, target_cap_ustx, max_cost_ustx }) => {
       try {
@@ -443,7 +443,7 @@ Uses the buy-no-auto function with slippage protection via a max-cost cap.
 The transaction will fail if the cost exceeds max_cost_ustx.
 
 Requires an unlocked wallet. Only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         market_id: z
           .string()
           .describe("Market ID (epoch ms timestamp)"),
@@ -460,7 +460,7 @@ Requires an unlocked wallet. Only available on mainnet.`,
           .describe(
             "Maximum cost in micro-STX you are willing to pay (slippage protection)"
           ),
-      },
+      }),
     },
     async ({ market_id, shares, target_cap_ustx, max_cost_ustx }) => {
       try {
@@ -514,7 +514,7 @@ Uses the sell-yes-auto function with a minimum proceeds guard.
 The transaction will fail if proceeds fall below min_proceeds_ustx.
 
 Requires an unlocked wallet. Only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         market_id: z
           .string()
           .describe("Market ID (epoch ms timestamp)"),
@@ -526,7 +526,7 @@ Requires an unlocked wallet. Only available on mainnet.`,
           .describe(
             "Minimum acceptable proceeds in micro-STX (slippage protection)"
           ),
-      },
+      }),
     },
     async ({ market_id, shares, min_proceeds_ustx }) => {
       try {
@@ -579,7 +579,7 @@ Uses the sell-no-auto function with a minimum proceeds guard.
 The transaction will fail if proceeds fall below min_proceeds_ustx.
 
 Requires an unlocked wallet. Only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         market_id: z
           .string()
           .describe("Market ID (epoch ms timestamp)"),
@@ -591,7 +591,7 @@ Requires an unlocked wallet. Only available on mainnet.`,
           .describe(
             "Minimum acceptable proceeds in micro-STX (slippage protection)"
           ),
-      },
+      }),
     },
     async ({ market_id, shares, min_proceeds_ustx }) => {
       try {
@@ -643,11 +643,11 @@ Requires an unlocked wallet. Only available on mainnet.`,
 Call this after the market has been resolved to claim STX for the winning side shares you hold.
 
 Requires an unlocked wallet. Only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         market_id: z
           .string()
           .describe("Market ID (epoch ms timestamp) of the resolved market"),
-      },
+      }),
     },
     async ({ market_id }) => {
       try {
@@ -694,7 +694,7 @@ If no address is provided, uses the currently configured wallet address.
 No wallet required when an address is explicitly supplied.
 
 Note: Stacks Market is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         market_id: z
           .string()
           .describe("Market ID (epoch ms timestamp)"),
@@ -704,7 +704,7 @@ Note: Stacks Market is only available on mainnet.`,
           .describe(
             "Stacks address to check position for. Uses configured wallet if not provided."
           ),
-      },
+      }),
     },
     async ({ market_id, address }) => {
       try {

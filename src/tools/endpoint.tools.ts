@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createApiClient, API_URL, probeEndpoint, formatPaymentAmount, type ProbeResult, checkSufficientBalance, generateDedupKey, checkDedupCache, recordTransaction, X402_DEDUP_TTL_MS, NETWORK } from "../services/x402.service.js";
 import { STATIC_ENDPOINTS, formatEndpointsTable, type X402Endpoint } from "../endpoints/registry.js";
@@ -185,7 +185,7 @@ Sources:
 - directory: third-party endpoints registered at stx402.com (live, mainnet). Unverified entries are hidden unless includeUnverified is true — probe before paying.
 
 Costs from live specs are tiers ("paid (standard)", "paid (dynamic)"); use probe_x402_endpoint for the exact price.`,
-      inputSchema: {
+      inputSchema: z.object({
         source: z
           .enum(["x402.biwas.xyz", "x402.aibtc.com", "stx402.com", "aibtc.com", "directory", "all"])
           .optional()
@@ -212,7 +212,7 @@ Costs from live specs are tiers ("paid (standard)", "paid (dynamic)"); use probe
           .optional()
           .default(false)
           .describe("Include unverified third-party entries from the stx402.com directory"),
-      },
+      }),
     },
     async ({ source, category, search, showFreeOnly, showPaidOnly, includeUnverified }) => {
       try {
@@ -345,7 +345,7 @@ Supported sources:
 Use list_x402_endpoints to discover available endpoints.
 
 For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs a standard sBTC transfer and settles directly through the x402 facilitator.`,
-      inputSchema: {
+      inputSchema: z.object({
         method: z
           .enum(["GET", "POST", "PUT", "DELETE"])
           .default("GET")
@@ -383,7 +383,7 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
           .describe(
             "Which asset to pay with when the endpoint accepts several. Accepts a symbol (\"sBTC\", \"STX\") or a full contract identifier. Defaults to the first asset this client can pay. Only STX and sBTC can be signed; requesting any other asset returns an error listing what is accepted."
           ),
-      },
+      }),
     },
     async ({ method, url, path, apiUrl, params, data, autoApprove, asset }) => {
       let fullUrl = "";
@@ -618,7 +618,7 @@ Supported sources:
 - stx402.com: Use apiUrl="https://stx402.com" with path like "/registry/list"
 - aibtc.com (mainnet) / aibtc.dev (testnet): Use apiUrl="https://aibtc.com" with path like "/api/inbox/{address}"
 - Any x402-compatible URL: Use url parameter with full endpoint URL`,
-      inputSchema: {
+      inputSchema: z.object({
         method: z
           .enum(["GET", "POST", "PUT", "DELETE"])
           .default("GET")
@@ -651,7 +651,7 @@ Supported sources:
           .describe(
             "Quote the cost in this asset when the endpoint accepts several. Accepts a symbol (\"sBTC\", \"STX\") or a full contract identifier. Defaults to the first asset this client can pay; the full accepts[] list is always returned."
           ),
-      },
+      }),
     },
     async ({ method, url, path, apiUrl, params, data, asset }) => {
       let fullUrl = "";

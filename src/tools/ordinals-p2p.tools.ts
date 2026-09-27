@@ -17,7 +17,7 @@
  * - ordinals_p2p_psbt_swap:    Record a completed PSBT atomic swap (BIP-137 signed)
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { sha256 } from "@noble/hashes/sha2.js";
@@ -225,7 +225,7 @@ Returns a paginated list of trades with optional filters. Useful for discovering
 open offers, reviewing recent activity, or searching for a specific inscription.
 
 No wallet required.`,
-      inputSchema: {
+      inputSchema: z.object({
         status: z
           .enum(["open", "completed", "cancelled", "countered"])
           .optional()
@@ -256,7 +256,7 @@ No wallet required.`,
           .optional()
           .default(0)
           .describe("Pagination offset (default 0)"),
-      },
+      }),
     },
     async ({ status, agent, inscription_id, type, limit, offset }) => {
       try {
@@ -288,13 +288,13 @@ No wallet required.`,
 Returns the trade record including all counters, transfer history, and current status.
 
 No wallet required.`,
-      inputSchema: {
+      inputSchema: z.object({
         trade_id: z
           .number()
           .int()
           .positive()
           .describe("Numeric trade ID"),
-      },
+      }),
     },
     async ({ trade_id }) => {
       try {
@@ -319,7 +319,7 @@ Queries the ledger for trades where the active wallet is either the buyer or sel
 Requires an unlocked wallet so the BTC address can be resolved automatically.
 
 You can optionally filter by status.`,
-      inputSchema: {
+      inputSchema: z.object({
         status: z
           .enum(["open", "completed", "cancelled", "countered"])
           .optional()
@@ -338,7 +338,7 @@ You can optionally filter by status.`,
           .optional()
           .default(0)
           .describe("Pagination offset (default 0)"),
-      },
+      }),
     },
     async ({ status, limit, offset }) => {
       try {
@@ -378,7 +378,7 @@ Returns agents that have participated in trades, along with their trade counts
 and last activity. Useful for discovering counterparties.
 
 No wallet required.`,
-      inputSchema: {
+      inputSchema: z.object({
         limit: z
           .number()
           .int()
@@ -386,7 +386,7 @@ No wallet required.`,
           .optional()
           .default(50)
           .describe("Results per page (default 50)"),
-      },
+      }),
     },
     async ({ limit }) => {
       try {
@@ -412,7 +412,7 @@ wallet's BTC address. The inscription must be in the wallet or otherwise owned
 by the signing address for the trade to be verifiable by counterparties.
 
 Requires an unlocked wallet with Bitcoin keys.`,
-      inputSchema: {
+      inputSchema: z.object({
         inscription_id: z
           .string()
           .describe("Inscription ID in txid+index format, e.g. abc123...i0"),
@@ -430,7 +430,7 @@ Requires an unlocked wallet with Bitcoin keys.`,
           .string()
           .optional()
           .describe("Optional freeform metadata (e.g. description, terms)"),
-      },
+      }),
     },
     async ({ inscription_id, asking_price_sats, to_agent, metadata }) => {
       try {
@@ -470,7 +470,7 @@ Submits a counter-offer linked to a parent trade. The active wallet signs the
 counter with BIP-137 to prove identity. Either party in a trade may counter.
 
 Requires an unlocked wallet with Bitcoin keys.`,
-      inputSchema: {
+      inputSchema: z.object({
         parent_trade_id: z
           .number()
           .int()
@@ -488,7 +488,7 @@ Requires an unlocked wallet with Bitcoin keys.`,
           .string()
           .optional()
           .describe("Optional freeform metadata"),
-      },
+      }),
     },
     async ({ parent_trade_id, inscription_id, amount_sats, metadata }) => {
       try {
@@ -529,7 +529,7 @@ The active wallet signs the record with BIP-137 to prove the transfer was
 authorized by the sending party.
 
 Requires an unlocked wallet with Bitcoin keys.`,
-      inputSchema: {
+      inputSchema: z.object({
         inscription_id: z
           .string()
           .describe("Inscription ID being transferred"),
@@ -556,7 +556,7 @@ Requires an unlocked wallet with Bitcoin keys.`,
           .string()
           .optional()
           .describe("Optional freeform metadata"),
-      },
+      }),
     },
     async ({ inscription_id, to_agent, tx_hash, parent_trade_id, amount_sats, metadata }) => {
       try {
@@ -598,7 +598,7 @@ Only the parties involved in a trade may cancel it. The active wallet signs
 the cancellation with BIP-137 to prove authorization.
 
 Requires an unlocked wallet with Bitcoin keys.`,
-      inputSchema: {
+      inputSchema: z.object({
         parent_trade_id: z
           .number()
           .int()
@@ -611,7 +611,7 @@ Requires an unlocked wallet with Bitcoin keys.`,
           .string()
           .optional()
           .describe("Optional reason or metadata"),
-      },
+      }),
     },
     async ({ parent_trade_id, inscription_id, metadata }) => {
       try {
@@ -653,7 +653,7 @@ To construct and sign the PSBT itself, use psbt_create_ordinal_buy, psbt_sign,
 and psbt_broadcast first, then call this tool with the resulting txid.
 
 Requires an unlocked wallet with Bitcoin keys.`,
-      inputSchema: {
+      inputSchema: z.object({
         inscription_id: z
           .string()
           .describe("Inscription ID swapped"),
@@ -678,7 +678,7 @@ Requires an unlocked wallet with Bitcoin keys.`,
           .string()
           .optional()
           .describe("Optional freeform metadata"),
-      },
+      }),
     },
     async ({ inscription_id, to_agent, amount_sats, tx_hash, parent_trade_id, metadata }) => {
       try {

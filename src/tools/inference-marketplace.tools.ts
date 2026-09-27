@@ -18,7 +18,7 @@
  * and that model ids are real, text-generation, commercially-licensed HF repos.
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import {
   signMessageHashRsv,
@@ -151,7 +151,7 @@ export function registerInferenceMarketplaceTools(server: McpServer): void {
         "The gateway verifies the signature recovers to payoutAddress, that the endpoint is reachable AND actually " +
         "serving inference, and that model ids are real/commercial Hugging Face repos — then lists it. " +
         "Requires an unlocked wallet on the gateway's network.",
-      inputSchema: {
+      inputSchema: z.object({
         name: z.string().describe("Display name for your node, e.g. \"Alice's Qwen node\"."),
         endpoint: z
           .string()
@@ -171,7 +171,7 @@ export function registerInferenceMarketplaceTools(server: McpServer): void {
           .describe("Optional: a key your endpoint requires. Locks the endpoint so only the gateway (which presents it) can call it."),
         gateway: gatewayArg,
         allowUnsafeGateway: allowUnsafeGatewayArg,
-      },
+      }),
     },
     async ({ name, endpoint, models, payoutAddress, apiKey, gateway, allowUnsafeGateway }) => {
       try {
@@ -214,7 +214,7 @@ export function registerInferenceMarketplaceTools(server: McpServer): void {
         "Update your marketplace listing in place — name, models, payout address, endpoint, or description — no delete/re-add. " +
         "Signs an update message with the unlocked payout wallet and PATCHes it. Only fields you pass change. " +
         "Changing the endpoint re-verifies reachability before taking effect. Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         providerId: z.string().describe("The provider id returned at registration (from inference_list_providers)."),
         name: z.string().optional().describe("New display name."),
         endpoint: z.string().url().optional().describe("New OpenAI-compatible base URL (re-verified before it takes effect)."),
@@ -224,7 +224,7 @@ export function registerInferenceMarketplaceTools(server: McpServer): void {
         apiKey: z.string().optional().describe("Set/replace the key your endpoint requires (locks the endpoint)."),
         gateway: gatewayArg,
         allowUnsafeGateway: allowUnsafeGatewayArg,
-      },
+      }),
     },
     async ({ providerId, name, endpoint, models, payoutAddress, description, apiKey, gateway, allowUnsafeGateway }) => {
       try {
@@ -267,12 +267,12 @@ export function registerInferenceMarketplaceTools(server: McpServer): void {
         "Reveal or rotate your provider's shared key — the gateway↔endpoint credential the gateway presents when it " +
         "calls your endpoint (NOT an ownership token; ownership is your wallet). The gateway stores it write-only, so a " +
         "wallet signature is the only way to read it back. Pass rotate=true to issue a new one. Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         providerId: z.string().describe("The provider id (from inference_list_providers)."),
         rotate: z.boolean().optional().describe("true = generate and return a NEW key (invalidates the old one). false/omitted = reveal the current key."),
         gateway: gatewayArg,
         allowUnsafeGateway: allowUnsafeGatewayArg,
-      },
+      }),
     },
     async ({ providerId, rotate, gateway, allowUnsafeGateway }) => {
       try {
@@ -306,11 +306,11 @@ export function registerInferenceMarketplaceTools(server: McpServer): void {
       description:
         "Re-run the marketplace's health + functional probe for a provider on demand (checks the endpoint is reachable and " +
         "actually returns a completion). No signature required. Useful right after (re)starting your node or tunnel.",
-      inputSchema: {
+      inputSchema: z.object({
         providerId: z.string().describe("The provider id to check."),
         gateway: gatewayArg,
         allowUnsafeGateway: allowUnsafeGatewayArg,
-      },
+      }),
     },
     async ({ providerId, gateway, allowUnsafeGateway }) => {
       try {
@@ -332,10 +332,10 @@ export function registerInferenceMarketplaceTools(server: McpServer): void {
       description:
         "List providers registered on the marketplace with their models, health/status, and flagged state. No signature " +
         "required. Use it to find your provider id (match on payoutAddress) after registering.",
-      inputSchema: {
+      inputSchema: z.object({
         gateway: gatewayArg,
         allowUnsafeGateway: allowUnsafeGatewayArg,
-      },
+      }),
     },
     async ({ gateway, allowUnsafeGateway }) => {
       try {

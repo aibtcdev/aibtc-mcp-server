@@ -14,7 +14,7 @@
  * and Unisat Ordinals API for listing/loading inscriptions.
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { NETWORK } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
@@ -296,7 +296,7 @@ export function registerSouldinalsTools(server: McpServer): void {
         "This broadcasts the commit tx and returns immediately. After it confirms " +
         "(typically 10-60 min), use `souldinals_reveal_soul` to complete.\n\n" +
         "Returns: commitTxid, revealAmount, contentBase64 (save all for souldinals_reveal_soul)",
-      inputSchema: {
+      inputSchema: z.object({
         parentInscriptionId: z
           .string()
           .describe(
@@ -313,7 +313,7 @@ export function registerSouldinalsTools(server: McpServer): void {
           .describe(
             "Fee rate: 'fast' (~10 min), 'medium' (~30 min), 'slow' (~1 hr), or number in sat/vB (default: medium)"
           ),
-      },
+      }),
     },
     async ({ parentInscriptionId, soulContent, feeRate }) => {
       try {
@@ -449,7 +449,7 @@ export function registerSouldinalsTools(server: McpServer): void {
         "The reveal tx spends both the commit output and the parent inscription UTXO, " +
         "returning the parent to your address and creating the child soul inscription.\n\n" +
         "Returns: inscriptionId ({revealTxid}i0) on success",
-      inputSchema: {
+      inputSchema: z.object({
         commitTxid: z
           .string()
           .length(64)
@@ -476,7 +476,7 @@ export function registerSouldinalsTools(server: McpServer): void {
           .union([z.enum(["fast", "medium", "slow"]), z.number().positive()])
           .optional()
           .describe("Fee rate for reveal tx (default: medium)"),
-      },
+      }),
     },
     async ({
       commitTxid,
@@ -612,14 +612,14 @@ export function registerSouldinalsTools(server: McpServer): void {
         "Queries the Unisat Ordinals API for inscriptions with content type text/markdown.\n" +
         "If no address is provided, uses the current wallet's Taproot address.\n\n" +
         "Returns: array of soul inscriptions with id, number, content type, size, and timestamp.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
           .describe(
             "Taproot (bc1p...) address to query. Omit to use the current wallet's Taproot address."
           ),
-      },
+      }),
     },
     async ({ address }) => {
       try {
@@ -677,14 +677,14 @@ export function registerSouldinalsTools(server: McpServer): void {
         "Fetches the list of soul inscriptions (text/markdown) and returns the content of the " +
         "oldest one. If no address is provided, uses the current wallet's Taproot address.\n\n" +
         "Returns: inscription metadata and full Markdown content.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
           .describe(
             "Taproot (bc1p...) address to query. Omit to use the current wallet's Taproot address."
           ),
-      },
+      }),
     },
     async ({ address }) => {
       try {
@@ -749,11 +749,11 @@ export function registerSouldinalsTools(server: McpServer): void {
         "- focusAreas: list items under 'Focus' or 'Focus Areas' sections\n" +
         "- sections: all named H2/H3 sections\n\n" +
         "Also returns raw Markdown content.",
-      inputSchema: {
+      inputSchema: z.object({
         inscriptionId: z
           .string()
           .describe("Inscription ID (format: {txid}i{index})"),
-      },
+      }),
     },
     async ({ inscriptionId }) => {
       try {
