@@ -364,7 +364,7 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
           .string()
           .url()
           .optional()
-          .describe("API base URL: https:// plus the source host from list_x402_endpoints (x402.aibtc.com, x402.biwas.xyz, stx402.com, aibtc.com). Defaults to the configured API_URL (x402.aibtc.com)."),
+          .describe("API base URL: https:// plus the source host from list_x402_endpoints (x402.aibtc.com, x402.biwas.xyz, stx402.com, aibtc.com). Defaults to x402.aibtc.com (testnet x402.aibtc.dev)."),
         params: z
           .record(z.string(), z.string())
           .optional()
@@ -637,7 +637,7 @@ Supported sources:
           .string()
           .url()
           .optional()
-          .describe("API base URL: https:// plus the source host from list_x402_endpoints (x402.aibtc.com, x402.biwas.xyz, stx402.com, aibtc.com). Defaults to the configured API_URL (x402.aibtc.com)."),
+          .describe("API base URL: https:// plus the source host from list_x402_endpoints (x402.aibtc.com, x402.biwas.xyz, stx402.com, aibtc.com). Defaults to x402.aibtc.com (testnet x402.aibtc.dev)."),
         params: z
           .record(z.string(), z.string())
           .optional()

@@ -141,7 +141,6 @@ BNS tools automatically check V2 first for `.btc` names, falling back to V1 for 
 Set environment variables in `.env`:
 - `CLIENT_MNEMONIC` - 24-word Stacks wallet mnemonic (optional - can use managed wallets instead)
 - `NETWORK` - "mainnet" or "testnet" (default: mainnet)
-- `API_URL` - x402 base URL for bare-path calls (default: https://x402.aibtc.com, testnet https://x402.aibtc.dev)
 - `AIBTC_TOOLS` - `core` (lean set, written by `--install`), `core,<group,...>`, or `all`. Unset loads everything so pre-profile configs keep their tools; `--profile full` = `all`, `--profile lean` = `core`
 - `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` - Only used by the `bridge` subcommand (drive tools via an OpenRouter model)
 - `SPEND_LIMIT_ENABLED` - Wallet spending limit on/off (default: true)
