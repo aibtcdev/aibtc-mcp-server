@@ -116,9 +116,9 @@ npx @aibtc/mcp-server@latest --install --cursor --testnet   # Cursor, testnet
 
 ### Tool Profiles
 
-Every tool definition is loaded into the model's context, so by default the server exposes a lean core of 24 tools: wallet, balances, STX/BTC/sBTC transfers, x402 (`list_x402_endpoints`, `probe_x402_endpoint`, `execute_x402_endpoint`) and earning (`earning_opportunities`, `bounty_list/get/submit`, `identity_register`).
+Every tool definition is loaded into the model's context, so `--install` writes `AIBTC_TOOLS=core`: a lean core of 24 tools: wallet, balances, STX/BTC/sBTC transfers, x402 (`list_x402_endpoints`, `probe_x402_endpoint`, `execute_x402_endpoint`) and earning (`earning_opportunities`, `bounty_list/get/submit`, `identity_register`).
 
-Enable more with `AIBTC_TOOLS` in the server's `env` (comma-separated groups, added to the core), or everything with `--profile full` / `AIBTC_TOOLS=all`:
+Add groups with `AIBTC_TOOLS=core,defi,ordinals` in the server's `env` (the core is always included), or load everything with `AIBTC_TOOLS=all` / `--profile full`. If `AIBTC_TOOLS` is not set at all, every tool is loaded, so configs written by earlier versions keep all their tools:
 
 ```bash
 npx @aibtc/mcp-server@latest --install --profile full   # writes AIBTC_TOOLS=all
@@ -579,7 +579,7 @@ Or use any SIP-010 token by contract ID: `SP2X...::token-name`
 |---------------------|-------------|---------|
 | `NETWORK` | `mainnet` or `testnet` | `mainnet` |
 | `API_URL` | x402 base URL for `execute_x402_endpoint` calls that pass a bare `path` | `https://x402.aibtc.com` (testnet: `https://x402.aibtc.dev`) |
-| `AIBTC_TOOLS` | Tool groups to load on top of the lean core, or `all` (see [Tool Profiles](#tool-profiles)) | lean core |
+| `AIBTC_TOOLS` | `core`, `core,<group,...>`, or `all` (see [Tool Profiles](#tool-profiles)). `--install` writes `core` | all tools when unset |
 | `CLIENT_MNEMONIC` | (Optional) Pre-configured mnemonic | - |
 | `HIRO_API_KEY` | (Optional) Hiro API key for higher rate limits | - |
 | `SPEND_LIMIT_ENABLED` | Set `false` to disable the wallet spending limit | `true` |

@@ -142,7 +142,7 @@ Set environment variables in `.env`:
 - `CLIENT_MNEMONIC` - 24-word Stacks wallet mnemonic (optional - can use managed wallets instead)
 - `NETWORK` - "mainnet" or "testnet" (default: mainnet)
 - `API_URL` - x402 base URL for bare-path calls (default: https://x402.aibtc.com, testnet https://x402.aibtc.dev)
-- `AIBTC_TOOLS` - Tool groups loaded on top of the lean core (comma-separated), or `all`; `--profile full` is the same as `all`
+- `AIBTC_TOOLS` - `core` (lean set, written by `--install`), `core,<group,...>`, or `all`. Unset loads everything so pre-profile configs keep their tools; `--profile full` = `all`, `--profile lean` = `core`
 - `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` - Only used by the `bridge` subcommand (drive tools via an OpenRouter model)
 - `SPEND_LIMIT_ENABLED` - Wallet spending limit on/off (default: true)
 - `SPEND_LIMIT_DAILY_USTX` / `SPEND_LIMIT_SESSION_USTX` - STX spend cap per day / per unlock in micro-STX (default: 10000000 = 10 STX)
@@ -206,7 +206,7 @@ The allowlist is re-enforced at `tools/call` time, so the model can't reach a to
 
 ## Available Tools
 
-> **Profiles:** by default only the 24-tool lean core in `src/tools/profiles.ts` is registered; everything else loads by group via `AIBTC_TOOLS` or `--profile full`. A new tool goes in its module's group automatically; add it to `CORE_TOOLS` only if a fresh install needs it.
+> **Profiles:** new installs get `AIBTC_TOOLS=core`, which registers only the 24-tool lean core in `src/tools/profiles.ts`; everything else loads by group (`AIBTC_TOOLS=core,defi`) or with `all`. An unset `AIBTC_TOOLS` (configs from before profiles) registers everything. A new tool goes in its module's group automatically; add it to `CORE_TOOLS` only if a fresh install needs it.
 
 > **Full tool reference:** [`docs/TOOLS.md`](docs/TOOLS.md) — per-tool parameters,
 > examples, contract addresses, asset tables, and P&L methodology. The MCP server also exposes each tool's description at runtime, so the

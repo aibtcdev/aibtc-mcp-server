@@ -217,9 +217,6 @@ export async function runBridge(argv: string[]): Promise<void> {
     ...(process.env as Record<string, string>),
     NETWORK: opts.network,
   };
-  // The bridge filters with --read-only/--allow/--block, so it starts from the
-  // full tool surface unless AIBTC_TOOLS was set explicitly.
-  serverEnv.AIBTC_TOOLS ??= "all";
   if (opts.maxSpendUstx) serverEnv.SPEND_LIMIT_SESSION_USTX = opts.maxSpendUstx;
   if (opts.maxSpendSats) serverEnv.SPEND_LIMIT_SESSION_SATS = opts.maxSpendSats;
 

@@ -213,14 +213,16 @@ function resolveInstallTarget(): InstallTarget {
 
 async function runInstall(): Promise<void> {
   const network = process.argv.includes("--testnet") ? "testnet" : "mainnet";
-  const fullProfile = resolveToolSelection(process.argv, {}).all;
+  // Only --profile full installs everything; resolving against AIBTC_TOOLS=core
+  // also validates the flag.
+  const fullProfile = resolveToolSelection(process.argv, { AIBTC_TOOLS: "core" }).all;
   const target = resolveInstallTarget();
   const configPath = target.configPath();
 
   console.log(`🔧 Installing @aibtc/mcp-server to ${target.label}...\n`);
 
   const env: Record<string, string> = { NETWORK: network };
-  if (fullProfile) env.AIBTC_TOOLS = "all";
+  env.AIBTC_TOOLS = fullProfile ? "all" : "core";
   await target.write(configPath, env);
 
   console.log("✅ Successfully installed!\n");
@@ -228,7 +230,7 @@ async function runInstall(): Promise<void> {
   console.log(`   Config:  ${configPath}`);
   console.log(`   Network: ${network}`);
   console.log(
-    `   Tools:   ${fullProfile ? "all" : "lean core (add AIBTC_TOOLS=defi,ordinals,... to the env, or re-run with --profile full)"}`
+    `   Tools:   ${fullProfile ? "all" : "lean core (set AIBTC_TOOLS=core,defi,ordinals,... in the env, or re-run with --profile full)"}`
   );
   console.log(`\n📋 ${target.restart}, then try:`);
   console.log(`   1. Ask your agent: "What's your wallet address?"`);
