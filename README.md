@@ -114,6 +114,37 @@ npx @aibtc/mcp-server@latest --install --cursor --testnet   # Cursor, testnet
 
 > **Why npx?** Using `npx @aibtc/mcp-server@latest` ensures you always get the newest version automatically. Global installs (`npm install -g`) won't auto-update.
 
+### Tool Profiles
+
+Every tool definition is loaded into the model's context, so by default the server exposes a lean core of 24 tools: wallet, balances, STX/BTC/sBTC transfers, x402 (`list_x402_endpoints`, `probe_x402_endpoint`, `execute_x402_endpoint`) and earning (`earning_opportunities`, `bounty_list/get/submit`, `identity_register`).
+
+Enable more with `AIBTC_TOOLS` in the server's `env` (comma-separated groups, added to the core), or everything with `--profile full` / `AIBTC_TOOLS=all`:
+
+```bash
+npx @aibtc/mcp-server@latest --install --profile full   # writes AIBTC_TOOLS=all
+```
+
+| Group | Tools |
+|-------|-------|
+| `wallet` | Wallet management extras, encrypted credential store |
+| `stacks` | Stacks transactions, contracts, tokens, NFTs, chain queries, nonce tools |
+| `sbtc` | sBTC deposit/withdraw, Styx BTC→sBTC |
+| `bitcoin` | Bitcoin L1 UTXOs, mempool watch |
+| `lightning` | Lightning (Spark) wallet and L402 payments |
+| `stacking` | PoX stacking, dual stacking, StackSpot |
+| `defi` | ALEX, Zest, Bitflow, Jingswap, yield hunter/dashboard, Tenero analytics |
+| `pillar` | Pillar smart wallet |
+| `ordinals` | Inscriptions, runes, PSBT, ordinals marketplace/P2P, taproot multisig |
+| `bns` | BNS names |
+| `identity` | ERC-8004 identity and reputation, message signing |
+| `social` | Nostr, AIBTC inbox |
+| `earn` | Bounty board (create, accept, pay, my views) |
+| `legion` | AIBTC News Legion |
+| `markets` | Stacks prediction market, At Stake |
+| `dev` | Scaffolding, OpenRouter, settings, inference marketplace, arXiv |
+
+The server's instructions list the groups that are off, so the agent can tell you which one to enable. The OpenRouter `bridge` starts from the full set and narrows it with its own `--read-only`/`--allow`/`--block` flags.
+
 ### Manual Configuration
 
 If you prefer to configure manually, add the following to your client's config file. The `-y` flag stops npx from prompting for confirmation.
@@ -547,7 +578,8 @@ Or use any SIP-010 token by contract ID: `SP2X...::token-name`
 | Environment Variable | Description | Default |
 |---------------------|-------------|---------|
 | `NETWORK` | `mainnet` or `testnet` | `mainnet` |
-| `API_URL` | Default x402 API base URL | `https://x402.biwas.xyz` |
+| `API_URL` | x402 base URL for `execute_x402_endpoint` calls that pass a bare `path` | `https://x402.aibtc.com` (testnet: `https://x402.aibtc.dev`) |
+| `AIBTC_TOOLS` | Tool groups to load on top of the lean core, or `all` (see [Tool Profiles](#tool-profiles)) | lean core |
 | `CLIENT_MNEMONIC` | (Optional) Pre-configured mnemonic | - |
 | `HIRO_API_KEY` | (Optional) Hiro API key for higher rate limits | - |
 | `SPEND_LIMIT_ENABLED` | Set `false` to disable the wallet spending limit | `true` |

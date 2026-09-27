@@ -55,6 +55,7 @@ import { registerInboxX402Tools } from "./inbox-x402.tools.js";
 import { registerArxivResearchTools } from "./arxiv-research.tools.js";
 import { registerEarningTools } from "./earning.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
+import { isToolSelected, type ToolGroup, type ToolSelection } from "./profiles.js";
 
 /**
  * One-line pointer appended to every tool's description (except the earning tool
@@ -65,16 +66,22 @@ const EARNING_TIP =
 
 /**
  * Wraps server.registerTool to:
+ * - skip tools outside the active selection,
  * - inject _meta.skill from TOOL_SKILL_MAP when a mapping exists, and
  * - append the earning-opportunities tip to each tool's description.
  * Returns a cleanup function that restores the original method.
  */
-function withSkillMeta(server: McpServer): () => void {
+function withSkillMeta(
+  server: McpServer,
+  selection: ToolSelection,
+  currentGroup: () => ToolGroup
+): () => void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const original = (server as any).registerTool;
   const hasOwn = Object.prototype.hasOwnProperty.call(server, "registerTool");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (server as any).registerTool = function (name: string, config: Record<string, unknown>, cb: unknown) {
+    if (!isToolSelected(selection, name, currentGroup())) return undefined;
     const skill = getSkillForTool(name);
     let patched: Record<string, unknown> = skill
       ? { ...config, _meta: { ...(config._meta as Record<string, unknown> | undefined ?? {}), skill } }
@@ -96,172 +103,179 @@ function withSkillMeta(server: McpServer): () => void {
 }
 
 /**
- * Register all tools with the MCP server
+ * Register the selected tools with the MCP server. Each registration module
+ * belongs to one group; a tool is registered when it is in the core set or its
+ * group is selected (see profiles.ts).
  */
-export function registerAllTools(server: McpServer): void {
-  const restoreRegisterTool = withSkillMeta(server);
+export function registerAllTools(server: McpServer, selection: ToolSelection): void {
+  let currentGroup: ToolGroup = "wallet";
+  const restoreRegisterTool = withSkillMeta(server, selection, () => currentGroup);
+  const inGroup = (group: ToolGroup, register: (server: McpServer) => void) => {
+    currentGroup = group;
+    register(server);
+  };
 
   // Wallet & Balance
-  registerWalletTools(server);
+  inGroup("wallet", registerWalletTools);
 
   // Wallet Management (create, import, unlock, lock, etc.)
-  registerWalletManagementTools(server);
+  inGroup("wallet", registerWalletManagementTools);
 
   // Transfers
-  registerTransferTools(server);
+  inGroup("stacks", registerTransferTools);
 
   // Smart Contracts
-  registerContractTools(server);
+  inGroup("stacks", registerContractTools);
 
   // sBTC
-  registerSbtcTools(server);
+  inGroup("sbtc", registerSbtcTools);
 
   // Tokens (SIP-010)
-  registerTokenTools(server);
+  inGroup("stacks", registerTokenTools);
 
   // NFTs (SIP-009)
-  registerNftTools(server);
+  inGroup("stacks", registerNftTools);
 
   // Stacking / PoX
-  registerStackingTools(server);
+  inGroup("stacking", registerStackingTools);
 
   // Dual Stacking (sBTC yield via Dual Stacking protocol)
-  registerDualStackingTools(server);
+  inGroup("stacking", registerDualStackingTools);
 
   // Stacking Lottery (StackSpot — pool STX, VRF picks sBTC winner)
-  registerStackingLotteryTools(server);
+  inGroup("stacking", registerStackingLotteryTools);
 
   // BNS Domains
-  registerBnsTools(server);
+  inGroup("bns", registerBnsTools);
 
   // Blockchain Queries
-  registerQueryTools(server);
+  inGroup("stacks", registerQueryTools);
 
   // Reputation (ERC-8004 feedback lifecycle)
-  registerReputationTools(server);
+  inGroup("identity", registerReputationTools);
 
   // x402 Endpoints
-  registerEndpointTools(server);
+  inGroup("dev", registerEndpointTools);
 
   // DeFi (ALEX DEX, Zest Protocol)
-  registerDefiTools(server);
+  inGroup("defi", registerDefiTools);
 
   // Bitflow DEX (public API — no key required, key only raises rate limits)
-  registerBitflowTools(server);
+  inGroup("defi", registerBitflowTools);
 
   // Styx BTC→sBTC conversion
-  registerStyxTools(server);
+  inGroup("sbtc", registerStyxTools);
 
   // Scaffolding (generate x402 endpoint projects)
-  registerScaffoldTools(server);
+  inGroup("dev", registerScaffoldTools);
 
   // OpenRouter AI (call AI models directly)
-  registerOpenRouterTools(server);
+  inGroup("dev", registerOpenRouterTools);
 
   // Yield Hunter (autonomous sBTC yield farming)
-  registerYieldHunterTools(server);
+  inGroup("defi", registerYieldHunterTools);
 
   // Yield Dashboard (read-only cross-protocol DeFi yield aggregation)
-  registerYieldDashboardTools(server);
+  inGroup("defi", registerYieldDashboardTools);
 
   // Pillar (handoff to frontend + polling)
-  registerPillarTools(server);
+  inGroup("pillar", registerPillarTools);
 
   // Pillar Direct (agent-signed, no browser handoff)
-  registerPillarDirectTools(server);
+  inGroup("pillar", registerPillarDirectTools);
 
   // Bitcoin L1 (read-only: balance, fees, UTXOs)
-  registerBitcoinTools(server);
+  inGroup("bitcoin", registerBitcoinTools);
 
   // Lightning Network (L402 auto-pay, Spark-backed wallet)
-  registerLightningTools(server);
+  inGroup("lightning", registerLightningTools);
 
   // Mempool Watch (read-only: mempool stats, tx status, address tx history)
-  registerMempoolTools(server);
+  inGroup("bitcoin", registerMempoolTools);
 
   // Nostr protocol (publish notes, read feed, manage profile)
-  registerNostrTools(server);
+  inGroup("social", registerNostrTools);
 
   // Relay Diagnostics (sponsor relay health, nonce status, stuck transactions)
-  registerRelayDiagnosticTools(server);
+  inGroup("stacks", registerRelayDiagnosticTools);
 
   // Nonce Diagnostics (sender nonce health, gap-fill — issue #413)
-  registerNonceTools(server);
+  inGroup("stacks", registerNonceTools);
 
   // Stacks Market prediction market trading
-  registerStacksMarketTools(server);
+  inGroup("markets", registerStacksMarketTools);
 
   // Tenero market analytics (token info, gainers/losers, trending pools, wallet trades)
-  registerTeneroTools(server);
+  inGroup("defi", registerTeneroTools);
 
   // Ordinals P2P trading (ledger.drx4.xyz — offers, counters, transfers, PSBT swaps)
-  registerOrdinalsP2PTools(server);
+  inGroup("ordinals", registerOrdinalsP2PTools);
 
   // Ordinals Marketplace (Magic Eden — browse listings, list/buy/cancel via PSBT)
-  registerOrdinalsMarketplaceTools(server);
+  inGroup("ordinals", registerOrdinalsMarketplaceTools);
 
   // Taproot Multisig (M-of-N coordination via OP_CHECKSIGADD, BIP-341/342)
-  registerTaprootMultisigTools(server);
+  inGroup("ordinals", registerTaprootMultisigTools);
 
   // PSBT sign/broadcast/decode (used by the ordinals marketplace, P2P and taproot multisig flows)
-  registerPsbtTools(server);
+  inGroup("ordinals", registerPsbtTools);
 
   // Settings (Hiro API key, custom Stacks API URL, server version)
-  registerSettingsTools(server);
+  inGroup("dev", registerSettingsTools);
 
   // Jingswap Auction (blind batch auctions for STX/sBTC)
-  registerJingswapTools(server);
+  inGroup("defi", registerJingswapTools);
 
   // Message Signing (BTC BIP-322, Stacks SIWS, SIP-018 structured data, Nostr NIP-01)
-  registerSigningTools(server);
+  inGroup("identity", registerSigningTools);
 
   // AIBTC Inference Marketplace (list/manage a paid model endpoint via wallet signature)
-  registerInferenceMarketplaceTools(server);
+  inGroup("dev", registerInferenceMarketplaceTools);
 
   // AIBTC News (deprecated — API retired; each tool redirects to legion_*)
-  registerNewsTools(server);
+  inGroup("legion", registerNewsTools);
 
   // AIBTC News Legion (mainnet aibtc-news-gov — inscribe, propose, vote, conclude)
-  registerLegionTools(server);
+  inGroup("legion", registerLegionTools);
 
   // At Stake (elsalvadorstakesbtc.com — complete-set prediction market)
-  registerAtStakeTools(server);
+  inGroup("markets", registerAtStakeTools);
 
   // At Stake side legions (aibtc.com/legions — weight is the share balance)
-  registerAtStakeLegionTools(server);
+  inGroup("markets", registerAtStakeLegionTools);
 
   // Identity (ERC-8004 on-chain agent identity management)
-  registerIdentityTools(server);
+  inGroup("identity", registerIdentityTools);
 
   // Credentials (encrypted credential store — list, get, set, delete, unlock)
-  registerCredentialsTools(server);
+  inGroup("wallet", registerCredentialsTools);
 
   // Ordinals (genesis inscriptions — taproot address, estimate fee, inscribe, reveal, lookup)
-  registerOrdinalsTools(server);
+  inGroup("ordinals", registerOrdinalsTools);
 
   // Souldinals (soul.md child inscriptions — inscribe, reveal, list, load, display traits)
-  registerSouldinalsTools(server);
+  inGroup("ordinals", registerSouldinalsTools);
 
   // Child inscriptions (parent-child provenance — estimate fee, commit, reveal)
-  registerChildInscriptionTools(server);
+  inGroup("ordinals", registerChildInscriptionTools);
 
   // Bounty board (aibtc.com/api/bounties — list, get, submit, accept, pay, cancel, my-views)
-  registerBountyScannerTools(server);
+  inGroup("earn", registerBountyScannerTools);
 
   // Runes (Bitcoin-native fungible tokens — list, query, holders, activity, balances)
-  registerRunesTools(server);
+  inGroup("ordinals", registerRunesTools);
 
   // Inbox (AIBTC agent messaging — send paid inbox messages)
-  registerInboxTools(server);
+  inGroup("social", registerInboxTools);
 
   // Inbox direct x402 (non-sponsored — sender pays own STX gas, no relay)
-  registerInboxX402Tools(server);
+  inGroup("social", registerInboxX402Tools);
 
   // arXiv Research (public arXiv Atom API — paper search and digest compilation)
-  registerArxivResearchTools(server);
+  inGroup("dev", registerArxivResearchTools);
 
   // Earning Opportunities (static "how to put your assets to work" menu)
-  registerEarningTools(server);
+  inGroup("earn", registerEarningTools);
 
   restoreRegisterTool();
 }
