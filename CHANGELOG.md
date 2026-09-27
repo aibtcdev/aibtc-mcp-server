@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.72.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.72.0...mcp-server-v1.72.1) (2026-09-27)
+
+
+### Bug Fixes
+
+* **config:** stop loading .env from the working directory ([#691](https://github.com/aibtcdev/aibtc-mcp-server/issues/691)) ([7ab2608](https://github.com/aibtcdev/aibtc-mcp-server/commit/7ab260870f6468213c614d658d36618e4e2bb3c3))
+
 ## [1.72.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.71.0...mcp-server-v1.72.0) (2026-09-27)
 
 
