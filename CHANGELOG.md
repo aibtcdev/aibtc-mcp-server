@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.73.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.72.1...mcp-server-v1.73.0) (2026-09-28)
+
+
+### Features
+
+* **spend-limit:** meter every signed spend, default 50 STX / 50k sats ([#693](https://github.com/aibtcdev/aibtc-mcp-server/issues/693)) ([4e7f021](https://github.com/aibtcdev/aibtc-mcp-server/commit/4e7f021d53b1c718c4859b3d9593a5973e3362f6))
+
 ## [1.72.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.72.0...mcp-server-v1.72.1) (2026-09-27)
 
 
