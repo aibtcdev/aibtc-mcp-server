@@ -54,6 +54,7 @@ import { registerInboxTools } from "./inbox.tools.js";
 import { registerInboxX402Tools } from "./inbox-x402.tools.js";
 import { registerArxivResearchTools } from "./arxiv-research.tools.js";
 import { registerEarningTools } from "./earning.tools.js";
+import { registerAgentAccountTools } from "./agent-account.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 import { isToolSelected, type ToolGroup, type ToolSelection } from "./profiles.js";
 
@@ -276,6 +277,9 @@ export function registerAllTools(server: McpServer, selection: ToolSelection): v
 
   // Earning Opportunities (static "how to put your assets to work" menu)
   inGroup("earn", registerEarningTools);
+
+  // Agent Account (two-role smart wallet — deploy + owner actions via landing-page handoff)
+  registerAgentAccountTools(server);
 
   restoreRegisterTool();
 }
