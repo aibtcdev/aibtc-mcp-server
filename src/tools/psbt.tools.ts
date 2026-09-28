@@ -9,6 +9,8 @@ import {
 } from "../config/bitcoin-constants.js";
 import { MempoolApi, getMempoolTxUrl } from "../services/mempool-api.js";
 import { getWalletManager } from "../services/wallet-manager.js";
+import { psbtOutflowSats } from "../services/btc-spend.js";
+import { getSpendLimiter } from "../services/spend-limiter.js";
 import { getBtcNetwork } from "../transactions/bitcoin-builder.js";
 import { createErrorResponse, createJsonResponse } from "../utils/index.js";
 import { estimateBuyPsbtFeeSats, parseOutpoint } from "./psbt.helpers.js";
@@ -355,6 +357,12 @@ export function registerPsbtTools(server: McpServer): void {
             }
           }
         }
+
+        // A signed PSBT can be broadcast by anyone (a marketplace, the
+        // counterparty), so the spend is metered here, before it is handed back.
+        const outflowSats = psbtOutflowSats(tx, signedInputs, account, NETWORK);
+        await getSpendLimiter().check("sats", outflowSats, account.address);
+        await getSpendLimiter().record("sats", outflowSats, account.address);
 
         return createJsonResponse({
           success: signedInputs.length > 0,

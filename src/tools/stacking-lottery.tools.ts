@@ -319,6 +319,8 @@ Note: Stackspot is only available on mainnet.`,
           functionName: "join-pot",
           functionArgs: [uintCV(amountBigInt)],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (the pot entry).
+          callerSpendCaps: { ustx: amountBigInt, sats: 0n },
         });
 
         return createJsonResponse({
@@ -383,6 +385,8 @@ Note: Stackspot is only available on mainnet.`,
             contractPrincipalCV(parsed.deployer, parsed.contractName),
           ],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (stacks the pot's own STX).
+          callerSpendCaps: { ustx: 0n, sats: 0n },
         });
 
         return createJsonResponse({
@@ -448,6 +452,8 @@ Note: Stackspot is only available on mainnet.`,
           // are not known client-side until the contract executes, so strict
           // post-conditions cannot be set without an additional read-only query.
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (pays out to participants).
+          callerSpendCaps: { ustx: 0n, sats: 0n },
         });
 
         return createJsonResponse({
@@ -511,6 +517,8 @@ Note: Stackspot is only available on mainnet.`,
           // to contributors on cancel. The amount is not known client-side without
           // an additional read-only query, so strict post-conditions are deferred.
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (returns STX to participants).
+          callerSpendCaps: { ustx: 0n, sats: 0n },
         });
 
         return createJsonResponse({

@@ -412,6 +412,8 @@ Requires an unlocked wallet. Only available on mainnet.`,
             uintCV(BigInt(max_cost_ustx)),
           ],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (max_cost_ustx is the most the market may take).
+          callerSpendCaps: { ustx: BigInt(max_cost_ustx), sats: 0n },
         });
 
         return createJsonResponse({
@@ -483,6 +485,8 @@ Requires an unlocked wallet. Only available on mainnet.`,
             uintCV(BigInt(max_cost_ustx)),
           ],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (max_cost_ustx is the most the market may take).
+          callerSpendCaps: { ustx: BigInt(max_cost_ustx), sats: 0n },
         });
 
         return createJsonResponse({
@@ -548,6 +552,8 @@ Requires an unlocked wallet. Only available on mainnet.`,
             uintCV(BigInt(min_proceeds_ustx)),
           ],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (pays out to the seller).
+          callerSpendCaps: { ustx: 0n, sats: 0n },
         });
 
         return createJsonResponse({
@@ -613,6 +619,8 @@ Requires an unlocked wallet. Only available on mainnet.`,
             uintCV(BigInt(min_proceeds_ustx)),
           ],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (pays out to the seller).
+          callerSpendCaps: { ustx: 0n, sats: 0n },
         });
 
         return createJsonResponse({
@@ -665,6 +673,8 @@ Requires an unlocked wallet. Only available on mainnet.`,
           functionName: "redeem",
           functionArgs: [uintCV(BigInt(market_id))],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (pays out winnings).
+          callerSpendCaps: { ustx: 0n, sats: 0n },
         });
 
         return createJsonResponse({

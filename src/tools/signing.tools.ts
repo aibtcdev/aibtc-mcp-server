@@ -1457,6 +1457,8 @@ export function registerSigningTools(server: McpServer): void {
         "Use for Taproot script-path spending, multisig coordination, or any case where " +
         "you need a BIP-340 Schnorr signature over a pre-computed hash (e.g., BIP-341 sighash). " +
         "WARNING: This signs raw digests that cannot be human-verified — use confirmBlindSign=true after reviewing the digest. " +
+        "A signed sighash can authorize a Bitcoin spend the spending limit never sees, so the user must also enable it " +
+        "with AIBTC_ALLOW_BLIND_SIGN=true in this server's config. " +
         "Returns a 64-byte signature and the x-only public key. Requires an unlocked wallet.",
       inputSchema: z.object({
         digest: z
@@ -1499,6 +1501,17 @@ export function registerSigningTools(server: McpServer): void {
               "Review the digest above. If you trust its origin and intent, re-call schnorr_sign_digest " +
               "with the same parameters plus confirmBlindSign: true to proceed with signing.",
           });
+        }
+
+        // A signature over a BIP-341 sighash authorizes a spend that never
+        // passes a metered broadcast, so the agent cannot enable this itself:
+        // the user opts in in the server config.
+        if (process.env.AIBTC_ALLOW_BLIND_SIGN !== "true") {
+          throw new Error(
+            "Blind digest signing is disabled: a signed sighash can spend from this wallet outside " +
+              "the spending limit. Ask the user to set AIBTC_ALLOW_BLIND_SIGN=true in this MCP " +
+              "server's config and restart it if they want to allow it."
+          );
         }
 
         const account = requireUnlockedWallet();

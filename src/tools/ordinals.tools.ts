@@ -38,6 +38,7 @@ import {
   type InscriptionData,
 } from "../transactions/inscription-builder.js";
 import { signBtcTransaction } from "../transactions/bitcoin-builder.js";
+import { meteredBtcBroadcast } from "../services/btc-spend.js";
 
 /**
  * Format inscription data for display
@@ -277,7 +278,7 @@ export function registerOrdinalsTools(server: McpServer): void {
         });
 
         const commitSigned = signBtcTransaction(commitResult.tx, account.btcPrivateKey);
-        const commitTxid = await mempoolApi.broadcastTransaction(commitSigned.txHex);
+        const commitTxid = await meteredBtcBroadcast(mempoolApi, commitSigned.txHex, account, NETWORK);
         const commitExplorerUrl = getMempoolTxUrl(commitTxid, NETWORK);
 
         // Return immediately with commit info
@@ -441,7 +442,7 @@ export function registerOrdinalsTools(server: McpServer): void {
         });
 
         const revealSigned = signBtcTransaction(revealResult.tx, account.btcPrivateKey);
-        const revealTxid = await mempoolApi.broadcastTransaction(revealSigned.txHex);
+        const revealTxid = await meteredBtcBroadcast(mempoolApi, revealSigned.txHex, account, NETWORK);
 
         // Inscription ID is reveal txid + output index (always 0 for first inscription)
         const inscriptionId = `${revealTxid}i0`;

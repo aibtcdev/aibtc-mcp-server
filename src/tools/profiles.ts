@@ -10,7 +10,11 @@
  * existed have no AIBTC_TOOLS, and their users keep the tools they had.
  */
 
-/** Tools exposed by default, whatever groups are enabled. */
+/**
+ * Tools exposed by default, whatever groups are enabled. wallet_export is
+ * deliberately left out: it hands the mnemonic to the agent, which can then
+ * sign outside every spending limit (it stays in the `wallet` group).
+ */
 export const CORE_TOOLS: ReadonlySet<string> = new Set([
   // Wallet
   "get_wallet_info",
@@ -19,7 +23,6 @@ export const CORE_TOOLS: ReadonlySet<string> = new Set([
   "wallet_import",
   "wallet_unlock",
   "wallet_lock",
-  "wallet_export",
   "wallet_rotate_password",
   // Balances
   "get_stx_balance",

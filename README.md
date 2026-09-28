@@ -118,7 +118,7 @@ npx @aibtc/mcp-server@latest --install --cursor --testnet   # Cursor, testnet
 
 ### Tool Profiles
 
-Every tool definition is loaded into the model's context, so `--install` writes `AIBTC_TOOLS=core`: a lean core of 25 tools: wallet (including `wallet_rotate_password`), balances, STX/BTC/sBTC transfers, x402 (`list_x402_endpoints`, `probe_x402_endpoint`, `execute_x402_endpoint`) and earning (`earning_opportunities`, `bounty_list/get/submit`, `identity_register`).
+Every tool definition is loaded into the model's context, so `--install` writes `AIBTC_TOOLS=core`: a lean core of 24 tools: wallet (including `wallet_rotate_password`; `wallet_export` is in the `wallet` group so the mnemonic isn't one call away), balances, STX/BTC/sBTC transfers, x402 (`list_x402_endpoints`, `probe_x402_endpoint`, `execute_x402_endpoint`) and earning (`earning_opportunities`, `bounty_list/get/submit`, `identity_register`).
 
 Add groups with `AIBTC_TOOLS=core,defi,ordinals` in the server's `env` (the core is always included), or load everything with `AIBTC_TOOLS=all` / `--profile full`. If `AIBTC_TOOLS` is not set at all, every tool is loaded, so configs written by earlier versions keep all their tools:
 
@@ -584,12 +584,13 @@ Or use any SIP-010 token by contract ID: `SP2X...::token-name`
 | `CLIENT_MNEMONIC` | (Optional) Pre-configured mnemonic | - |
 | `HIRO_API_KEY` | (Optional) Hiro API key for higher rate limits | - |
 | `SPEND_LIMIT_ENABLED` | Set `false` to disable the wallet spending limit | `true` |
-| `SPEND_LIMIT_DAILY_USTX` / `SPEND_LIMIT_SESSION_USTX` | STX spend cap per day / per unlock (micro-STX) | `10000000` (10 STX) |
+| `SPEND_LIMIT_DAILY_USTX` / `SPEND_LIMIT_SESSION_USTX` | STX spend cap per day / per unlock (micro-STX) | `50000000` (50 STX) |
 | `SPEND_LIMIT_DAILY_SATS` / `SPEND_LIMIT_SESSION_SATS` | BTC spend cap per day / per unlock (sats) | `50000` |
+| `AIBTC_ALLOW_BLIND_SIGN` | Allow `schnorr_sign_digest` to sign raw digests (a signed sighash spends outside the spending limit) | off |
 
 **Note on `NETWORK`:** The `--install` command writes `NETWORK=mainnet` by default (pass `--testnet` to use testnet). If you omit `NETWORK` from your config entirely, the runtime fallback is also `mainnet`.
 
-**Note on spending limits:** A default-on safety rail meters every outbound spend (`transfer_stx`, `transfer_btc`, x402/L402 auto-payments) against a cumulative per-session and per-day cap, so a single bad instruction or a malicious endpoint can't drain the wallet. A spend over the cap is blocked and reports the remaining budget. Raise the caps via the env vars above, or disable with `SPEND_LIMIT_ENABLED=false`. See [SECURITY.md](SECURITY.md#limit-blast-radius).
+**Note on spending limits:** A default-on safety rail meters every STX, sBTC and BTC spend (transfers, contract calls, sponsored transactions, x402/L402 auto-payments, Bitcoin broadcasts, `psbt_sign`) against a cumulative per-session and per-day cap, so a single bad instruction or a malicious endpoint can't drain the wallet. A spend over the cap is blocked before it is signed or broadcast, and the agent is told to ask you. Raise the caps via the env vars above, or disable with `SPEND_LIMIT_ENABLED=false`. The limit runs inside the server: it does not contain an agent with shell access to your machine, so keep spend tools out of your client's auto-approve list. See [SECURITY.md](SECURITY.md#limit-blast-radius).
 
 **Note:** `CLIENT_MNEMONIC` is optional. The recommended approach is to let Claude create its own wallet. `HIRO_API_KEY` is optional but recommended for production use — without it, you may hit Hiro's public rate limits (429 responses). Get a key at [platform.hiro.so](https://platform.hiro.so).
 

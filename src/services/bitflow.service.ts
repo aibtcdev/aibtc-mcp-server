@@ -10,19 +10,16 @@ import {
   type GetKeeperContractParams,
 } from "@bitflowlabs/core-sdk";
 import {
-  makeContractCall,
-  broadcastTransaction,
   PostConditionMode,
   hexToCV,
   cvToJSON,
 } from "@stacks/transactions";
-import { STACKS_MAINNET, STACKS_TESTNET } from "@stacks/network";
 import {
   getBitflowConfig,
   BITFLOW_PUBLIC_API,
   type Network,
 } from "../config/index.js";
-import type { Account, TransferResult } from "../transactions/builder.js";
+import { callContract, type Account, type TransferResult } from "../transactions/builder.js";
 
 // ============================================================================
 // Types
@@ -446,33 +443,17 @@ export class BitflowService {
       slippageTolerance
     );
 
-    const network = this.network === "mainnet" ? STACKS_MAINNET : STACKS_TESTNET;
-
-    const transaction = await makeContractCall({
+    // Through the shared builder so the swap's post conditions are metered by
+    // the spending limit like every other contract call.
+    return callContract(account, {
       contractAddress: swapParams.contractAddress,
       contractName: swapParams.contractName,
       functionName: swapParams.functionName,
       functionArgs: swapParams.functionArgs,
       postConditions: swapParams.postConditions,
-      senderKey: account.privateKey,
-      network,
       postConditionMode: PostConditionMode.Deny,
       ...(fee !== undefined && { fee }),
     });
-
-    const broadcastResult = await broadcastTransaction({
-      transaction,
-      network,
-    });
-
-    if ("error" in broadcastResult) {
-      throw new Error(`Broadcast failed: ${broadcastResult.error} - ${broadcastResult.reason}`);
-    }
-
-    return {
-      txid: broadcastResult.txid,
-      rawTx: transaction.serialize(),
-    };
   }
 
   // ==========================================================================

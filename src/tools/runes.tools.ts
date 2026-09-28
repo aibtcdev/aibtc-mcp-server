@@ -30,6 +30,7 @@ import { getWalletManager } from "../services/wallet-manager.js";
 import { MempoolApi, getMempoolAddressUrl, getMempoolTxUrl } from "../services/mempool-api.js";
 import { UnisatIndexer } from "../services/unisat-indexer.js";
 import { buildRuneTransfer, signRuneTransfer } from "../transactions/rune-transfer-builder.js";
+import { meteredBtcBroadcast } from "../services/btc-spend.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -566,7 +567,7 @@ export function registerRunesTools(server: McpServer): void {
           transferResult.feeInputIndices
         );
 
-        const txid = await mempoolApi.broadcastTransaction(signed.txHex);
+        const txid = await meteredBtcBroadcast(mempoolApi, signed.txHex, account, NETWORK);
 
         return createJsonResponse({
           success: true,

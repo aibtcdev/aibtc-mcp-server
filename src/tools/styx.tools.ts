@@ -37,6 +37,7 @@ import { getWalletManager } from "../services/wallet-manager.js";
 import { MempoolApi, getMempoolTxUrl } from "../services/mempool-api.js";
 import { UnisatIndexer } from "../services/unisat-indexer.js";
 import { getBtcNetwork } from "../transactions/bitcoin-builder.js";
+import { meteredBtcBroadcast } from "../services/btc-spend.js";
 
 const FEE_PRIORITIES = ["low", "medium", "high"] as const;
 
@@ -327,7 +328,7 @@ export function registerStyxTools(server: McpServer): void {
 
         // Step 6: Broadcast
         const mempoolApi = new MempoolApi(NETWORK);
-        broadcastTxid = await mempoolApi.broadcastTransaction(tx.hex);
+        broadcastTxid = await meteredBtcBroadcast(mempoolApi, tx.hex, account, NETWORK);
 
         // Step 7: Update deposit status (retry once on failure)
         let statusUpdateWarning: string | undefined;

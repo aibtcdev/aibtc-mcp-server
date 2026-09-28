@@ -1,11 +1,14 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { Pc, type PostCondition } from "@stacks/transactions";
-import { MAINNET_CONTRACTS } from "../../src/config/contracts.js";
+import { Pc, PostConditionMode, type PostCondition } from "@stacks/transactions";
+import { MAINNET_CONTRACTS, TESTNET_CONTRACTS } from "../../src/config/contracts.js";
 
-const { check, record, makeContractCall } = vi.hoisted(() => ({
+const FEE = 3_000n;
+
+const { check, record, makeContractCall, makeSTXTokenTransfer } = vi.hoisted(() => ({
   check: vi.fn(async () => {}),
   record: vi.fn(async () => {}),
   makeContractCall: vi.fn(),
+  makeSTXTokenTransfer: vi.fn(),
 }));
 
 vi.mock("../../src/services/spend-limiter.js", async (importOriginal) => {
@@ -16,7 +19,20 @@ vi.mock("../../src/services/spend-limiter.js", async (importOriginal) => {
 
 vi.mock("@stacks/transactions", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@stacks/transactions")>();
-  return { ...actual, makeContractCall };
+  return { ...actual, makeContractCall, makeSTXTokenTransfer };
+});
+
+vi.mock("../../src/utils/fee.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/utils/fee.js")>();
+  return { ...actual, resolveDefaultFee: async () => FEE };
+});
+
+vi.mock("../../src/services/hiro-api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/services/hiro-api.js")>();
+  return {
+    ...actual,
+    getHiroApi: () => ({ getNonceInfo: async () => ({ possible_next_nonce: 0 }) }),
+  };
 });
 
 const ADDRESS = "SP000000000000000000002Q6VF78";
@@ -25,14 +41,19 @@ const account = {
   privateKey: "not-used",
   network: "testnet" as const,
 };
+const SBTC = TESTNET_CONTRACTS.SBTC_TOKEN as `${string}.${string}`;
 
 beforeEach(() => {
   check.mockClear();
   record.mockClear();
-  makeContractCall.mockClear();
+  makeContractCall.mockReset();
+  makeSTXTokenTransfer.mockReset();
 });
 
-async function call(postConditions: PostCondition[]) {
+async function call(
+  postConditions: PostCondition[],
+  extra: Record<string, unknown> = {}
+) {
   const { callContract } = await import("../../src/transactions/builder.js");
   return callContract(account, {
     contractAddress: ADDRESS,
@@ -40,18 +61,19 @@ async function call(postConditions: PostCondition[]) {
     functionName: "pay",
     functionArgs: [],
     postConditions,
+    ...extra,
   });
 }
 
 describe("callContract spend metering", () => {
-  it("refuses BEFORE signing when a bounded post-condition exceeds the cap", async () => {
+  it("refuses BEFORE signing when a bounded post-condition plus fee exceeds the cap", async () => {
     check.mockRejectedValueOnce(new Error("spend limit exceeded"));
 
     await expect(
       call([Pc.principal(ADDRESS).willSendLte(11_000_001).ustx()])
     ).rejects.toThrow("spend limit exceeded");
 
-    expect(check).toHaveBeenCalledWith("ustx", 11_000_001n, ADDRESS);
+    expect(check).toHaveBeenCalledWith("ustx", 11_000_001n + FEE, ADDRESS);
     // The whole point of the rail: nothing was built, signed or broadcast.
     expect(makeContractCall).not.toHaveBeenCalled();
     expect(record).not.toHaveBeenCalled();
@@ -74,23 +96,129 @@ describe("callContract spend metering", () => {
     expect(check).toHaveBeenCalledWith("sats", 30_000n, ADDRESS);
   });
 
-  it("does not meter a call whose post-conditions bound nothing the rail tracks", async () => {
-    // Sentinel: reaching the builder proves the rail let the call through
-    // rather than blocking it.
+  it("meters only the fee when post-conditions bound nothing the rail tracks", async () => {
+    // Sentinel: reaching the builder proves the rail let the call through.
     makeContractCall.mockRejectedValueOnce(new Error("reached the builder"));
 
-    // Lower bound (a floor, not a cap) plus a non-sBTC token: neither is a
-    // spend ceiling this rail can price, so the call proceeds unmetered.
     await expect(
       call([
-        Pc.principal(ADDRESS).willSendGte(500).ustx(),
         Pc.principal(ADDRESS)
           .willSendEq(1_000)
           .ft("SP102V8P0F7JX67ARQ77WEA3D3CFB5XW39REDT0AM.token-alex", "alex"),
       ])
     ).rejects.toThrow("reached the builder");
 
+    expect(check).toHaveBeenCalledTimes(1);
+    expect(check).toHaveBeenCalledWith("ustx", FEE, ADDRESS);
+  });
+
+  it("refuses a gt/gte floor on the caller's own STX or sBTC: it has no upper bound", async () => {
+    await expect(call([Pc.principal(ADDRESS).willSendGte(1).ustx()])).rejects.toThrow(
+      /no upper bound/
+    );
+    await expect(
+      call([Pc.principal(ADDRESS).willSendGt(1).ft(SBTC, "sbtc-token")])
+    ).rejects.toThrow(/no upper bound/);
     expect(check).not.toHaveBeenCalled();
-    expect(record).not.toHaveBeenCalled();
+    expect(makeContractCall).not.toHaveBeenCalled();
+  });
+
+  it("allows a gte floor on someone else's assets (a payout to the caller)", async () => {
+    makeContractCall.mockRejectedValueOnce(new Error("reached the builder"));
+    await expect(
+      call([Pc.principal(`${ADDRESS}.vault`).willSendGte(1).ft(SBTC, "sbtc-token")])
+    ).rejects.toThrow("reached the builder");
+  });
+
+  it("refuses Allow mode without callerSpendCaps", async () => {
+    await expect(call([], { postConditionMode: PostConditionMode.Allow })).rejects.toThrow(
+      /callerSpendCaps/
+    );
+    expect(makeContractCall).not.toHaveBeenCalled();
+  });
+
+  it("turns Allow-mode callerSpendCaps into on-chain lte post conditions and meters them", async () => {
+    makeContractCall.mockRejectedValueOnce(new Error("reached the builder"));
+
+    await expect(
+      call([], {
+        postConditionMode: PostConditionMode.Allow,
+        callerSpendCaps: { ustx: 2_000_000n, sats: 500n },
+      })
+    ).rejects.toThrow("reached the builder");
+
+    expect(check).toHaveBeenCalledWith("sats", 500n, ADDRESS);
+    expect(check).toHaveBeenCalledWith("ustx", 2_000_000n + FEE, ADDRESS);
+
+    const signed = makeContractCall.mock.calls[0][0] as { postConditions: PostCondition[] };
+    expect(signed.postConditions).toEqual([
+      Pc.principal(ADDRESS).willSendLte(2_000_000n).ustx(),
+      Pc.principal(ADDRESS).willSendLte(500n).ft(SBTC, "sbtc-token"),
+    ]);
+  });
+});
+
+describe("transferStx spend metering", () => {
+  it("meters the amount plus the fee before signing", async () => {
+    check.mockRejectedValueOnce(new Error("spend limit exceeded"));
+    const { transferStx } = await import("../../src/transactions/builder.js");
+
+    await expect(transferStx(account, ADDRESS, 1_000_000n)).rejects.toThrow(
+      "spend limit exceeded"
+    );
+    expect(check).toHaveBeenCalledWith("ustx", 1_000_000n + FEE, ADDRESS);
+    expect(makeSTXTokenTransfer).not.toHaveBeenCalled();
+  });
+});
+
+describe("sponsored paths are metered", () => {
+  it("sponsoredStxTransfer checks the amount before signing", async () => {
+    check.mockRejectedValueOnce(new Error("spend limit exceeded"));
+    const { sponsoredStxTransfer } = await import("../../src/transactions/sponsor-builder.js");
+
+    await expect(
+      sponsoredStxTransfer(account, ADDRESS, 5_000_000n, undefined, "testnet")
+    ).rejects.toThrow("spend limit exceeded");
+    expect(check).toHaveBeenCalledWith("ustx", 5_000_000n, ADDRESS);
+    expect(makeSTXTokenTransfer).not.toHaveBeenCalled();
+  });
+
+  it("sponsoredContractCall meters post conditions before signing", async () => {
+    check.mockRejectedValueOnce(new Error("spend limit exceeded"));
+    const { sponsoredContractCall } = await import("../../src/transactions/sponsor-builder.js");
+
+    await expect(
+      sponsoredContractCall(
+        account,
+        {
+          contractAddress: ADDRESS,
+          contractName: "demo",
+          functionName: "pay",
+          functionArgs: [],
+          postConditions: [Pc.principal(ADDRESS).willSendEq(40_000).ft(SBTC, "sbtc-token")],
+        },
+        "testnet"
+      )
+    ).rejects.toThrow("spend limit exceeded");
+    expect(check).toHaveBeenCalledWith("sats", 40_000n, ADDRESS);
+    expect(makeContractCall).not.toHaveBeenCalled();
+  });
+
+  it("sponsoredContractCall refuses Allow mode without callerSpendCaps", async () => {
+    const { sponsoredContractCall } = await import("../../src/transactions/sponsor-builder.js");
+    await expect(
+      sponsoredContractCall(
+        account,
+        {
+          contractAddress: ADDRESS,
+          contractName: "demo",
+          functionName: "pay",
+          functionArgs: [],
+          postConditionMode: PostConditionMode.Allow,
+        },
+        "testnet"
+      )
+    ).rejects.toThrow(/callerSpendCaps/);
+    expect(makeContractCall).not.toHaveBeenCalled();
   });
 });

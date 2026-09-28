@@ -34,6 +34,7 @@ import {
   deriveChildRevealScript,
   lookupParentInscription,
 } from "../transactions/child-inscription-builder.js";
+import { meteredBtcBroadcast } from "../services/btc-spend.js";
 
 export function registerChildInscriptionTools(server: McpServer): void {
   // Estimate child inscription fee
@@ -244,8 +245,11 @@ export function registerChildInscriptionTools(server: McpServer): void {
           commitResult.tx,
           account.btcPrivateKey
         );
-        const commitTxid = await mempoolApi.broadcastTransaction(
-          commitSigned.txHex
+        const commitTxid = await meteredBtcBroadcast(
+          mempoolApi,
+          commitSigned.txHex,
+          account,
+          NETWORK
         );
         const commitExplorerUrl = getMempoolTxUrl(commitTxid, NETWORK);
 
@@ -434,7 +438,7 @@ export function registerChildInscriptionTools(server: McpServer): void {
         revealResult.tx.finalize();
 
         const revealTxHex = revealResult.tx.hex;
-        const revealTxid = await mempoolApi.broadcastTransaction(revealTxHex);
+        const revealTxid = await meteredBtcBroadcast(mempoolApi, revealTxHex, account, NETWORK);
 
         const inscriptionId = `${revealTxid}i0`;
         const revealExplorerUrl = getMempoolTxUrl(revealTxid, NETWORK);
