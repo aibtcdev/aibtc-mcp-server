@@ -384,6 +384,8 @@ export function registerJingswapTools(server: McpServer): void {
           functionName: m.cancelFn,
           functionArgs: [],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (refund).
+          callerSpendCaps: { ustx: 0n, sats: 0n },
           postConditions: [],
         });
 
@@ -425,6 +427,8 @@ export function registerJingswapTools(server: McpServer): void {
           functionName: "cancel-sbtc-deposit",
           functionArgs: [],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (refund).
+          callerSpendCaps: { ustx: 0n, sats: 0n },
           postConditions: [],
         });
 
@@ -526,6 +530,8 @@ export function registerJingswapTools(server: McpServer): void {
           functionName: "settle",
           functionArgs: [],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (distributes to depositors).
+          callerSpendCaps: { ustx: 0n, sats: 0n },
           postConditions: [],
         });
 
@@ -601,6 +607,8 @@ export function registerJingswapTools(server: McpServer): void {
             contractPrincipalCV(PYTH_CONTRACTS.wormhole.address, PYTH_CONTRACTS.wormhole.name),
           ],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (the Pyth update fee is ~2 uSTX; 0.001 STX bounds it).
+          callerSpendCaps: { ustx: 1_000n, sats: 0n },
           postConditions: [],
         });
 
@@ -649,6 +657,8 @@ export function registerJingswapTools(server: McpServer): void {
           functionName: "cancel-cycle",
           functionArgs: [],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (refunds depositors).
+          callerSpendCaps: { ustx: 0n, sats: 0n },
           postConditions: [],
         });
 

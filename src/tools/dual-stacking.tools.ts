@@ -396,6 +396,8 @@ Note: Dual Stacking is only available on mainnet.`,
           functionName: "enroll",
           functionArgs: [rewardArg],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (enrolling qualifies by holding sBTC; nothing is transferred).
+          callerSpendCaps: { ustx: 0n, sats: 0n },
         });
 
         return createJsonResponse({
@@ -445,6 +447,7 @@ Note: Dual Stacking is only available on mainnet.`,
           functionName: "opt-out",
           functionArgs: [],
           postConditionMode: PostConditionMode.Allow,
+          callerSpendCaps: { ustx: 0n, sats: 0n },
         });
 
         return createJsonResponse({

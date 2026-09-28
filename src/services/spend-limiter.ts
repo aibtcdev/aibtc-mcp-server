@@ -16,13 +16,14 @@
  * wallet unlock/lock/switch.
  *
  * Exceeding the cap is the intended human-in-the-loop checkpoint: it blocks and
- * surfaces the remaining budget + the env var to raise. An LLM cannot set env
- * vars mid-session, so it cannot raise its own ceiling.
+ * surfaces the remaining budget. Raising the cap is the user's call, made in
+ * the MCP client config; the message tells the agent to ask, never how to
+ * switch the rail off.
  *
  * Disable entirely with SPEND_LIMIT_ENABLED=false. Override caps with
  * SPEND_LIMIT_DAILY_USTX / _SESSION_USTX / _DAILY_SATS / _SESSION_SATS.
  */
-import type { PostCondition } from "@stacks/transactions";
+import { Pc, PostConditionMode, type PostCondition } from "@stacks/transactions";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
@@ -104,6 +105,71 @@ export function totalBoundedSpends(
   return [...totals].map(([unit, amount]) => ({ unit, amount }));
 }
 
+/**
+ * Ceilings a contract call in post-condition mode Allow declares for the
+ * caller's own STX and sBTC. Allow lets the contract move assets that no post
+ * condition names, so the caller's outflow is only bounded if the call itself
+ * says so: callContract turns these into chain-enforced `lte` post conditions
+ * on the caller and meters them.
+ */
+export interface CallerSpendCaps {
+  ustx: bigint;
+  sats: bigint;
+}
+
+/**
+ * Work out what a contract call may spend, and the post conditions that make
+ * the chain enforce it. Throws when the call's caller-owned STX/sBTC outflow
+ * has no upper bound, because the rail could not meter it:
+ * - Deny mode with a `gt`/`gte` condition on the caller's STX or sBTC (a floor
+ *   that permits any larger amount);
+ * - Allow mode without `callerSpendCaps`.
+ */
+export function planContractCallSpends(
+  options: {
+    postConditionMode?: PostConditionMode;
+    postConditions?: PostCondition[];
+    callerSpendCaps?: CallerSpendCaps;
+    sbtcContract: `${string}.${string}`;
+  },
+  accountAddress: string
+): { postConditions: PostCondition[]; spends: Array<{ unit: SpendUnit; amount: bigint }> } {
+  const postConditions = [...(options.postConditions ?? [])];
+
+  for (const condition of postConditions) {
+    const pc = condition as unknown as { type?: string; address?: string; condition?: string; asset?: string };
+    if (pc.address !== accountAddress) continue;
+    if (pc.condition !== "gt" && pc.condition !== "gte") continue;
+    const metered =
+      pc.type === "stx-postcondition" ||
+      (pc.type === "ft-postcondition" && pc.asset !== undefined && SBTC_ASSETS.has(pc.asset));
+    if (metered) {
+      throw new Error(
+        `A "${pc.condition}" post condition on this wallet's own ${pc.type === "stx-postcondition" ? "STX" : "sBTC"} ` +
+          "sets no upper bound, so the spending limit cannot meter it. Use eq, lt or lte."
+      );
+    }
+  }
+
+  const allow = options.postConditionMode === PostConditionMode.Allow;
+  if (allow) {
+    if (!options.callerSpendCaps) {
+      throw new Error(
+        "Post condition mode Allow lets the contract move any asset this wallet holds, " +
+          "so the call must declare the most STX and sBTC it may spend (callerSpendCaps)."
+      );
+    }
+    const { ustx, sats } = options.callerSpendCaps;
+    const caller = Pc.principal(accountAddress);
+    postConditions.push(
+      caller.willSendLte(ustx).ustx(),
+      caller.willSendLte(sats).ft(options.sbtcContract, "sbtc-token")
+    );
+  }
+
+  return { postConditions, spends: totalBoundedSpends(postConditions, accountAddress) };
+}
+
 const STORAGE_DIR = path.join(os.homedir(), ".aibtc");
 const DEFAULT_STATE_FILE = path.join(STORAGE_DIR, "spend-state.json");
 
@@ -129,13 +195,12 @@ function isEnabled(): boolean {
   return process.env.SPEND_LIMIT_ENABLED !== "false";
 }
 
-// Conservative defaults (~$30/day at the time of writing): tight enough to stop
-// a drain, generous for the micro-payment use case (registry endpoints cost
-// <=0.02 STX / 100 sats). Raise per wallet via env.
+// Defaults: tight enough to stop a drain, generous for the micro-payment use
+// case (x402 endpoints cost <=0.02 STX / 100 sats). Raise per wallet via env.
 const DEFAULTS = {
-  dailyUstx: 10_000_000, // 10 STX
-  sessionUstx: 10_000_000, // 10 STX
-  dailySats: 50_000, // ~$30 BTC
+  dailyUstx: 50_000_000, // 50 STX
+  sessionUstx: 50_000_000, // 50 STX
+  dailySats: 50_000,
   sessionSats: 50_000,
 } as const;
 
@@ -359,10 +424,11 @@ class SpendLimiter {
           : "SPEND_LIMIT_SESSION_SATS";
     const label = unitLabel(unit);
     return (
-      `Spending limit reached: this ${attempted} ${label} transfer would exceed the ` +
+      `Spending limit reached: this ${attempted} ${label} spend would exceed the ` +
       `per-${scope} cap of ${cap} ${label} (${remaining} ${label} remaining). ` +
-      `This is a safety rail against draining the wallet. To allow a larger spend, ` +
-      `raise ${envVar} (or set SPEND_LIMIT_ENABLED=false to disable), then retry.`
+      `This is a safety rail against draining the wallet. Do not try to work around it: ` +
+      `ask the user whether to proceed. Only the user can raise the cap, by setting ` +
+      `${envVar} in this MCP server's config and restarting it.`
     );
   }
 }

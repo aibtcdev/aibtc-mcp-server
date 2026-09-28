@@ -113,7 +113,9 @@ For typed arguments, use objects like {type: 'uint', value: 100} or {type: 'prin
 Post conditions constrain what assets the transaction can move. Each condition is an object:
 - STX: {type: 'stx', principal: 'SP...', conditionCode: 'eq'|'gt'|'gte'|'lt'|'lte', amount: '1000000'}
 - FT: {type: 'ft', principal: 'SP...', asset: 'SP...contract', assetName: 'token-name', conditionCode: 'eq', amount: '1000'}
-- NFT: {type: 'nft', principal: 'SP...', asset: 'SP...contract', assetName: 'nft-name', tokenId: '1', notSend?: boolean}`,
+- NFT: {type: 'nft', principal: 'SP...', asset: 'SP...contract', assetName: 'nft-name', tokenId: '1', notSend?: boolean}
+
+Spending limit: STX and sBTC leaving this wallet are metered against the wallet's spending cap. In 'deny' mode that is read from eq/lt/lte post conditions on this wallet ('gt'/'gte' on this wallet's own STX or sBTC are refused: they set no upper bound). In 'allow' mode, set maxStxSpend / maxSbtcSpend: they are added as on-chain post conditions on this wallet and metered.`,
       inputSchema: z.object({
         contractAddress: z.string().describe("The contract deployer's address (e.g., SP2...)"),
         contractName: z.string().describe("The contract name (e.g., 'my-token')"),
@@ -125,7 +127,17 @@ Post conditions constrain what assets the transaction can move. Each condition i
         postConditionMode: z
           .enum(["allow", "deny"])
           .default("deny")
-          .describe("'deny' (default): Blocks unexpected transfers. 'allow': Permits any transfers."),
+          .describe("'deny' (default): Blocks unexpected transfers. 'allow': Permits transfers not covered by a post condition, except this wallet's STX/sBTC, which maxStxSpend/maxSbtcSpend bound."),
+        maxStxSpend: z
+          .string()
+          .regex(/^\d+$/)
+          .default("0")
+          .describe("'allow' mode only: most micro-STX this call may take from this wallet (on-chain post condition, metered). Default 0."),
+        maxSbtcSpend: z
+          .string()
+          .regex(/^\d+$/)
+          .default("0")
+          .describe("'allow' mode only: most sBTC sats this call may take from this wallet (on-chain post condition, metered). Default 0."),
         postConditions: z
           .array(z.unknown())
           .optional()
@@ -137,7 +149,7 @@ Post conditions constrain what assets the transaction can move. Each condition i
         sponsored: sponsoredSchema,
       }),
     },
-    async ({ contractAddress, contractName, functionName, functionArgs, postConditionMode, postConditions, fee, sponsored }) => {
+    async ({ contractAddress, contractName, functionName, functionArgs, postConditionMode, maxStxSpend, maxSbtcSpend, postConditions, fee, sponsored }) => {
       try {
         const account = await getAccount();
         const clarityArgs = functionArgs.map(parseArgToClarityValue);
@@ -155,6 +167,9 @@ Post conditions constrain what assets the transaction can move. Each condition i
           postConditionMode:
             postConditionMode === "allow" ? PostConditionMode.Allow : PostConditionMode.Deny,
           ...(parsedPostConditions && { postConditions: parsedPostConditions }),
+          ...(postConditionMode === "allow" && {
+            callerSpendCaps: { ustx: BigInt(maxStxSpend), sats: BigInt(maxSbtcSpend) },
+          }),
         };
 
         let result: TransferResult;

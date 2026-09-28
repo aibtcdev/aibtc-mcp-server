@@ -57,14 +57,14 @@ afterEach(async () => {
 });
 
 describe("default caps (Conservative)", () => {
-  it("allows a spend under the default 10 STX cap", async () => {
+  it("allows a spend under the default 50 STX cap", async () => {
     await expect(
-      limiter.check("ustx", 5_000_000n, addr())
+      limiter.check("ustx", 45_000_000n, addr())
     ).resolves.toBeUndefined();
   });
 
-  it("blocks a single spend over the default 10 STX cap", async () => {
-    await expect(limiter.check("ustx", 11_000_000n, addr())).rejects.toThrow(
+  it("blocks a single spend over the default 50 STX cap", async () => {
+    await expect(limiter.check("ustx", 51_000_000n, addr())).rejects.toThrow(
       SpendLimitError
     );
   });
@@ -149,8 +149,8 @@ describe("disable + overrides", () => {
 
   it("invalid env override falls back to default (does not disable)", async () => {
     process.env.SPEND_LIMIT_DAILY_USTX = "not-a-number";
-    // Falls back to 10 STX default → 11 STX still blocked.
-    await expect(limiter.check("ustx", 11_000_000n, addr())).rejects.toThrow(
+    // Falls back to the 50 STX default → 51 STX still blocked.
+    await expect(limiter.check("ustx", 51_000_000n, addr())).rejects.toThrow(
       SpendLimitError
     );
   });

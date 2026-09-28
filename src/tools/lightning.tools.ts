@@ -22,6 +22,7 @@ import {
 import { buildAndSignBtcTransaction } from "../transactions/bitcoin-builder.js";
 import { UnisatIndexer } from "../services/unisat-indexer.js";
 import { NETWORK } from "../config/networks.js";
+import { meteredBtcBroadcast } from "../services/btc-spend.js";
 
 export function registerLightningTools(server: McpServer): void {
   // --- Wallet lifecycle -----------------------------------------------------
@@ -270,7 +271,7 @@ export function registerLightningTools(server: McpServer): void {
           account.btcPrivateKey
         );
 
-        const txid = await api.broadcastTransaction(txResult.txHex);
+        const txid = await meteredBtcBroadcast(api, txResult.txHex, account, NETWORK);
 
         const response: Record<string, unknown> = {
           success: true,

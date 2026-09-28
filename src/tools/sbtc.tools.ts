@@ -532,6 +532,7 @@ Set includeOrdinals=true to allow spending ordinal UTXOs (advanced users only).`
 
         // Step 2: Broadcast signed transaction and notify Emily API
         const result = await depositService.broadcastAndNotify(
+          account,
           depositResult.txHex,
           depositResult.depositScript,
           depositResult.reclaimScript,

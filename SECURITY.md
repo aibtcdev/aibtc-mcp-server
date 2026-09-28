@@ -100,14 +100,30 @@ it. Keep GitHub push protection on as the enforcement those workflows can't skip
 
 ### Limit blast radius
 
-- **Spending limit (default-on).** Every outbound spend path — `transfer_stx`,
-  `transfer_btc`, x402/L402 auto-payments, and manual `lightning_pay_invoice` —
-  is metered against a cumulative per-session and per-day cap (default ~10 STX +
-  ~50k sats). A spend that would exceed it is blocked and surfaces the remaining
-  budget, so a single prompt-injected call (or a malicious endpoint looping
-  sub-cap payments) can't drain the wallet. Override per wallet with
-  `SPEND_LIMIT_DAILY_USTX` / `SPEND_LIMIT_SESSION_USTX` / `SPEND_LIMIT_DAILY_SATS` /
-  `SPEND_LIMIT_SESSION_SATS`, or disable with `SPEND_LIMIT_ENABLED=false`.
+- **Spending limit (default-on).** Every path that signs a spend is metered
+  against a cumulative per-session and per-day cap (default 50 STX + 50,000
+  sats): STX transfers and contract calls (direct and sponsored, fee included),
+  x402/L402 auto-payments, `lightning_pay_invoice`, every Bitcoin broadcast
+  (measured as the sats that actually leave the wallet, fee included) and
+  `psbt_sign`. A spend that would exceed it is blocked before it is signed or
+  broadcast, so a single prompt-injected call (or a malicious endpoint looping
+  sub-cap payments) can't drain the wallet. Contract calls in post-condition
+  mode Allow must declare the most STX/sBTC they take from the caller; that
+  bound is added as an on-chain post condition and metered. Override per
+  wallet with `SPEND_LIMIT_DAILY_USTX` / `SPEND_LIMIT_SESSION_USTX` /
+  `SPEND_LIMIT_DAILY_SATS` / `SPEND_LIMIT_SESSION_SATS` in the MCP client
+  config, or disable with `SPEND_LIMIT_ENABLED=false`. The error message tells
+  the agent to ask the user rather than how to change these.
+  - **What it is not.** The limit runs inside this server process. It stops
+    mistakes and malicious endpoints that go through the tools; it does not
+    contain an agent that has shell access to this machine, which could edit
+    the client config or read the keystore once given the password. Keep spend
+    tools out of your client's auto-approve list, and do not enable the
+    `wallet` group (it holds `wallet_export`) for an agent you do not trust with
+    the mnemonic.
+  - `schnorr_sign_digest` signs raw digests, and a signed BIP-341 sighash can
+    spend outside every meter, so it is refused unless the user sets
+    `AIBTC_ALLOW_BLIND_SIGN=true` in the server config.
   - The `sats` ledger is keyed by the active Stacks address so BTC L1, sBTC, and
     L402 spends share one budget. `lightning_pay_invoice` uses the same key, but
     because the Lightning wallet unlocks in its own session, a pay made while the

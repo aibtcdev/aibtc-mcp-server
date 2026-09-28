@@ -7,7 +7,8 @@ import {
 import { getStacksNetwork, type Network } from "../config/networks.js";
 import { getSponsorRelayUrl, getSponsorApiKey, isFallbackEnabled } from "../config/sponsor.js";
 import type { Account, ContractCallOptions, ContractDeployOptions, TransferResult } from "./builder.js";
-import { callContract, transferStx, deployContract } from "./builder.js";
+import { callContract, transferStx, deployContract, sbtcContract } from "./builder.js";
+import { getSpendLimiter, planContractCallSpends } from "../services/spend-limiter.js";
 import { recordNonceUsed } from "../services/nonce-tracker.js";
 import { isRelayHealthy } from "../utils/relay-health.js";
 
@@ -144,6 +145,17 @@ export async function sponsoredContractCall(
   options: ContractCallOptions,
   network: Network
 ): Promise<TransferResult> {
+  // Same rail as callContract: the relay pays the fee, the caller's assets
+  // still leave. Checked before signing; recorded only when the relay takes it,
+  // because the direct fallback (callContract) meters itself.
+  const { postConditions, spends } = planContractCallSpends(
+    { ...options, sbtcContract: sbtcContract(network) },
+    account.address
+  );
+  for (const spend of spends) {
+    await getSpendLimiter().check(spend.unit, spend.amount, account.address);
+  }
+
   const transaction = await makeContractCall({
     contractAddress: options.contractAddress,
     contractName: options.contractName,
@@ -152,14 +164,20 @@ export async function sponsoredContractCall(
     senderKey: account.privateKey,
     network: getStacksNetwork(network),
     postConditionMode: options.postConditionMode || PostConditionMode.Deny,
-    postConditions: options.postConditions || [],
+    postConditions,
     sponsored: true,
     fee: 0n,
   });
 
-  return submitSponsoredTransaction(account, transaction, network, () =>
+  const result = await submitSponsoredTransaction(account, transaction, network, () =>
     callContract(account, options)
   );
+  if (!result.fallback) {
+    for (const spend of spends) {
+      await getSpendLimiter().record(spend.unit, spend.amount, account.address);
+    }
+  }
+  return result;
 }
 
 /**
@@ -173,6 +191,10 @@ export async function sponsoredStxTransfer(
   memo: string | undefined,
   network: Network
 ): Promise<TransferResult> {
+  // Checked before signing; recorded only when the relay takes it, because
+  // the direct fallback (transferStx) meters itself.
+  await getSpendLimiter().check("ustx", amount, account.address);
+
   const transaction = await makeSTXTokenTransfer({
     recipient,
     amount,
@@ -183,9 +205,13 @@ export async function sponsoredStxTransfer(
     fee: 0n,
   });
 
-  return submitSponsoredTransaction(account, transaction, network, () =>
+  const result = await submitSponsoredTransaction(account, transaction, network, () =>
     transferStx(account, recipient, amount, memo)
   );
+  if (!result.fallback) {
+    await getSpendLimiter().record("ustx", amount, account.address);
+  }
+  return result;
 }
 
 /**

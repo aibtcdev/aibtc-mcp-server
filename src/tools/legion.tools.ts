@@ -97,6 +97,7 @@ import {
 } from "../transactions/child-inscription-builder.js";
 import { signBtcTransaction } from "../transactions/bitcoin-builder.js";
 import { createErrorResponse, createJsonResponse } from "../utils/index.js";
+import { meteredBtcBroadcast } from "../services/btc-spend.js";
 
 // Writes always target the live era. A retired contract still answers reads,
 // but proposing or voting into one would govern a deployment nothing watches.
@@ -1569,8 +1570,11 @@ export function registerLegionTools(server: McpServer): void {
           commitResult.tx,
           account.btcPrivateKey
         );
-        const commitTxid = await mempoolApi.broadcastTransaction(
-          commitSigned.txHex
+        const commitTxid = await meteredBtcBroadcast(
+          mempoolApi,
+          commitSigned.txHex,
+          account,
+          NETWORK
         );
 
         return createJsonResponse({
@@ -1727,7 +1731,7 @@ export function registerLegionTools(server: McpServer): void {
           revealResult.tx.sign(account.btcPrivateKey);
           revealResult.tx.sign(account.taprootPrivateKey!);
           revealResult.tx.finalize();
-          revealTxid = await mempoolApi.broadcastTransaction(revealResult.tx.hex);
+          revealTxid = await meteredBtcBroadcast(mempoolApi, revealResult.tx.hex, account, NETWORK);
         } else {
           const revealScript = deriveRevealScript({
             inscription,
@@ -1749,7 +1753,7 @@ export function registerLegionTools(server: McpServer): void {
             revealResult.tx,
             account.btcPrivateKey
           );
-          revealTxid = await mempoolApi.broadcastTransaction(revealSigned.txHex);
+          revealTxid = await meteredBtcBroadcast(mempoolApi, revealSigned.txHex, account, NETWORK);
         }
 
         const inscriptionId = `${revealTxid}i0`;

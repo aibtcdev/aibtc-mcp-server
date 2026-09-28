@@ -16,7 +16,6 @@ import { z } from "zod";
 import { NETWORK } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { getWalletManager } from "../services/wallet-manager.js";
-import { getSpendLimiter } from "../services/spend-limiter.js";
 import {
   MempoolApi,
   getMempoolAddressUrl,
@@ -25,6 +24,7 @@ import {
 } from "../services/mempool-api.js";
 import { buildAndSignBtcTransaction } from "../transactions/bitcoin-builder.js";
 import { UnisatIndexer } from "../services/unisat-indexer.js";
+import { meteredBtcBroadcast } from "../services/btc-spend.js";
 
 /**
  * Get the Bitcoin address to use for queries.
@@ -314,10 +314,6 @@ export function registerBitcoinTools(server: McpServer): void {
           );
         }
 
-        // Safety rail: block before signing if this would exceed the wallet's
-        // cumulative spending limit (per-session or per-day).
-        await getSpendLimiter().check("sats", BigInt(amount), account.address);
-
         if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
           throw new Error(
             "Bitcoin keys not available. Please unlock your wallet again."
@@ -384,8 +380,7 @@ export function registerBitcoinTools(server: McpServer): void {
         );
 
         // Broadcast the transaction
-        const txid = await api.broadcastTransaction(txResult.txHex);
-        await getSpendLimiter().record("sats", BigInt(amount), account.address);
+        const txid = await meteredBtcBroadcast(api, txResult.txHex, account, NETWORK);
 
         const response: Record<string, unknown> = {
           success: true,
