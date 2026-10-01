@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.73.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.73.0...mcp-server-v1.73.1) (2026-10-01)
+
+
+### Bug Fixes
+
+* **fee:** cap plain sBTC transfer fees at 0.003 STX ([#697](https://github.com/aibtcdev/aibtc-mcp-server/issues/697)) ([05f472d](https://github.com/aibtcdev/aibtc-mcp-server/commit/05f472da7af38f66ed2d88a2d1c57f0a73ed0218))
+
 ## [1.73.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.72.1...mcp-server-v1.73.0) (2026-09-28)
 
 
