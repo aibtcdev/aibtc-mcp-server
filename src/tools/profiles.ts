@@ -61,8 +61,8 @@ export const TOOL_GROUPS = {
   identity: "ERC-8004 identity and reputation, message signing",
   social: "Nostr, AIBTC inbox",
   earn: "Bounty board (create, accept, pay, my views)",
-  legion: "AIBTC News Legion",
-  markets: "Stacks prediction market, At Stake",
+  legion: "AIBTC News Legion (news-gov). El Salvador legion votes are in markets",
+  markets: "Stacks prediction market, At Stake, El Salvador legions (atstake_legion_*)",
   dev: "Scaffolding, OpenRouter, settings, inference marketplace, arXiv",
 } as const;
 
