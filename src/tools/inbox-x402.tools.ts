@@ -27,7 +27,7 @@ const INBOX_BASE = "https://aibtc.com/api/inbox";
  * We budget against `medium_priority`, capped at this ceiling, so the pre-flight
  * reflects what the transaction will actually cost.
  */
-const MAX_REALISTIC_FEE_USTX = 50_000n; // 0.05 STX — generous headroom
+const MAX_REALISTIC_FEE_USTX = 3_000n; // 0.003 STX — the sbtc_transfer fee ceiling
 
 /**
  * Pre-flight balance check for a non-sponsored sBTC inbox payment.

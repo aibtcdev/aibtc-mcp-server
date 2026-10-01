@@ -942,10 +942,10 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
                 .willSendEq(amount)
                 .ft(contracts.SBTC_TOKEN as `${string}.${string}`, "sbtc-token"),
             ],
-            // Clamped medium fee — do NOT let @stacks auto-estimate, since
-            // Hiro's contract_call high_priority tier is polluted by outliers
-            // (observed >2000 STX). resolveDefaultFee caps it at 0.05 STX.
-            fee: await resolveDefaultFee(acct.network, "contract_call"),
+            // Clamped fee — do NOT let @stacks auto-estimate, since Hiro's
+            // contract_call tiers are polluted by outliers (observed >2000
+            // STX). The sbtc_transfer clamp caps it at 0.003 STX.
+            fee: await resolveDefaultFee(acct.network, "sbtc_transfer"),
           });
         } else {
           transaction = await makeSTXTokenTransfer({
@@ -1441,7 +1441,7 @@ export async function checkSufficientBalance(
       const stxBalanceForSbtc = BigInt(stxInfoForSbtc.balance);
       // Same clamped fee the interceptor actually sets on the sBTC contract
       // call — so this check is exact, not a high-priority over-estimate.
-      const estimatedSbtcFee = await resolveDefaultFee(account.network, "contract_call");
+      const estimatedSbtcFee = await resolveDefaultFee(account.network, "sbtc_transfer");
 
       if (stxBalanceForSbtc < estimatedSbtcFee) {
         const stxShortfall = estimatedSbtcFee - stxBalanceForSbtc;
