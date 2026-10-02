@@ -1,21 +1,20 @@
 /**
- * Test the DIRECT (non-sponsored) x402 inbox path used by the
- * `send_inbox_message_direct` tool.
+ * Test the x402 inbox path used by the `send_inbox_message_direct` tool.
  *
- * The whole point of this path is: x402-stacks signs a STANDARD-auth sBTC
- * transfer (sender pays its own STX gas) instead of a SPONSORED one (relay
- * pays gas). This script proves that by driving the real x402-stacks
- * interceptor and inspecting the transaction it signs.
+ * x402-stacks signs a SPONSORED sBTC transfer (fee 0, facilitator pays gas)
+ * when the inbox 402 advertises `extra.feePayer`, and a STANDARD-auth one
+ * (sender pays gas) otherwise. This script drives the real interceptor and
+ * asserts the signed tx matches what the inbox advertised.
  *
  * Modes:
  *   DRY (default) — Probe the inbox 402, let x402-stacks sign the payment,
  *                   then INTERCEPT and abort before broadcast. Deserializes the
- *                   signed tx and asserts AuthType.Standard (non-sponsored).
- *                   Spends nothing.
+ *                   signed tx and asserts its auth type (and fee 0 when
+ *                   sponsored). Spends nothing.
  *
- *   SEND=1        — Actually deliver the message. Costs real sBTC + STX gas on
- *                   mainnet. Afterwards fetches the tx from Hiro and asserts
- *                   `sponsored === false` and the sender paid.
+ *   SEND=1        — Actually deliver the message. Costs real sBTC (+ STX gas
+ *                   when not sponsored) on mainnet. Afterwards fetches the tx
+ *                   from Hiro and asserts `sponsored` matches and the sender paid.
  *
  * Usage:
  *   # dry run with env mnemonic
@@ -53,7 +52,7 @@ const RECIPIENT_STX =
   process.env.RECIPIENT_STX || "SPKH9AWG0ENZ87J1X0PBD4HETP22G8W22AFNVF8K";
 const CONTENT =
   process.env.CONTENT ||
-  "Direct x402 (non-sponsored) test message — sender paid its own gas.";
+  "x402 inbox test message.";
 
 const INBOX_BASE = "https://aibtc.com/api/inbox";
 const SEND = process.env.SEND === "1";
@@ -94,7 +93,7 @@ async function unlockWallet(): Promise<void> {
 }
 
 async function main() {
-  console.log(`\n=== Direct (non-sponsored) x402 inbox test — mode: ${SEND ? "SEND" : "DRY"} ===\n`);
+  console.log(`\n=== x402 inbox test — mode: ${SEND ? "SEND" : "DRY"} ===\n`);
 
   if (NETWORK !== "mainnet") {
     throw new Error(`Inbox is mainnet-only; NETWORK=${NETWORK}`);
@@ -131,19 +130,21 @@ async function main() {
   if (!paymentRequired?.accepts?.length) throw new Error("No payment requirements");
   const accept = paymentRequired.accepts[0];
   console.log("  amount:", accept.amount, "asset:", accept.asset, "payTo:", accept.payTo);
+  const expectSponsored = typeof accept.extra?.feePayer === "string";
+  console.log("  feePayer:", accept.extra?.feePayer ?? "(none — sender pays gas)");
 
   // [3] Balance check — exercise the tool's own checkDirectInboxBalance
   // (sBTC for the message + a realistic STX gas budget), not a separate helper.
   // In DRY mode we never broadcast, so a shortfall is informational only —
   // we still want to reach the signing-inspection step. In SEND mode it's fatal.
-  console.log("\n[3] Balance check (sBTC + STX gas)...");
+  console.log(`\n[3] Balance check (sBTC${expectSponsored ? "" : " + STX gas"})...`);
   try {
-    await checkDirectInboxBalance(account.address, accept.amount);
-    console.log("  OK — sufficient sBTC and STX");
+    await checkDirectInboxBalance(account.address, accept.amount, expectSponsored);
+    console.log("  OK — sufficient balance");
   } catch (err) {
     if (SEND) throw err;
     console.log("  ⚠️  (dry mode, non-fatal):", err instanceof Error ? err.message : err);
-    console.log("  Note: SEND=1 would require this to pass — non-sponsored needs STX for gas.");
+    console.log("  Note: SEND=1 would require this to pass.");
   }
 
   // [4] Build the x402-stacks payment client.
@@ -186,7 +187,7 @@ async function main() {
       throw new Error("x402-stacks did not produce a signed payment transaction");
     }
 
-    // [5] Deserialize and assert it is NON-sponsored (standard auth).
+    // [5] Deserialize and assert the auth type matches the advertised rail.
     console.log("\n[5] Inspecting the signed transaction...");
     const txHex = captured.txHex.startsWith("0x")
       ? captured.txHex.slice(2)
@@ -200,14 +201,17 @@ async function main() {
       console.log("  fee:", feeUStx.toString(), "µSTX =", (Number(feeUStx) / 1e6).toFixed(6), "STX");
     }
 
-    if (authType === AuthType.Sponsored) {
+    if ((authType === AuthType.Sponsored) !== expectSponsored) {
       throw new Error(
-        "FAIL: transaction is SPONSORED — expected a non-sponsored (standard) tx"
+        `FAIL: transaction is ${authName} — expected ${expectSponsored ? "Sponsored" : "Standard"}`
       );
     }
+    if (expectSponsored && feeUStx !== 0n) {
+      throw new Error(`FAIL: sponsored tx has origin fee ${feeUStx} — expected 0`);
+    }
 
-    console.log("\n✅ PASS — x402-stacks signed a NON-SPONSORED (standard-auth) sBTC transfer.");
-    console.log("   The sender pays its own gas; no relay is in the middle.");
+    console.log(`\n✅ PASS — x402-stacks signed a ${authName.toUpperCase()} sBTC transfer.`);
+    console.log(expectSponsored ? "   The facilitator pays the gas." : "   The sender pays its own gas.");
     console.log("   Run with SEND=1 to actually deliver the message.\n");
     return;
   }
@@ -232,8 +236,8 @@ async function main() {
     return;
   }
 
-  // [5] Verify on-chain that the tx was NOT sponsored.
-  console.log("\n[5] Verifying on-chain (sponsored should be false)...");
+  // [5] Verify on-chain that the sponsorship matches the advertised rail.
+  console.log(`\n[5] Verifying on-chain (sponsored should be ${expectSponsored})...`);
   const hiro = getHiroApi(NETWORK);
   // Poll briefly — the facilitator may have just broadcast it.
   let txData: { sponsored?: boolean; sender_address?: string; tx_status?: string } | undefined;
@@ -255,15 +259,15 @@ async function main() {
   console.log("  sender_address:", txData.sender_address);
   console.log("  tx_status:", txData.tx_status);
 
-  if (txData.sponsored === true) {
-    throw new Error("FAIL: on-chain tx is sponsored — expected non-sponsored");
+  if (Boolean(txData.sponsored) !== expectSponsored) {
+    throw new Error(`FAIL: on-chain sponsored=${txData.sponsored} — expected ${expectSponsored}`);
   }
   if (txData.sender_address !== account.address) {
     throw new Error(
       `FAIL: sender_address ${txData.sender_address} !== wallet ${account.address}`
     );
   }
-  console.log("\n✅ PASS — message delivered with a NON-SPONSORED tx; sender paid its own gas.\n");
+  console.log(`\n✅ PASS — message delivered with a ${expectSponsored ? "SPONSORED" : "NON-SPONSORED"} tx.\n`);
 }
 
 main().catch((err) => {
