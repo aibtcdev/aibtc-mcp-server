@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.74.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.73.1...mcp-server-v1.74.0) (2026-10-02)
+
+
+### Features
+
+* **inbox:** gasless send when the inbox advertises a fee payer; meter sBTC ([#701](https://github.com/aibtcdev/aibtc-mcp-server/issues/701)) ([279fff1](https://github.com/aibtcdev/aibtc-mcp-server/commit/279fff1dc464dab9f947454a46217bb1290e95ab))
+
 ## [1.73.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.73.0...mcp-server-v1.73.1) (2026-10-01)
 
 
