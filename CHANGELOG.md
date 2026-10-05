@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.75.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.74.0...mcp-server-v1.75.0) (2026-10-05)
+
+
+### Features
+
+* **x402:** write extra.payment_id as the payment memo, cut to 34 bytes ([#705](https://github.com/aibtcdev/aibtc-mcp-server/issues/705)) ([0ff0d79](https://github.com/aibtcdev/aibtc-mcp-server/commit/0ff0d7975c6e3cf7d969be90439db55351d1a479))
+
 ## [1.74.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.73.1...mcp-server-v1.74.0) (2026-10-02)
 
 
