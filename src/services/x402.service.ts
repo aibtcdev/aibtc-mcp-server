@@ -5,6 +5,8 @@ import {
   uintCV,
   principalCV,
   noneCV,
+  someCV,
+  bufferCVFromString,
   Pc,
   PostConditionMode,
 } from "@stacks/transactions";
@@ -915,6 +917,8 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
         // balance check in onBeforePayment already accounts for the gas.
         const networkName = getStacksNetwork(acct.network);
 
+        const memo = paymentIdMemo(selectedOption.extra);
+
         let transaction;
         if (tokenType === "sBTC") {
           const contracts = getContracts(acct.network);
@@ -930,7 +934,7 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
               uintCV(amount),
               principalCV(acct.address),
               principalCV(selectedOption.payTo),
-              noneCV(),
+              memo ? someCV(bufferCVFromString(memo)) : noneCV(),
             ],
             senderKey: acct.privateKey,
             network: networkName,
@@ -953,7 +957,7 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
             amount,
             senderKey: acct.privateKey,
             network: networkName,
-            memo: "",
+            memo: memo ?? "",
             fee: await resolveDefaultFee(acct.network, "token_transfer"),
           });
         }
@@ -1102,6 +1106,27 @@ export function detectTokenType(asset: string): PaymentTokenType {
     return 'STX';
   }
   return 'unsupported';
+}
+
+const STACKS_MEMO_MAX_BYTES = 34;
+
+/**
+ * Memo for an x402 payment from the server's `extra.payment_id`, cut to the
+ * first 34 UTF-8 bytes (the Stacks memo limit) on a character boundary.
+ * Gateways that bind payments on the memo match that prefix.
+ */
+export function paymentIdMemo(extra?: Record<string, unknown>): string | undefined {
+  const id = extra?.payment_id;
+  if (typeof id !== "string" || id.length === 0) return undefined;
+  let memo = "";
+  let bytes = 0;
+  for (const ch of id) {
+    const size = Buffer.byteLength(ch, "utf8");
+    if (bytes + size > STACKS_MEMO_MAX_BYTES) break;
+    memo += ch;
+    bytes += size;
+  }
+  return memo;
 }
 
 /**
