@@ -23,11 +23,13 @@
  * though nothing here is x402: renaming it on this side would silently return
  * both tools to the race above while each believed it held a lock.
  *
- * A STALE LEASE IS NEVER RECLAIMED AUTOMATICALLY. Deleting a lock this process
- * did not create needs an atomic "remove only if unchanged since I looked",
- * which the filesystem does not offer; guessing wrong there is precisely the
- * concurrent write the lock exists to prevent. A dead holder is reported with
- * its pid and left for an operator, who can see whether it is really dead.
+ * A STALE LEASE IS RECLAIMED ONLY WHEN ITS HOLDER IS PROVABLY DEAD, by the
+ * same protocol the skills engine uses: a second mkdir lock (`<lock>.reclaim`)
+ * serializes the removal, and staleness and owner are re-read while holding
+ * it. A dead holder cannot release or heartbeat, so the lease inspected is the
+ * lease removed. Without this, one SIGKILLed holder would refuse every spend
+ * until an operator stepped in. A stale lease whose holder may still be alive
+ * is reported with its pid and left alone.
  */
 
 import os from "os";
@@ -35,6 +37,7 @@ import path from "path";
 import {
   mkdirSync,
   readFileSync,
+  rmdirSync,
   rmSync,
   statSync,
   utimesSync,
@@ -128,6 +131,65 @@ function ownedBy(dir: string, token: string): boolean {
   }
 }
 
+/** "<pid> <token>" from the lease's owner file, or null if it cannot be read. */
+function readOwner(dir: string): { pid: number; token: string } | null {
+  try {
+    const match = /^(\d+) (\S+)$/.exec(readFileSync(path.join(dir, "owner"), "utf8"));
+    return match ? { pid: Number(match[1]), token: match[2] } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True only when the holder is provably not running on this host: the pid
+ * does not exist (ESRCH), or it is our own pid with a token this process does
+ * not hold (a previous incarnation, e.g. a restarted container reusing pid 1).
+ * EPERM and pid reuse by an unrelated process read as alive, which errs
+ * toward refusing.
+ */
+function holderIsDead(owner: { pid: number; token: string }): boolean {
+  if (owner.pid === process.pid) {
+    return ![...heldLocks.values()].includes(owner.token);
+  }
+  try {
+    process.kill(owner.pid, 0);
+    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ESRCH";
+  }
+}
+
+/**
+ * Remove a stale lease whose holder is dead. Byte-compatible with
+ * `reclaimDeadLock` in the skills engine's x402-guards.ts. An ownerless lease
+ * (created, then the creator died before writing its owner) is reclaimable
+ * once stale, since a live creator writes the owner immediately.
+ */
+function reclaimDeadLock(dir: string): boolean {
+  const reclaimDir = `${dir}.reclaim`;
+  try {
+    mkdirSync(reclaimDir);
+  } catch {
+    return false; // another process is reclaiming; keep waiting
+  }
+  try {
+    if (!lockIsStale(dir)) return false;
+    const owner = readOwner(dir);
+    if (owner && !holderIsDead(owner)) return false;
+    rmSync(dir, { recursive: true, force: true });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    try {
+      rmdirSync(reclaimDir);
+    } catch {
+      // already gone
+    }
+  }
+}
+
 function describeHolder(dir: string): string {
   try {
     const [pid] = readFileSync(path.join(dir, "owner"), "utf8").split(" ");
@@ -180,6 +242,15 @@ function installExitHooks(): void {
   }
 }
 
+function reclaimInProgress(dir: string): boolean {
+  try {
+    statSync(`${dir}.reclaim`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Why the lease could not be taken, for the caller to log. */
 type Unavailable = { reason: string };
 
@@ -188,45 +259,49 @@ async function acquire(dir: string, token: string): Promise<Unavailable | null> 
   for (;;) {
     if (tryLock(dir, token)) return null;
     if (lockIsStale(dir)) {
-      return {
-        reason:
-          `the lock at ${dir} has had no heartbeat for over ${Math.round(timing.staleMs / 1000)}s ` +
-          `(${describeHolder(dir)}). If that process is dead, remove the directory; do not remove ` +
-          `it while a write may still be in progress.`,
-      };
+      if (reclaimDeadLock(dir)) continue;
+      if (lockIsStale(`${dir}.reclaim`)) {
+        return {
+          reason:
+            `a lock reclaim at ${dir}.reclaim was interrupted over ` +
+            `${Math.round(timing.staleMs / 1000)}s ago. Remove that directory (not the lock itself).`,
+        };
+      }
+      if (lockIsStale(dir) && !reclaimInProgress(dir)) {
+        return {
+          reason:
+            `the lock at ${dir} has had no heartbeat for over ${Math.round(timing.staleMs / 1000)}s ` +
+            `(${describeHolder(dir)}) and its holder may still be running. If that process is ` +
+            `dead, remove the directory; do not remove it while a write may still be in progress.`,
+        };
+      }
     }
     if (Date.now() >= deadline) {
       return {
         reason:
           `another writer held the lock at ${dir} for the whole ` +
-          `${Math.round(timing.maxWaitMs / 1000)}s wait (${describeHolder(dir)}).`,
+          `${Math.round(timing.maxWaitMs / 1000)}s wait (${describeHolder(dir)}). Retry once it finishes.`,
       };
     }
     await new Promise((r) => setTimeout(r, timing.retryMs));
   }
 }
 
-export interface LockedRun<T> {
-  /** False when the body ran WITHOUT the lease. */
-  held: boolean;
-  /** Set when `held` is false: why the lease could not be taken. */
-  unavailable?: string;
-  value: T;
-}
+export type LockedRun<T> =
+  | { held: true; value: T }
+  /** The lease could not be taken, so `fn` did NOT run. */
+  | { held: false; unavailable: string };
 
 /**
- * Run `fn` under the shared lease for `stateFile`.
+ * Run `fn` under the shared lease for `stateFile`, or not at all.
  *
- * `fn` RUNS EITHER WAY. This guards a read-modify-write that records something
- * which has ALREADY HAPPENED on chain, so refusing to run it would turn a
- * broadcast transaction into an unrecorded one — strictly worse than the race
- * it is trying to avoid. The caller is told which case it got and is expected
- * to say so loudly rather than let an under-count pass silently.
- *
- * That is the deliberate difference from the skills engine, which takes this
- * same lease and DOES refuse: there the lock guards a payment not yet signed,
- * so refusing costs nothing but a retry. Authorising a future spend and
- * recording a past one fail in opposite directions.
+ * Every write to the spend ledger happens before the money moves: a
+ * reservation authorizes a spend not yet signed, and a release gives back one
+ * that never left. Neither is worth writing without the lease. A reservation
+ * that cannot take it is refused, which costs a retry; a release that cannot
+ * take it is skipped, which leaves the ledger over-counting. Both fail in the
+ * direction that keeps the cap. The skills engine refuses on the same lease
+ * for the same reason.
  */
 export async function withSharedStateLock<T>(
   stateFile: string,
@@ -237,7 +312,7 @@ export async function withSharedStateLock<T>(
   const unavailable = await acquire(dir, token);
 
   if (unavailable) {
-    return { held: false, unavailable: unavailable.reason, value: await fn() };
+    return { held: false, unavailable: unavailable.reason };
   }
 
   installExitHooks();

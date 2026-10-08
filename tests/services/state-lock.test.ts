@@ -80,11 +80,17 @@ describe("shared state lease", () => {
   it("waits for a foreign holder and reports it rather than stealing it", async () => {
     foreignHolder();
 
+    let ran = false;
     const started = Date.now();
-    const run = await withSharedStateLock(stateFile, async () => "ran anyway");
+    const run = await withSharedStateLock(stateFile, async () => {
+      ran = true;
+    });
     const waited = Date.now() - started;
 
     expect(run.held).toBe(false);
+    if (run.held) throw new Error("unreachable");
+    // Without the lease the body does not run at all.
+    expect(ran).toBe(false);
     expect(run.unavailable).toContain("another writer held the lock");
     expect(run.unavailable).toContain("999999");
     // It really waited rather than giving up on the first failed mkdir.
@@ -95,19 +101,37 @@ describe("shared state lease", () => {
     expect(owner).toContain("someoneelsestoken");
   });
 
-  it("reports a stale lease immediately and still does not reclaim it", async () => {
-    foreignHolder();
+  it("reclaims a stale lease whose holder is dead, as the skills engine does", async () => {
+    foreignHolder(); // pid 999999 is not running
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(lockDir, old, old);
+    _stateLockTesting.set({ staleMs: 1_000 });
+
+    const run = await withSharedStateLock(stateFile, async () => "mine now");
+    expect(run.held).toBe(true);
+    expect(existsSync(lockDir)).toBe(false);
+    expect(existsSync(`${lockDir}.reclaim`)).toBe(false);
+  });
+
+  it("reports a stale lease whose holder may be alive and does not reclaim it", async () => {
+    // Our parent process is alive, so a stale lease in its name is left alone.
+    foreignHolder(process.ppid);
     // Backdate the lease past the staleness window.
     const old = new Date(Date.now() - 60_000);
     utimesSync(lockDir, old, old);
     _stateLockTesting.set({ staleMs: 1_000 });
 
+    let ran = false;
     const started = Date.now();
-    const run = await withSharedStateLock(stateFile, async () => "ran anyway");
+    const run = await withSharedStateLock(stateFile, async () => {
+      ran = true;
+    });
 
     expect(run.held).toBe(false);
+    if (run.held) throw new Error("unreachable");
+    expect(ran).toBe(false);
     expect(run.unavailable).toContain("no heartbeat");
-    expect(run.unavailable).toContain("(not running)");
+    expect(run.unavailable).toContain("may still be running");
     // Stale is detected up front, not after burning the full wait.
     expect(Date.now() - started).toBeLessThan(250);
     expect(existsSync(lockDir)).toBe(true);
@@ -164,12 +188,12 @@ describe("spend limiter under a contended lease", () => {
     }
   });
 
-  it("records the spend under the lease in the normal case", async () => {
+  it("books the spend under the lease in the normal case", async () => {
     const addr = `SP_LOCK_${runId}_${testId}_ok`;
     const limiter = getSpendLimiter();
     limiter.resetSession(addr);
 
-    await limiter.record("ustx", 1234n, addr);
+    await limiter.reserve([{ unit: "ustx", amount: 1234n }], addr);
 
     const state = JSON.parse(await fs.readFile(stateFile, "utf8"));
     const day = Object.keys(state[addr])[0];
@@ -178,11 +202,25 @@ describe("spend limiter under a contended lease", () => {
     expect(existsSync(lockDir)).toBe(false);
   });
 
-  it("still records, and says so loudly, when the lease is unavailable", async () => {
-    // A transaction is already broadcast by the time record() runs. Refusing to
-    // write would turn it into an unrecorded spend, which is worse than the
-    // race, so the write proceeds and the operator is told.
+  it("refuses to reserve when the lease is unavailable, and books nothing", async () => {
+    // Nothing is signed yet, so refusing costs only a retry. Booking without
+    // the lease could race the other tool past the shared cap.
     const addr = `SP_LOCK_${runId}_${testId}_contended`;
+    const limiter = getSpendLimiter();
+    limiter.resetSession(addr);
+
+    foreignHolder();
+    await expect(limiter.reserve([{ unit: "ustx", amount: 4321n }], addr)).rejects.toThrow(
+      /could not take the spending-limit lock/
+    );
+    expect(existsSync(stateFile)).toBe(false);
+    expect((await limiter.status(addr)).ustx.sessionRemaining).toBe(50_000_000);
+  });
+
+  it("leaves the booking in place, and says so, when a release cannot take the lease", async () => {
+    // Writing without the lease could drop the other tool's booking; skipping
+    // only over-counts, which keeps the cap.
+    const addr = `SP_LOCK_${runId}_${testId}_release`;
     const limiter = getSpendLimiter();
     limiter.resetSession(addr);
     const errors: string[] = [];
@@ -190,14 +228,13 @@ describe("spend limiter under a contended lease", () => {
       errors.push(args.join(" "));
     });
 
+    const reservation = await limiter.reserve([{ unit: "ustx", amount: 4321n }], addr);
     foreignHolder();
-    await limiter.record("ustx", 4321n, addr);
+    await limiter.release(reservation);
 
     const state = JSON.parse(await fs.readFile(stateFile, "utf8"));
     const day = Object.keys(state[addr])[0];
     expect(state[addr][day].ustx).toBe(4321);
-
-    expect(errors.join("\n")).toContain("WITHOUT the shared lock");
-    expect(errors.join("\n")).toContain("under-count");
+    expect(errors.join("\n")).toContain("stays over-counted");
   });
 });

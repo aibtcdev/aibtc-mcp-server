@@ -1,17 +1,18 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import * as btc from "@scure/btc-signer";
 import { hex } from "@scure/base";
+import { BroadcastRejectedError } from "../../src/services/mempool-api.js";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 
-const { check, record } = vi.hoisted(() => ({
-  check: vi.fn(async () => {}),
-  record: vi.fn(async () => {}),
+const { reserve, release } = vi.hoisted(() => ({
+  reserve: vi.fn(async () => ({ addr: "reservation", day: "today", spends: [] })),
+  release: vi.fn(async () => {}),
 }));
 
 vi.mock("../../src/services/spend-limiter.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../../src/services/spend-limiter.js")>();
-  return { ...actual, getSpendLimiter: () => ({ check, record }) };
+  return { ...actual, getSpendLimiter: () => ({ reserve, release }) };
 });
 
 import {
@@ -68,8 +69,8 @@ function mempool(prevOwner: string) {
 }
 
 beforeEach(() => {
-  check.mockReset();
-  record.mockReset();
+  reserve.mockClear();
+  release.mockClear();
 });
 
 describe("btcTxOutflowSats", () => {
@@ -111,22 +112,46 @@ describe("btcTxOutflowSats", () => {
 });
 
 describe("meteredBtcBroadcast", () => {
-  it("checks before broadcasting and records after", async () => {
+  it("books the spend before broadcasting and keeps it once broadcast", async () => {
     const api = mempool(ownWpkh.address!);
     const txid = await meteredBtcBroadcast(api as never, signedSpend(69_000n), spender, "testnet");
     expect(txid).toBe("broadcast-txid");
-    expect(check).toHaveBeenCalledWith("sats", 31_000n, spender.address);
-    expect(record).toHaveBeenCalledWith("sats", 31_000n, spender.address);
+    expect(reserve).toHaveBeenCalledWith([{ unit: "sats", amount: 31_000n }], spender.address);
+    expect(reserve.mock.invocationCallOrder[0]).toBeLessThan(
+      api.broadcastTransaction.mock.invocationCallOrder[0]
+    );
+    expect(release).not.toHaveBeenCalled();
+  });
+
+  it("gives the booking back when the node rejects the transaction", async () => {
+    const api = mempool(ownWpkh.address!);
+    api.broadcastTransaction.mockRejectedValueOnce(
+      new BroadcastRejectedError("Failed to broadcast transaction: 400 - bad-txns")
+    );
+    await expect(
+      meteredBtcBroadcast(api as never, signedSpend(69_000n), spender, "testnet")
+    ).rejects.toThrow("bad-txns");
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the booking when the broadcast fails without a rejection", async () => {
+    // A network error leaves it unknown whether the transaction was relayed.
+    const api = mempool(ownWpkh.address!);
+    api.broadcastTransaction.mockRejectedValueOnce(new TypeError("fetch failed"));
+    await expect(
+      meteredBtcBroadcast(api as never, signedSpend(69_000n), spender, "testnet")
+    ).rejects.toThrow("fetch failed");
+    expect(release).not.toHaveBeenCalled();
   });
 
   it("does not broadcast when the limit refuses", async () => {
-    check.mockRejectedValueOnce(new Error("spend limit exceeded"));
+    reserve.mockRejectedValueOnce(new Error("spend limit exceeded"));
     const api = mempool(ownWpkh.address!);
     await expect(
       meteredBtcBroadcast(api as never, signedSpend(69_000n), spender, "testnet")
     ).rejects.toThrow("spend limit exceeded");
     expect(api.broadcastTransaction).not.toHaveBeenCalled();
-    expect(record).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
   });
 });
 

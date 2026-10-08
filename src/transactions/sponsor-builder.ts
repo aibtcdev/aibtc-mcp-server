@@ -110,20 +110,31 @@ function resolveSponsorApiKey(account: Account): string {
  * Shared logic for all three sponsored helpers (contract call, STX transfer,
  * contract deploy). Each caller builds its own transaction and provides a
  * fallback function for direct submission when the relay is unavailable.
+ * `onNotSent` runs when the transaction provably never left: no API key, or
+ * the relay refused it (before any fallback).
  */
 async function submitSponsoredTransaction(
   account: Account,
   transaction: { serialize(): string; auth: { spendingCondition: { nonce: bigint } | null } },
   network: Network,
   directFallback: () => Promise<TransferResult>,
+  onNotSent: () => Promise<void> = async () => {},
 ): Promise<TransferResult> {
-  const apiKey = resolveSponsorApiKey(account);
+  let apiKey;
+  try {
+    apiKey = resolveSponsorApiKey(account);
+  } catch (error) {
+    await onNotSent();
+    throw error;
+  }
   const senderNonce = Number(transaction.auth.spendingCondition!.nonce);
   const serializedTx = transaction.serialize();
   const response = await submitToSponsorRelay(serializedTx, network, apiKey);
 
   if (!response.success) {
     const { shouldFallback, reason } = await evaluateFallback(response, network);
+    // The relay refused the transaction, so it was not broadcast.
+    await onNotSent();
     if (shouldFallback) {
       console.warn(`[sponsor] Relay unavailable or nonce error (${reason}), falling back to direct submission (sender pays fee)`);
       const result = await directFallback();
@@ -146,38 +157,43 @@ export async function sponsoredContractCall(
   network: Network
 ): Promise<TransferResult> {
   // Same rail as callContract: the relay pays the fee, the caller's assets
-  // still leave. Checked before signing; recorded only when the relay takes it,
-  // because the direct fallback (callContract) meters itself.
+  // still leave. Booked before signing.
   const { postConditions, spends } = planContractCallSpends(
     { ...options, sbtcContract: sbtcContract(network) },
     account.address
   );
-  for (const spend of spends) {
-    await getSpendLimiter().check(spend.unit, spend.amount, account.address);
+  const limiter = getSpendLimiter();
+  const reservation = await limiter.reserve(spends, account.address);
+
+  let transaction;
+  try {
+    transaction = await makeContractCall({
+      contractAddress: options.contractAddress,
+      contractName: options.contractName,
+      functionName: options.functionName,
+      functionArgs: options.functionArgs,
+      senderKey: account.privateKey,
+      network: getStacksNetwork(network),
+      postConditionMode: options.postConditionMode || PostConditionMode.Deny,
+      postConditions,
+      sponsored: true,
+      fee: 0n,
+    });
+  } catch (error) {
+    await limiter.release(reservation);
+    throw error;
   }
 
-  const transaction = await makeContractCall({
-    contractAddress: options.contractAddress,
-    contractName: options.contractName,
-    functionName: options.functionName,
-    functionArgs: options.functionArgs,
-    senderKey: account.privateKey,
-    network: getStacksNetwork(network),
-    postConditionMode: options.postConditionMode || PostConditionMode.Deny,
-    postConditions,
-    sponsored: true,
-    fee: 0n,
-  });
-
-  const result = await submitSponsoredTransaction(account, transaction, network, () =>
-    callContract(account, options)
+  // Released only when the relay refuses the transaction (before the direct
+  // fallback, which books its own spend). A relay call that throws, or a
+  // failure after the relay accepted it, leaves the booking in place.
+  return submitSponsoredTransaction(
+    account,
+    transaction,
+    network,
+    () => callContract(account, options),
+    () => limiter.release(reservation)
   );
-  if (!result.fallback) {
-    for (const spend of spends) {
-      await getSpendLimiter().record(spend.unit, spend.amount, account.address);
-    }
-  }
-  return result;
 }
 
 /**
@@ -191,27 +207,36 @@ export async function sponsoredStxTransfer(
   memo: string | undefined,
   network: Network
 ): Promise<TransferResult> {
-  // Checked before signing; recorded only when the relay takes it, because
-  // the direct fallback (transferStx) meters itself.
-  await getSpendLimiter().check("ustx", amount, account.address);
+  // Booked before signing.
+  const limiter = getSpendLimiter();
+  const reservation = await limiter.reserve([{ unit: "ustx", amount }], account.address);
 
-  const transaction = await makeSTXTokenTransfer({
-    recipient,
-    amount,
-    senderKey: account.privateKey,
-    network: getStacksNetwork(network),
-    memo: memo || "",
-    sponsored: true,
-    fee: 0n,
-  });
-
-  const result = await submitSponsoredTransaction(account, transaction, network, () =>
-    transferStx(account, recipient, amount, memo)
-  );
-  if (!result.fallback) {
-    await getSpendLimiter().record("ustx", amount, account.address);
+  let transaction;
+  try {
+    transaction = await makeSTXTokenTransfer({
+      recipient,
+      amount,
+      senderKey: account.privateKey,
+      network: getStacksNetwork(network),
+      memo: memo || "",
+      sponsored: true,
+      fee: 0n,
+    });
+  } catch (error) {
+    await limiter.release(reservation);
+    throw error;
   }
-  return result;
+
+  // Released only when the relay refuses the transaction (before the direct
+  // fallback, which books its own spend). A relay call that throws, or a
+  // failure after the relay accepted it, leaves the booking in place.
+  return submitSponsoredTransaction(
+    account,
+    transaction,
+    network,
+    () => transferStx(account, recipient, amount, memo),
+    () => limiter.release(reservation)
+  );
 }
 
 /**

@@ -88,6 +88,24 @@ export async function checkDirectInboxBalance(
 }
 
 /**
+ * True when a failed x402-stacks request had already carried the signed
+ * payment: the retried request's config holds the payment-signature header,
+ * either on the error itself (the retry failed outright) or on its `cause`
+ * (the interceptor's "402 after payment was sent").
+ */
+function paymentWasSent(error: unknown): boolean {
+  const carried = (e: unknown): boolean => {
+    const headers = (e as { config?: { headers?: unknown } } | undefined)?.config?.headers;
+    if (!headers || typeof headers !== "object") return false;
+    const wanted = X402_HEADERS.PAYMENT_SIGNATURE.toLowerCase();
+    return Object.entries(headers).some(
+      ([name, value]) => name.toLowerCase() === wanted && value != null
+    );
+  };
+  return carried(error) || carried((error as { cause?: unknown } | undefined)?.cause);
+}
+
+/**
  * x402 inbox messaging. The transaction is signed but not broadcast; the
  * inbox endpoint settles it through its x402 facilitator.
  *
@@ -193,9 +211,12 @@ export function registerInboxX402Tools(server: McpServer): void {
         // Step 3: Send. Either interceptor handles 402 -> sign -> retry.
         let response;
         if (sponsored) {
-          // The message cost is a signed sBTC spend: meter it before signing.
+          // The message cost is a signed sBTC spend: book it before signing.
           const spendLimiter = getSpendLimiter();
-          await spendLimiter.check("sats", BigInt(accept.amount), account.address);
+          const reservation = await spendLimiter.reserve(
+            [{ unit: "sats", amount: BigInt(accept.amount) }],
+            account.address
+          );
 
           const stacksAccount: StacksAccount = {
             address: account.address,
@@ -206,11 +227,16 @@ export function registerInboxX402Tools(server: McpServer): void {
             axios.create({ timeout: 120_000 }),
             stacksAccount
           );
-          response = await api.post(inboxUrl, body, {
-            headers: { "Content-Type": "application/json" },
-          });
-
-          await spendLimiter.record("sats", BigInt(accept.amount), account.address);
+          try {
+            response = await api.post(inboxUrl, body, {
+              headers: { "Content-Type": "application/json" },
+            });
+          } catch (error) {
+            // Once the signed payment rode the retried request, the inbox may
+            // have settled it, so the booking stands.
+            if (!paymentWasSent(error)) await spendLimiter.release(reservation);
+            throw error;
+          }
         } else {
           // Self-paid: createApiClient clamps the fee and meters the spend.
           const api = await createApiClient(INBOX_BASE, {
