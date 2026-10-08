@@ -116,8 +116,8 @@ export function psbtOutflowSats(
 
 /**
  * Broadcast a signed transaction that spends from this wallet, metered by the
- * spending limit: refused before broadcast when it would exceed the cap,
- * recorded once broadcast.
+ * spending limit: booked before broadcast (refused when it would exceed the
+ * cap), given back when the broadcast fails.
  */
 export async function meteredBtcBroadcast(
   api: MempoolApi,
@@ -126,8 +126,12 @@ export async function meteredBtcBroadcast(
   network: Network
 ): Promise<string> {
   const amount = await btcTxOutflowSats(api, txHex, spender, network);
-  await getSpendLimiter().check("sats", amount, spender.address);
-  const txid = await api.broadcastTransaction(txHex);
-  await getSpendLimiter().record("sats", amount, spender.address);
-  return txid;
+  const limiter = getSpendLimiter();
+  const reservation = await limiter.reserve([{ unit: "sats", amount }], spender.address);
+  try {
+    return await api.broadcastTransaction(txHex);
+  } catch (error) {
+    await limiter.release(reservation);
+    throw error;
+  }
 }

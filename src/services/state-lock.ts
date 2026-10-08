@@ -206,27 +206,21 @@ async function acquire(dir: string, token: string): Promise<Unavailable | null> 
   }
 }
 
-export interface LockedRun<T> {
-  /** False when the body ran WITHOUT the lease. */
-  held: boolean;
-  /** Set when `held` is false: why the lease could not be taken. */
-  unavailable?: string;
-  value: T;
-}
+export type LockedRun<T> =
+  | { held: true; value: T }
+  /** The lease could not be taken, so `fn` did NOT run. */
+  | { held: false; unavailable: string };
 
 /**
- * Run `fn` under the shared lease for `stateFile`.
+ * Run `fn` under the shared lease for `stateFile`, or not at all.
  *
- * `fn` RUNS EITHER WAY. This guards a read-modify-write that records something
- * which has ALREADY HAPPENED on chain, so refusing to run it would turn a
- * broadcast transaction into an unrecorded one — strictly worse than the race
- * it is trying to avoid. The caller is told which case it got and is expected
- * to say so loudly rather than let an under-count pass silently.
- *
- * That is the deliberate difference from the skills engine, which takes this
- * same lease and DOES refuse: there the lock guards a payment not yet signed,
- * so refusing costs nothing but a retry. Authorising a future spend and
- * recording a past one fail in opposite directions.
+ * Every write to the spend ledger happens before the money moves: a
+ * reservation authorizes a spend not yet signed, and a release gives back one
+ * that never left. Neither is worth writing without the lease. A reservation
+ * that cannot take it is refused, which costs a retry; a release that cannot
+ * take it is skipped, which leaves the ledger over-counting. Both fail in the
+ * direction that keeps the cap. The skills engine refuses on the same lease
+ * for the same reason.
  */
 export async function withSharedStateLock<T>(
   stateFile: string,
@@ -237,7 +231,7 @@ export async function withSharedStateLock<T>(
   const unavailable = await acquire(dir, token);
 
   if (unavailable) {
-    return { held: false, unavailable: unavailable.reason, value: await fn() };
+    return { held: false, unavailable: unavailable.reason };
   }
 
   installExitHooks();

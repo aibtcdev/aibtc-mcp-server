@@ -193,9 +193,12 @@ export function registerInboxX402Tools(server: McpServer): void {
         // Step 3: Send. Either interceptor handles 402 -> sign -> retry.
         let response;
         if (sponsored) {
-          // The message cost is a signed sBTC spend: meter it before signing.
+          // The message cost is a signed sBTC spend: book it before signing.
           const spendLimiter = getSpendLimiter();
-          await spendLimiter.check("sats", BigInt(accept.amount), account.address);
+          const reservation = await spendLimiter.reserve(
+            [{ unit: "sats", amount: BigInt(accept.amount) }],
+            account.address
+          );
 
           const stacksAccount: StacksAccount = {
             address: account.address,
@@ -206,11 +209,14 @@ export function registerInboxX402Tools(server: McpServer): void {
             axios.create({ timeout: 120_000 }),
             stacksAccount
           );
-          response = await api.post(inboxUrl, body, {
-            headers: { "Content-Type": "application/json" },
-          });
-
-          await spendLimiter.record("sats", BigInt(accept.amount), account.address);
+          try {
+            response = await api.post(inboxUrl, body, {
+              headers: { "Content-Type": "application/json" },
+            });
+          } catch (error) {
+            await spendLimiter.release(reservation);
+            throw error;
+          }
         } else {
           // Self-paid: createApiClient clamps the fee and meters the spend.
           const api = await createApiClient(INBOX_BASE, {

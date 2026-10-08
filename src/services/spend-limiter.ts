@@ -251,6 +251,27 @@ interface DayLedger {
 }
 type PersistedState = Record<string, Record<string, DayLedger>>;
 
+/** What `reserve()` booked, for `release()` to give back. */
+export interface SpendReservation {
+  addr: string;
+  day: string;
+  spends: Array<{ unit: SpendUnit; amount: number }>;
+}
+
+/**
+ * Drop every day but `today`, for every wallet, so the file does not grow
+ * unbounded. Runs only under the lease: it walks EVERY address, so an
+ * unlocked write could lose another wallet's day too.
+ */
+function pruneOtherDays(state: PersistedState, today: string): void {
+  for (const a of Object.keys(state)) {
+    for (const day of Object.keys(state[a])) {
+      if (day !== today) delete state[a][day];
+    }
+    if (Object.keys(state[a]).length === 0) delete state[a];
+  }
+}
+
 class SpendLimiter {
   private static instance: SpendLimiter;
   private stateFile = DEFAULT_STATE_FILE;
@@ -300,92 +321,140 @@ class SpendLimiter {
   }
 
   /**
-   * Throw SpendLimitError if `amount` would push the session OR day total over
-   * its cap. Does NOT record — call recordSpend after a successful broadcast.
+   * Book `spends` against the session and day ledgers, or throw
+   * SpendLimitError if any of them would push a total over its cap. Call this
+   * BEFORE signing, and `release()` the result if the spend then fails before
+   * it leaves this process.
+   *
+   * The cap check and the booking are one step under the shared file lease.
+   * A separate check and record let two processes both pass the check against
+   * the same day total and then both spend (#683). Booked here, a second
+   * process sees this spend in the total before it signs. A process that dies
+   * between reserve and broadcast leaves the spend booked: over-counting is
+   * the safe direction, and the skills engine does the same.
+   *
+   * All units are checked before any is booked, so a contract call moving STX
+   * and sBTC is booked whole or not at all.
    */
-  async check(unit: SpendUnit, amount: bigint, addr: string): Promise<void> {
-    if (!isEnabled()) return;
-    if (amount <= 0n) return;
-    const amt = Number(amount);
-    const { daily, session } = capsFor(unit);
+  async reserve(
+    spends: Array<{ unit: SpendUnit; amount: bigint }>,
+    addr: string
+  ): Promise<SpendReservation> {
+    const day = todayKey();
+    const booked = spends
+      .filter((s) => s.amount > 0n)
+      .map((s) => ({ unit: s.unit, amount: Number(s.amount) }));
+    if (!isEnabled() || booked.length === 0) return { addr, day, spends: [] };
 
-    const sessionSpent = this.getSession(addr)[unit];
-    if (sessionSpent + amt > session) {
-      const remaining = Math.max(0, session - sessionSpent);
-      throw new SpendLimitError(
-        this.message(unit, amt, remaining, "session", session),
-        unit,
-        amt,
-        remaining,
-        "session"
+    const totals: DayLedger = { ustx: 0, sats: 0 };
+    for (const { unit, amount } of booked) totals[unit] += amount;
+
+    const run = await this.serialized(() =>
+      withSharedStateLock(this.stateFile, async () => {
+        const session = this.getSession(addr);
+        const state = await this.readState();
+        for (const unit of ["ustx", "sats"] as const) {
+          const amt = totals[unit];
+          if (amt === 0) continue;
+          const { daily, session: sessionCap } = capsFor(unit);
+          if (session[unit] + amt > sessionCap) {
+            const remaining = Math.max(0, sessionCap - session[unit]);
+            throw new SpendLimitError(
+              this.message(unit, amt, remaining, "session", sessionCap),
+              unit,
+              amt,
+              remaining,
+              "session"
+            );
+          }
+          const daySpent = state[addr]?.[day]?.[unit] ?? 0;
+          if (daySpent + amt > daily) {
+            const remaining = Math.max(0, daily - daySpent);
+            throw new SpendLimitError(
+              this.message(unit, amt, remaining, "day", daily),
+              unit,
+              amt,
+              remaining,
+              "day"
+            );
+          }
+        }
+
+        pruneOtherDays(state, day);
+        if (!state[addr]) state[addr] = {};
+        if (!state[addr][day]) state[addr][day] = { ustx: 0, sats: 0 };
+        for (const unit of ["ustx", "sats"] as const) {
+          state[addr][day][unit] += totals[unit];
+        }
+        await this.writeState(state);
+        session.ustx += totals.ustx;
+        session.sats += totals.sats;
+      })
+    );
+
+    if (!run.held) {
+      throw new Error(
+        `Spend refused: could not take the spending-limit lock, so the daily cap cannot be ` +
+          `checked safely. ${run.unavailable} Retry once the other payment finishes.`
       );
     }
+    return { addr, day, spends: booked };
+  }
 
-    const state = await this.readState();
-    const daySpent = state[addr]?.[todayKey()]?.[unit] ?? 0;
-    if (daySpent + amt > daily) {
-      const remaining = Math.max(0, daily - daySpent);
-      throw new SpendLimitError(
-        this.message(unit, amt, remaining, "day", daily),
-        unit,
-        amt,
-        remaining,
-        "day"
+  /**
+   * Give back a reservation whose spend never left this process (signing or
+   * broadcast failed, or a fallback path books its own). Without the lease
+   * the day ledger is left as is: an unlocked write could drop another
+   * process's booking, while skipping only over-counts.
+   *
+   * Idempotent: a reservation is given back at most once, so a caller that
+   * releases before a fallback and again when that fallback throws does not
+   * subtract twice.
+   */
+  async release(reservation: SpendReservation): Promise<void> {
+    if (reservation.spends.length === 0) return;
+    const { addr, day } = reservation;
+    const totals: DayLedger = { ustx: 0, sats: 0 };
+    for (const { unit, amount } of reservation.spends) totals[unit] += amount;
+    reservation.spends = [];
+
+    const run = await this.serialized(() =>
+      withSharedStateLock(this.stateFile, async () => {
+        const state = await this.readState();
+        const ledger = state[addr]?.[day];
+        if (ledger) {
+          ledger.ustx = Math.max(0, ledger.ustx - totals.ustx);
+          ledger.sats = Math.max(0, ledger.sats - totals.sats);
+          await this.writeState(state);
+        }
+        const session = this.getSession(addr);
+        session.ustx = Math.max(0, session.ustx - totals.ustx);
+        session.sats = Math.max(0, session.sats - totals.sats);
+      })
+    );
+
+    if (!run.held) {
+      console.error(
+        `[spend-limit] Could not release ${totals.ustx} uSTX / ${totals.sats} sats for ${addr}: ` +
+          `${run.unavailable} The day total stays over-counted by that amount.`
       );
     }
   }
 
-  /** Record a completed spend against both the session and day ledgers. */
-  async record(unit: SpendUnit, amount: bigint, addr: string): Promise<void> {
-    if (!isEnabled()) return;
-    if (amount <= 0n) return;
-    const amt = Number(amount);
-
-    this.getSession(addr)[unit] += amt;
-
-    // Two locks, for two different races.
-    //
-    // The promise chain serializes concurrent record() calls INSIDE this
-    // process. The file lease excludes the OTHER process writing this file:
-    // the skills engine's direct x402 path shares spend-state.json so one
-    // wallet has one daily cap. Without the lease, its writes and ours
-    // overwrite each other and the day total under-counts, which is the
-    // direction that permits spending past the cap.
-    //
-    // Note the prune below walks EVERY address, so an unlocked concurrent
-    // write can lose another wallet's day too, not just this one's.
-    const write = this.writeLock.then(async () => {
-      const run = await withSharedStateLock(this.stateFile, async () => {
-        const state = await this.readState();
-        const today = todayKey();
-        // Prune stale days so the file does not grow unbounded.
-        for (const a of Object.keys(state)) {
-          for (const day of Object.keys(state[a])) {
-            if (day !== today) delete state[a][day];
-          }
-          if (Object.keys(state[a]).length === 0) delete state[a];
-        }
-        if (!state[addr]) state[addr] = {};
-        if (!state[addr][today]) state[addr][today] = { ustx: 0, sats: 0 };
-        state[addr][today][unit] += amt;
-        await this.writeState(state);
-      });
-
-      // The spend already happened on chain by the time record() is called, so
-      // an unavailable lease must not throw: that would turn a broadcast
-      // transaction into an unrecorded one. Write anyway and say so, because a
-      // silent under-count is the failure this whole lease exists to prevent.
-      if (!run.held) {
-        console.error(
-          `[spend-limit] Recorded ${amt} ${unit} for ${addr} WITHOUT the shared lock: ` +
-            `${run.unavailable} The daily total may under-count if another tool wrote ` +
-            `concurrently.`
-        );
-      }
-    });
-    // A failed write must not poison the chain for every later record().
-    this.writeLock = write.catch(() => {});
-    await write;
+  /**
+   * Serialize ledger updates inside this process. The file lease excludes the
+   * OTHER process (the skills engine's direct x402 path shares
+   * spend-state.json so one wallet has one daily cap); this chain keeps two
+   * calls in this process from interleaving their read-modify-writes.
+   */
+  private serialized<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.writeLock.then(fn);
+    // A failed update must not poison the chain for every later one.
+    this.writeLock = run.then(
+      () => {},
+      () => {}
+    );
+    return run;
   }
 
   /** Remaining session/day budget for status reporting. */

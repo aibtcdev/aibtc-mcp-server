@@ -34,10 +34,10 @@ vi.mock("../../src/services/wallet-manager.js", () => ({
   }),
 }));
 
-const mockCheck = vi.fn();
-const mockRecord = vi.fn();
+const mockReserve = vi.fn();
+const mockRelease = vi.fn();
 vi.mock("../../src/services/spend-limiter.js", () => ({
-  getSpendLimiter: () => ({ check: mockCheck, record: mockRecord }),
+  getSpendLimiter: () => ({ reserve: mockReserve, release: mockRelease }),
 }));
 
 vi.mock("../../src/config/networks.js", () => ({ NETWORK: "mainnet" }));
@@ -97,37 +97,37 @@ describe("lightning_pay_invoice spending limit (#572)", () => {
     return JSON.parse(text);
   }
 
-  it("checks the sats ledger for the invoice amount BEFORE paying, then records", async () => {
+  it("books the invoice amount on the sats ledger BEFORE paying, and keeps it", async () => {
     mockDecode.mockReturnValue(amountSections("2500000")); // 2500 sats
     const res = await payTool.handler({ bolt11: INVOICE_2500_SATS });
     const body = parse(res);
 
     expect(body.success).toBe(true);
     expect(body.amountSats).toBe(2500);
-    // check() ran with the decoded amount and the active Stacks address.
-    expect(mockCheck).toHaveBeenCalledWith(
-      "sats",
-      2500n,
+    // reserve() ran with the decoded amount and the active Stacks address.
+    expect(mockReserve).toHaveBeenCalledWith(
+      [{ unit: "sats", amount: 2500n }],
       "SP000000000000000000002Q6VF78"
     );
-    // record() ran after the successful pay.
-    expect(mockRecord).toHaveBeenCalledWith(
-      "sats",
-      2500n,
-      "SP000000000000000000002Q6VF78"
-    );
-    // check must run before payInvoice; record after.
-    expect(mockCheck.mock.invocationCallOrder[0]).toBeLessThan(
+    // It ran before payInvoice, and the paid spend is not given back.
+    expect(mockReserve.mock.invocationCallOrder[0]).toBeLessThan(
       mockPayInvoice.mock.invocationCallOrder[0]
     );
-    expect(mockRecord.mock.invocationCallOrder[0]).toBeGreaterThan(
-      mockPayInvoice.mock.invocationCallOrder[0]
-    );
+    expect(mockRelease).not.toHaveBeenCalled();
   });
 
-  it("blocks an over-budget pay and never calls payInvoice or record", async () => {
+  it("gives the booking back when the payment fails", async () => {
     mockDecode.mockReturnValue(amountSections("2500000"));
-    mockCheck.mockRejectedValueOnce(
+    mockPayInvoice.mockRejectedValueOnce(new Error("no route"));
+
+    const res = await payTool.handler({ bolt11: INVOICE_2500_SATS });
+    expect(res.isError).toBe(true);
+    expect(mockRelease).toHaveBeenCalledOnce();
+  });
+
+  it("blocks an over-budget pay and never calls payInvoice", async () => {
+    mockDecode.mockReturnValue(amountSections("2500000"));
+    mockReserve.mockRejectedValueOnce(
       new Error("Spending limit reached: over cap")
     );
 
@@ -136,7 +136,7 @@ describe("lightning_pay_invoice spending limit (#572)", () => {
 
     expect(body.error ?? body.message ?? "").toMatch(/Spending limit reached/);
     expect(mockPayInvoice).not.toHaveBeenCalled();
-    expect(mockRecord).not.toHaveBeenCalled();
+    expect(mockRelease).not.toHaveBeenCalled();
   });
 
   it("refuses an amountless invoice before touching the limiter or provider", async () => {
@@ -146,9 +146,9 @@ describe("lightning_pay_invoice spending limit (#572)", () => {
     const body = parse(res);
 
     expect(body.error ?? body.message ?? "").toMatch(/amountless/i);
-    expect(mockCheck).not.toHaveBeenCalled();
+    expect(mockReserve).not.toHaveBeenCalled();
     expect(mockPayInvoice).not.toHaveBeenCalled();
-    expect(mockRecord).not.toHaveBeenCalled();
+    expect(mockRelease).not.toHaveBeenCalled();
   });
 
   it("falls back to the __lightning__ ledger key when the STX wallet is locked", async () => {
@@ -159,8 +159,7 @@ describe("lightning_pay_invoice spending limit (#572)", () => {
     const body = parse(res);
 
     expect(body.success).toBe(true);
-    expect(mockCheck).toHaveBeenCalledWith("sats", 1000n, "__lightning__");
-    expect(mockRecord).toHaveBeenCalledWith("sats", 1000n, "__lightning__");
+    expect(mockReserve).toHaveBeenCalledWith([{ unit: "sats", amount: 1000n }], "__lightning__");
   });
 
   it("errors clearly when the Lightning wallet is locked", async () => {
@@ -170,6 +169,6 @@ describe("lightning_pay_invoice spending limit (#572)", () => {
 
     expect(body.error ?? body.message ?? "").toMatch(/locked/i);
     expect(mockDecode).not.toHaveBeenCalled();
-    expect(mockCheck).not.toHaveBeenCalled();
+    expect(mockReserve).not.toHaveBeenCalled();
   });
 });

@@ -208,36 +208,47 @@ export async function transferStx(
   // Always resolve a clamped fee — prevents @stacks/transactions from over-estimating.
   const resolvedFee = fee ?? await resolveDefaultFee(account.network, "token_transfer");
 
-  // Safety rail: block before signing if the amount plus fee would exceed the
-  // wallet's cumulative spending limit (per-session or per-day).
-  await getSpendLimiter().check("ustx", amount + resolvedFee, account.address);
+  // Safety rail: book the amount plus fee against the wallet's cumulative
+  // spending limit (per-session and per-day) before signing; refused if over.
+  const limiter = getSpendLimiter();
+  const reservation = await limiter.reserve(
+    [{ unit: "ustx", amount: amount + resolvedFee }],
+    account.address
+  );
 
   const networkName = getStacksNetwork(account.network);
-  const nonce = await getNextNonce(account.address, account.network);
+  let transaction;
+  let broadcastResponse;
+  let nonce;
+  try {
+    nonce = await getNextNonce(account.address, account.network);
 
-  const transaction = await makeSTXTokenTransfer({
-    recipient,
-    amount,
-    senderKey: account.privateKey,
-    network: networkName,
-    memo: memo || "",
-    nonce,
-    fee: resolvedFee,
-  });
+    transaction = await makeSTXTokenTransfer({
+      recipient,
+      amount,
+      senderKey: account.privateKey,
+      network: networkName,
+      memo: memo || "",
+      nonce,
+      fee: resolvedFee,
+    });
 
-  const broadcastResponse = await broadcastTransaction({
-    transaction,
-    network: networkName,
-  });
+    broadcastResponse = await broadcastTransaction({
+      transaction,
+      network: networkName,
+    });
 
-  if ("error" in broadcastResponse) {
-    throw new Error(
-      `Broadcast failed: ${broadcastResponse.error} - ${broadcastResponse.reason}`
-    );
+    if ("error" in broadcastResponse) {
+      throw new Error(
+        `Broadcast failed: ${broadcastResponse.error} - ${broadcastResponse.reason}`
+      );
+    }
+  } catch (error) {
+    await limiter.release(reservation);
+    throw error;
   }
 
   advancePendingNonce(account.address, nonce, broadcastResponse.txid);
-  await getSpendLimiter().record("ustx", amount + resolvedFee, account.address);
 
   return {
     txid: broadcastResponse.txid,
@@ -264,43 +275,45 @@ export async function callContract(
     { ...options, sbtcContract: sbtcContract(account.network) },
     account.address
   );
-  const meteredSpends = withFee(spends, resolvedFee);
-  for (const spend of meteredSpends) {
-    await getSpendLimiter().check(spend.unit, spend.amount, account.address);
-  }
+  const limiter = getSpendLimiter();
+  const reservation = await limiter.reserve(withFee(spends, resolvedFee), account.address);
 
   const networkName = getStacksNetwork(account.network);
-  const nonce = await getNextNonce(account.address, account.network);
+  let transaction;
+  let broadcastResponse;
+  let nonce;
+  try {
+    nonce = await getNextNonce(account.address, account.network);
 
-  const transaction = await makeContractCall({
-    contractAddress: options.contractAddress,
-    contractName: options.contractName,
-    functionName: options.functionName,
-    functionArgs: options.functionArgs,
-    senderKey: account.privateKey,
-    network: networkName,
-    nonce,
-    postConditionMode: options.postConditionMode || PostConditionMode.Deny,
-    postConditions,
-    fee: resolvedFee,
-  });
+    transaction = await makeContractCall({
+      contractAddress: options.contractAddress,
+      contractName: options.contractName,
+      functionName: options.functionName,
+      functionArgs: options.functionArgs,
+      senderKey: account.privateKey,
+      network: networkName,
+      nonce,
+      postConditionMode: options.postConditionMode || PostConditionMode.Deny,
+      postConditions,
+      fee: resolvedFee,
+    });
 
-  const broadcastResponse = await broadcastTransaction({
-    transaction,
-    network: networkName,
-  });
+    broadcastResponse = await broadcastTransaction({
+      transaction,
+      network: networkName,
+    });
 
-  if ("error" in broadcastResponse) {
-    throw new Error(
-      `Broadcast failed: ${broadcastResponse.error} - ${broadcastResponse.reason}`
-    );
+    if ("error" in broadcastResponse) {
+      throw new Error(
+        `Broadcast failed: ${broadcastResponse.error} - ${broadcastResponse.reason}`
+      );
+    }
+  } catch (error) {
+    await limiter.release(reservation);
+    throw error;
   }
 
   advancePendingNonce(account.address, nonce, broadcastResponse.txid);
-
-  for (const spend of meteredSpends) {
-    await getSpendLimiter().record(spend.unit, spend.amount, account.address);
-  }
 
   return {
     txid: broadcastResponse.txid,

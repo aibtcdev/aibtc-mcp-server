@@ -146,38 +146,37 @@ export async function sponsoredContractCall(
   network: Network
 ): Promise<TransferResult> {
   // Same rail as callContract: the relay pays the fee, the caller's assets
-  // still leave. Checked before signing; recorded only when the relay takes it,
-  // because the direct fallback (callContract) meters itself.
+  // still leave. Booked before signing; given back before the direct fallback
+  // (callContract), which books its own spend plus fee.
   const { postConditions, spends } = planContractCallSpends(
     { ...options, sbtcContract: sbtcContract(network) },
     account.address
   );
-  for (const spend of spends) {
-    await getSpendLimiter().check(spend.unit, spend.amount, account.address);
-  }
+  const limiter = getSpendLimiter();
+  const reservation = await limiter.reserve(spends, account.address);
 
-  const transaction = await makeContractCall({
-    contractAddress: options.contractAddress,
-    contractName: options.contractName,
-    functionName: options.functionName,
-    functionArgs: options.functionArgs,
-    senderKey: account.privateKey,
-    network: getStacksNetwork(network),
-    postConditionMode: options.postConditionMode || PostConditionMode.Deny,
-    postConditions,
-    sponsored: true,
-    fee: 0n,
-  });
+  try {
+    const transaction = await makeContractCall({
+      contractAddress: options.contractAddress,
+      contractName: options.contractName,
+      functionName: options.functionName,
+      functionArgs: options.functionArgs,
+      senderKey: account.privateKey,
+      network: getStacksNetwork(network),
+      postConditionMode: options.postConditionMode || PostConditionMode.Deny,
+      postConditions,
+      sponsored: true,
+      fee: 0n,
+    });
 
-  const result = await submitSponsoredTransaction(account, transaction, network, () =>
-    callContract(account, options)
-  );
-  if (!result.fallback) {
-    for (const spend of spends) {
-      await getSpendLimiter().record(spend.unit, spend.amount, account.address);
-    }
+    return await submitSponsoredTransaction(account, transaction, network, async () => {
+      await limiter.release(reservation);
+      return callContract(account, options);
+    });
+  } catch (error) {
+    await limiter.release(reservation);
+    throw error;
   }
-  return result;
 }
 
 /**
@@ -191,27 +190,30 @@ export async function sponsoredStxTransfer(
   memo: string | undefined,
   network: Network
 ): Promise<TransferResult> {
-  // Checked before signing; recorded only when the relay takes it, because
-  // the direct fallback (transferStx) meters itself.
-  await getSpendLimiter().check("ustx", amount, account.address);
+  // Booked before signing; given back before the direct fallback
+  // (transferStx), which books its own amount plus fee.
+  const limiter = getSpendLimiter();
+  const reservation = await limiter.reserve([{ unit: "ustx", amount }], account.address);
 
-  const transaction = await makeSTXTokenTransfer({
-    recipient,
-    amount,
-    senderKey: account.privateKey,
-    network: getStacksNetwork(network),
-    memo: memo || "",
-    sponsored: true,
-    fee: 0n,
-  });
+  try {
+    const transaction = await makeSTXTokenTransfer({
+      recipient,
+      amount,
+      senderKey: account.privateKey,
+      network: getStacksNetwork(network),
+      memo: memo || "",
+      sponsored: true,
+      fee: 0n,
+    });
 
-  const result = await submitSponsoredTransaction(account, transaction, network, () =>
-    transferStx(account, recipient, amount, memo)
-  );
-  if (!result.fallback) {
-    await getSpendLimiter().record("ustx", amount, account.address);
+    return await submitSponsoredTransaction(account, transaction, network, async () => {
+      await limiter.release(reservation);
+      return transferStx(account, recipient, amount, memo);
+    });
+  } catch (error) {
+    await limiter.release(reservation);
+    throw error;
   }
-  return result;
 }
 
 /**

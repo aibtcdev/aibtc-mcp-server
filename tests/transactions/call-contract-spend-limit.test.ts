@@ -3,10 +3,11 @@ import { Pc, PostConditionMode, type PostCondition } from "@stacks/transactions"
 import { MAINNET_CONTRACTS, TESTNET_CONTRACTS } from "../../src/config/contracts.js";
 
 const FEE = 3_000n;
+const RESERVATION = { addr: "reservation", day: "today", spends: [] };
 
-const { check, record, makeContractCall, makeSTXTokenTransfer } = vi.hoisted(() => ({
-  check: vi.fn(async () => {}),
-  record: vi.fn(async () => {}),
+const { reserve, release, makeContractCall, makeSTXTokenTransfer } = vi.hoisted(() => ({
+  reserve: vi.fn(async () => RESERVATION),
+  release: vi.fn(async () => {}),
   makeContractCall: vi.fn(),
   makeSTXTokenTransfer: vi.fn(),
 }));
@@ -14,7 +15,7 @@ const { check, record, makeContractCall, makeSTXTokenTransfer } = vi.hoisted(() 
 vi.mock("../../src/services/spend-limiter.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../../src/services/spend-limiter.js")>();
-  return { ...actual, getSpendLimiter: () => ({ check, record }) };
+  return { ...actual, getSpendLimiter: () => ({ reserve, release }) };
 });
 
 vi.mock("@stacks/transactions", async (importOriginal) => {
@@ -35,6 +36,16 @@ vi.mock("../../src/services/hiro-api.js", async (importOriginal) => {
   };
 });
 
+vi.mock("../../src/config/sponsor.js", () => ({
+  getSponsorRelayUrl: () => "https://relay.test",
+  getSponsorApiKey: () => "test-key",
+  isFallbackEnabled: () => true,
+}));
+
+vi.mock("../../src/utils/relay-health.js", () => ({
+  isRelayHealthy: async () => false,
+}));
+
 const ADDRESS = "SP000000000000000000002Q6VF78";
 const account = {
   address: ADDRESS,
@@ -44,8 +55,8 @@ const account = {
 const SBTC = TESTNET_CONTRACTS.SBTC_TOKEN as `${string}.${string}`;
 
 beforeEach(() => {
-  check.mockClear();
-  record.mockClear();
+  reserve.mockClear();
+  release.mockClear();
   makeContractCall.mockReset();
   makeSTXTokenTransfer.mockReset();
 });
@@ -67,22 +78,22 @@ async function call(
 
 describe("callContract spend metering", () => {
   it("refuses BEFORE signing when a bounded post-condition plus fee exceeds the cap", async () => {
-    check.mockRejectedValueOnce(new Error("spend limit exceeded"));
+    reserve.mockRejectedValueOnce(new Error("spend limit exceeded"));
 
     await expect(
       call([Pc.principal(ADDRESS).willSendLte(11_000_001).ustx()])
     ).rejects.toThrow("spend limit exceeded");
 
-    expect(check).toHaveBeenCalledWith("ustx", 11_000_001n + FEE, ADDRESS);
+    expect(reserve).toHaveBeenCalledWith([{ unit: "ustx", amount: 11_000_001n + FEE }], ADDRESS);
     // The whole point of the rail: nothing was built, signed or broadcast.
     expect(makeContractCall).not.toHaveBeenCalled();
-    expect(record).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
   });
 
   it("charges an sBTC post-condition exactly once — the legion double-bill guard", async () => {
     // legion_contribute / legion_sponsor sign this exact shape. They used to
     // also meter at the tool, which billed the sats cap twice per contribute.
-    check.mockRejectedValueOnce(new Error("spend limit exceeded"));
+    reserve.mockRejectedValueOnce(new Error("spend limit exceeded"));
 
     await expect(
       call([
@@ -92,8 +103,14 @@ describe("callContract spend metering", () => {
       ])
     ).rejects.toThrow("spend limit exceeded");
 
-    expect(check).toHaveBeenCalledTimes(1);
-    expect(check).toHaveBeenCalledWith("sats", 30_000n, ADDRESS);
+    expect(reserve).toHaveBeenCalledTimes(1);
+    expect(reserve).toHaveBeenCalledWith(
+      [
+        { unit: "sats", amount: 30_000n },
+        { unit: "ustx", amount: FEE },
+      ],
+      ADDRESS
+    );
   });
 
   it("meters only the fee when post-conditions bound nothing the rail tracks", async () => {
@@ -108,8 +125,8 @@ describe("callContract spend metering", () => {
       ])
     ).rejects.toThrow("reached the builder");
 
-    expect(check).toHaveBeenCalledTimes(1);
-    expect(check).toHaveBeenCalledWith("ustx", FEE, ADDRESS);
+    expect(reserve).toHaveBeenCalledTimes(1);
+    expect(reserve).toHaveBeenCalledWith([{ unit: "ustx", amount: FEE }], ADDRESS);
   });
 
   it("refuses a gt/gte floor on the caller's own STX or sBTC: it has no upper bound", async () => {
@@ -119,7 +136,7 @@ describe("callContract spend metering", () => {
     await expect(
       call([Pc.principal(ADDRESS).willSendGt(1).ft(SBTC, "sbtc-token")])
     ).rejects.toThrow(/no upper bound/);
-    expect(check).not.toHaveBeenCalled();
+    expect(reserve).not.toHaveBeenCalled();
     expect(makeContractCall).not.toHaveBeenCalled();
   });
 
@@ -147,8 +164,15 @@ describe("callContract spend metering", () => {
       })
     ).rejects.toThrow("reached the builder");
 
-    expect(check).toHaveBeenCalledWith("sats", 500n, ADDRESS);
-    expect(check).toHaveBeenCalledWith("ustx", 2_000_000n + FEE, ADDRESS);
+    expect(reserve).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        { unit: "sats", amount: 500n },
+        { unit: "ustx", amount: 2_000_000n + FEE },
+      ]),
+      ADDRESS
+    );
+    // Signing failed, so the booking is given back.
+    expect(release).toHaveBeenCalledWith(RESERVATION);
 
     const signed = makeContractCall.mock.calls[0][0] as { postConditions: PostCondition[] };
     expect(signed.postConditions).toEqual([
@@ -160,31 +184,31 @@ describe("callContract spend metering", () => {
 
 describe("transferStx spend metering", () => {
   it("meters the amount plus the fee before signing", async () => {
-    check.mockRejectedValueOnce(new Error("spend limit exceeded"));
+    reserve.mockRejectedValueOnce(new Error("spend limit exceeded"));
     const { transferStx } = await import("../../src/transactions/builder.js");
 
     await expect(transferStx(account, ADDRESS, 1_000_000n)).rejects.toThrow(
       "spend limit exceeded"
     );
-    expect(check).toHaveBeenCalledWith("ustx", 1_000_000n + FEE, ADDRESS);
+    expect(reserve).toHaveBeenCalledWith([{ unit: "ustx", amount: 1_000_000n + FEE }], ADDRESS);
     expect(makeSTXTokenTransfer).not.toHaveBeenCalled();
   });
 });
 
 describe("sponsored paths are metered", () => {
   it("sponsoredStxTransfer checks the amount before signing", async () => {
-    check.mockRejectedValueOnce(new Error("spend limit exceeded"));
+    reserve.mockRejectedValueOnce(new Error("spend limit exceeded"));
     const { sponsoredStxTransfer } = await import("../../src/transactions/sponsor-builder.js");
 
     await expect(
       sponsoredStxTransfer(account, ADDRESS, 5_000_000n, undefined, "testnet")
     ).rejects.toThrow("spend limit exceeded");
-    expect(check).toHaveBeenCalledWith("ustx", 5_000_000n, ADDRESS);
+    expect(reserve).toHaveBeenCalledWith([{ unit: "ustx", amount: 5_000_000n }], ADDRESS);
     expect(makeSTXTokenTransfer).not.toHaveBeenCalled();
   });
 
   it("sponsoredContractCall meters post conditions before signing", async () => {
-    check.mockRejectedValueOnce(new Error("spend limit exceeded"));
+    reserve.mockRejectedValueOnce(new Error("spend limit exceeded"));
     const { sponsoredContractCall } = await import("../../src/transactions/sponsor-builder.js");
 
     await expect(
@@ -200,7 +224,7 @@ describe("sponsored paths are metered", () => {
         "testnet"
       )
     ).rejects.toThrow("spend limit exceeded");
-    expect(check).toHaveBeenCalledWith("sats", 40_000n, ADDRESS);
+    expect(reserve).toHaveBeenCalledWith([{ unit: "sats", amount: 40_000n }], ADDRESS);
     expect(makeContractCall).not.toHaveBeenCalled();
   });
 
@@ -220,5 +244,40 @@ describe("sponsored paths are metered", () => {
       )
     ).rejects.toThrow(/callerSpendCaps/);
     expect(makeContractCall).not.toHaveBeenCalled();
+  });
+
+  it("sponsoredStxTransfer gives its booking back before the direct fallback books its own", async () => {
+    const sponsoredBooking = { addr: "sponsored", day: "today", spends: [] };
+    const directBooking = { addr: "direct", day: "today", spends: [] };
+    reserve.mockResolvedValueOnce(sponsoredBooking).mockResolvedValueOnce(directBooking);
+    makeSTXTokenTransfer
+      .mockResolvedValueOnce({
+        serialize: () => "00",
+        auth: { spendingCondition: { nonce: 0n } },
+      })
+      .mockRejectedValueOnce(new Error("reached the fallback builder"));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ success: false, error: "relay down" }), { status: 503 }))
+    );
+    const { sponsoredStxTransfer } = await import("../../src/transactions/sponsor-builder.js");
+
+    try {
+      await expect(
+        sponsoredStxTransfer(account, ADDRESS, 5_000_000n, undefined, "testnet")
+      ).rejects.toThrow("reached the fallback builder");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(reserve).toHaveBeenNthCalledWith(1, [{ unit: "ustx", amount: 5_000_000n }], ADDRESS);
+    expect(reserve).toHaveBeenNthCalledWith(2, [{ unit: "ustx", amount: 5_000_000n + FEE }], ADDRESS);
+    // The sponsored booking is released before the fallback reserves, so the
+    // amount is never held twice.
+    const releasedSponsored = release.mock.calls.findIndex(([r]) => r === sponsoredBooking);
+    expect(release.mock.invocationCallOrder[releasedSponsored]).toBeLessThan(
+      reserve.mock.invocationCallOrder[1]
+    );
+    expect(release).toHaveBeenCalledWith(directBooking);
   });
 });

@@ -23,7 +23,7 @@ import { NETWORK, API_URL, getStacksNetwork, type Network } from "../config/netw
 import { getNetworkFromStacksChainId } from "../config/caip.js";
 import type { Account } from "../transactions/builder.js";
 import { getWalletManager } from "./wallet-manager.js";
-import { getSpendLimiter } from "./spend-limiter.js";
+import { getSpendLimiter, type SpendReservation } from "./spend-limiter.js";
 import { formatStx, formatSbtc } from "../utils/formatting.js";
 import { getSbtcService } from "./sbtc.service.js";
 import { getHiroApi } from "./hiro-api.js";
@@ -713,24 +713,21 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
       // sub-cap L402 invoices. Keyed by the wallet's Stacks address so all sats
       // spends (BTC L1, sBTC, L402) share one ledger.
       const l402Addr = getWalletManager().getActiveAccount()?.address;
-      if (l402Addr) {
-        await getSpendLimiter().check("sats", BigInt(amountSats), l402Addr);
-      }
+      const l402Reservation = l402Addr
+        ? await getSpendLimiter().reserve([{ unit: "sats", amount: BigInt(amountSats) }], l402Addr)
+        : undefined;
 
       // Pay the Lightning invoice.
       let payment: { preimage: string; feesPaid: number };
       try {
         payment = await lnProvider.payInvoice(challenge.invoice);
       } catch (payErr) {
+        if (l402Reservation) await getSpendLimiter().release(l402Reservation);
         return Promise.reject(
           new Error(
             `L402 payment failed: ${payErr instanceof Error ? payErr.message : String(payErr)}`
           )
         );
-      }
-
-      if (l402Addr) {
-        await getSpendLimiter().record("sats", BigInt(amountSats), l402Addr);
       }
 
       cacheL402Auth(
@@ -841,6 +838,9 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
         return Promise.reject(error);
       }
 
+      // Booked before signing; given back if the payment fails before the
+      // signed transaction is handed to the endpoint.
+      let reservation: SpendReservation | undefined;
       try {
         // Decode payment requirements from header
         const headerValue = error.response?.headers?.[X402_HEADERS.PAYMENT_REQUIRED];
@@ -896,7 +896,10 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
         // Cumulative spending limit: the per-payment cap above bounds a single
         // 402, but a malicious endpoint can loop sub-cap payments. This blocks
         // once the session/day total would be exceeded.
-        await getSpendLimiter().check(isSbtc ? "sats" : "ustx", amount, acct.address);
+        reservation = await getSpendLimiter().reserve(
+          [{ unit: isSbtc ? "sats" : "ustx", amount }],
+          acct.address
+        );
 
         // Invoke pre-payment callback (e.g. balance check) before signing/broadcasting.
         // If the callback throws, the payment is aborted and the error propagates to the caller.
@@ -983,9 +986,9 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           compatShimUsed: false,
         });
 
-        // Record the spend against the cumulative ledger now that the signed
-        // payment tx is submitted to the facilitator.
-        await getSpendLimiter().record(isSbtc ? "sats" : "ustx", amount, acct.address);
+        // The signed payment tx is handed to the facilitator from here on, so
+        // the booked spend stands.
+        reservation = undefined;
 
         // Retry the original request with the payment header
         const originalRequest = error.config;
@@ -994,6 +997,7 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
 
         return axiosInstance.request(originalRequest);
       } catch (paymentError) {
+        if (reservation) await getSpendLimiter().release(reservation);
         return Promise.reject(
           new Error(
             `x402 payment failed: ${paymentError instanceof Error ? paymentError.message : String(paymentError)}`

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockCheck = vi.fn();
-const mockRecord = vi.fn();
+const mockReserve = vi.fn();
+const mockRelease = vi.fn();
 const mockCreateApiClient = vi.fn();
 const mockWrapAxiosWithPayment = vi.fn();
 const mockPost = vi.fn();
@@ -17,7 +17,7 @@ vi.mock("../../src/services/x402.service.js", () => ({
 }));
 
 vi.mock("../../src/services/spend-limiter.js", () => ({
-  getSpendLimiter: () => ({ check: mockCheck, record: mockRecord }),
+  getSpendLimiter: () => ({ reserve: mockReserve, release: mockRelease }),
 }));
 
 vi.mock("../../src/services/sbtc.service.js", () => ({
@@ -86,8 +86,8 @@ const ARGS = {
 describe("send_inbox_message_direct payment path", () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
-    mockCheck.mockReset();
-    mockRecord.mockReset();
+    mockReserve.mockReset().mockResolvedValue({ addr: "reservation", day: "today", spends: [] });
+    mockRelease.mockReset();
     mockPost.mockReset().mockResolvedValue({ data: { ok: true }, headers: {} });
     mockCreateApiClient.mockReset().mockResolvedValue({ post: mockPost });
     mockWrapAxiosWithPayment.mockReset().mockReturnValue({ post: mockPost });
@@ -103,8 +103,7 @@ describe("send_inbox_message_direct payment path", () => {
       asset: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token",
     });
     expect(mockWrapAxiosWithPayment).not.toHaveBeenCalled();
-    expect(mockCheck).not.toHaveBeenCalled();
-    expect(mockRecord).not.toHaveBeenCalled();
+    expect(mockReserve).not.toHaveBeenCalled();
   });
 
   it("signs a sponsored payment through x402-stacks and meters the sBTC at the tool", async () => {
@@ -114,7 +113,19 @@ describe("send_inbox_message_direct payment path", () => {
     expect(result.isError).toBeFalsy();
     expect(mockWrapAxiosWithPayment).toHaveBeenCalledOnce();
     expect(mockCreateApiClient).not.toHaveBeenCalled();
-    expect(mockCheck).toHaveBeenCalledWith("sats", 100n, "SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7");
-    expect(mockRecord).toHaveBeenCalledWith("sats", 100n, "SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7");
+    expect(mockReserve).toHaveBeenCalledWith(
+      [{ unit: "sats", amount: 100n }],
+      "SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7"
+    );
+    expect(mockRelease).not.toHaveBeenCalled();
+  });
+
+  it("gives the sponsored booking back when the send fails", async () => {
+    stub402({ feePayer: "SP3F6ZPHAR5D0YT0CTPJST7H3NBZ43A5FW226FMYP" });
+    mockPost.mockRejectedValueOnce(new Error("relay down"));
+    const result = await getHandler()(ARGS);
+
+    expect(result.isError).toBe(true);
+    expect(mockRelease).toHaveBeenCalledOnce();
   });
 });

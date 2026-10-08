@@ -406,11 +406,19 @@ export function registerLightningTools(server: McpServer): void {
         // ledger — see SECURITY.md.
         const ledgerKey =
           getWalletManager().getActiveAccount()?.address ?? "__lightning__";
-        await getSpendLimiter().check("sats", BigInt(amountSats), ledgerKey);
+        const limiter = getSpendLimiter();
+        const reservation = await limiter.reserve(
+          [{ unit: "sats", amount: BigInt(amountSats) }],
+          ledgerKey
+        );
 
-        const result = await provider.payInvoice(bolt11, maxFeeSats);
-
-        await getSpendLimiter().record("sats", BigInt(amountSats), ledgerKey);
+        let result;
+        try {
+          result = await provider.payInvoice(bolt11, maxFeeSats);
+        } catch (error) {
+          await limiter.release(reservation);
+          throw error;
+        }
 
         return createJsonResponse({
           success: true,
