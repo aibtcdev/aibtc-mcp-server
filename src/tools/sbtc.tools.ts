@@ -72,7 +72,7 @@ Example: To send 0.001 sBTC, use amount "100000" (satoshis).`,
       try {
         const sbtcService = getSbtcService(NETWORK);
         const account = await getAccount();
-        const resolvedFee = await resolveFee(fee, NETWORK, "contract_call");
+        const resolvedFee = await resolveFee(fee, NETWORK, "sbtc_transfer");
         const result = await sbtcService.transfer(account, recipient, BigInt(amount), memo, resolvedFee, sponsored);
 
         const btcAmount = (BigInt(amount) / BigInt(100_000_000)).toString();

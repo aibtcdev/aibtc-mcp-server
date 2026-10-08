@@ -57,6 +57,12 @@ describe("tool profiles", () => {
     expect(grouped).toEqual(registeredNames(ALL_TOOLS));
   });
 
+  it("the legion group carries both legion families", () => {
+    const names = registeredNames(resolveToolSelection([], { AIBTC_TOOLS: "core,legion" }));
+    expect(names).toContain("legion_vote");
+    expect(names).toContain("atstake_legion_vote");
+  });
+
   it("resolves --profile full and AIBTC_TOOLS=all to everything", () => {
     expect(resolveToolSelection(["node", "x", "--profile", "full"], {})).toEqual(ALL_TOOLS);
     expect(resolveToolSelection([], { AIBTC_TOOLS: "ALL" })).toEqual(ALL_TOOLS);

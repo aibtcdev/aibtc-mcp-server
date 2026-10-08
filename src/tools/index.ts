@@ -242,7 +242,7 @@ export function registerAllTools(server: McpServer, selection: ToolSelection): v
   inGroup("markets", registerAtStakeTools);
 
   // At Stake side legions (aibtc.com/legions — weight is the share balance)
-  inGroup("markets", registerAtStakeLegionTools);
+  inGroup("legion", registerAtStakeLegionTools);
 
   // Identity (ERC-8004 on-chain agent identity management)
   inGroup("identity", registerIdentityTools);
