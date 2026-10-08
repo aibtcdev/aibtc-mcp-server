@@ -904,11 +904,23 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           });
         }
 
+        // Clamped fee — do NOT let @stacks auto-estimate, since Hiro's
+        // contract_call tiers are polluted by outliers (observed >2000 STX).
+        // The sbtc_transfer clamp caps it at 0.003 STX.
+        const fee = await resolveDefaultFee(
+          acct.network,
+          isSbtc ? "sbtc_transfer" : "token_transfer"
+        );
+
         // Cumulative spending limit: the per-payment cap above bounds a single
         // 402, but a malicious endpoint can loop sub-cap payments. This blocks
-        // once the session/day total would be exceeded.
+        // once the session/day total would be exceeded. The sender pays the
+        // fee, so it is booked in ustx alongside the amount.
         reservation = await getSpendLimiter().reserve(
-          [{ unit: isSbtc ? "sats" : "ustx", amount }],
+          [
+            { unit: isSbtc ? "sats" : "ustx", amount },
+            { unit: "ustx", amount: fee },
+          ],
           acct.address
         );
 
@@ -948,10 +960,7 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
                 .willSendEq(amount)
                 .ft(contracts.SBTC_TOKEN as `${string}.${string}`, "sbtc-token"),
             ],
-            // Clamped fee — do NOT let @stacks auto-estimate, since Hiro's
-            // contract_call tiers are polluted by outliers (observed >2000
-            // STX). The sbtc_transfer clamp caps it at 0.003 STX.
-            fee: await resolveDefaultFee(acct.network, "sbtc_transfer"),
+            fee,
           });
         } else {
           transaction = await makeSTXTokenTransfer({
@@ -960,7 +969,7 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
             senderKey: acct.privateKey,
             network: networkName,
             memo: memo ?? "",
-            fee: await resolveDefaultFee(acct.network, "token_transfer"),
+            fee,
           });
         }
 
