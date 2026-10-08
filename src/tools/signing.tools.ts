@@ -25,7 +25,7 @@
  * Nostr events are signed with BIP-340 Schnorr and can be published to Nostr relays.
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import {
   signStructuredData,
@@ -667,7 +667,7 @@ export function registerSigningTools(server: McpServer): void {
         "Creates a signature that can be verified both off-chain and on-chain by smart contracts. " +
         "Use cases: meta-transactions, off-chain voting, permits, proving address control. " +
         "Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         message: z
           .record(z.string(), z.unknown())
           .describe(
@@ -684,7 +684,7 @@ export function registerSigningTools(server: McpServer): void {
           .describe(
             "Domain binding for the signature. Prevents cross-app and cross-version replay."
           ),
-      },
+      }),
     },
     async ({ message, domain }) => {
       try {
@@ -753,7 +753,7 @@ export function registerSigningTools(server: McpServer): void {
         "Verify a SIP-018 signature and recover the signer's address. " +
         "Takes the verification hash (from sip018_sign or sip018_hash 'verification' field) and the signature, " +
         "then recovers the public key and derives the signer's Stacks address.",
-      inputSchema: {
+      inputSchema: z.object({
         messageHash: z
           .string()
           .describe(
@@ -770,7 +770,7 @@ export function registerSigningTools(server: McpServer): void {
             "Optional: expected signer address to verify against. " +
               "If provided, returns whether the signature is valid for this signer."
           ),
-      },
+      }),
     },
     async ({ messageHash, signature, expectedSigner }) => {
       try {
@@ -819,7 +819,7 @@ export function registerSigningTools(server: McpServer): void {
         "Returns the full encoded hash, domain hash, and message hash. " +
         "Useful for preparing data for on-chain verification or multi-sig coordination. " +
         "Does not require an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         message: z
           .record(z.string(), z.unknown())
           .describe(
@@ -839,7 +839,7 @@ export function registerSigningTools(server: McpServer): void {
               ),
           })
           .describe("Domain binding for the hash"),
-      },
+      }),
     },
     async ({ message, domain }) => {
       try {
@@ -902,13 +902,13 @@ export function registerSigningTools(server: McpServer): void {
         "The message is prefixed with '\\x17Stacks Signed Message:\\n' before hashing (SIWS-compatible). " +
         "Use cases: proving address ownership, authentication, sign-in flows. " +
         "Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         message: z
           .string()
           .describe(
             "The plain text message to sign. Will be prefixed with Stacks message prefix before signing."
           ),
-      },
+      }),
     },
     async ({ message }) => {
       try {
@@ -955,7 +955,7 @@ export function registerSigningTools(server: McpServer): void {
         "Verify a Stacks message signature and recover the signer's address. " +
         "Takes the original message and signature, applies the Stacks prefix, and verifies. " +
         "Compatible with SIWS (Sign In With Stacks) authentication flows.",
-      inputSchema: {
+      inputSchema: z.object({
         message: z
           .string()
           .describe(
@@ -974,7 +974,7 @@ export function registerSigningTools(server: McpServer): void {
             "Optional: expected signer address to verify against. " +
               "If provided, returns whether the signature is valid for this signer."
           ),
-      },
+      }),
     },
     async ({ message, signature, expectedSigner }) => {
       try {
@@ -1049,7 +1049,7 @@ export function registerSigningTools(server: McpServer): void {
         "Use addressType 'p2tr' to force signing with the Taproot key. " +
         "Use cases: proving Bitcoin address ownership, authentication, off-chain verification. " +
         "Requires an unlocked wallet with Bitcoin keys.",
-      inputSchema: {
+      inputSchema: z.object({
         message: z
           .string()
           .describe(
@@ -1062,7 +1062,7 @@ export function registerSigningTools(server: McpServer): void {
             "Optional: address type to sign with. 'p2wpkh' uses native SegWit (bc1q, BIP-322), " +
             "'p2tr' uses Taproot (bc1p, BIP-322). If omitted, auto-detects from wallet address type."
           ),
-      },
+      }),
     },
     async ({ message, addressType }) => {
       try {
@@ -1230,7 +1230,7 @@ export function registerSigningTools(server: McpServer): void {
         "BIP-137 works for legacy addresses; BIP-322 is required for bc1q and bc1p addresses. " +
         "Takes the original message and signature (hex or base64). " +
         "Compatible with signatures from most Bitcoin wallets.",
-      inputSchema: {
+      inputSchema: z.object({
         message: z
           .string()
           .describe("The original plain text message that was signed."),
@@ -1255,7 +1255,7 @@ export function registerSigningTools(server: McpServer): void {
             "Optional: alias for address (backward compatibility). " +
               "If address is not provided, this is used instead."
           ),
-      },
+      }),
     },
     async ({ message, signature, address, expectedSigner }) => {
       try {
@@ -1457,8 +1457,10 @@ export function registerSigningTools(server: McpServer): void {
         "Use for Taproot script-path spending, multisig coordination, or any case where " +
         "you need a BIP-340 Schnorr signature over a pre-computed hash (e.g., BIP-341 sighash). " +
         "WARNING: This signs raw digests that cannot be human-verified — use confirmBlindSign=true after reviewing the digest. " +
+        "A signed sighash can authorize a Bitcoin spend the spending limit never sees, so the user must also enable it " +
+        "with AIBTC_ALLOW_BLIND_SIGN=true in this server's config. " +
         "Returns a 64-byte signature and the x-only public key. Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         digest: z
           .string()
           .length(64)
@@ -1481,7 +1483,7 @@ export function registerSigningTools(server: McpServer): void {
             "Set to true to confirm you have reviewed the digest and accept the risk of signing a raw hash. " +
             "Default is false, which returns a warning with the digest for review before signing."
           ),
-      },
+      }),
     },
     async ({ digest, auxRand, confirmBlindSign }) => {
       try {
@@ -1499,6 +1501,17 @@ export function registerSigningTools(server: McpServer): void {
               "Review the digest above. If you trust its origin and intent, re-call schnorr_sign_digest " +
               "with the same parameters plus confirmBlindSign: true to proceed with signing.",
           });
+        }
+
+        // A signature over a BIP-341 sighash authorizes a spend that never
+        // passes a metered broadcast, so the agent cannot enable this itself:
+        // the user opts in in the server config.
+        if (process.env.AIBTC_ALLOW_BLIND_SIGN !== "true") {
+          throw new Error(
+            "Blind digest signing is disabled: a signed sighash can spend from this wallet outside " +
+              "the spending limit. Ask the user to set AIBTC_ALLOW_BLIND_SIGN=true in this MCP " +
+              "server's config and restart it if they want to allow it."
+          );
         }
 
         const account = requireUnlockedWallet();
@@ -1557,7 +1570,7 @@ export function registerSigningTools(server: McpServer): void {
         "Verify a BIP-340 Schnorr signature over a 32-byte digest. " +
         "Takes the digest, signature, and public key, returns whether the signature is valid. " +
         "Use for verifying Taproot signatures from other agents in multisig coordination.",
-      inputSchema: {
+      inputSchema: z.object({
         digest: z
           .string()
           .length(64)
@@ -1573,7 +1586,7 @@ export function registerSigningTools(server: McpServer): void {
           .length(64)
           .regex(/^[0-9a-fA-F]+$/)
           .describe("32-byte hex-encoded x-only public key of the signer"),
-      },
+      }),
     },
     async ({ digest, signature, publicKey }) => {
       try {
@@ -1619,7 +1632,7 @@ export function registerSigningTools(server: McpServer): void {
         "Computes the NIP-01 event ID (SHA-256 of the canonical serialization) and signs it. " +
         "Returns the complete signed event ready to publish to Nostr relays. " +
         "Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         kind: z
           .number()
           .int()
@@ -1649,7 +1662,7 @@ export function registerSigningTools(server: McpServer): void {
             "'taproot': BIP-86 Taproot internal key. " +
             "'segwit': SegWit/P2WPKH key (x-only, 32 bytes)."
           ),
-      },
+      }),
     },
     async ({ kind, content, tags, created_at, keySource }) => {
       try {

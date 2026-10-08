@@ -1,6 +1,6 @@
 {
   "name": "@aibtc/mcp-server",
-  "version": "1.71.0",
+  "version": "1.75.0",
   "description": "Bitcoin-native MCP server for AI agents: BTC/STX wallets, DeFi yield, sBTC peg, NFTs, and x402 payments.",
   "mcpName": "io.github.aibtcdev/mcp-server",
   "type": "module",
@@ -10,8 +10,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "tsx src/index.ts",
+    "start": "node --env-file-if-exists=.env dist/index.js",
+    "dev": "tsx --env-file-if-exists=.env src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "prepare": "git config core.hooksPath >/dev/null 2>&1 || git config core.hooksPath .githooks 2>/dev/null || true",
@@ -52,7 +52,8 @@
     "@bitflowlabs/core-sdk": "^3.0.0",
     "@buildonspark/spark-sdk": "^0.7.14",
     "@faktoryfun/styx-sdk": "^1.3.5",
-    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@modelcontextprotocol/client": "^2.1.0",
+    "@modelcontextprotocol/server": "^2.1.0",
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",
     "@scure/base": "^2.0.0",
@@ -66,7 +67,6 @@
     "@stacks/wallet-sdk": "^7.2.0",
     "alex-sdk": "^3.2.1",
     "axios": "^1.17.0",
-    "dotenv": "^17.3.1",
     "light-bolt11-decoder": "^3.2.0",
     "micro-ordinals": "^0.3.0",
     "nostr-tools": "^2.23.3",
@@ -74,12 +74,13 @@
     "sbtc": "^0.3.2",
     "tslib": "^2.8.1",
     "ws": "^8.21.0",
-    "x402-stacks": "^2.0.3",
-    "zod": "^4.3.6"
+    "x402-stacks": "^2.1.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^22.19.13",
     "@types/ws": "^8.18.1",
+    "dotenv": "^17.4.2",
     "postcss": "^8.5.18",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",

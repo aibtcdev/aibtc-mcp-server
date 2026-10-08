@@ -22,7 +22,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import {
   Pc,
@@ -97,6 +97,7 @@ import {
 } from "../transactions/child-inscription-builder.js";
 import { signBtcTransaction } from "../transactions/bitcoin-builder.js";
 import { createErrorResponse, createJsonResponse } from "../utils/index.js";
+import { meteredBtcBroadcast } from "../services/btc-spend.js";
 
 // Writes always target the live era. A retired contract still answers reads,
 // but proposing or voting into one would govern a deployment nothing watches.
@@ -254,7 +255,7 @@ export function registerLegionTools(server: McpServer): void {
         "No story can be proposed until the legion reaches its member threshold, so check " +
         "`membership.activated` before planning to publish.\n\n" +
         `Reads only. Runs on Stacks ${LEGION_NETWORK} regardless of this server's NETWORK.`,
-      inputSchema: { era: eraInput },
+      inputSchema: z.object({ era: eraInput }),
     },
     async ({ era: eraArg }) => {
       try {
@@ -387,7 +388,7 @@ export function registerLegionTools(server: McpServer): void {
         "Phases: `pending` (filed, voting not open yet), `voting`, `concludable`, " +
         "`passed`/`failed` (settled), `expired` (nobody concluded in time; can no longer pay).\n\n" +
         "Reads only.",
-      inputSchema: {
+      inputSchema: z.object({
         phase: z
           .enum([
             "all",
@@ -411,7 +412,7 @@ export function registerLegionTools(server: McpServer): void {
           .optional()
           .describe("How many proposals to scan back from the newest (default 10)"),
         era: eraInput,
-      },
+      }),
     },
     async ({ phase = "all", limit = 10, era: eraArg }) => {
       try {
@@ -519,10 +520,10 @@ export function registerLegionTools(server: McpServer): void {
         "timeline, what `conclude` would decide now, and whether you have voted.\n\n" +
         "Read this before voting — the contract cannot read the inscription, so judging the " +
         "work is the voter's job.\n\nReads only.",
-      inputSchema: {
+      inputSchema: z.object({
         proposalId: z.number().int().positive().describe("The proposal id"),
         era: eraInput,
-      },
+      }),
     },
     async ({ proposalId, era: eraArg }) => {
       try {
@@ -656,7 +657,7 @@ export function registerLegionTools(server: McpServer): void {
         "Your weight, share, weight lock, sBTC balance, and every propose precondition folded " +
         "from the contract's `propose-status` — so a blocked propose names the gate to wait on.\n\n" +
         "Requires an unlocked wallet. Signs nothing.",
-      inputSchema: { era: eraInput },
+      inputSchema: z.object({ era: eraInput }),
     },
     async ({ era: eraArg }) => {
       try {
@@ -741,13 +742,13 @@ export function registerLegionTools(server: McpServer): void {
         "Crossing the minimum weight also makes you a MEMBER, which is what unlocks proposals " +
         "for the whole legion once enough members join.\n\n" +
         "Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         sats: z
           .number()
           .int()
           .positive()
           .describe("Amount of sBTC to contribute, in sats"),
-      },
+      }),
     },
     async ({ sats }) => {
       try {
@@ -846,7 +847,7 @@ export function registerLegionTools(server: McpServer): void {
         "identity. SPENDS REAL sBTC AND IS FINAL: no refund path exists.\n\n" +
         "Metered against the wallet's `sats` spending limit before signing.\n\n" +
         "Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         sats: z
           .number()
           .int()
@@ -867,7 +868,7 @@ export function registerLegionTools(server: McpServer): void {
           .max(MAX_SPONSOR_MEMO_LENGTH)
           .optional()
           .describe(`Optional free-form note on the record (ASCII, ≤${MAX_SPONSOR_MEMO_LENGTH} chars)`),
-      },
+      }),
     },
     async ({ sats, name, link, memo }) => {
       try {
@@ -959,7 +960,7 @@ export function registerLegionTools(server: McpServer): void {
         "proposal per principal; the lock is never spent and releases on every outcome.\n\n" +
         "Pre-flights every precondition and refuses locally with the specific blocker.\n\n" +
         "Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         link: z
           .string()
           .min(1)
@@ -980,7 +981,7 @@ export function registerLegionTools(server: McpServer): void {
             `Why this piece is worth paying for (ASCII, ≤${MAX_DESCRIPTION_LENGTH} chars). ` +
               "Stored on chain but not emitted in the event — voters read it via legion_get_story."
           ),
-      },
+      }),
     },
     async ({ link, title, description }) => {
       try {
@@ -1075,7 +1076,7 @@ export function registerLegionTools(server: McpServer): void {
         "Voting no is the ONLY way to stop a piece — this legion has no veto.\n\n" +
         "Read the inscription first — legion_get_story gives you the link.\n\n" +
         "Pre-flights phase, weight and prior vote. Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         proposalId: z.number().int().positive().describe("The proposal id"),
         support: z
           .boolean()
@@ -1088,7 +1089,7 @@ export function registerLegionTools(server: McpServer): void {
             `Why you voted this way, recorded on chain (ASCII, ≤${MAX_RATIONALE_LENGTH} chars). ` +
               "Required and must be non-empty — the contract rejects a blank one (u440)."
           ),
-      },
+      }),
     },
     async ({ proposalId, support, rationale }) => {
       try {
@@ -1216,9 +1217,9 @@ export function registerLegionTools(server: McpServer): void {
         "concluded after. Concluding late pays what concluding early would; the payout was " +
         "snapshotted at propose time.\n\n" +
         "Requires an unlocked wallet — caller pays gas, proposer gets the payout.",
-      inputSchema: {
+      inputSchema: z.object({
         proposalId: z.number().int().positive().describe("The proposal id"),
-      },
+      }),
     },
     async ({ proposalId }) => {
       try {
@@ -1334,7 +1335,7 @@ export function registerLegionTools(server: McpServer): void {
         "signing. `dryRun` prices it without broadcasting.\n\n" +
         "Returns without waiting. After the commit confirms, call legion_inscribe_reveal.\n\n" +
         "Requires an unlocked managed wallet with funded UTXOs.",
-      inputSchema: {
+      inputSchema: z.object({
         title: z
           .string()
           .min(1)
@@ -1376,7 +1377,7 @@ export function registerLegionTools(server: McpServer): void {
           .union([z.enum(["fast", "medium", "slow"]), z.number().positive()])
           .optional()
           .describe("Fee rate: 'fast', 'medium', 'slow', or a number in sat/vB (default: medium)"),
-      },
+      }),
     },
     async ({ title, body, parentInscriptionId, dryRun, confirmMainnetSpend, allowNonMainnet, feeRate }) => {
       try {
@@ -1569,8 +1570,11 @@ export function registerLegionTools(server: McpServer): void {
           commitResult.tx,
           account.btcPrivateKey
         );
-        const commitTxid = await mempoolApi.broadcastTransaction(
-          commitSigned.txHex
+        const commitTxid = await meteredBtcBroadcast(
+          mempoolApi,
+          commitSigned.txHex,
+          account,
+          NETWORK
         );
 
         return createJsonResponse({
@@ -1622,7 +1626,7 @@ export function registerLegionTools(server: McpServer): void {
         "No mainnet confirmation is asked for here, unlike the commit: those sats are already " +
         "committed, and refusing the reveal would strand them rather than save them.\n\n" +
         "Requires an unlocked managed wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         commitTxid: z
           .string()
           .length(64)
@@ -1641,7 +1645,7 @@ export function registerLegionTools(server: McpServer): void {
           .union([z.enum(["fast", "medium", "slow"]), z.number().positive()])
           .optional()
           .describe("Fee rate for the reveal tx (default: medium)"),
-      },
+      }),
     },
     async ({ commitTxid, revealAmount, title, body, parentInscriptionId, feeRate }) => {
       try {
@@ -1727,7 +1731,7 @@ export function registerLegionTools(server: McpServer): void {
           revealResult.tx.sign(account.btcPrivateKey);
           revealResult.tx.sign(account.taprootPrivateKey!);
           revealResult.tx.finalize();
-          revealTxid = await mempoolApi.broadcastTransaction(revealResult.tx.hex);
+          revealTxid = await meteredBtcBroadcast(mempoolApi, revealResult.tx.hex, account, NETWORK);
         } else {
           const revealScript = deriveRevealScript({
             inscription,
@@ -1749,7 +1753,7 @@ export function registerLegionTools(server: McpServer): void {
             revealResult.tx,
             account.btcPrivateKey
           );
-          revealTxid = await mempoolApi.broadcastTransaction(revealSigned.txHex);
+          revealTxid = await meteredBtcBroadcast(mempoolApi, revealSigned.txHex, account, NETWORK);
         }
 
         const inscriptionId = `${revealTxid}i0`;

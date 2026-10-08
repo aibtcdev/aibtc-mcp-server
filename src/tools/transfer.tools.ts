@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { getAccount, NETWORK } from "../services/x402.service.js";
 import { transferStx, broadcastSignedTransaction, type TransferResult } from "../transactions/builder.js";
@@ -16,7 +16,7 @@ export function registerTransferTools(server: McpServer): void {
 
 Example: To send 2 STX, use amount "2000000" (micro-STX).
 1 STX = 1,000,000 micro-STX`,
-      inputSchema: {
+      inputSchema: z.object({
         recipient: z.string().describe("The recipient's Stacks address (starts with SP or ST)"),
         amount: z
           .string()
@@ -27,7 +27,7 @@ Example: To send 2 STX, use amount "2000000" (micro-STX).
           .optional()
           .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount. Clamped to 3,000 uSTX max for STX transfers. If omitted, medium-priority fee is auto-resolved. Ignored when sponsored=true."),
         sponsored: sponsoredSchema,
-      },
+      }),
     },
     async ({ recipient, amount, memo, fee, sponsored }) => {
       try {
@@ -67,9 +67,9 @@ Example: To send 2 STX, use amount "2000000" (micro-STX).
     "broadcast_transaction",
     {
       description: "Broadcast a pre-signed Stacks transaction to the network.",
-      inputSchema: {
+      inputSchema: z.object({
         signedTx: z.string().describe("The signed transaction as a hex string"),
-      },
+      }),
     },
     async ({ signedTx }) => {
       try {

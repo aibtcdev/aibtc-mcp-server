@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { cvToJSON, hexToCV } from "@stacks/transactions";
 import { getAccount, getWalletAddress, NETWORK } from "../services/x402.service.js";
@@ -369,7 +369,7 @@ Default settings:
 - Deposit threshold: 10,000 sats (0.0001 sBTC)
 - Reserve: 0 sats (deposit all sBTC to maximize yield)
 - Check interval: 10 minutes`,
-      inputSchema: {
+      inputSchema: z.object({
         threshold: z
           .string()
           .optional()
@@ -386,7 +386,7 @@ Default settings:
           .number()
           .optional()
           .describe("Check interval in seconds. Default: 600 (10 minutes)"),
-      },
+      }),
     },
     async ({ threshold, reserve, interval }) => {
       try {
@@ -475,7 +475,7 @@ Default settings:
 
 Stops the background process that monitors and deposits sBTC.
 Your existing Zest positions remain untouched.`,
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -521,7 +521,7 @@ Shows:
 - Statistics (checks run, deposits made)
 - Recent activity logs
 - Current Zest position`,
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -541,7 +541,7 @@ Shows:
 
 Adjust the deposit threshold, reserve, or check interval.
 Changes take effect on the next check cycle.`,
-      inputSchema: {
+      inputSchema: z.object({
         threshold: z
           .string()
           .optional()
@@ -554,7 +554,7 @@ Changes take effect on the next check cycle.`,
           .number()
           .optional()
           .describe("Check interval in seconds"),
-      },
+      }),
     },
     async ({ threshold, reserve, interval }) => {
       try {

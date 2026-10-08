@@ -20,7 +20,7 @@
  * - reputation_approve_client    - Approve a client with index limit
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { NETWORK, getExplorerTxUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
@@ -51,9 +51,9 @@ export function registerReputationTools(server: McpServer): void {
         "Get aggregated reputation summary for an agent from the ERC-8004 reputation registry. " +
         "Returns average rating as a WAD string (18 decimals) and total feedback count. " +
         "No wallet required.",
-      inputSchema: {
+      inputSchema: z.object({
         agentId: z.number().int().min(0).describe("Agent ID to get reputation summary for"),
-      },
+      }),
     },
     async ({ agentId }) => {
       try {
@@ -94,10 +94,10 @@ export function registerReputationTools(server: McpServer): void {
         "Read a specific feedback entry for an agent by index from the ERC-8004 reputation registry. " +
         "Returns client address, value, decimals, tags, and timestamp. " +
         "No wallet required.",
-      inputSchema: {
+      inputSchema: z.object({
         agentId: z.number().int().min(0).describe("Agent ID to read feedback for"),
         index: z.number().int().min(0).describe("Feedback index to read"),
-      },
+      }),
     },
     async ({ agentId, index }) => {
       try {
@@ -143,7 +143,7 @@ export function registerReputationTools(server: McpServer): void {
         "WARNING: Uses one RPC call per entry (N+1 pattern) — avoid calling for agents with " +
         "large feedback sets without using cursor-based pagination. " +
         "No wallet required.",
-      inputSchema: {
+      inputSchema: z.object({
         agentId: z.number().int().min(0).describe("Agent ID to read all feedback for"),
         tag1: z.string().optional().describe("Filter by tag1 (exact match). Optional."),
         tag2: z.string().optional().describe("Filter by tag2 (exact match). Optional."),
@@ -159,7 +159,7 @@ export function registerReputationTools(server: McpServer): void {
           .optional()
           .default(0)
           .describe("Pagination cursor (index to start from). Default 0."),
-      },
+      }),
     },
     async ({ agentId, tag1, tag2, includeRevoked, cursor }) => {
       try {
@@ -196,7 +196,7 @@ export function registerReputationTools(server: McpServer): void {
         "Get a paginated list of clients who gave feedback to an agent. " +
         "Returns client addresses and a nextCursor for pagination. " +
         "No wallet required.",
-      inputSchema: {
+      inputSchema: z.object({
         agentId: z.number().int().min(0).describe("Agent ID to get clients for"),
         cursor: z
           .number()
@@ -205,7 +205,7 @@ export function registerReputationTools(server: McpServer): void {
           .optional()
           .default(0)
           .describe("Pagination cursor. Default 0."),
-      },
+      }),
     },
     async ({ agentId, cursor }) => {
       try {
@@ -234,9 +234,9 @@ export function registerReputationTools(server: McpServer): void {
       description:
         "Get the total number of feedback entries for an agent from the ERC-8004 reputation registry. " +
         "No wallet required.",
-      inputSchema: {
+      inputSchema: z.object({
         agentId: z.number().int().min(0).describe("Agent ID to get feedback count for"),
-      },
+      }),
     },
     async ({ agentId }) => {
       try {
@@ -263,10 +263,10 @@ export function registerReputationTools(server: McpServer): void {
         "Get the approved feedback index limit for a specific client of an agent. " +
         "Returns the maximum index up to which the client is approved to submit feedback. " +
         "No wallet required.",
-      inputSchema: {
+      inputSchema: z.object({
         agentId: z.number().int().min(0).describe("Agent ID"),
         client: stacksAddressSchema,
-      },
+      }),
     },
     async ({ agentId, client }) => {
       try {
@@ -294,10 +294,10 @@ export function registerReputationTools(server: McpServer): void {
       description:
         "Get the last feedback index submitted by a specific client for an agent. " +
         "No wallet required.",
-      inputSchema: {
+      inputSchema: z.object({
         agentId: z.number().int().min(0).describe("Agent ID"),
         client: stacksAddressSchema,
-      },
+      }),
     },
     async ({ agentId, client }) => {
       try {
@@ -330,7 +330,7 @@ export function registerReputationTools(server: McpServer): void {
         "Submit feedback for an agent using the ERC-8004 reputation registry. " +
         "Value is normalized to 18 decimals (WAD) internally for aggregation. " +
         "Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         agentId: z.number().int().min(0).describe("Agent ID to give feedback for"),
         value: z
           .number()
@@ -356,7 +356,7 @@ export function registerReputationTools(server: McpServer): void {
           .optional()
           .describe('Fee preset ("low", "medium", "high") or micro-STX amount. Optional.'),
         sponsored: sponsoredSchema,
-      },
+      }),
     },
     async ({ agentId, value, valueDecimals, tag1, tag2, endpoint, feedbackUri, feedbackHash, fee, sponsored }) => {
       try {
@@ -409,7 +409,7 @@ export function registerReputationTools(server: McpServer): void {
         "Revoke a previously submitted feedback entry by index. " +
         "Only the original submitter can revoke their feedback. " +
         "Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         agentId: z.number().int().min(0).describe("Agent ID the feedback was given for"),
         index: z.number().int().min(0).describe("Feedback index to revoke"),
         fee: z
@@ -417,7 +417,7 @@ export function registerReputationTools(server: McpServer): void {
           .optional()
           .describe('Fee preset ("low", "medium", "high") or micro-STX amount. Optional.'),
         sponsored: sponsoredSchema,
-      },
+      }),
     },
     async ({ agentId, index, fee, sponsored }) => {
       try {
@@ -453,7 +453,7 @@ export function registerReputationTools(server: McpServer): void {
         "Append a response to feedback received from a client. " +
         "Must be called by the agent that received the feedback. " +
         "Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         agentId: z.number().int().min(0).describe("Agent ID that received the feedback"),
         client: stacksAddressSchema,
         index: z.number().int().min(0).describe("Feedback index to respond to"),
@@ -464,7 +464,7 @@ export function registerReputationTools(server: McpServer): void {
           .optional()
           .describe('Fee preset ("low", "medium", "high") or micro-STX amount. Optional.'),
         sponsored: sponsoredSchema,
-      },
+      }),
     },
     async ({ agentId, client, index, responseUri, responseHash, fee, sponsored }) => {
       try {
@@ -512,7 +512,7 @@ export function registerReputationTools(server: McpServer): void {
         "Approve a client to submit feedback up to a specified index limit. " +
         "Must be called by the agent owner. " +
         "Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         agentId: z.number().int().min(0).describe("Agent ID to approve a client for"),
         client: stacksAddressSchema,
         indexLimit: z
@@ -525,7 +525,7 @@ export function registerReputationTools(server: McpServer): void {
           .optional()
           .describe('Fee preset ("low", "medium", "high") or micro-STX amount. Optional.'),
         sponsored: sponsoredSchema,
-      },
+      }),
     },
     async ({ agentId, client, indexLimit, fee, sponsored }) => {
       try {

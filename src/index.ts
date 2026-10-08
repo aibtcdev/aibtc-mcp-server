@@ -1,17 +1,21 @@
 #!/usr/bin/env node
-import "dotenv/config";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import { createRequire } from "module";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { randomBytes } from "crypto";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import { McpServer } from "@modelcontextprotocol/server";
 
 import { registerAllTools } from "./tools/index.js";
+import { describeSelection, resolveToolSelection, type ToolSelection } from "./tools/profiles.js";
 import { installBountyHint } from "./tools/bounty-hint.js";
 import { NETWORK, API_URL } from "./config/index.js";
 import { redactSensitive } from "./utils/redact.js";
 import { initializeStorage } from "./utils/storage.js";
+import { getWalletManager } from "./services/wallet-manager.js";
+import { getLightningManager } from "./services/lightning-manager.js";
+import type { Network } from "./config/networks.js";
 
 const require = createRequire(import.meta.url);
 const packageJson = require("../package.json");
@@ -71,32 +75,32 @@ async function writeJsonConfig(filePath: string, config: Record<string, unknown>
 }
 
 // Standard MCP server entry shared by every JSON-based client config.
-function serverEntry(network: string): Record<string, unknown> {
+function serverEntry(env: Record<string, string>): Record<string, unknown> {
   return {
     command: "npx",
     args: ["-y", SERVER_NPM],
-    env: { NETWORK: network },
+    env,
   };
 }
 
 // Most clients (Claude Code, Claude Desktop, Cursor, Windsurf, Gemini CLI) use
 // the same `{ "mcpServers": { "aibtc": {...} } }` JSON shape.
-async function writeMcpServersJson(configPath: string, network: string): Promise<void> {
+async function writeMcpServersJson(configPath: string, env: Record<string, string>): Promise<void> {
   const config = await readJsonConfig(configPath);
   const servers = (config.mcpServers ??= {}) as Record<string, unknown>;
-  servers["aibtc"] = serverEntry(network);
+  servers["aibtc"] = serverEntry(env);
   await writeJsonConfig(configPath, config);
 }
 
 // VS Code (.vscode/mcp.json) uses a `servers` key and a typed stdio entry.
-async function writeVsCodeJson(configPath: string, network: string): Promise<void> {
+async function writeVsCodeJson(configPath: string, env: Record<string, string>): Promise<void> {
   const config = await readJsonConfig(configPath);
   const servers = (config.servers ??= {}) as Record<string, unknown>;
   servers["aibtc"] = {
     type: "stdio",
     command: "npx",
     args: ["-y", SERVER_NPM],
-    env: { NETWORK: network },
+    env,
   };
   await writeJsonConfig(configPath, config);
 }
@@ -116,7 +120,7 @@ function stripCodexSection(content: string): string {
   return out.join("\n");
 }
 
-async function writeCodexToml(configPath: string, network: string): Promise<void> {
+async function writeCodexToml(configPath: string, env: Record<string, string>): Promise<void> {
   let existing = "";
   try {
     existing = await fs.readFile(configPath, "utf8");
@@ -132,7 +136,7 @@ async function writeCodexToml(configPath: string, network: string): Promise<void
     `args = ["-y", "${SERVER_NPM}"]`,
     "",
     "[mcp_servers.aibtc.env]",
-    `NETWORK = "${network}"`,
+    ...Object.entries(env).map(([key, value]) => `${key} = "${value}"`),
   ].join("\n");
   const content = (preserved ? `${preserved}\n\n` : "") + block + "\n";
   await fs.mkdir(path.dirname(configPath), { recursive: true });
@@ -143,7 +147,7 @@ interface InstallTarget {
   flag: string | null; // null = default target (Claude Code)
   label: string;
   configPath: () => string;
-  write: (configPath: string, network: string) => Promise<void>;
+  write: (configPath: string, env: Record<string, string>) => Promise<void>;
   restart: string;
 }
 
@@ -210,27 +214,103 @@ function resolveInstallTarget(): InstallTarget {
   return matched[0] ?? INSTALL_TARGETS.find((t) => t.flag === null)!;
 }
 
+/**
+ * Create the agent's wallet during install so a fresh user can fund it right
+ * away. The generated password and the mnemonic are printed once and not
+ * stored in plain text; the password can be changed with wallet_rotate_password.
+ * Returns the Stacks address of the new or already-existing wallet.
+ */
+async function ensureInstallWallet(network: Network): Promise<string> {
+  await initializeStorage();
+  const walletManager = getWalletManager();
+
+  const existing = (await walletManager.listWallets()).find((w) => w.network === network);
+  if (existing) {
+    console.log(`\n👛 Existing ${network} wallet kept: ${existing.name} (${existing.address})`);
+    return existing.address;
+  }
+
+  const password = randomBytes(18).toString("base64url");
+  const wallet = await walletManager.createWallet("main", password, network);
+
+  // Print the credentials before anything else can fail: the wallet is already
+  // on disk, and without the password it can never be unlocked.
+  console.log(`\n👛 Wallet created (${network}), stored encrypted in ~/.aibtc/`);
+  console.log(`   Stacks:    ${wallet.address}`);
+  if (wallet.btcAddress) console.log(`   Bitcoin:   ${wallet.btcAddress}`);
+  console.log(`\n   Password:  ${password}`);
+  console.log(`   Mnemonic:  ${wallet.mnemonic}`);
+  console.log("\n⚠️  Write both down now. They are shown once and the password is not saved anywhere.");
+  console.log("   The password unlocks the wallet; change it any time by asking your agent to rotate it.");
+  console.log("   The mnemonic is the only way to recover the wallet and its funds.");
+
+  // Same unified setup as wallet_create: a Lightning wallet derived from the
+  // same mnemonic (mainnet only). Its failure is reported, the main wallet stands.
+  try {
+    const lightning = await getLightningManager().setupFromMainMnemonic(
+      wallet.mnemonic,
+      password,
+      "main",
+      network
+    );
+    if (lightning.kind === "setup") {
+      console.log(`   Lightning: ${lightning.depositAddress} (deposit address, same mnemonic)`);
+    }
+  } catch (error) {
+    console.error(
+      `   Lightning setup failed: ${redactSensitive(error instanceof Error ? error.message : String(error))}. ` +
+        "Ask your agent to run lightning_create later."
+    );
+  }
+  return wallet.address;
+}
+
 async function runInstall(): Promise<void> {
   const network = process.argv.includes("--testnet") ? "testnet" : "mainnet";
+  // Only --profile full installs everything; resolving against AIBTC_TOOLS=core
+  // also validates the flag.
+  const fullProfile = resolveToolSelection(process.argv, { AIBTC_TOOLS: "core" }).all;
   const target = resolveInstallTarget();
   const configPath = target.configPath();
 
   console.log(`🔧 Installing @aibtc/mcp-server to ${target.label}...\n`);
 
-  await target.write(configPath, network);
+  const env: Record<string, string> = { NETWORK: network };
+  env.AIBTC_TOOLS = fullProfile ? "all" : "core";
+  await target.write(configPath, env);
 
   console.log("✅ Successfully installed!\n");
   console.log(`   Client:  ${target.label}`);
   console.log(`   Config:  ${configPath}`);
   console.log(`   Network: ${network}`);
-  console.log("\n📋 Next steps:");
-  console.log(`   1. ${target.restart}`);
-  console.log("   2. Ask the agent: \"What's your wallet address?\"");
-  console.log("   3. The agent will guide you through wallet setup\n");
+  console.log(
+    `   Tools:   ${fullProfile ? "all" : "lean core (set AIBTC_TOOLS=core,defi,ordinals,... in the env, or re-run with --profile full)"}`
+  );
 
-  if (network === "testnet") {
-    console.log("💡 Tip: Get testnet STX at https://explorer.hiro.so/sandbox/faucet?chain=testnet\n");
+  // The wallet's password and mnemonic are printed once, so only create it when
+  // a person is reading the terminal, never into a pipe, file or CI log.
+  let address: string | null = null;
+  if (process.argv.includes("--no-wallet")) {
+    // Explicitly skipped
+  } else if (!process.stdout.isTTY) {
+    console.log("\n👛 Wallet not created: output is not a terminal, and the password and mnemonic");
+    console.log("   are only ever printed to one. Re-run --install in a terminal, or ask the agent to create one.");
+  } else {
+    address = await ensureInstallWallet(network);
   }
+
+  console.log(`\n📋 ${target.restart}, then try:`);
+  const fund = network === "testnet"
+    ? "testnet STX from https://explorer.hiro.so/sandbox/faucet?chain=testnet"
+    : "0.01 STX";
+  console.log(
+    address
+      ? `   1. Send ${fund} to ${address}`
+      : `   1. Ask your agent: "What's your wallet address?" and send it ${fund}`
+  );
+  console.log(`   2. Ask your agent: "Unlock my wallet" and give it the password`);
+  const x402Host = network === "testnet" ? "x402.aibtc.dev" : "x402.aibtc.com";
+  console.log(`   3. Ask it: "Make a paid inference call on ${x402Host}" (0.001 STX per call)\n`);
 }
 
 // =============================================================================
@@ -280,42 +360,52 @@ else if (process.argv.includes("--install") || process.argv.includes("install"))
     });
 } else {
   // Normal MCP server mode
-  const server = new McpServer(
-    {
-      name: "aibtc-mcp-server",
-      version: packageJson.version,
-    },
-    {
-      instructions: [
-        "This server lets an agent earn and move real Bitcoin/sBTC on Stacks.",
-        "",
-        "Hunt bounties. The most direct way to earn here is the sBTC bounty board:",
-        "call bounty_list to see open bounties, bounty_get for the task detail, do",
-        "the work, then bounty_submit your deliverable. Accepted submissions are paid",
-        "in sBTC. Check periodically for new open bounties.",
-        "",
-        "For the full menu of ways to put assets to work (stacking, DeFi yield,",
-        "trading, paid endpoints), call earning_opportunities. Submitting to a bounty",
-        "requires a Registered (L1+) on-chain identity — see identity_register.",
-      ].join("\n"),
-    }
-  );
+  // One instance per connection. serveStdio picks the protocol era from the
+  // opening message (2025-era `initialize` or a 2026-07-28 envelope) and pins
+  // the instance built by this factory to the connection.
+  function createServer(toolSelection: ToolSelection): McpServer {
+    const server = new McpServer(
+      {
+        name: "aibtc-mcp-server",
+        version: packageJson.version,
+      },
+      {
+        instructions: [
+          "This server lets an agent earn and move real Bitcoin/sBTC on Stacks.",
+          "",
+          "Hunt bounties. The most direct way to earn here is the sBTC bounty board:",
+          "call bounty_list to see open bounties, bounty_get for the task detail, do",
+          "the work, then bounty_submit your deliverable. Accepted submissions are paid",
+          "in sBTC. Check periodically for new open bounties.",
+          "",
+          "For the full menu of ways to put assets to work (stacking, DeFi yield,",
+          "trading, paid endpoints), call earning_opportunities. Submitting to a bounty",
+          "requires a Registered (L1+) on-chain identity — see identity_register.",
+          "",
+          describeSelection(toolSelection),
+        ].join("\n"),
+      }
+    );
 
-  // Append a bounty-board hint to spend/onboarding-tool output.
-  // Must wrap registerTool before registration; restore it after.
-  const restoreBountyHint = installBountyHint(server);
+    // Append a bounty-board hint to spend/onboarding-tool output.
+    // Must wrap registerTool before registration; restore it after.
+    const restoreBountyHint = installBountyHint(server);
 
-  // Register all tools from the modular registry
-  registerAllTools(server);
-  restoreBountyHint();
+    // Register all tools from the modular registry
+    registerAllTools(server, toolSelection);
+    restoreBountyHint();
+
+    return server;
+  }
 
   async function main() {
+    const toolSelection = resolveToolSelection();
     await initializeStorage();
-    const transport = new StdioServerTransport();
-    await server.connect(transport);
+    serveStdio(() => createServer(toolSelection), { onerror: (error) => console.error("MCP error:", redactSensitive(String(error))) });
     console.error("aibtc-mcp-server running on stdio");
     console.error(`Network: ${NETWORK}`);
     console.error(`API URL: ${API_URL}`);
+    console.error(`Tools: ${toolSelection.all ? "all" : ["core", ...toolSelection.groups].join(", ")}`);
   }
 
   main().catch((error) => {

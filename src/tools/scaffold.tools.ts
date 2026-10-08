@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import fs from "fs/promises";
 import path from "path";
@@ -107,7 +107,7 @@ cd {projectName}
 npm install
 npm run dev
 \`\`\``,
-      inputSchema: {
+      inputSchema: z.object({
         outputDir: z
           .string()
           .describe("Directory where the project folder will be created (e.g., '/Users/me/projects' or '.')"),
@@ -155,7 +155,7 @@ npm run dev
           .describe(
             "Custom relay URL (default: https://x402-relay.aibtc.com)"
           ),
-      },
+      }),
     },
     async ({ outputDir, projectName, endpoints, recipientAddress, network, relayUrl }) => {
       try {
@@ -238,7 +238,7 @@ npm install
 # Edit .dev.vars with RECIPIENT_ADDRESS and OPENROUTER_API_KEY
 npm run dev
 \`\`\``,
-      inputSchema: {
+      inputSchema: z.object({
         outputDir: z
           .string()
           .describe("Directory where the project folder will be created (e.g., '/Users/me/projects' or '.')"),
@@ -294,7 +294,7 @@ npm run dev
           .optional()
           .default("anthropic/claude-3-haiku")
           .describe("Default OpenRouter model for all endpoints (default: anthropic/claude-3-haiku)"),
-      },
+      }),
     },
     async ({
       outputDir,

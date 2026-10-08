@@ -11,7 +11,7 @@
  * - inscribe_child_reveal: Step 2 - Broadcast reveal tx after commit confirms
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { NETWORK } from "../config/networks.js";
 import {
@@ -34,6 +34,7 @@ import {
   deriveChildRevealScript,
   lookupParentInscription,
 } from "../transactions/child-inscription-builder.js";
+import { meteredBtcBroadcast } from "../services/btc-spend.js";
 
 export function registerChildInscriptionTools(server: McpServer): void {
   // Estimate child inscription fee
@@ -44,7 +45,7 @@ export function registerChildInscriptionTools(server: McpServer): void {
         "Calculate the total cost (in satoshis) for creating a child inscription. " +
         "Accounts for the extra parent UTXO input and parent return output in the reveal transaction. " +
         "Content should be provided as base64-encoded string.",
-      inputSchema: {
+      inputSchema: z.object({
         contentType: z
           .string()
           .describe("MIME type (e.g., 'text/plain', 'image/png')"),
@@ -58,7 +59,7 @@ export function registerChildInscriptionTools(server: McpServer): void {
           .describe(
             "Fee rate in sat/vB (optional, defaults to current medium fee)"
           ),
-      },
+      }),
     },
     async ({ contentType, contentBase64, feeRate }) => {
       try {
@@ -126,7 +127,7 @@ export function registerChildInscriptionTools(server: McpServer): void {
         "This broadcasts the commit tx and returns immediately. After it confirms " +
         "(typically 10-60 min), use `inscribe_child_reveal` to complete.\n\n" +
         "Returns: commitTxid, revealAddress, revealAmount, parentInscriptionId, feeRate",
-      inputSchema: {
+      inputSchema: z.object({
         contentType: z
           .string()
           .describe(
@@ -146,7 +147,7 @@ export function registerChildInscriptionTools(server: McpServer): void {
           .describe(
             "Fee rate: 'fast' (~10 min), 'medium' (~30 min), 'slow' (~1 hr), or number in sat/vB (default: medium)"
           ),
-      },
+      }),
     },
     async ({ contentType, contentBase64, parentInscriptionId, feeRate }) => {
       try {
@@ -244,8 +245,11 @@ export function registerChildInscriptionTools(server: McpServer): void {
           commitResult.tx,
           account.btcPrivateKey
         );
-        const commitTxid = await mempoolApi.broadcastTransaction(
-          commitSigned.txHex
+        const commitTxid = await meteredBtcBroadcast(
+          mempoolApi,
+          commitSigned.txHex,
+          account,
+          NETWORK
         );
         const commitExplorerUrl = getMempoolTxUrl(commitTxid, NETWORK);
 
@@ -290,7 +294,7 @@ export function registerChildInscriptionTools(server: McpServer): void {
         "The reveal tx spends both the commit output and the parent inscription UTXO, " +
         "returning the parent to your address and creating the child inscription.\n\n" +
         "Returns: inscriptionId ({revealTxid}i0), parentInscriptionId on success",
-      inputSchema: {
+      inputSchema: z.object({
         commitTxid: z
           .string()
           .length(64)
@@ -320,7 +324,7 @@ export function registerChildInscriptionTools(server: McpServer): void {
           .union([z.enum(["fast", "medium", "slow"]), z.number().positive()])
           .optional()
           .describe("Fee rate for reveal tx (default: medium)"),
-      },
+      }),
     },
     async ({
       commitTxid,
@@ -434,7 +438,7 @@ export function registerChildInscriptionTools(server: McpServer): void {
         revealResult.tx.finalize();
 
         const revealTxHex = revealResult.tx.hex;
-        const revealTxid = await mempoolApi.broadcastTransaction(revealTxHex);
+        const revealTxid = await meteredBtcBroadcast(mempoolApi, revealTxHex, account, NETWORK);
 
         const inscriptionId = `${revealTxid}i0`;
         const revealExplorerUrl = getMempoolTxUrl(revealTxid, NETWORK);

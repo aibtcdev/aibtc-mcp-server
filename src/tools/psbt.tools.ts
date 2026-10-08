@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import * as btc from "@scure/btc-signer";
 import { z } from "zod";
 import { NETWORK } from "../config/networks.js";
@@ -9,6 +9,8 @@ import {
 } from "../config/bitcoin-constants.js";
 import { MempoolApi, getMempoolTxUrl } from "../services/mempool-api.js";
 import { getWalletManager } from "../services/wallet-manager.js";
+import { psbtOutflowSats } from "../services/btc-spend.js";
+import { getSpendLimiter } from "../services/spend-limiter.js";
 import { getBtcNetwork } from "../transactions/bitcoin-builder.js";
 import { createErrorResponse, createJsonResponse } from "../utils/index.js";
 import { estimateBuyPsbtFeeSats, parseOutpoint } from "./psbt.helpers.js";
@@ -92,7 +94,7 @@ export function registerPsbtTools(server: McpServer): void {
       description:
         "Create a PSBT for buying an ordinal: buyer pays seller in BTC, seller's inscription UTXO is transferred to buyer. " +
         "This prepares the PSBT for both parties to sign.",
-      inputSchema: {
+      inputSchema: z.object({
         inscriptionUtxo: z
           .string()
           .describe("Seller inscription outpoint in txid:vout format"),
@@ -112,7 +114,7 @@ export function registerPsbtTools(server: McpServer): void {
           .describe(
             "Fee rate: 'fast' (~10 min), 'medium' (~30 min), 'slow' (~1 hr), or explicit sat/vB"
           ),
-      },
+      }),
     },
     async ({ inscriptionUtxo, sellerAddress, priceSats, buyerReceiveAddress, feeRate }) => {
       try {
@@ -274,7 +276,7 @@ export function registerPsbtTools(server: McpServer): void {
     {
       description:
         "Sign one or more PSBT inputs with the active wallet. Supports buyer (P2WPKH) and taproot keys.",
-      inputSchema: {
+      inputSchema: z.object({
         psbtBase64: z.string().describe("PSBT in base64 format"),
         signInputs: z
           .array(z.number().int().nonnegative())
@@ -285,7 +287,7 @@ export function registerPsbtTools(server: McpServer): void {
           .optional()
           .default(false)
           .describe("Finalize only the inputs signed in this call"),
-      },
+      }),
     },
     async ({ psbtBase64, signInputs, finalizeSignedInputs }) => {
       try {
@@ -356,6 +358,12 @@ export function registerPsbtTools(server: McpServer): void {
           }
         }
 
+        // A signed PSBT can be broadcast by anyone (a marketplace, the
+        // counterparty), so the spend is metered here, before it is handed back.
+        const outflowSats = psbtOutflowSats(tx, signedInputs, account, NETWORK);
+        await getSpendLimiter().check("sats", outflowSats, account.address);
+        await getSpendLimiter().record("sats", outflowSats, account.address);
+
         return createJsonResponse({
           success: signedInputs.length > 0,
           network: NETWORK,
@@ -375,9 +383,9 @@ export function registerPsbtTools(server: McpServer): void {
     {
       description:
         "Finalize a fully signed PSBT and broadcast it to the Bitcoin network via mempool.space.",
-      inputSchema: {
+      inputSchema: z.object({
         psbtBase64: z.string().describe("Fully signed PSBT in base64 format"),
-      },
+      }),
     },
     async ({ psbtBase64 }) => {
       try {
@@ -408,9 +416,9 @@ export function registerPsbtTools(server: McpServer): void {
     {
       description:
         "Decode a PSBT to inspect inputs, outputs, signatures, and signing status before broadcast.",
-      inputSchema: {
+      inputSchema: z.object({
         psbtBase64: z.string().describe("PSBT in base64 format"),
-      },
+      }),
     },
     async ({ psbtBase64 }) => {
       try {

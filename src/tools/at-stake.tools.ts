@@ -25,7 +25,7 @@
  * permissionless NO settlement, `resolve-idle`, takes no arguments and is here.
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import {
   Pc,
@@ -96,7 +96,7 @@ export function registerAtStakeTools(server: McpServer): void {
         "no admin key and no oracle: it settles YES only on a Bitcoin SPV proof, and NO " +
         "by anyone calling resolve-idle after the close height.\n\n" +
         "Read-only, no wallet needed.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -159,12 +159,12 @@ export function registerAtStakeTools(server: McpServer): void {
         "position is the DIFFERENCE between the two.\n\n" +
         "Read-only. Defaults to the unlocked wallet, which requires one; pass an address " +
         "to read anyone without unlocking.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
           .describe("Stacks address to read. Defaults to the unlocked wallet."),
-      },
+      }),
     },
     async ({ address }) => {
       try {
@@ -229,7 +229,7 @@ export function registerAtStakeTools(server: McpServer): void {
         "arguing either side in a legion should be reading these on Bitcoin directly " +
         "rather than taking the market's word for the balances.\n\n" +
         "Read-only, no wallet needed.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -281,7 +281,7 @@ export function registerAtStakeTools(server: McpServer): void {
         "Reversible before the market resolves: atstake_merge_complete_set hands any " +
         "matched pair back for its sat. Spends real sBTC and meters against the " +
         "wallet's sats rail. Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         sats: z
           .number()
           .int()
@@ -290,7 +290,7 @@ export function registerAtStakeTools(server: McpServer): void {
             "sBTC sats to escrow. Mints this many shares of EACH side. The legion " +
               "minimum is 1,000."
           ),
-      },
+      }),
     },
     async ({ sats }) => {
       try {
@@ -366,13 +366,13 @@ export function registerAtStakeTools(server: McpServer): void {
         "position, never the directional part.\n\n" +
         "Only works while the market is open — after resolve, use atstake_redeem. " +
         "Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         sats: z
           .number()
           .int()
           .positive()
           .describe("Matched pairs to merge back into sBTC."),
-      },
+      }),
     },
     async ({ sats }) => {
       try {
@@ -452,7 +452,7 @@ export function registerAtStakeTools(server: McpServer): void {
         "comes back in full via atstake_cancel_bid if it never fills.\n\n" +
         "One resting bid per side at a time. Spends real sBTC and meters against the " +
         "wallet's sats rail. Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         side: SIDE_ARG,
         amount: z
           .number()
@@ -467,7 +467,7 @@ export function registerAtStakeTools(server: McpServer): void {
             "sBTC escrowed for the whole bid. Must be less than `amount` — the implied " +
               "price per share is total_sats/amount."
           ),
-      },
+      }),
     },
     async ({ side, amount, total_sats }) => {
       try {
@@ -555,13 +555,13 @@ export function registerAtStakeTools(server: McpServer): void {
         "Read a resting bid: shares wanted, sBTC escrowed, and the price that implies.\n\n" +
         "Read-only. Defaults to the unlocked wallet, which requires one; pass an address " +
         "to read anyone without unlocking.",
-      inputSchema: {
+      inputSchema: z.object({
         side: SIDE_ARG,
         address: z
           .string()
           .optional()
           .describe("Bidder to read. Defaults to the unlocked wallet."),
-      },
+      }),
     },
     async ({ side, address }) => {
       try {
@@ -607,7 +607,7 @@ export function registerAtStakeTools(server: McpServer): void {
       description:
         "Withdraw a resting bid and get the unfilled escrow back.\n\n" +
         "Requires an unlocked wallet.",
-      inputSchema: { side: SIDE_ARG },
+      inputSchema: z.object({ side: SIDE_ARG }),
     },
     async ({ side }) => {
       try {
@@ -672,11 +672,11 @@ export function registerAtStakeTools(server: McpServer): void {
         "Shares are map entries, not a SIP-010 token, so no fungible-token " +
         "post-condition can guard this and none is signed. Only works while the market " +
         "trades. Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         side: SIDE_ARG,
         amount: z.number().int().positive().describe("Shares to send."),
         to: z.string().describe("Recipient Stacks principal."),
-      },
+      }),
     },
     async ({ side, amount, to }) => {
       try {
@@ -758,7 +758,7 @@ export function registerAtStakeTools(server: McpServer): void {
         "Only callable after the market resolves. Redeeming burns the whole position in " +
         "one call, so there is nothing left to redeem a second time.\n\n" +
         "Requires an unlocked wallet.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -837,7 +837,7 @@ export function registerAtStakeTools(server: McpServer): void {
         "their vaults either.\n\n" +
         "It pays the caller nothing and costs them gas. Moves no assets. Requires an " +
         "unlocked wallet.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {

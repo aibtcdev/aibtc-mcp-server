@@ -1,6 +1,6 @@
 import { z } from "zod";
 import crypto from "crypto";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import {
   tupleCV,
   stringAsciiCV,
@@ -154,7 +154,7 @@ export function registerPillarDirectTools(server: McpServer): void {
         "Generate a new secp256k1 signing keypair for Pillar smart wallet direct operations. " +
         "Returns the compressed public key (33 bytes hex). " +
         "After generation, propose this pubkey on your smart wallet contract (admin must do this).",
-      inputSchema: {
+      inputSchema: z.object({
         smartWallet: z
           .string()
           .default("pending")
@@ -162,7 +162,7 @@ export function registerPillarDirectTools(server: McpServer): void {
             "Smart wallet contract ID this key is for (e.g. SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22.my-wallet). " +
             "Use 'pending' if creating a new wallet — pillar_direct_create_wallet will update it automatically."
           ),
-      },
+      }),
     },
     async ({ smartWallet }) => {
       try {
@@ -192,12 +192,12 @@ export function registerPillarDirectTools(server: McpServer): void {
       description:
         "Unlock a signing key for Pillar direct operations. " +
         "Uses auto-derived password. Usually not needed — tools auto-unlock on first use.",
-      inputSchema: {
+      inputSchema: z.object({
         keyId: z
           .string()
           .optional()
           .describe("The signing key ID to unlock. If omitted, unlocks the first stored key."),
-      },
+      }),
     },
     async ({ keyId }) => {
       try {
@@ -233,7 +233,7 @@ export function registerPillarDirectTools(server: McpServer): void {
     "pillar_key_lock",
     {
       description: "Lock the signing key, clearing sensitive data from memory.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -255,7 +255,7 @@ export function registerPillarDirectTools(server: McpServer): void {
     {
       description:
         "Show signing key info: pubkey, smart wallet, lock status, and all stored keys.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -301,7 +301,7 @@ export function registerPillarDirectTools(server: McpServer): void {
         "Agent-signed, no browser needed. Your sBTC is supplied to Zest, borrowed against, " +
         "and re-supplied for amplified Bitcoin exposure. Backend sponsors gas. " +
         "For simple yield without leverage, use pillar_direct_supply instead.",
-      inputSchema: {
+      inputSchema: z.object({
         sbtcAmount: z
           .number()
           .positive()
@@ -314,7 +314,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           .number()
           .positive()
           .describe("Min sBTC from swap in sats (slippage protection)"),
-      },
+      }),
     },
     async ({ sbtcAmount, aeUsdcToBorrow, minSbtcFromSwap }) => {
       try {
@@ -362,7 +362,7 @@ export function registerPillarDirectTools(server: McpServer): void {
       description:
         "Close or reduce your leveraged sBTC position. Agent-signed, no browser needed. " +
         "Swaps sBTC to aeUSDC to repay debt, then withdraws remaining sBTC collateral. Backend sponsors gas.",
-      inputSchema: {
+      inputSchema: z.object({
         sbtcToSwap: z
           .number()
           .positive()
@@ -375,7 +375,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           .number()
           .positive()
           .describe("Min aeUSDC from swap (slippage protection, 6 decimals)"),
-      },
+      }),
     },
     async ({ sbtcToSwap, sbtcToWithdraw, minAeUsdcFromSwap }) => {
       try {
@@ -425,12 +425,12 @@ export function registerPillarDirectTools(server: McpServer): void {
         "Earn yield on your Bitcoin. Supply sBTC from your Pillar smart wallet to Zest Protocol. " +
         "No leverage, no liquidation risk. Agent-signed, no browser needed. Backend sponsors gas. " +
         "For leveraged exposure (1.5x), use pillar_direct_boost instead.",
-      inputSchema: {
+      inputSchema: z.object({
         sbtcAmount: z
           .number()
           .positive()
           .describe("sBTC amount in sats to supply"),
-      },
+      }),
     },
     async ({ sbtcAmount }) => {
       try {
@@ -476,7 +476,7 @@ export function registerPillarDirectTools(server: McpServer): void {
         "Send sBTC from your Pillar smart wallet to a recipient. " +
         "Agent-signed, no browser needed. Supports BNS names, wallet names, or Stacks addresses. " +
         "Backend sponsors gas.",
-      inputSchema: {
+      inputSchema: z.object({
         to: z
           .string()
           .describe(
@@ -490,7 +490,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           .enum(["bns", "wallet", "address"])
           .default("bns")
           .describe("Type of recipient: 'bns' (default), 'wallet', or 'address'"),
-      },
+      }),
     },
     async ({ to, amount, recipientType }) => {
       try {
@@ -573,7 +573,7 @@ export function registerPillarDirectTools(server: McpServer): void {
         "Configure auto-compound for your Pillar wallet. " +
         "When enabled, a keeper automatically boosts when sBTC accumulates above the trigger. " +
         "Agent-signed, no browser needed. Backend sponsors gas.",
-      inputSchema: {
+      inputSchema: z.object({
         enabled: z.boolean().describe("Enable or disable auto-compound"),
         minSbtc: z
           .number()
@@ -585,7 +585,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           .describe(
             "sBTC amount above minimum that triggers auto-compound (in sats)"
           ),
-      },
+      }),
     },
     async ({ enabled, minSbtc, trigger }) => {
       try {
@@ -634,7 +634,7 @@ export function registerPillarDirectTools(server: McpServer): void {
       description:
         "View your Pillar smart wallet balances (STX, sBTC, aeUSDC) and Zest position. " +
         "No signing needed — reads on-chain data.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -768,12 +768,12 @@ export function registerPillarDirectTools(server: McpServer): void {
       description:
         "Withdraw sBTC collateral from Zest on the Pillar smart wallet. " +
         "Agent-signed, no browser needed. Backend sponsors gas.",
-      inputSchema: {
+      inputSchema: z.object({
         sbtcAmount: z
           .number()
           .positive()
           .describe("sBTC amount in sats to withdraw"),
-      },
+      }),
     },
     async ({ sbtcAmount }) => {
       try {
@@ -818,13 +818,13 @@ export function registerPillarDirectTools(server: McpServer): void {
         "Add a backup admin address to your Pillar smart wallet for recovery purposes. " +
         "Agent-signed, no browser needed. The admin can help recover funds if you lose access to your passkey. " +
         "Backend sponsors gas.",
-      inputSchema: {
+      inputSchema: z.object({
         newAdmin: z
           .string()
           .describe(
             "Stacks address (SP...) to add as backup admin"
           ),
-      },
+      }),
     },
     async ({ newAdmin }) => {
       try {
@@ -874,7 +874,7 @@ export function registerPillarDirectTools(server: McpServer): void {
         "and deploys a new smart wallet with the pubkey registered. " +
         "Backend deploys the contract and calls onboard() in background. " +
         "After ~20-30 seconds the wallet is ready for pillar_direct_* operations.",
-      inputSchema: {
+      inputSchema: z.object({
         walletName: z
           .string()
           .min(3)
@@ -890,7 +890,7 @@ export function registerPillarDirectTools(server: McpServer): void {
             "Contract address of the referring wallet. " +
             "Defaults to the Pillar team wallet if not provided."
           ),
-      },
+      }),
     },
     async ({ walletName, referredBy }) => {
       try {
@@ -993,11 +993,11 @@ export function registerPillarDirectTools(server: McpServer): void {
       description:
         "Invite a DCA partner by email or wallet address. " +
         "DCA partners hold each other accountable — both must boost each week to keep the streak alive.",
-      inputSchema: {
+      inputSchema: z.object({
         partner: z
           .string()
           .describe("Partner's email address or Stacks wallet address (SP...)"),
-      },
+      }),
     },
     async ({ partner }) => {
       try {
@@ -1038,7 +1038,7 @@ export function registerPillarDirectTools(server: McpServer): void {
       description:
         "View your DCA partners and weekly status. " +
         "Shows active partnerships with streak, PnL, and weekly status badges, plus any pending invites.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -1104,7 +1104,7 @@ export function registerPillarDirectTools(server: McpServer): void {
     {
       description:
         "View the DCA streak leaderboard. Shows top partnerships by streak length, and highlights your entry if you have one.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -1163,7 +1163,7 @@ export function registerPillarDirectTools(server: McpServer): void {
       description:
         "Check your DCA schedule status. Shows all active DCA schedules (up to 10) with chunk progress " +
         "(completed, pending, failed) and next execution time.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -1324,12 +1324,12 @@ export function registerPillarDirectTools(server: McpServer): void {
       description:
         "Get a boost quote showing projected leverage, LTV, and swap details. " +
         "No signing needed. Use this to determine aeUsdcToBorrow and minSbtcFromSwap before calling pillar_direct_boost.",
-      inputSchema: {
+      inputSchema: z.object({
         sbtcAmount: z
           .number()
           .positive()
           .describe("sBTC amount in sats to boost"),
-      },
+      }),
     },
     async ({ sbtcAmount }) => {
       try {
@@ -1366,7 +1366,7 @@ export function registerPillarDirectTools(server: McpServer): void {
         "Resolve a recipient before sending. Resolves BNS names (.btc) via backend, " +
         "Pillar wallet names via backend, or validates a Stacks address. " +
         "Use this BEFORE pillar_direct_send to confirm the resolved address with the user.",
-      inputSchema: {
+      inputSchema: z.object({
         to: z
           .string()
           .describe(
@@ -1376,7 +1376,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           .enum(["bns", "wallet", "address"])
           .default("bns")
           .describe("Type of recipient: 'bns' (default), 'wallet', or 'address'"),
-      },
+      }),
     },
     async ({ to, recipientType }) => {
       try {
@@ -1458,7 +1458,7 @@ export function registerPillarDirectTools(server: McpServer): void {
         "pox-4 is not the active PoX contract (PoX-5 is live; use stack_stx for PoX-5 staking). " +
         "Stacking DAO deposits STX into Stacking DAO core for stSTX yield. " +
         "Your wallet must be enrolled in dual stacking first (automatic for v2 wallets with sBTC).",
-      inputSchema: {
+      inputSchema: z.object({
         stxAmount: z
           .number()
           .positive()
@@ -1469,7 +1469,7 @@ export function registerPillarDirectTools(server: McpServer): void {
             "Stacking pool to use: 'fast-pool' (delegates to pox4-fast-pool-v3) " +
             "or 'stacking-dao' (deposits into Stacking DAO for stSTX)"
           ),
-      },
+      }),
     },
     async ({ stxAmount, pool }) => {
       try {
@@ -1535,7 +1535,7 @@ export function registerPillarDirectTools(server: McpServer): void {
         "refused while pox-4 is not the active PoX contract). " +
         "Agent-signed, no browser needed. Backend sponsors gas. " +
         "After revoking, STX stays locked until the current PoX cycle ends, then returns to liquid.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -1583,7 +1583,7 @@ export function registerPillarDirectTools(server: McpServer): void {
         "No signing needed — reads on-chain data. " +
         "Shows STX balance (locked vs liquid), current PoX cycle info, " +
         "and dual stacking enrollment status.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {

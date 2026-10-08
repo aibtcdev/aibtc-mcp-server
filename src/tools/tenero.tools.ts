@@ -18,7 +18,7 @@
  * - tenero_search            — Search tokens, pools, and wallets by name or address
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import {
@@ -43,7 +43,7 @@ export function registerTeneroTools(server: McpServer): void {
       description:
         "Get token details including metadata, current price, market cap, and 24h volume. " +
         "Powered by the Tenero API (api.tenero.io). No authentication required.",
-      inputSchema: {
+      inputSchema: z.object({
         contractId: z
           .string()
           .describe(
@@ -55,7 +55,7 @@ export function registerTeneroTools(server: McpServer): void {
           .optional()
           .default("stacks")
           .describe("Chain to query: stacks, spark, or sportsfun (default: stacks)"),
-      },
+      }),
     },
     async ({ contractId, chain }) => {
       try {
@@ -75,7 +75,7 @@ export function registerTeneroTools(server: McpServer): void {
         "Get token market summary including price history, 24h volume, and pool liquidity. " +
         "Returns weighted price across all pools trading this token. " +
         "Powered by the Tenero API (api.tenero.io). No authentication required.",
-      inputSchema: {
+      inputSchema: z.object({
         contractId: z
           .string()
           .describe(
@@ -87,7 +87,7 @@ export function registerTeneroTools(server: McpServer): void {
           .optional()
           .default("stacks")
           .describe("Chain to query: stacks, spark, or sportsfun (default: stacks)"),
-      },
+      }),
     },
     async ({ contractId, chain }) => {
       try {
@@ -108,13 +108,13 @@ export function registerTeneroTools(server: McpServer): void {
         "buy/sell netflow, unique traders, and active pools. " +
         "Returns a time series of daily stats for recent periods. " +
         "Powered by the Tenero API (api.tenero.io). No authentication required.",
-      inputSchema: {
+      inputSchema: z.object({
         chain: z
           .string()
           .optional()
           .default("stacks")
           .describe("Chain to query: stacks, spark, or sportsfun (default: stacks)"),
-      },
+      }),
     },
     async ({ chain }) => {
       try {
@@ -134,7 +134,7 @@ export function registerTeneroTools(server: McpServer): void {
         "List top gaining tokens by 24h price change percentage on the Stacks ecosystem. " +
         "Useful for spotting momentum and trending assets. " +
         "Powered by the Tenero API (api.tenero.io). No authentication required.",
-      inputSchema: {
+      inputSchema: z.object({
         limit: z
           .number()
           .int()
@@ -148,7 +148,7 @@ export function registerTeneroTools(server: McpServer): void {
           .optional()
           .default("stacks")
           .describe("Chain to query: stacks, spark, or sportsfun (default: stacks)"),
-      },
+      }),
     },
     async ({ limit, chain }) => {
       try {
@@ -168,7 +168,7 @@ export function registerTeneroTools(server: McpServer): void {
         "List top losing tokens by 24h price change percentage on the Stacks ecosystem. " +
         "Useful for identifying underperforming assets or potential reversal candidates. " +
         "Powered by the Tenero API (api.tenero.io). No authentication required.",
-      inputSchema: {
+      inputSchema: z.object({
         limit: z
           .number()
           .int()
@@ -182,7 +182,7 @@ export function registerTeneroTools(server: McpServer): void {
           .optional()
           .default("stacks")
           .describe("Chain to query: stacks, spark, or sportsfun (default: stacks)"),
-      },
+      }),
     },
     async ({ limit, chain }) => {
       try {
@@ -202,7 +202,7 @@ export function registerTeneroTools(server: McpServer): void {
         "List trending DEX liquidity pools by volume over the last hour. " +
         "Includes pool platform, token pair, volume, and liquidity details. " +
         "Powered by the Tenero API (api.tenero.io). No authentication required.",
-      inputSchema: {
+      inputSchema: z.object({
         limit: z
           .number()
           .int()
@@ -216,7 +216,7 @@ export function registerTeneroTools(server: McpServer): void {
           .optional()
           .default("stacks")
           .describe("Chain to query: stacks, spark, or sportsfun (default: stacks)"),
-      },
+      }),
     },
     async ({ limit, chain }) => {
       try {
@@ -236,7 +236,7 @@ export function registerTeneroTools(server: McpServer): void {
         "Get trade history for a Stacks wallet address. " +
         "Returns recent buy/sell events with token, pool, and USD value details. " +
         "Powered by the Tenero API (api.tenero.io). No authentication required.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .describe("Stacks wallet address (SP... or SM...)"),
@@ -253,7 +253,7 @@ export function registerTeneroTools(server: McpServer): void {
           .optional()
           .default("stacks")
           .describe("Chain to query: stacks, spark, or sportsfun (default: stacks)"),
-      },
+      }),
     },
     async ({ address, limit, chain }) => {
       try {
@@ -273,7 +273,7 @@ export function registerTeneroTools(server: McpServer): void {
         "Get token holdings with current USD value for a Stacks wallet address. " +
         "Shows portfolio composition including token balances and estimated values. " +
         "Powered by the Tenero API (api.tenero.io). No authentication required.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .describe("Stacks wallet address (SP... or SM...)"),
@@ -282,7 +282,7 @@ export function registerTeneroTools(server: McpServer): void {
           .optional()
           .default("stacks")
           .describe("Chain to query: stacks, spark, or sportsfun (default: stacks)"),
-      },
+      }),
     },
     async ({ address, chain }) => {
       try {
@@ -302,7 +302,7 @@ export function registerTeneroTools(server: McpServer): void {
         "Get recent large/whale trades above threshold value on the Stacks ecosystem. " +
         "Useful for tracking smart money and large market movements. " +
         "Powered by the Tenero API (api.tenero.io). No authentication required.",
-      inputSchema: {
+      inputSchema: z.object({
         limit: z
           .number()
           .int()
@@ -316,7 +316,7 @@ export function registerTeneroTools(server: McpServer): void {
           .optional()
           .default("stacks")
           .describe("Chain to query: stacks, spark, or sportsfun (default: stacks)"),
-      },
+      }),
     },
     async ({ limit, chain }) => {
       try {
@@ -336,7 +336,7 @@ export function registerTeneroTools(server: McpServer): void {
         "Get token holder distribution and concentration statistics. " +
         "Shows total holders, top holder percentages, and Gini coefficient. " +
         "Powered by the Tenero API (api.tenero.io). No authentication required.",
-      inputSchema: {
+      inputSchema: z.object({
         contractId: z
           .string()
           .describe(
@@ -348,7 +348,7 @@ export function registerTeneroTools(server: McpServer): void {
           .optional()
           .default("stacks")
           .describe("Chain to query: stacks, spark, or sportsfun (default: stacks)"),
-      },
+      }),
     },
     async ({ contractId, chain }) => {
       try {
@@ -368,7 +368,7 @@ export function registerTeneroTools(server: McpServer): void {
         "Search tokens, pools, and wallets by name, symbol, or contract address. " +
         "Returns matching tokens with metadata and pricing information. " +
         "Powered by the Tenero API (api.tenero.io). No authentication required.",
-      inputSchema: {
+      inputSchema: z.object({
         query: z
           .string()
           .min(1)
@@ -378,7 +378,7 @@ export function registerTeneroTools(server: McpServer): void {
           .optional()
           .default("stacks")
           .describe("Chain to query: stacks, spark, or sportsfun (default: stacks)"),
-      },
+      }),
     },
     async ({ query, chain }) => {
       try {

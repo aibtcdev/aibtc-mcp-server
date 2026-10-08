@@ -6,7 +6,7 @@
  * fee estimates from the Stacks mempool.
  */
 
-import { getHiroApi, type MempoolFeePriorities } from "../services/hiro-api.js";
+import { getHiroApi, type MempoolFeePriorities, type MempoolFeeResponse } from "../services/hiro-api.js";
 import type { Network } from "../config/networks.js";
 
 /**
@@ -18,13 +18,30 @@ import type { Network } from "../config/networks.js";
  *   contract_call:  50,000 uSTX (0.05 STX)  — complex contract call
  *   smart_contract: 50,000 uSTX (0.05 STX)  — deployment
  * These match the x402-sponsor-relay reference implementation.
+ *
+ * sbtc_transfer is a plain sBTC `transfer` call. It is priced from Hiro's
+ * contract_call tier, whose medium estimate is skewed by heavy calls and sat
+ * at 2.5 STX, so every x402 sBTC payment paid the 0.05 STX ceiling. Mainnet
+ * sBTC transfers confirm at 500-3,000 uSTX.
  */
 const FEE_CLAMPS = {
   token_transfer: { floor: 180n, ceiling: 3000n },
   contract_call: { floor: 3000n, ceiling: 50000n },
+  sbtc_transfer: { floor: 500n, ceiling: 3000n },
   smart_contract: { floor: 10000n, ceiling: 50000n },
   all: { floor: 180n, ceiling: 50000n }, // Widest range for aggregate fees
 } as const;
+
+type FeeTxType = keyof typeof FEE_CLAMPS;
+
+/** Hiro mempool fee tier each clamp type is estimated from. */
+const FEE_TIER: Record<FeeTxType, keyof MempoolFeeResponse> = {
+  token_transfer: "token_transfer",
+  contract_call: "contract_call",
+  sbtc_transfer: "contract_call",
+  smart_contract: "smart_contract",
+  all: "all",
+};
 
 /**
  * Valid fee preset strings.
@@ -86,7 +103,7 @@ function clampFee(value: bigint, floor: bigint, ceiling: bigint): bigint {
 export async function resolveFee(
   fee: string | undefined,
   network: Network,
-  txType: "all" | "token_transfer" | "contract_call" | "smart_contract" = "all"
+  txType: FeeTxType = "all"
 ): Promise<bigint | undefined> {
   if (!fee) {
     return undefined;
@@ -97,7 +114,7 @@ export async function resolveFee(
 
     try {
       const mempoolFees = await hiroApi.getMempoolFees();
-      const feeTier = mempoolFees[txType];
+      const feeTier = mempoolFees[FEE_TIER[txType]];
       const priorityKey = presetToPriorityKey(fee);
       const rawFee = BigInt(Math.ceil(feeTier[priorityKey]));
       const clamps = FEE_CLAMPS[txType];
@@ -111,7 +128,7 @@ export async function resolveFee(
       const multipliers: Record<FeePreset, bigint> = { low: 1n, medium: 2n, high: 3n };
       const fallbackFee = clamps.floor * multipliers[fee.toLowerCase() as FeePreset];
 
-      console.info(
+      console.error(
         `Using fallback fee: ${fallbackFee} uSTX (${fee} preset, ${txType} type)`
       );
 
@@ -149,7 +166,7 @@ export async function resolveFee(
  */
 export async function resolveDefaultFee(
   network: Network,
-  txType: "token_transfer" | "contract_call" | "smart_contract" = "contract_call"
+  txType: Exclude<FeeTxType, "all"> = "contract_call"
 ): Promise<bigint> {
   const resolved = await resolveFee("medium", network, txType);
   // resolveFee("medium", ...) always returns a value (never undefined) because

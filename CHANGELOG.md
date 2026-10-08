@@ -1,5 +1,55 @@
 # Changelog
 
+## [1.75.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.74.0...mcp-server-v1.75.0) (2026-10-05)
+
+
+### Features
+
+* **x402:** write extra.payment_id as the payment memo, cut to 34 bytes ([#705](https://github.com/aibtcdev/aibtc-mcp-server/issues/705)) ([0ff0d79](https://github.com/aibtcdev/aibtc-mcp-server/commit/0ff0d7975c6e3cf7d969be90439db55351d1a479))
+
+## [1.74.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.73.1...mcp-server-v1.74.0) (2026-10-02)
+
+
+### Features
+
+* **inbox:** gasless send when the inbox advertises a fee payer; meter sBTC ([#701](https://github.com/aibtcdev/aibtc-mcp-server/issues/701)) ([279fff1](https://github.com/aibtcdev/aibtc-mcp-server/commit/279fff1dc464dab9f947454a46217bb1290e95ab))
+
+## [1.73.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.73.0...mcp-server-v1.73.1) (2026-10-01)
+
+
+### Bug Fixes
+
+* **fee:** cap plain sBTC transfer fees at 0.003 STX ([#697](https://github.com/aibtcdev/aibtc-mcp-server/issues/697)) ([05f472d](https://github.com/aibtcdev/aibtc-mcp-server/commit/05f472da7af38f66ed2d88a2d1c57f0a73ed0218))
+
+## [1.73.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.72.1...mcp-server-v1.73.0) (2026-09-28)
+
+
+### Features
+
+* **spend-limit:** meter every signed spend, default 50 STX / 50k sats ([#693](https://github.com/aibtcdev/aibtc-mcp-server/issues/693)) ([4e7f021](https://github.com/aibtcdev/aibtc-mcp-server/commit/4e7f021d53b1c718c4859b3d9593a5973e3362f6))
+
+## [1.72.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.72.0...mcp-server-v1.72.1) (2026-09-27)
+
+
+### Bug Fixes
+
+* **config:** stop loading .env from the working directory ([#691](https://github.com/aibtcdev/aibtc-mcp-server/issues/691)) ([7ab2608](https://github.com/aibtcdev/aibtc-mcp-server/commit/7ab260870f6468213c614d658d36618e4e2bb3c3))
+
+## [1.72.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.71.0...mcp-server-v1.72.0) (2026-09-27)
+
+
+### Features
+
+* **install:** create the agent wallet during --install ([#688](https://github.com/aibtcdev/aibtc-mcp-server/issues/688)) ([148029e](https://github.com/aibtcdev/aibtc-mcp-server/commit/148029e152a3bda879923e0132b492c4532f0def))
+* **mcp:** move to MCP TypeScript SDK v2 and serve protocol 2026-07-28 ([#685](https://github.com/aibtcdev/aibtc-mcp-server/issues/685)) ([84e74fa](https://github.com/aibtcdev/aibtc-mcp-server/commit/84e74fa6285e90292bc391d2a98384897d988739))
+* **tools:** lean default tool profile, x402.aibtc.com as default API_URL ([#686](https://github.com/aibtcdev/aibtc-mcp-server/issues/686)) ([b085abf](https://github.com/aibtcdev/aibtc-mcp-server/commit/b085abf1a64b9f7bf60aafeafe2ee823b75d6a7a))
+* **tools:** unset AIBTC_TOOLS loads every tool; --install writes core ([#690](https://github.com/aibtcdev/aibtc-mcp-server/issues/690)) ([30d383b](https://github.com/aibtcdev/aibtc-mcp-server/commit/30d383ba2823f2f136b344a7ff8ba0e4596afd53))
+
+
+### Bug Fixes
+
+* **x402:** hardcode the default x402 base URL per network ([#689](https://github.com/aibtcdev/aibtc-mcp-server/issues/689)) ([c1c770c](https://github.com/aibtcdev/aibtc-mcp-server/commit/c1c770c2d636356460c15bfab5a5c7f45051573a))
+
 ## [1.71.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.70.1...mcp-server-v1.71.0) (2026-09-16)
 
 

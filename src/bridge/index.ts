@@ -28,8 +28,8 @@
  *   --max-turns <n>        tool-call loop cap (default 10)
  */
 
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { Client } from "@modelcontextprotocol/client";
 import { STATIC_ENDPOINTS } from "../endpoints/registry.js";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";

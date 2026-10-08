@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import {
   uintCV,
@@ -138,12 +138,12 @@ Returns enrollment state for both the current and next cycle, the APR range
 (higher with more stacked STX), minimum enrollment amount, and current cycle data.
 
 Note: Dual Stacking is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
           .describe("Address to check. Uses configured wallet if not provided."),
-      },
+      }),
     },
     async ({ address }) => {
       try {
@@ -297,7 +297,7 @@ The rollback parameter lets you look up rewards from a specific snapshot offset
 within the cycle (default 0 = most recent).
 
 Note: Dual Stacking is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         cycle: z.number().describe("Cycle number to query rewards for"),
         address: z
           .string()
@@ -308,7 +308,7 @@ Note: Dual Stacking is only available on mainnet.`,
           .optional()
           .default(0)
           .describe("Snapshot rollback offset within the cycle (default 0)"),
-      },
+      }),
     },
     async ({ cycle, address, rollback }) => {
       try {
@@ -368,14 +368,14 @@ address than the signing wallet. If omitted, rewards go to the signing wallet.
 Requires an unlocked wallet with sufficient sBTC balance.
 
 Note: Dual Stacking is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         rewardAddress: z
           .string()
           .optional()
           .describe(
             "Optional Stacks address to receive sBTC rewards. Uses signing wallet address if not provided."
           ),
-      },
+      }),
     },
     async ({ rewardAddress }) => {
       try {
@@ -396,6 +396,8 @@ Note: Dual Stacking is only available on mainnet.`,
           functionName: "enroll",
           functionArgs: [rewardArg],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (enrolling qualifies by holding sBTC; nothing is transferred).
+          callerSpendCaps: { ustx: 0n, sats: 0n },
         });
 
         return createJsonResponse({
@@ -427,7 +429,7 @@ the start of the next PoX cycle; you continue to earn rewards for the current cy
 Requires an unlocked wallet.
 
 Note: Dual Stacking is only available on mainnet.`,
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -445,6 +447,7 @@ Note: Dual Stacking is only available on mainnet.`,
           functionName: "opt-out",
           functionArgs: [],
           postConditionMode: PostConditionMode.Allow,
+          callerSpendCaps: { ustx: 0n, sats: 0n },
         });
 
         return createJsonResponse({

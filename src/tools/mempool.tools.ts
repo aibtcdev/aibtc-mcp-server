@@ -9,7 +9,7 @@
  * Data is fetched from the public mempool.space API (no authentication required).
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { NETWORK } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
@@ -73,7 +73,7 @@ export function registerMempoolTools(server: McpServer): void {
         "Get current Bitcoin mempool statistics including transaction count, " +
         "virtual size, total fees, and fee histogram. " +
         "Useful for monitoring network congestion and estimating confirmation times.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -104,11 +104,11 @@ export function registerMempoolTools(server: McpServer): void {
         "Get confirmation status and details for a Bitcoin transaction by txid. " +
         "Returns whether the transaction is confirmed, block height, fee, size, and I/O summary. " +
         "Works for both confirmed and unconfirmed (mempool) transactions.",
-      inputSchema: {
+      inputSchema: z.object({
         txid: z
           .string()
           .describe("Bitcoin transaction ID (64 hex characters)"),
-      },
+      }),
     },
     async ({ txid }) => {
       try {
@@ -135,9 +135,9 @@ export function registerMempoolTools(server: McpServer): void {
         "Get recent transaction history for a Bitcoin address (last 25 transactions). " +
         "Returns a summary of each transaction including confirmation status, fee, and amounts. " +
         "Useful for monitoring address activity and verifying payment receipts.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z.string().describe("Bitcoin address (e.g. bc1... for mainnet, tb1... for testnet)"),
-      },
+      }),
     },
     async ({ address }) => {
       try {

@@ -5,6 +5,8 @@ import {
   uintCV,
   principalCV,
   noneCV,
+  someCV,
+  bufferCVFromString,
   Pc,
   PostConditionMode,
 } from "@stacks/transactions";
@@ -915,6 +917,8 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
         // balance check in onBeforePayment already accounts for the gas.
         const networkName = getStacksNetwork(acct.network);
 
+        const memo = paymentIdMemo(selectedOption.extra);
+
         let transaction;
         if (tokenType === "sBTC") {
           const contracts = getContracts(acct.network);
@@ -930,7 +934,7 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
               uintCV(amount),
               principalCV(acct.address),
               principalCV(selectedOption.payTo),
-              noneCV(),
+              memo ? someCV(bufferCVFromString(memo)) : noneCV(),
             ],
             senderKey: acct.privateKey,
             network: networkName,
@@ -942,10 +946,10 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
                 .willSendEq(amount)
                 .ft(contracts.SBTC_TOKEN as `${string}.${string}`, "sbtc-token"),
             ],
-            // Clamped medium fee — do NOT let @stacks auto-estimate, since
-            // Hiro's contract_call high_priority tier is polluted by outliers
-            // (observed >2000 STX). resolveDefaultFee caps it at 0.05 STX.
-            fee: await resolveDefaultFee(acct.network, "contract_call"),
+            // Clamped fee — do NOT let @stacks auto-estimate, since Hiro's
+            // contract_call tiers are polluted by outliers (observed >2000
+            // STX). The sbtc_transfer clamp caps it at 0.003 STX.
+            fee: await resolveDefaultFee(acct.network, "sbtc_transfer"),
           });
         } else {
           transaction = await makeSTXTokenTransfer({
@@ -953,7 +957,7 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
             amount,
             senderKey: acct.privateKey,
             network: networkName,
-            memo: "",
+            memo: memo ?? "",
             fee: await resolveDefaultFee(acct.network, "token_transfer"),
           });
         }
@@ -1102,6 +1106,27 @@ export function detectTokenType(asset: string): PaymentTokenType {
     return 'STX';
   }
   return 'unsupported';
+}
+
+const STACKS_MEMO_MAX_BYTES = 34;
+
+/**
+ * Memo for an x402 payment from the server's `extra.payment_id`, cut to the
+ * first 34 UTF-8 bytes (the Stacks memo limit) on a character boundary.
+ * Gateways that bind payments on the memo match that prefix.
+ */
+export function paymentIdMemo(extra?: Record<string, unknown>): string | undefined {
+  const id = extra?.payment_id;
+  if (typeof id !== "string" || id.length === 0) return undefined;
+  let memo = "";
+  let bytes = 0;
+  for (const ch of id) {
+    const size = Buffer.byteLength(ch, "utf8");
+    if (bytes + size > STACKS_MEMO_MAX_BYTES) break;
+    memo += ch;
+    bytes += size;
+  }
+  return memo;
 }
 
 /**
@@ -1441,7 +1466,7 @@ export async function checkSufficientBalance(
       const stxBalanceForSbtc = BigInt(stxInfoForSbtc.balance);
       // Same clamped fee the interceptor actually sets on the sBTC contract
       // call — so this check is exact, not a high-priority over-estimate.
-      const estimatedSbtcFee = await resolveDefaultFee(account.network, "contract_call");
+      const estimatedSbtcFee = await resolveDefaultFee(account.network, "sbtc_transfer");
 
       if (stxBalanceForSbtc < estimatedSbtcFee) {
         const stxShortfall = estimatedSbtcFee - stxBalanceForSbtc;

@@ -6,8 +6,9 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { registerAllTools } from "../../src/tools/index.js";
+import { ALL_TOOLS } from "../../src/tools/profiles.js";
 
 describe("registerAllTools", () => {
   it("registers all tools without throwing", () => {
@@ -16,7 +17,7 @@ describe("registerAllTools", () => {
       version: "0.0.0",
     });
 
-    expect(() => registerAllTools(server)).not.toThrow();
+    expect(() => registerAllTools(server, ALL_TOOLS)).not.toThrow();
   });
 
   it("registers no duplicate tool names", () => {
@@ -33,7 +34,7 @@ describe("registerAllTools", () => {
       registered.push(name);
     }) as typeof server.registerTool;
 
-    registerAllTools(server);
+    registerAllTools(server, ALL_TOOLS);
 
     const duplicates = registered.filter(
       (name, i) => registered.indexOf(name) !== i

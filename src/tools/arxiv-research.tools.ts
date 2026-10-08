@@ -12,7 +12,7 @@
  * Mirrors the arxiv-research skill (aibtcdev/skills/arxiv-research/).
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -249,7 +249,7 @@ Each paper includes title, authors (first 3), truncated abstract, arXiv link,
 relevance score, and topic tags.
 
 Read-only. No API key required.`,
-      inputSchema: {
+      inputSchema: z.object({
         categories: z
           .string()
           .optional()
@@ -269,7 +269,7 @@ Read-only. No API key required.`,
           .describe(
             "Minimum relevance score for results. Default: 3. Set to 0 to include all fetched papers."
           ),
-      },
+      }),
     },
     async ({ categories, max_results, min_score }) => {
       try {
@@ -331,7 +331,7 @@ disk — use the arxiv-research skill (bun run arxiv-research/arxiv-research.ts 
 to write timestamped digest files to ~/.aibtc/arxiv-research/digests/.
 
 Read-only. No API key required.`,
-      inputSchema: {
+      inputSchema: z.object({
         categories: z
           .string()
           .optional()
@@ -357,7 +357,7 @@ Read-only. No API key required.`,
           .describe(
             "Minimum relevance score for digest inclusion. Default: 3"
           ),
-      },
+      }),
     },
     async ({ categories, max_results, date, min_score }) => {
       try {
@@ -507,14 +507,14 @@ Digests are NOT created by arxiv_compile_digest (which returns Markdown inline).
 Use the skill CLI to persist digests to disk.
 
 Read-only.`,
-      inputSchema: {
+      inputSchema: z.object({
         limit: z
           .number()
           .min(1)
           .max(50)
           .optional()
           .describe("Maximum entries to show. Default: 10"),
-      },
+      }),
     },
     async ({ limit }) => {
       try {

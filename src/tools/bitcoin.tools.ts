@@ -11,12 +11,11 @@
  * Transfer operations require an unlocked wallet.
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { NETWORK } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { getWalletManager } from "../services/wallet-manager.js";
-import { getSpendLimiter } from "../services/spend-limiter.js";
 import {
   MempoolApi,
   getMempoolAddressUrl,
@@ -25,6 +24,7 @@ import {
 } from "../services/mempool-api.js";
 import { buildAndSignBtcTransaction } from "../transactions/bitcoin-builder.js";
 import { UnisatIndexer } from "../services/unisat-indexer.js";
+import { meteredBtcBroadcast } from "../services/btc-spend.js";
 
 /**
  * Get the Bitcoin address to use for queries.
@@ -116,7 +116,7 @@ export function registerBitcoinTools(server: McpServer): void {
       description:
         "Get the BTC balance for a Bitcoin address. " +
         "Returns both total balance (including unconfirmed) and confirmed balance.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
@@ -124,7 +124,7 @@ export function registerBitcoinTools(server: McpServer): void {
             "Bitcoin address to check (bc1... for mainnet, tb1... for testnet). " +
               "Uses wallet's Bitcoin address if not provided."
           ),
-      },
+      }),
     },
     async ({ address }) => {
       try {
@@ -222,7 +222,7 @@ export function registerBitcoinTools(server: McpServer): void {
       description:
         "List all UTXOs (Unspent Transaction Outputs) for a Bitcoin address. " +
         "Useful for debugging, transparency, and understanding transaction inputs.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
@@ -234,7 +234,7 @@ export function registerBitcoinTools(server: McpServer): void {
           .optional()
           .default(false)
           .describe("Only return confirmed UTXOs (default: false)"),
-      },
+      }),
     },
     async ({ address, confirmedOnly }) => {
       try {
@@ -269,7 +269,7 @@ export function registerBitcoinTools(server: McpServer): void {
         "Requires an unlocked wallet with BTC balance. " +
         "By default, only uses cardinal UTXOs (safe to spend - no inscriptions). " +
         "Set includeOrdinals=true to allow spending ordinal UTXOs (advanced users only).",
-      inputSchema: {
+      inputSchema: z.object({
         recipient: z
           .string()
           .describe(
@@ -298,7 +298,7 @@ export function registerBitcoinTools(server: McpServer): void {
             "Include ordinal UTXOs (contains inscriptions). Default: false (cardinal only). " +
             "WARNING: Setting this to true may destroy valuable inscriptions!"
           ),
-      },
+      }),
     },
     async ({ recipient, amount, feeRate, includeOrdinals }) => {
       try {
@@ -313,10 +313,6 @@ export function registerBitcoinTools(server: McpServer): void {
             "Wallet is not unlocked. Use wallet_unlock first to enable transactions."
           );
         }
-
-        // Safety rail: block before signing if this would exceed the wallet's
-        // cumulative spending limit (per-session or per-day).
-        await getSpendLimiter().check("sats", BigInt(amount), account.address);
 
         if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
           throw new Error(
@@ -384,8 +380,7 @@ export function registerBitcoinTools(server: McpServer): void {
         );
 
         // Broadcast the transaction
-        const txid = await api.broadcastTransaction(txResult.txHex);
-        await getSpendLimiter().record("sats", BigInt(amount), account.address);
+        const txid = await meteredBtcBroadcast(api, txResult.txHex, account, NETWORK);
 
         const response: Record<string, unknown> = {
           success: true,
@@ -429,7 +424,7 @@ export function registerBitcoinTools(server: McpServer): void {
         "Cardinal UTXOs are regular Bitcoin outputs that do not contain ordinal inscriptions or rune balances. " +
         "These UTXOs can be safely used for regular Bitcoin transfers and fees. " +
         "Backed by the Unisat indexer; set UNISAT_API_KEY to lift free-tier rate limits.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
@@ -441,7 +436,7 @@ export function registerBitcoinTools(server: McpServer): void {
           .optional()
           .default(false)
           .describe("Only return confirmed UTXOs (default: false)"),
-      },
+      }),
     },
     async ({ address, confirmedOnly }) => {
       try {
@@ -477,7 +472,7 @@ export function registerBitcoinTools(server: McpServer): void {
         "Get ordinal UTXOs (contain inscriptions or runes - do not spend). " +
         "Ordinal UTXOs carry inscriptions or rune balances and should not be spent in regular transfers. " +
         "Backed by the Unisat indexer; set UNISAT_API_KEY to lift free-tier rate limits.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
@@ -489,7 +484,7 @@ export function registerBitcoinTools(server: McpServer): void {
           .optional()
           .default(false)
           .describe("Only return confirmed UTXOs (default: false)"),
-      },
+      }),
     },
     async ({ address, confirmedOnly }) => {
       try {
@@ -525,14 +520,14 @@ export function registerBitcoinTools(server: McpServer): void {
         "Get all inscriptions owned by a Bitcoin address. " +
         "Returns inscription IDs, content types, and metadata. " +
         "Backed by the Unisat indexer; set UNISAT_API_KEY to lift free-tier rate limits.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
           .describe(
             "Bitcoin address to check. Uses wallet's Bitcoin address if not provided."
           ),
-      },
+      }),
     },
     async ({ address }) => {
       try {

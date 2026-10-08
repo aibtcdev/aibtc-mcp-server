@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { getAccount, getWalletAddress, NETWORK } from "../services/x402.service.js";
 import { getSbtcService } from "../services/sbtc.service.js";
@@ -22,12 +22,12 @@ export function registerSbtcTools(server: McpServer): void {
     "sbtc_get_balance",
     {
       description: "Get the sBTC balance for a wallet address.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
           .describe("Wallet address to check. Uses configured wallet if not provided."),
-      },
+      }),
     },
     async ({ address }) => {
       try {
@@ -57,7 +57,7 @@ export function registerSbtcTools(server: McpServer): void {
 
 sBTC uses 8 decimals (same as Bitcoin).
 Example: To send 0.001 sBTC, use amount "100000" (satoshis).`,
-      inputSchema: {
+      inputSchema: z.object({
         recipient: z.string().describe("The recipient's Stacks address"),
         amount: z.string().describe("Amount in satoshis (0.00000001 sBTC). Example: '100000' for 0.001 sBTC"),
         memo: z.string().optional().describe("Optional memo message"),
@@ -66,7 +66,7 @@ Example: To send 0.001 sBTC, use amount "100000" (satoshis).`,
           .optional()
           .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount. If omitted, auto-estimated."),
         sponsored: sponsoredSchema,
-      },
+      }),
     },
     async ({ recipient, amount, memo, fee, sponsored }) => {
       try {
@@ -133,7 +133,7 @@ Example: To send 0.001 sBTC, use amount "100000" (satoshis).`,
     return { result, recipientTuple, requestId };
   }
 
-  const withdrawalInputSchema = {
+  const withdrawalInputSchema = z.object({
     amount: z
       .number()
       .int()
@@ -154,7 +154,7 @@ Example: To send 0.001 sBTC, use amount "100000" (satoshis).`,
       .optional()
       .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount."),
     sponsored: sponsoredSchema,
-  };
+  });
 
   // Initiate sBTC withdrawal (peg-out to BTC L1)
   server.registerTool(
@@ -285,7 +285,7 @@ Signers later process the request and send BTC on L1.`,
     });
   }
 
-  const withdrawalStatusInputSchema = {
+  const withdrawalStatusInputSchema = z.object({
     requestId: z
       .number()
       .int()
@@ -296,7 +296,7 @@ Signers later process the request and send BTC on L1.`,
       .string()
       .optional()
       .describe("Initiate-withdrawal transaction ID (used to resolve requestId)"),
-  };
+  });
 
   // Check withdrawal request status
   server.registerTool(
@@ -425,7 +425,7 @@ If the deposit fails, you can reclaim your BTC after the lock time expires.
 
 By default, only uses cardinal UTXOs (safe to spend - no inscriptions).
 Set includeOrdinals=true to allow spending ordinal UTXOs (advanced users only).`,
-      inputSchema: {
+      inputSchema: z.object({
         amount: z
           .number()
           .int()
@@ -467,7 +467,7 @@ Set includeOrdinals=true to allow spending ordinal UTXOs (advanced users only).`
             "Include ordinal UTXOs (contains inscriptions). Default: false (cardinal only). " +
             "WARNING: Setting this to true may destroy valuable inscriptions!"
           ),
-      },
+      }),
     },
     async ({ amount, feeRate, maxSignerFee, reclaimLockTime, includeOrdinals }) => {
       try {
@@ -532,6 +532,7 @@ Set includeOrdinals=true to allow spending ordinal UTXOs (advanced users only).`
 
         // Step 2: Broadcast signed transaction and notify Emily API
         const result = await depositService.broadcastAndNotify(
+          account,
           depositResult.txHex,
           depositResult.depositScript,
           depositResult.reclaimScript,
@@ -568,7 +569,7 @@ Set includeOrdinals=true to allow spending ordinal UTXOs (advanced users only).`
     "sbtc_deposit_status",
     {
       description: "Check the status of an sBTC deposit transaction from Emily API.",
-      inputSchema: {
+      inputSchema: z.object({
         txid: z.string().describe("Bitcoin transaction ID of the deposit"),
         vout: z
           .number()
@@ -577,7 +578,7 @@ Set includeOrdinals=true to allow spending ordinal UTXOs (advanced users only).`
           .optional()
           .default(0)
           .describe("Output index of the deposit (default: 0)"),
-      },
+      }),
     },
     async ({ txid, vout }) => {
       try {

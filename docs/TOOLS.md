@@ -6,12 +6,12 @@ deep documentation that was previously inlined in `CLAUDE.md`; it is kept separa
 
 ## Available Tools
 
-> **Spending limit:** Fund-moving tools (`transfer_stx`, `transfer_btc`, and x402/L402
-> auto-payments via `execute_x402_endpoint`) are metered against a default-on cumulative
-> spending cap (per session + per day, ~10 STX / ~50k sats by default). A spend over the
-> remaining budget is **rejected before signing** with a message stating the remaining
-> amount and the env var to raise it (`SPEND_LIMIT_*`, or `SPEND_LIMIT_ENABLED=false` to
-> disable). See [SECURITY.md](../SECURITY.md#limit-blast-radius).
+> **Spending limit:** Every STX, sBTC and BTC spend (transfers, contract calls, sponsored
+> transactions, x402/L402 auto-payments, Bitcoin broadcasts and `psbt_sign`) is metered
+> against a default-on cumulative cap (per session + per day, 50 STX / 50,000 sats by
+> default). A spend over the remaining budget is **rejected before it is signed or
+> broadcast**, and the message tells the agent to ask the user, who can raise
+> `SPEND_LIMIT_*` in the server config. See [SECURITY.md](../SECURITY.md#limit-blast-radius).
 
 ### Endpoint Discovery
 - `list_x402_endpoints` - List all available x402 endpoints with search/filter by source, category, or keyword. **Use this first** to discover what actions are available. x402.aibtc.com and stx402.com are read live from their `openapi.json`; `source: "directory"` lists third-party endpoints registered at stx402.com (verified only unless `includeUnverified: true`). Costs from live specs are tiers — use `probe_x402_endpoint` for the exact price.

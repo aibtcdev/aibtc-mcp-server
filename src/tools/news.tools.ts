@@ -7,8 +7,9 @@
  * (the legion_* tools) instead of getting "unknown tool".
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { createJsonResponse } from "../utils/index.js";
+import { z } from "zod";
 
 const MIGRATION_NOTE =
   "aibtc.news no longer runs an off-chain newsroom API — every endpoint returns 410 Gone. " +
@@ -97,7 +98,7 @@ export function registerNewsTools(server: McpServer): void {
           `⛔ DEPRECATED — do not use. This tool used to ${was} via the aibtc.news API, which ` +
           `has been shut down (410 Gone). aibtc.news now runs on on-chain governance: use ` +
           `${useInstead.join(", ")} instead (start with legion_status).`,
-        inputSchema: {},
+        inputSchema: z.object({}),
       },
       async () =>
         createJsonResponse({

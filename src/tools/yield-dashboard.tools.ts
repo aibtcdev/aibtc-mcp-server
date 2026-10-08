@@ -13,7 +13,7 @@
  * Mirrors the yield-dashboard skill (aibtcdev/skills/yield-dashboard/).
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import {
   contractPrincipalCV,
@@ -319,7 +319,7 @@ Read-only. Mainnet-only. Requires an unlocked wallet for address context.
 Note: ALEX LP and Bitflow LP position values are 0 — these protocols do not
 expose user LP positions via read-only calls. Only Zest has a live APY; ALEX,
 Bitflow and Stacking report apyPct: null.`,
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -417,7 +417,7 @@ Known limitations:
   LP balances via read-only calls).
 - apyPct is null for ALEX, Bitflow and Stacking (no live source).
 - Stacking: denominated in microSTX, not sats.`,
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -475,7 +475,7 @@ Data sources:
 - STX Stacking: null — pox-5 rewards are sBTC, paid per signer manager
 
 Mainnet data only (contract addresses are mainnet-specific).`,
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -540,13 +540,13 @@ Risk tolerance levels:
 - high:   Zest 50%, ALEX 30%, Bitflow 20%, Stacking 0%
 
 Read-only. Mainnet-only. Requires an unlocked wallet for address context.`,
-      inputSchema: {
+      inputSchema: z.object({
         riskTolerance: z
           .enum(["low", "medium", "high"])
           .optional()
           .default("medium")
           .describe("Risk tolerance level: low, medium, or high (default: medium)"),
-      },
+      }),
     },
     async ({ riskTolerance }) => {
       try {

@@ -108,6 +108,7 @@ aibtc-mcp-server MCP Server (src/index.ts)
 - `src/tools/at-stake-legion.tools.ts` - At Stake side legions (aibtc.com/legions — propose, vote, conclude, vault settlement)
 - `src/services/at-stake.service.ts` - At Stake chain reads, network-pinned account, conclude-outcome prediction
 - `src/config/at-stake.ts` - At Stake contract ids, side mapping (BONDED=yes, IDLE=no), contract error codes
+- `src/tools/profiles.ts` - Tool profiles: the lean `CORE_TOOLS` set, `TOOL_GROUPS`, and `AIBTC_TOOLS` / `--profile` resolution (groups are assigned per module in `src/tools/index.ts`)
 - `src/tools/competition.tools.ts` - AIBTC Trading Competition (concluded; **not registered** — module kept for the `computeCampaignStats` P&L reference, exposes no MCP tools)
 - `src/tools/psbt.tools.ts` - PSBT create/sign/broadcast/decode (used by ordinals marketplace, P2P and taproot multisig flows)
 - `src/tools/settings.tools.ts` - Hiro API key, custom Stacks API URL, server version
@@ -137,18 +138,26 @@ BNS tools automatically check V2 first for `.btc` names, falling back to V1 for 
 
 ## Configuration
 
-Set environment variables in `.env`:
+The server never reads a `.env` file: it would load the `.env` of whatever project the MCP client was opened in. Installed users set these in the client config's `env` block (`--install` writes it) or the shell. In this repo, `npm run dev` / `npm start` load `./.env` explicitly (`--env-file-if-exists`):
 - `CLIENT_MNEMONIC` - 24-word Stacks wallet mnemonic (optional - can use managed wallets instead)
 - `NETWORK` - "mainnet" or "testnet" (default: mainnet)
-- `API_URL` - Default x402 API base URL (default: https://x402.biwas.xyz)
+- `AIBTC_TOOLS` - `core` (lean set, written by `--install`), `core,<group,...>`, or `all`. Unset loads everything so pre-profile configs keep their tools; `--profile full` = `all`, `--profile lean` = `core`
 - `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` - Only used by the `bridge` subcommand (drive tools via an OpenRouter model)
 - `SPEND_LIMIT_ENABLED` - Wallet spending limit on/off (default: true)
-- `SPEND_LIMIT_DAILY_USTX` / `SPEND_LIMIT_SESSION_USTX` - STX spend cap per day / per unlock in micro-STX (default: 10000000 = 10 STX)
+- `SPEND_LIMIT_DAILY_USTX` / `SPEND_LIMIT_SESSION_USTX` - STX spend cap per day / per unlock in micro-STX (default: 50000000 = 50 STX)
 - `SPEND_LIMIT_DAILY_SATS` / `SPEND_LIMIT_SESSION_SATS` - BTC spend cap per day / per unlock in sats (default: 50000)
+- `AIBTC_ALLOW_BLIND_SIGN` - `true` lets `schnorr_sign_digest` sign raw digests (off by default: a signed sighash spends outside the limit)
 
 ### Spending Limit
 
-A default-on safety rail (`src/services/spend-limiter.ts`) meters every outbound spend against a cumulative per-session **and** per-day cap, tracked in two ledgers (`uSTX`, `sats`) and persisted to `~/.aibtc/spend-state.json`. Enforced at the spend chokepoints: `transferStx` (`builder.ts`), `transfer_btc` (`bitcoin.tools.ts`), the x402/L402 auto-payment paths (`x402.service.ts`), and manual `lightning_pay_invoice` (`lightning.tools.ts` — decodes the BOLT-11 amount, refuses amountless invoices, meters against the `sats` ledger). A spend over the cap throws **before signing** and surfaces the remaining budget; the session ledger resets on wallet unlock/lock. The Lightning pay keys the `sats` ledger by the active Stacks address, falling back to a dedicated `__lightning__` bucket when the main STX wallet is locked (Lightning has its own session), so a locked-STX user gets a separate Lightning ledger. Contract calls are metered at the shared `callContract` chokepoint (`builder.ts`), which reads the spend ceiling out of the call's own post-conditions: an `eq`/`lt`/`lte` condition owned by the caller is a cap in native units, so no price oracle is needed inside the safety rail. STX conditions bill the `ustx` ledger, sBTC conditions the `sats` ledger; lower-bound (`gt`/`gte`) conditions and non-sBTC tokens are **not** caps and are left unmetered by design. This covers the Legion sBTC spends (`legion_contribute` / `legion_sponsor`), which sign an exact `willSendEq` post-condition and therefore must not meter again at the tool, and it covers swaps/lending (ALEX/Bitflow/Zest/Jing/Styx) to the extent those paths sign a bounded caller-owned post-condition.
+A default-on safety rail (`src/services/spend-limiter.ts`) meters every signed spend against a cumulative per-session **and** per-day cap, tracked in two ledgers (`uSTX`, `sats`) and persisted to `~/.aibtc/spend-state.json`. A spend over the cap throws **before it is signed or broadcast**; the message tells the agent to ask the user (never how to disable the rail); the session ledger resets on wallet unlock/lock. The chokepoints:
+- **STX transfers**: `transferStx` (`builder.ts`) meters amount + fee; `sponsoredStxTransfer` (`sponsor-builder.ts`) meters the amount and records only when the relay takes it (the direct fallback meters itself).
+- **Contract calls**: `callContract` and `sponsoredContractCall` go through `planContractCallSpends` (`spend-limiter.ts`). Caller-owned `eq`/`lt`/`lte` STX and sBTC post conditions are the cap (no price oracle); a caller-owned `gt`/`gte` on STX/sBTC is refused (no upper bound). Post condition mode **Allow** requires `callerSpendCaps` (`{ ustx, sats }`), which become chain-enforced `lte` post conditions on the caller and are metered; `call_contract` exposes them as `maxStxSpend` / `maxSbtcSpend`. Direct calls add the fee to the `ustx` ledger. Non-sBTC tokens are not metered (no ledger). Bitflow swaps route through `callContract`. The Legion sBTC spends sign an exact `willSendEq` and must not meter again at the tool.
+- **Bitcoin L1**: every tool that broadcasts a transaction spending this wallet's BTC calls `meteredBtcBroadcast` (`src/services/btc-spend.ts`), which values each input from its previous output and meters own inputs minus outputs back to the wallet's SegWit/Taproot addresses (payment + fee). `psbt_sign` meters the inputs it signed at signing time (a signed PSBT can be broadcast by anyone) and refuses inputs without a `witnessUtxo` amount.
+- **x402/L402** auto-payments (`x402.service.ts`) and manual `lightning_pay_invoice` (`lightning.tools.ts` — decodes the BOLT-11 amount, refuses amountless invoices). Lightning keys the `sats` ledger by the active Stacks address, falling back to a dedicated `__lightning__` bucket when the main STX wallet is locked.
+- **Blind signing**: `schnorr_sign_digest` is refused unless `AIBTC_ALLOW_BLIND_SIGN=true`, since a signed sighash spends outside every meter.
+
+The rail runs in this process: it does not contain an agent with shell access to the machine (it could edit the client config or, given the password, decrypt the keystore). `wallet_export` is left out of the lean core for that reason.
 
 ### Wallet Storage
 
@@ -176,7 +185,7 @@ npx @aibtc/mcp-server@latest --install --codex      # OpenAI Codex CLI (TOML)
 npx @aibtc/mcp-server@latest --install --vscode     # VS Code (./.vscode/mcp.json)
 ```
 
-Each installer merges into the existing config rather than overwriting it. Zed and Cline are manual-config only (their schemas/paths vary by version) — see README for snippets. The `@latest` tag ensures users always get the newest features.
+Each installer merges into the existing config rather than overwriting it. After writing the config, `--install` creates a wallet for the target network if none exists (`ensureInstallWallet` in `src/index.ts`): the generated password and mnemonic are printed once, the mnemonic is stored encrypted in `~/.aibtc/`, the password is never persisted. `--no-wallet` skips it. Zed and Cline are manual-config only (their schemas/paths vary by version) — see README for snippets. The `@latest` tag ensures users always get the newest features.
 
 **For testnet:** Add `--testnet` to any install command, e.g. `npx @aibtc/mcp-server@latest --install --cursor --testnet`
 
@@ -203,6 +212,8 @@ Safety flags (default exposes all tools; constrain with these):
 The allowlist is re-enforced at `tools/call` time, so the model can't reach a tool outside the exposed set. Frameworks with native MCP support (`@openrouter/agent`, OpenAI/Claude Agents SDKs) can point at the server directly instead.
 
 ## Available Tools
+
+> **Profiles:** new installs get `AIBTC_TOOLS=core`, which registers only the 24-tool lean core in `src/tools/profiles.ts`; everything else loads by group (`AIBTC_TOOLS=core,defi`) or with `all`. An unset `AIBTC_TOOLS` (configs from before profiles) registers everything. A new tool goes in its module's group automatically; add it to `CORE_TOOLS` only if a fresh install needs it.
 
 > **Full tool reference:** [`docs/TOOLS.md`](docs/TOOLS.md) — per-tool parameters,
 > examples, contract addresses, asset tables, and P&L methodology. The MCP server also exposes each tool's description at runtime, so the
@@ -233,7 +244,7 @@ The allowlist is re-enforced at `tools/call` time, so the model can't reach a to
 | At Stake | `atstake_market_status/position/subject/get_bid` (read) + `atstake_mint_complete_set/merge_complete_set/place_bid/cancel_bid/transfer_shares/redeem/resolve_idle` + `atstake_legion_status/list_proposals/get_proposal/propose/vote/conclude/redeem_vault/claim_credit` | **Stacks mainnet, real sBTC**, pinned by contract address. Minting is a hedge, not a bet; legion weight is the live share balance (min 1,000) |
 | Settings | `set/get/delete_hiro_api_key`, `set/get/delete_stacks_api_url`, `get_server_version` | Stored in `~/.aibtc/config.json` |
 | PSBT | `psbt_create_ordinal_buy`, `psbt_sign`, `psbt_broadcast`, `psbt_decode` | Signing step for ordinals marketplace / P2P / taproot multisig flows |
-| Inbox | `send_inbox_message_direct` | Mainnet only; non-sponsored sBTC transfer, sender pays STX gas. `send_inbox_message` (sponsored relay path) is **deprecated** — it no longer sends and just redirects here (relay queue could wedge, #540/#592) |
+| Inbox | `send_inbox_message_direct` | Mainnet only; **gasless** — the inbox 402 advertises `extra.feePayer`, so x402-stacks signs a sponsored sBTC transfer (fee 0) and the relay pays STX gas (relay `sponsorPayment`, one pending payment per sender). Falls back to a self-paid transfer if `feePayer` is absent. Meters the sBTC cost against the spend limit. `send_inbox_message` is **deprecated** — it no longer sends and just redirects here |
 
 ## Agent Behavior Guidelines
 

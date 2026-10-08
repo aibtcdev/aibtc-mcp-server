@@ -27,7 +27,9 @@ Bitcoin-native MCP server for AI agents: BTC/STX wallets, DeFi yield, sBTC peg, 
 npx @aibtc/mcp-server@latest --install
 ```
 
-That's it! This automatically configures Claude Code. Restart your terminal and start chatting.
+This configures Claude Code and creates the agent's wallet: it prints the Stacks and Bitcoin addresses, a generated password and the 24-word mnemonic **once**. Write both down. The mnemonic is stored only encrypted (AES-256-GCM) in `~/.aibtc/` on this machine, and the password is not saved anywhere; the agent asks for it to unlock, and you can change it with `wallet_rotate_password`. If a wallet for the network already exists it is kept. The wallet is only created when the install runs in an interactive terminal (never into a pipe or CI log). Pass `--no-wallet` to skip it and create or import one from the agent instead.
+
+Restart your terminal, send a little STX to the printed address, and ask the agent to unlock the wallet and make a paid inference call.
 
 ### Claude Desktop (App)
 
@@ -114,6 +116,37 @@ npx @aibtc/mcp-server@latest --install --cursor --testnet   # Cursor, testnet
 
 > **Why npx?** Using `npx @aibtc/mcp-server@latest` ensures you always get the newest version automatically. Global installs (`npm install -g`) won't auto-update.
 
+### Tool Profiles
+
+Every tool definition is loaded into the model's context, so `--install` writes `AIBTC_TOOLS=core`: a lean core of 24 tools: wallet (including `wallet_rotate_password`; `wallet_export` is in the `wallet` group so the mnemonic isn't one call away), balances, STX/BTC/sBTC transfers, x402 (`list_x402_endpoints`, `probe_x402_endpoint`, `execute_x402_endpoint`) and earning (`earning_opportunities`, `bounty_list/get/submit`, `identity_register`).
+
+Add groups with `AIBTC_TOOLS=core,defi,ordinals` in the server's `env` (the core is always included), or load everything with `AIBTC_TOOLS=all` / `--profile full`. If `AIBTC_TOOLS` is not set at all, every tool is loaded, so configs written by earlier versions keep all their tools:
+
+```bash
+npx @aibtc/mcp-server@latest --install --profile full   # writes AIBTC_TOOLS=all
+```
+
+| Group | Tools |
+|-------|-------|
+| `wallet` | Wallet management extras, encrypted credential store |
+| `stacks` | Stacks transactions, contracts, tokens, NFTs, chain queries, nonce tools |
+| `sbtc` | sBTC deposit/withdraw, Styx BTC→sBTC |
+| `bitcoin` | Bitcoin L1 UTXOs, mempool watch |
+| `lightning` | Lightning (Spark) wallet and L402 payments |
+| `stacking` | PoX stacking, dual stacking, StackSpot |
+| `defi` | ALEX, Zest, Bitflow, Jingswap, yield hunter/dashboard, Tenero analytics |
+| `pillar` | Pillar smart wallet |
+| `ordinals` | Inscriptions, runes, PSBT, ordinals marketplace/P2P, taproot multisig |
+| `bns` | BNS names |
+| `identity` | ERC-8004 identity and reputation, message signing |
+| `social` | Nostr, AIBTC inbox |
+| `earn` | Bounty board (create, accept, pay, my views) |
+| `legion` | AIBTC News Legion |
+| `markets` | Stacks prediction market, At Stake |
+| `dev` | Scaffolding, OpenRouter, settings, inference marketplace, arXiv |
+
+The server's instructions list the groups that are off, so the agent can tell you which one to enable. The OpenRouter `bridge` starts from the full set and narrows it with its own `--read-only`/`--allow`/`--block` flags.
+
 ### Manual Configuration
 
 If you prefer to configure manually, add the following to your client's config file. The `-y` flag stops npx from prompting for confirmation.
@@ -181,7 +214,7 @@ NETWORK = "mainnet"
 
 ## Giving Claude a Wallet
 
-When you first use @aibtc/mcp-server, Claude doesn't have a wallet. Here's the smooth onboarding flow:
+`--install` creates a wallet for you (see [Quick Start](#quick-start)). If you installed with `--no-wallet`, configured the client by hand, or want another wallet, the agent can create or import one:
 
 ### Example Conversation
 
@@ -547,16 +580,17 @@ Or use any SIP-010 token by contract ID: `SP2X...::token-name`
 | Environment Variable | Description | Default |
 |---------------------|-------------|---------|
 | `NETWORK` | `mainnet` or `testnet` | `mainnet` |
-| `API_URL` | Default x402 API base URL | `https://x402.biwas.xyz` |
+| `AIBTC_TOOLS` | `core`, `core,<group,...>`, or `all` (see [Tool Profiles](#tool-profiles)). `--install` writes `core` | all tools when unset |
 | `CLIENT_MNEMONIC` | (Optional) Pre-configured mnemonic | - |
 | `HIRO_API_KEY` | (Optional) Hiro API key for higher rate limits | - |
 | `SPEND_LIMIT_ENABLED` | Set `false` to disable the wallet spending limit | `true` |
-| `SPEND_LIMIT_DAILY_USTX` / `SPEND_LIMIT_SESSION_USTX` | STX spend cap per day / per unlock (micro-STX) | `10000000` (10 STX) |
+| `SPEND_LIMIT_DAILY_USTX` / `SPEND_LIMIT_SESSION_USTX` | STX spend cap per day / per unlock (micro-STX) | `50000000` (50 STX) |
 | `SPEND_LIMIT_DAILY_SATS` / `SPEND_LIMIT_SESSION_SATS` | BTC spend cap per day / per unlock (sats) | `50000` |
+| `AIBTC_ALLOW_BLIND_SIGN` | Allow `schnorr_sign_digest` to sign raw digests (a signed sighash spends outside the spending limit) | off |
 
 **Note on `NETWORK`:** The `--install` command writes `NETWORK=mainnet` by default (pass `--testnet` to use testnet). If you omit `NETWORK` from your config entirely, the runtime fallback is also `mainnet`.
 
-**Note on spending limits:** A default-on safety rail meters every outbound spend (`transfer_stx`, `transfer_btc`, x402/L402 auto-payments) against a cumulative per-session and per-day cap, so a single bad instruction or a malicious endpoint can't drain the wallet. A spend over the cap is blocked and reports the remaining budget. Raise the caps via the env vars above, or disable with `SPEND_LIMIT_ENABLED=false`. See [SECURITY.md](SECURITY.md#limit-blast-radius).
+**Note on spending limits:** A default-on safety rail meters every STX, sBTC and BTC spend (transfers, contract calls, sponsored transactions, x402/L402 auto-payments, Bitcoin broadcasts, `psbt_sign`) against a cumulative per-session and per-day cap, so a single bad instruction or a malicious endpoint can't drain the wallet. A spend over the cap is blocked before it is signed or broadcast, and the agent is told to ask you. Raise the caps via the env vars above, or disable with `SPEND_LIMIT_ENABLED=false`. The limit runs inside the server: it does not contain an agent with shell access to your machine, so keep spend tools out of your client's auto-approve list. See [SECURITY.md](SECURITY.md#limit-blast-radius).
 
 **Note:** `CLIENT_MNEMONIC` is optional. The recommended approach is to let Claude create its own wallet. `HIRO_API_KEY` is optional but recommended for production use — without it, you may hit Hiro's public rate limits (429 responses). Get a key at [platform.hiro.so](https://platform.hiro.so).
 

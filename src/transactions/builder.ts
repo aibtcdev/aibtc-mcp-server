@@ -11,7 +11,13 @@ import { hexToBytes } from "@stacks/common";
 import { getStacksNetwork, getApiBaseUrl, type Network } from "../config/networks.js";
 import { getHiroApi } from "../services/hiro-api.js";
 import { resolveDefaultFee } from "../utils/fee.js";
-import { getSpendLimiter, totalBoundedSpends } from "../services/spend-limiter.js";
+import {
+  getSpendLimiter,
+  planContractCallSpends,
+  type CallerSpendCaps,
+  type SpendUnit,
+} from "../services/spend-limiter.js";
+import { getContracts } from "../config/contracts.js";
 import type { WalletAddresses } from "../utils/storage.js";
 import {
   getTrackedNonce,
@@ -154,6 +160,12 @@ export interface ContractCallOptions {
   functionArgs: ClarityValue[];
   postConditionMode?: PostConditionMode;
   postConditions?: PostCondition[];
+  /**
+   * Required in post condition mode Allow: the most STX (micro-STX) and sBTC
+   * (sats) this call may take from the caller. Enforced on chain as `lte`
+   * post conditions on the caller and metered by the spending limit.
+   */
+  callerSpendCaps?: CallerSpendCaps;
   /** Optional fee in micro-STX. If omitted, fee is auto-estimated. */
   fee?: bigint;
 }
@@ -163,6 +175,23 @@ export interface ContractDeployOptions {
   codeBody: string;
   /** Optional fee in micro-STX. If omitted, fee is auto-estimated. */
   fee?: bigint;
+}
+
+/** sBTC token contract id for a network, for caller spend post conditions. */
+export function sbtcContract(network: Network): `${string}.${string}` {
+  return getContracts(network).SBTC_TOKEN as `${string}.${string}`;
+}
+
+/** Add the transaction fee (micro-STX) to the STX ledger of a spend plan. */
+export function withFee(
+  spends: Array<{ unit: SpendUnit; amount: bigint }>,
+  fee: bigint
+): Array<{ unit: SpendUnit; amount: bigint }> {
+  const ustx = spends.find((s) => s.unit === "ustx")?.amount ?? 0n;
+  return [
+    ...spends.filter((s) => s.unit !== "ustx"),
+    ...(ustx + fee > 0n ? [{ unit: "ustx" as const, amount: ustx + fee }] : []),
+  ];
 }
 
 /**
@@ -176,15 +205,15 @@ export async function transferStx(
   memo?: string,
   fee?: bigint
 ): Promise<TransferResult> {
-  // Safety rail: block before signing if this would exceed the wallet's
-  // cumulative spending limit (per-session or per-day).
-  await getSpendLimiter().check("ustx", amount, account.address);
+  // Always resolve a clamped fee — prevents @stacks/transactions from over-estimating.
+  const resolvedFee = fee ?? await resolveDefaultFee(account.network, "token_transfer");
+
+  // Safety rail: block before signing if the amount plus fee would exceed the
+  // wallet's cumulative spending limit (per-session or per-day).
+  await getSpendLimiter().check("ustx", amount + resolvedFee, account.address);
 
   const networkName = getStacksNetwork(account.network);
   const nonce = await getNextNonce(account.address, account.network);
-
-  // Always resolve a clamped fee — prevents @stacks/transactions from over-estimating.
-  const resolvedFee = fee ?? await resolveDefaultFee(account.network, "token_transfer");
 
   const transaction = await makeSTXTokenTransfer({
     recipient,
@@ -208,7 +237,7 @@ export async function transferStx(
   }
 
   advancePendingNonce(account.address, nonce, broadcastResponse.txid);
-  await getSpendLimiter().record("ustx", amount, account.address);
+  await getSpendLimiter().record("ustx", amount + resolvedFee, account.address);
 
   return {
     txid: broadcastResponse.txid,
@@ -223,22 +252,25 @@ export async function callContract(
   account: Account,
   options: ContractCallOptions
 ): Promise<TransferResult> {
+  // Always resolve a clamped fee — prevents @stacks/transactions from over-estimating.
+  const resolvedFee = options.fee ?? await resolveDefaultFee(account.network, "contract_call");
+
   // Safety rail. Swaps, lending and pot entries all funnel through here, and
   // their amounts are denominated in whatever token the call moves — there is no
   // ledger to bill 1,000 ALEX against. The post conditions are the way in: they
   // already bound, in native units, how much of each asset may leave this
-  // address. Meter the ones this rail has a ledger for and ignore the rest.
-  // Deliberately before makeContractCall, so an over-cap call never signs.
-  const meteredSpends = totalBoundedSpends(options.postConditions, account.address);
+  // address. Deliberately before makeContractCall, so an over-cap call never signs.
+  const { postConditions, spends } = planContractCallSpends(
+    { ...options, sbtcContract: sbtcContract(account.network) },
+    account.address
+  );
+  const meteredSpends = withFee(spends, resolvedFee);
   for (const spend of meteredSpends) {
     await getSpendLimiter().check(spend.unit, spend.amount, account.address);
   }
 
   const networkName = getStacksNetwork(account.network);
   const nonce = await getNextNonce(account.address, account.network);
-
-  // Always resolve a clamped fee — prevents @stacks/transactions from over-estimating.
-  const resolvedFee = options.fee ?? await resolveDefaultFee(account.network, "contract_call");
 
   const transaction = await makeContractCall({
     contractAddress: options.contractAddress,
@@ -249,7 +281,7 @@ export async function callContract(
     network: networkName,
     nonce,
     postConditionMode: options.postConditionMode || PostConditionMode.Deny,
-    postConditions: options.postConditions || [],
+    postConditions,
     fee: resolvedFee,
   });
 
