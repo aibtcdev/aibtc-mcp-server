@@ -711,18 +711,17 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
 
       // Cumulative spending limit (sats ledger) — bounds a drain-by-loop of
       // sub-cap L402 invoices. Keyed by the wallet's Stacks address so all sats
-      // spends (BTC L1, sBTC, L402) share one ledger.
-      const l402Addr = getWalletManager().getActiveAccount()?.address;
-      const l402Reservation = l402Addr
-        ? await getSpendLimiter().reserve([{ unit: "sats", amount: BigInt(amountSats) }], l402Addr)
-        : undefined;
+      // spends (BTC L1, sBTC, L402) share one ledger, or the __lightning__
+      // bucket when the STX wallet is locked (as lightning_pay_invoice does).
+      // Kept even if the payment throws: that does not prove it did not route.
+      const l402Addr = getWalletManager().getActiveAccount()?.address ?? "__lightning__";
+      await getSpendLimiter().reserve([{ unit: "sats", amount: BigInt(amountSats) }], l402Addr);
 
       // Pay the Lightning invoice.
       let payment: { preimage: string; feesPaid: number };
       try {
         payment = await lnProvider.payInvoice(challenge.invoice);
       } catch (payErr) {
-        if (l402Reservation) await getSpendLimiter().release(l402Reservation);
         return Promise.reject(
           new Error(
             `L402 payment failed: ${payErr instanceof Error ? payErr.message : String(payErr)}`
@@ -893,14 +892,6 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           );
         }
 
-        // Cumulative spending limit: the per-payment cap above bounds a single
-        // 402, but a malicious endpoint can loop sub-cap payments. This blocks
-        // once the session/day total would be exceeded.
-        reservation = await getSpendLimiter().reserve(
-          [{ unit: isSbtc ? "sats" : "ustx", amount }],
-          acct.address
-        );
-
         // Invoke pre-payment callback (e.g. balance check) before signing/broadcasting.
         // If the callback throws, the payment is aborted and the error propagates to the caller.
         if (options?.onBeforePayment) {
@@ -912,6 +903,14 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
             account: acct,
           });
         }
+
+        // Cumulative spending limit: the per-payment cap above bounds a single
+        // 402, but a malicious endpoint can loop sub-cap payments. This blocks
+        // once the session/day total would be exceeded.
+        reservation = await getSpendLimiter().reserve(
+          [{ unit: isSbtc ? "sats" : "ustx", amount }],
+          acct.address
+        );
 
         // Build a non-sponsored signed transaction: the sender pays its own
         // STX gas (fee + nonce auto-estimated by @stacks), and the x402

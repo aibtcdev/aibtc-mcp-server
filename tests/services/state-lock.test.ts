@@ -101,8 +101,21 @@ describe("shared state lease", () => {
     expect(owner).toContain("someoneelsestoken");
   });
 
-  it("reports a stale lease immediately and still does not reclaim it", async () => {
-    foreignHolder();
+  it("reclaims a stale lease whose holder is dead, as the skills engine does", async () => {
+    foreignHolder(); // pid 999999 is not running
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(lockDir, old, old);
+    _stateLockTesting.set({ staleMs: 1_000 });
+
+    const run = await withSharedStateLock(stateFile, async () => "mine now");
+    expect(run.held).toBe(true);
+    expect(existsSync(lockDir)).toBe(false);
+    expect(existsSync(`${lockDir}.reclaim`)).toBe(false);
+  });
+
+  it("reports a stale lease whose holder may be alive and does not reclaim it", async () => {
+    // Our parent process is alive, so a stale lease in its name is left alone.
+    foreignHolder(process.ppid);
     // Backdate the lease past the staleness window.
     const old = new Date(Date.now() - 60_000);
     utimesSync(lockDir, old, old);
@@ -118,7 +131,7 @@ describe("shared state lease", () => {
     if (run.held) throw new Error("unreachable");
     expect(ran).toBe(false);
     expect(run.unavailable).toContain("no heartbeat");
-    expect(run.unavailable).toContain("(not running)");
+    expect(run.unavailable).toContain("may still be running");
     // Stale is detected up front, not after burning the full wait.
     expect(Date.now() - started).toBeLessThan(250);
     expect(existsSync(lockDir)).toBe(true);

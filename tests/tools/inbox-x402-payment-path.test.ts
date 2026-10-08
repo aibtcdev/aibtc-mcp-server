@@ -128,4 +128,17 @@ describe("send_inbox_message_direct payment path", () => {
     expect(result.isError).toBe(true);
     expect(mockRelease).toHaveBeenCalledOnce();
   });
+
+  it("keeps the sponsored booking when the failed request had carried the payment", async () => {
+    stub402({ feePayer: "SP3F6ZPHAR5D0YT0CTPJST7H3NBZ43A5FW226FMYP" });
+    mockPost.mockRejectedValueOnce(
+      Object.assign(new Error("timeout of 120000ms exceeded"), {
+        config: { headers: { "payment-signature": "signed" } },
+      })
+    );
+    const result = await getHandler()(ARGS);
+
+    expect(result.isError).toBe(true);
+    expect(mockRelease).not.toHaveBeenCalled();
+  });
 });

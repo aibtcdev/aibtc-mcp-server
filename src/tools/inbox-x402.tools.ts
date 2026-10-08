@@ -88,6 +88,24 @@ export async function checkDirectInboxBalance(
 }
 
 /**
+ * True when a failed x402-stacks request had already carried the signed
+ * payment: the retried request's config holds the payment-signature header,
+ * either on the error itself (the retry failed outright) or on its `cause`
+ * (the interceptor's "402 after payment was sent").
+ */
+function paymentWasSent(error: unknown): boolean {
+  const carried = (e: unknown): boolean => {
+    const headers = (e as { config?: { headers?: unknown } } | undefined)?.config?.headers;
+    if (!headers || typeof headers !== "object") return false;
+    const wanted = X402_HEADERS.PAYMENT_SIGNATURE.toLowerCase();
+    return Object.entries(headers).some(
+      ([name, value]) => name.toLowerCase() === wanted && value != null
+    );
+  };
+  return carried(error) || carried((error as { cause?: unknown } | undefined)?.cause);
+}
+
+/**
  * x402 inbox messaging. The transaction is signed but not broadcast; the
  * inbox endpoint settles it through its x402 facilitator.
  *
@@ -214,7 +232,9 @@ export function registerInboxX402Tools(server: McpServer): void {
               headers: { "Content-Type": "application/json" },
             });
           } catch (error) {
-            await spendLimiter.release(reservation);
+            // Once the signed payment rode the retried request, the inbox may
+            // have settled it, so the booking stands.
+            if (!paymentWasSent(error)) await spendLimiter.release(reservation);
             throw error;
           }
         } else {

@@ -10,7 +10,7 @@
 import * as btc from "@scure/btc-signer";
 import { hex } from "@scure/base";
 import { getBtcNetwork } from "../transactions/bitcoin-builder.js";
-import type { MempoolApi } from "./mempool-api.js";
+import { BroadcastRejectedError, type MempoolApi } from "./mempool-api.js";
 import { getSpendLimiter } from "./spend-limiter.js";
 import type { Network } from "../config/networks.js";
 
@@ -117,7 +117,8 @@ export function psbtOutflowSats(
 /**
  * Broadcast a signed transaction that spends from this wallet, metered by the
  * spending limit: booked before broadcast (refused when it would exceed the
- * cap), given back when the broadcast fails.
+ * cap), given back only when the node rejects it. A network error leaves it
+ * unknown whether the transaction was relayed, so the booking stands.
  */
 export async function meteredBtcBroadcast(
   api: MempoolApi,
@@ -131,7 +132,7 @@ export async function meteredBtcBroadcast(
   try {
     return await api.broadcastTransaction(txHex);
   } catch (error) {
-    await limiter.release(reservation);
+    if (error instanceof BroadcastRejectedError) await limiter.release(reservation);
     throw error;
   }
 }

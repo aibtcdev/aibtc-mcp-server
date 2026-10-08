@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import os from "os";
 import path from "path";
 import { promises as fs } from "fs";
@@ -239,6 +239,45 @@ describe("reserve and release (#683)", () => {
     const status = await limiter.status(a);
     expect(status.sats.dailyRemaining).toBe(700);
     expect(status.sats.sessionRemaining).toBe(700);
+  });
+
+  it("books into the day it gets the lease in, without pruning that day", async () => {
+    // A reserve that queues across UTC midnight must not prune the new day.
+    const a = addr();
+    const other = `${a}_other`;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-10-08T23:59:59.900Z"));
+      await reserve("sats", 100n, a);
+      vi.setSystemTime(new Date("2026-10-09T00:00:00.100Z"));
+      // Another process booked into the new day meanwhile.
+      const state = JSON.parse(await fs.readFile(stateFile, "utf8"));
+      state[other] = { "2026-10-09": { ustx: 0, sats: 700 } };
+      await fs.writeFile(stateFile, JSON.stringify(state));
+
+      const r = await reserve("sats", 50n, a);
+      expect(r.day).toBe("2026-10-09");
+      const after = JSON.parse(await fs.readFile(stateFile, "utf8"));
+      expect(after[other]["2026-10-09"].sats).toBe(700);
+      expect(after[a]["2026-10-09"].sats).toBe(50);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("release never throws, so it cannot hide the failure being reported", async () => {
+    const a = addr();
+    const r = await reserve("sats", 100n, a);
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+      errors.push(args.join(" "));
+    });
+    // The ledger write fails (read-only home, full disk).
+    vi.spyOn(fs, "rename").mockRejectedValueOnce(new Error("EROFS"));
+
+    await expect(limiter.release(r)).resolves.toBeUndefined();
+    expect(errors.join("\n")).toContain("stays over-counted");
+    vi.restoreAllMocks();
   });
 
   it("books a multi-unit spend whole or not at all", async () => {

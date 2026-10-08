@@ -218,7 +218,6 @@ export async function transferStx(
 
   const networkName = getStacksNetwork(account.network);
   let transaction;
-  let broadcastResponse;
   let nonce;
   try {
     nonce = await getNextNonce(account.address, account.network);
@@ -233,19 +232,23 @@ export async function transferStx(
       fee: resolvedFee,
     });
 
-    broadcastResponse = await broadcastTransaction({
-      transaction,
-      network: networkName,
-    });
-
-    if ("error" in broadcastResponse) {
-      throw new Error(
-        `Broadcast failed: ${broadcastResponse.error} - ${broadcastResponse.reason}`
-      );
-    }
   } catch (error) {
     await limiter.release(reservation);
     throw error;
+  }
+
+  // A throw here (timeout, reset) leaves it unknown whether the node took the
+  // transaction, so the booking stands. Only an explicit rejection gives it back.
+  const broadcastResponse = await broadcastTransaction({
+    transaction,
+    network: networkName,
+  });
+
+  if ("error" in broadcastResponse) {
+    await limiter.release(reservation);
+    throw new Error(
+      `Broadcast failed: ${broadcastResponse.error} - ${broadcastResponse.reason}`
+    );
   }
 
   advancePendingNonce(account.address, nonce, broadcastResponse.txid);
@@ -280,7 +283,6 @@ export async function callContract(
 
   const networkName = getStacksNetwork(account.network);
   let transaction;
-  let broadcastResponse;
   let nonce;
   try {
     nonce = await getNextNonce(account.address, account.network);
@@ -298,19 +300,23 @@ export async function callContract(
       fee: resolvedFee,
     });
 
-    broadcastResponse = await broadcastTransaction({
-      transaction,
-      network: networkName,
-    });
-
-    if ("error" in broadcastResponse) {
-      throw new Error(
-        `Broadcast failed: ${broadcastResponse.error} - ${broadcastResponse.reason}`
-      );
-    }
   } catch (error) {
     await limiter.release(reservation);
     throw error;
+  }
+
+  // A throw here (timeout, reset) leaves it unknown whether the node took the
+  // transaction, so the booking stands. Only an explicit rejection gives it back.
+  const broadcastResponse = await broadcastTransaction({
+    transaction,
+    network: networkName,
+  });
+
+  if ("error" in broadcastResponse) {
+    await limiter.release(reservation);
+    throw new Error(
+      `Broadcast failed: ${broadcastResponse.error} - ${broadcastResponse.reason}`
+    );
   }
 
   advancePendingNonce(account.address, nonce, broadcastResponse.txid);

@@ -13,6 +13,14 @@ import type { Network } from "../config/networks.js";
 /**
  * UTXO (Unspent Transaction Output) from mempool.space API
  */
+/** mempool.space answered the broadcast with a 4xx: the transaction was refused, not relayed. */
+export class BroadcastRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BroadcastRejectedError";
+  }
+}
+
 export interface UTXO {
   /**
    * Transaction ID containing this UTXO
@@ -291,9 +299,10 @@ export class MempoolApi {
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "Unknown error");
-      throw new Error(
-        `Failed to broadcast transaction: ${response.status} ${response.statusText} - ${errorText}`
-      );
+      const message = `Failed to broadcast transaction: ${response.status} ${response.statusText} - ${errorText}`;
+      // A 4xx is the node refusing the transaction: it was not relayed.
+      if (response.status < 500) throw new BroadcastRejectedError(message);
+      throw new Error(message);
     }
 
     // Response is the txid as plain text

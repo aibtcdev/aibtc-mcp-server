@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import * as btc from "@scure/btc-signer";
 import { hex } from "@scure/base";
+import { BroadcastRejectedError } from "../../src/services/mempool-api.js";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 
 const { reserve, release } = vi.hoisted(() => ({
@@ -122,13 +123,25 @@ describe("meteredBtcBroadcast", () => {
     expect(release).not.toHaveBeenCalled();
   });
 
-  it("gives the booking back when the broadcast fails", async () => {
+  it("gives the booking back when the node rejects the transaction", async () => {
     const api = mempool(ownWpkh.address!);
-    api.broadcastTransaction.mockRejectedValueOnce(new Error("400 bad-txns"));
+    api.broadcastTransaction.mockRejectedValueOnce(
+      new BroadcastRejectedError("Failed to broadcast transaction: 400 - bad-txns")
+    );
     await expect(
       meteredBtcBroadcast(api as never, signedSpend(69_000n), spender, "testnet")
     ).rejects.toThrow("bad-txns");
     expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the booking when the broadcast fails without a rejection", async () => {
+    // A network error leaves it unknown whether the transaction was relayed.
+    const api = mempool(ownWpkh.address!);
+    api.broadcastTransaction.mockRejectedValueOnce(new TypeError("fetch failed"));
+    await expect(
+      meteredBtcBroadcast(api as never, signedSpend(69_000n), spender, "testnet")
+    ).rejects.toThrow("fetch failed");
+    expect(release).not.toHaveBeenCalled();
   });
 
   it("does not broadcast when the limit refuses", async () => {

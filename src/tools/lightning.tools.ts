@@ -406,19 +406,15 @@ export function registerLightningTools(server: McpServer): void {
         // ledger — see SECURITY.md.
         const ledgerKey =
           getWalletManager().getActiveAccount()?.address ?? "__lightning__";
-        const limiter = getSpendLimiter();
-        const reservation = await limiter.reserve(
+        // Booked before paying, and kept even if payInvoice throws: a failed
+        // call does not prove the payment did not route (Spark can settle a
+        // payment and still report no preimage).
+        await getSpendLimiter().reserve(
           [{ unit: "sats", amount: BigInt(amountSats) }],
           ledgerKey
         );
 
-        let result;
-        try {
-          result = await provider.payInvoice(bolt11, maxFeeSats);
-        } catch (error) {
-          await limiter.release(reservation);
-          throw error;
-        }
+        const result = await provider.payInvoice(bolt11, maxFeeSats);
 
         return createJsonResponse({
           success: true,

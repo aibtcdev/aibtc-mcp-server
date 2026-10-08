@@ -340,17 +340,19 @@ class SpendLimiter {
     spends: Array<{ unit: SpendUnit; amount: bigint }>,
     addr: string
   ): Promise<SpendReservation> {
-    const day = todayKey();
     const booked = spends
       .filter((s) => s.amount > 0n)
       .map((s) => ({ unit: s.unit, amount: Number(s.amount) }));
-    if (!isEnabled() || booked.length === 0) return { addr, day, spends: [] };
+    if (!isEnabled() || booked.length === 0) return { addr, day: todayKey(), spends: [] };
 
     const totals: DayLedger = { ustx: 0, sats: 0 };
     for (const { unit, amount } of booked) totals[unit] += amount;
 
     const run = await this.serialized(() =>
       withSharedStateLock(this.stateFile, async () => {
+        // Read the day under the lease: waiting for it can cross UTC midnight,
+        // and pruning against a stale day would delete the new one.
+        const day = todayKey();
         const session = this.getSession(addr);
         const state = await this.readState();
         for (const unit of ["ustx", "sats"] as const) {
@@ -389,16 +391,17 @@ class SpendLimiter {
         await this.writeState(state);
         session.ustx += totals.ustx;
         session.sats += totals.sats;
+        return day;
       })
     );
 
     if (!run.held) {
       throw new Error(
         `Spend refused: could not take the spending-limit lock, so the daily cap cannot be ` +
-          `checked safely. ${run.unavailable} Retry once the other payment finishes.`
+          `checked safely: ${run.unavailable}`
       );
     }
-    return { addr, day, spends: booked };
+    return { addr, day: run.value, spends: booked };
   }
 
   /**
@@ -410,6 +413,10 @@ class SpendLimiter {
    * Idempotent: a reservation is given back at most once, so a caller that
    * releases before a fallback and again when that fallback throws does not
    * subtract twice.
+   *
+   * Never throws. Callers release on their way to rethrowing the real failure
+   * or into a fallback; a ledger write error here must not replace either.
+   * Failing to give budget back only over-counts.
    */
   async release(reservation: SpendReservation): Promise<void> {
     if (reservation.spends.length === 0) return;
@@ -418,20 +425,30 @@ class SpendLimiter {
     for (const { unit, amount } of reservation.spends) totals[unit] += amount;
     reservation.spends = [];
 
-    const run = await this.serialized(() =>
-      withSharedStateLock(this.stateFile, async () => {
-        const state = await this.readState();
-        const ledger = state[addr]?.[day];
-        if (ledger) {
-          ledger.ustx = Math.max(0, ledger.ustx - totals.ustx);
-          ledger.sats = Math.max(0, ledger.sats - totals.sats);
-          await this.writeState(state);
-        }
-        const session = this.getSession(addr);
-        session.ustx = Math.max(0, session.ustx - totals.ustx);
-        session.sats = Math.max(0, session.sats - totals.sats);
-      })
-    );
+    let run;
+    try {
+      run = await this.serialized(() =>
+        withSharedStateLock(this.stateFile, async () => {
+          const state = await this.readState();
+          const ledger = state[addr]?.[day];
+          if (ledger) {
+            ledger.ustx = Math.max(0, ledger.ustx - totals.ustx);
+            ledger.sats = Math.max(0, ledger.sats - totals.sats);
+            await this.writeState(state);
+          }
+          const session = this.getSession(addr);
+          session.ustx = Math.max(0, session.ustx - totals.ustx);
+          session.sats = Math.max(0, session.sats - totals.sats);
+        })
+      );
+    } catch (error) {
+      console.error(
+        `[spend-limit] Could not release ${totals.ustx} uSTX / ${totals.sats} sats for ${addr}: ` +
+          `${error instanceof Error ? error.message : String(error)}. The day total stays ` +
+          `over-counted by that amount.`
+      );
+      return;
+    }
 
     if (!run.held) {
       console.error(

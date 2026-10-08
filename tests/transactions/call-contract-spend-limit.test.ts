@@ -5,11 +5,12 @@ import { MAINNET_CONTRACTS, TESTNET_CONTRACTS } from "../../src/config/contracts
 const FEE = 3_000n;
 const RESERVATION = { addr: "reservation", day: "today", spends: [] };
 
-const { reserve, release, makeContractCall, makeSTXTokenTransfer } = vi.hoisted(() => ({
+const { reserve, release, makeContractCall, makeSTXTokenTransfer, broadcastTransaction } = vi.hoisted(() => ({
   reserve: vi.fn(async () => RESERVATION),
   release: vi.fn(async () => {}),
   makeContractCall: vi.fn(),
   makeSTXTokenTransfer: vi.fn(),
+  broadcastTransaction: vi.fn(),
 }));
 
 vi.mock("../../src/services/spend-limiter.js", async (importOriginal) => {
@@ -20,7 +21,7 @@ vi.mock("../../src/services/spend-limiter.js", async (importOriginal) => {
 
 vi.mock("@stacks/transactions", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@stacks/transactions")>();
-  return { ...actual, makeContractCall, makeSTXTokenTransfer };
+  return { ...actual, makeContractCall, makeSTXTokenTransfer, broadcastTransaction };
 });
 
 vi.mock("../../src/utils/fee.js", async (importOriginal) => {
@@ -59,6 +60,7 @@ beforeEach(() => {
   release.mockClear();
   makeContractCall.mockReset();
   makeSTXTokenTransfer.mockReset();
+  broadcastTransaction.mockReset();
 });
 
 async function call(
@@ -192,6 +194,27 @@ describe("transferStx spend metering", () => {
     );
     expect(reserve).toHaveBeenCalledWith([{ unit: "ustx", amount: 1_000_000n + FEE }], ADDRESS);
     expect(makeSTXTokenTransfer).not.toHaveBeenCalled();
+  });
+});
+
+describe("a failed broadcast", () => {
+  async function transfer() {
+    makeSTXTokenTransfer.mockResolvedValueOnce({ serialize: () => "00" });
+    const { transferStx } = await import("../../src/transactions/builder.js");
+    return transferStx(account, ADDRESS, 1_000n);
+  }
+
+  it("gives the booking back when the node rejects the transaction", async () => {
+    broadcastTransaction.mockResolvedValueOnce({ error: "rejected", reason: "BadNonce" });
+    await expect(transfer()).rejects.toThrow("BadNonce");
+    expect(release).toHaveBeenCalledWith(RESERVATION);
+  });
+
+  it("keeps the booking when the broadcast call itself throws", async () => {
+    // A timeout or reset leaves it unknown whether the node took it.
+    broadcastTransaction.mockRejectedValueOnce(new Error("socket hang up"));
+    await expect(transfer()).rejects.toThrow("socket hang up");
+    expect(release).not.toHaveBeenCalled();
   });
 });
 

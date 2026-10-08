@@ -116,13 +116,16 @@ describe("lightning_pay_invoice spending limit (#572)", () => {
     expect(mockRelease).not.toHaveBeenCalled();
   });
 
-  it("gives the booking back when the payment fails", async () => {
+  it("keeps the booking when the payment throws", async () => {
+    // A failed payInvoice does not prove the payment did not route: Spark can
+    // settle it and still report no preimage.
     mockDecode.mockReturnValue(amountSections("2500000"));
-    mockPayInvoice.mockRejectedValueOnce(new Error("no route"));
+    mockPayInvoice.mockRejectedValueOnce(new Error("did not return a preimage"));
 
     const res = await payTool.handler({ bolt11: INVOICE_2500_SATS });
     expect(res.isError).toBe(true);
-    expect(mockRelease).toHaveBeenCalledOnce();
+    expect(mockReserve).toHaveBeenCalledOnce();
+    expect(mockRelease).not.toHaveBeenCalled();
   });
 
   it("blocks an over-budget pay and never calls payInvoice", async () => {
