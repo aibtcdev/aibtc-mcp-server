@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.75.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.75.0...mcp-server-v1.75.1) (2026-10-08)
+
+
+### Bug Fixes
+
+* **inbox:** sign self-paid inbox payments with the sbtc_transfer fee clamp ([#708](https://github.com/aibtcdev/aibtc-mcp-server/issues/708)) ([e48e30d](https://github.com/aibtcdev/aibtc-mcp-server/commit/e48e30da4939d54f397e24b599261c0a47eec779)), closes [#700](https://github.com/aibtcdev/aibtc-mcp-server/issues/700)
+* sbtc_transfer uses its own fee tier; At Stake legions join the legion group ([#707](https://github.com/aibtcdev/aibtc-mcp-server/issues/707)) ([b74f575](https://github.com/aibtcdev/aibtc-mcp-server/commit/b74f5750306de677aa22c92f9009d83e375f6ceb)), closes [#704](https://github.com/aibtcdev/aibtc-mcp-server/issues/704) [#695](https://github.com/aibtcdev/aibtc-mcp-server/issues/695)
+* **spend-limit:** book spends before signing so the daily cap holds across processes ([#712](https://github.com/aibtcdev/aibtc-mcp-server/issues/712)) ([6aa48d9](https://github.com/aibtcdev/aibtc-mcp-server/commit/6aa48d989815adb0651284410ee34557d9f4a2fb))
+* **yield-dashboard:** drop hardcoded APYs, fix Zest reserve decoding ([#684](https://github.com/aibtcdev/aibtc-mcp-server/issues/684)) ([51ea731](https://github.com/aibtcdev/aibtc-mcp-server/commit/51ea731e0a75c4c6c47ac6d4f4a9059cae8143b0)), closes [#678](https://github.com/aibtcdev/aibtc-mcp-server/issues/678)
+
 ## [1.75.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.74.0...mcp-server-v1.75.0) (2026-10-05)
 
 
