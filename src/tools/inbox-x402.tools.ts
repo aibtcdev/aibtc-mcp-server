@@ -8,7 +8,7 @@ import {
   X402_HEADERS,
   type StacksAccount,
 } from "x402-stacks";
-import { getAccount, NETWORK } from "../services/x402.service.js";
+import { createApiClient, getAccount, NETWORK } from "../services/x402.service.js";
 import { getSpendLimiter } from "../services/spend-limiter.js";
 import { getSbtcService } from "../services/sbtc.service.js";
 import { getHiroApi } from "../services/hiro-api.js";
@@ -88,14 +88,16 @@ export async function checkDirectInboxBalance(
 }
 
 /**
- * x402 inbox messaging via the `x402-stacks` client interceptor
- * (`wrapAxiosWithPayment`). The transaction is signed but not broadcast; the
+ * x402 inbox messaging. The transaction is signed but not broadcast; the
  * inbox endpoint settles it through its x402 facilitator.
  *
  * The inbox decides who pays gas. When its 402 advertises `extra.feePayer`,
- * x402-stacks (>=2.1.0) signs a sponsored sBTC transfer with fee 0 and the
- * facilitator co-signs and pays the STX gas. Without it, the SDK signs a
- * standard transfer and the sender pays its own gas.
+ * the `x402-stacks` interceptor (`wrapAxiosWithPayment`, >=2.1.0) signs a
+ * sponsored sBTC transfer with fee 0 and the facilitator co-signs and pays the
+ * STX gas. Without it, the payment goes through `createApiClient`, which signs
+ * a standard transfer at the `sbtc_transfer` fee clamp (max 0.003 STX) with an
+ * exact-amount post-condition. The SDK's standard path leaves the fee to
+ * stacks.js auto-estimation, which has no ceiling (#700).
  *
  * Server side: `lib/inbox/x402-verify.ts` deserializes the payment tx and
  * branches on `tx.auth.authType` (sponsored → relay sponsors; standard →
@@ -188,32 +190,39 @@ export function registerInboxX402Tools(server: McpServer): void {
         // realistic STX gas budget when the sender pays its own fee.
         await checkDirectInboxBalance(account.address, accept.amount, sponsored);
 
-        // The message cost is a signed sBTC spend: meter it before signing.
-        const spendLimiter = getSpendLimiter();
-        await spendLimiter.check("sats", BigInt(accept.amount), account.address);
+        // Step 3: Send. Either interceptor handles 402 -> sign -> retry.
+        let response;
+        if (sponsored) {
+          // The message cost is a signed sBTC spend: meter it before signing.
+          const spendLimiter = getSpendLimiter();
+          await spendLimiter.check("sats", BigInt(accept.amount), account.address);
 
-        // Step 3: Build a payment-enabled axios client. wrapAxiosWithPayment
-        // installs the x402-stacks interceptor: on a 402 it signs the sBTC
-        // transfer (sponsored or standard, per `extra.feePayer`) and retries
-        // with the payment-signature header.
-        const stacksAccount: StacksAccount = {
-          address: account.address,
-          privateKey: account.privateKey,
-          network: NETWORK,
-        };
-        const api = wrapAxiosWithPayment(
-          axios.create({ timeout: 120_000 }),
-          stacksAccount
-        );
+          const stacksAccount: StacksAccount = {
+            address: account.address,
+            privateKey: account.privateKey,
+            network: NETWORK,
+          };
+          const api = wrapAxiosWithPayment(
+            axios.create({ timeout: 120_000 }),
+            stacksAccount
+          );
+          response = await api.post(inboxUrl, body, {
+            headers: { "Content-Type": "application/json" },
+          });
 
-        // Step 4: Send. The interceptor handles 402 -> sign -> retry.
-        const response = await api.post(inboxUrl, body, {
-          headers: { "Content-Type": "application/json" },
-        });
+          await spendLimiter.record("sats", BigInt(accept.amount), account.address);
+        } else {
+          // Self-paid: createApiClient clamps the fee and meters the spend.
+          const api = await createApiClient(INBOX_BASE, {
+            toolName: "send_inbox_message_direct",
+            asset: accept.asset,
+          });
+          response = await api.post(inboxUrl, body, {
+            headers: { "Content-Type": "application/json" },
+          });
+        }
 
-        await spendLimiter.record("sats", BigInt(accept.amount), account.address);
-
-        // Step 5: Decode the settlement (txid + payer) from the response header.
+        // Step 4: Decode the settlement (txid + payer) from the response header.
         const settlement = decodePaymentResponse(
           response.headers[X402_HEADERS.PAYMENT_RESPONSE]
         );
