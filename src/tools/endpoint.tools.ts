@@ -434,9 +434,8 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
           toolName: "execute_x402_endpoint",
           asset,
           onBeforePayment: async (requirements) => {
-            // Non-sponsored: sender pays its own gas, so validate STX for the
-            // fee too (sponsored=false is the default, passed explicitly here).
-            await checkSufficientBalance(requirements.account, requirements.amount, requirements.asset, false);
+            // Self-paid payments also need STX for the fee; sponsored ones don't.
+            await checkSufficientBalance(requirements.account, requirements.amount, requirements.asset, requirements.sponsored);
           },
         });
         const response = await api.request({ method, url: parsed.requestPath, params, data });

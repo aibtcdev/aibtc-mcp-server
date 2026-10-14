@@ -28,7 +28,7 @@ vi.mock("../../src/services/wallet-manager.js", () => ({
 
 const { createApiClient } = await import("../../src/services/x402.service.js");
 
-function respond402(asset: string, amount: string) {
+function respond402(asset: string, amount: string, extra?: Record<string, unknown>) {
   const paymentRequired = {
     x402Version: 2,
     resource: { url: "https://x402.test.com/paid" },
@@ -40,6 +40,7 @@ function respond402(asset: string, amount: string) {
         asset,
         payTo: "SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7",
         maxTimeoutSeconds: 300,
+        ...(extra ? { extra } : {}),
       },
     ],
   };
@@ -91,6 +92,21 @@ describe("x402 auto-payment metering (#713)", () => {
         { unit: "ustx", amount: 1000n },
         { unit: "ustx", amount: 180n },
       ],
+      "SP000000000000000000002Q6VF78"
+    );
+  });
+
+  it("books no STX fee when the endpoint sponsors gas", async () => {
+    const client = await createApiClient("https://x402.test.com");
+    client.defaults.adapter = respond402(
+      "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token",
+      "100",
+      { sponsored: true }
+    ) as never;
+
+    await expect(client.get("/paid")).rejects.toThrow("stop at the rail");
+    expect(reserve).toHaveBeenCalledWith(
+      [{ unit: "sats", amount: 100n }],
       "SP000000000000000000002Q6VF78"
     );
   });

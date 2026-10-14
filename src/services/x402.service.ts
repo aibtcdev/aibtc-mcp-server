@@ -483,6 +483,8 @@ export interface PaymentRequirements {
   recipient: string;
   network: string;
   account: Account;
+  /** True when the endpoint advertised `extra.sponsored` — the relay pays the STX fee. */
+  sponsored: boolean;
 }
 
 /**
@@ -892,6 +894,10 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           );
         }
 
+        // The endpoint offers gas sponsorship: sign with `sponsored: true, fee: 0`
+        // and its relay co-signs and pays the STX fee at settlement.
+        const sponsored = selectedOption.extra?.sponsored === true;
+
         // Invoke pre-payment callback (e.g. balance check) before signing/broadcasting.
         // If the callback throws, the payment is aborted and the error propagates to the caller.
         if (options?.onBeforePayment) {
@@ -901,34 +907,32 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
             recipient: selectedOption.payTo,
             network: paymentNetwork ?? acct.network,
             account: acct,
+            sponsored,
           });
         }
 
         // Clamped fee — do NOT let @stacks auto-estimate, since Hiro's
         // contract_call tiers are polluted by outliers (observed >2000 STX).
         // The sbtc_transfer clamp caps it at 0.003 STX.
-        const fee = await resolveDefaultFee(
-          acct.network,
-          isSbtc ? "sbtc_transfer" : "token_transfer"
-        );
+        const fee = sponsored
+          ? 0n
+          : await resolveDefaultFee(acct.network, isSbtc ? "sbtc_transfer" : "token_transfer");
 
         // Cumulative spending limit: the per-payment cap above bounds a single
         // 402, but a malicious endpoint can loop sub-cap payments. This blocks
-        // once the session/day total would be exceeded. The sender pays the
-        // fee, so it is booked in ustx alongside the amount.
+        // once the session/day total would be exceeded. A self-paying sender
+        // pays the fee, so it is booked in ustx alongside the amount.
         reservation = await getSpendLimiter().reserve(
           [
             { unit: isSbtc ? "sats" : "ustx", amount },
-            { unit: "ustx", amount: fee },
+            ...(sponsored ? [] : [{ unit: "ustx" as const, amount: fee }]),
           ],
           acct.address
         );
 
-        // Build a non-sponsored signed transaction: the sender pays its own
-        // STX gas (fee + nonce auto-estimated by @stacks), and the x402
-        // facilitator simply verifies and broadcasts it. No relay sponsorship
-        // — this is the same tx shape the x402-stacks lib produces, and the
-        // balance check in onBeforePayment already accounts for the gas.
+        // Build the signed transaction. Self-paid: the sender pays its own STX
+        // gas and the facilitator verifies and broadcasts it. Sponsored: the
+        // sponsor slot is left empty for the endpoint's relay to fill.
         const networkName = getStacksNetwork(acct.network);
 
         const memo = paymentIdMemo(selectedOption.extra);
@@ -961,6 +965,7 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
                 .ft(contracts.SBTC_TOKEN as `${string}.${string}`, "sbtc-token"),
             ],
             fee,
+            sponsored,
           });
         } else {
           transaction = await makeSTXTokenTransfer({
@@ -970,6 +975,7 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
             network: networkName,
             memo: memo ?? "",
             fee,
+            sponsored,
           });
         }
 
