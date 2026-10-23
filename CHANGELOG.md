@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.76.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.76.0...mcp-server-v1.76.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* **inference:** send pricePerRequest and acceptedToken to the marketplace gateway ([#722](https://github.com/aibtcdev/aibtc-mcp-server/issues/722)) ([f48de19](https://github.com/aibtcdev/aibtc-mcp-server/commit/f48de19d80495de08200c37c48426d80bd4573ec)), closes [#721](https://github.com/aibtcdev/aibtc-mcp-server/issues/721)
+
 ## [1.76.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.75.0...mcp-server-v1.76.0) (2026-10-14)
 
 
