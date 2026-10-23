@@ -33,22 +33,19 @@ npm start         # Run compiled server
 
 ## Publishing & Releases
 
-**After major changes or version updates, publish a new release:**
+Releases are cut by [release-please](https://github.com/googleapis/release-please) (`.github/workflows/release-please.yml`). Don't run `npm version` or push tags by hand.
 
-```bash
-npm version patch   # or minor/major depending on changes
-git push && git push --tags
-```
+1. Merge PRs to `main` with [Conventional Commit](https://www.conventionalcommits.org) titles (they're squash-merged, so the PR title is the commit).
+2. release-please opens or updates a `chore(main): release mcp-server X.Y.Z` PR. It bumps `package.json`, `package-lock.json`, `server.json`, `skill/SKILL.md` and `.release-please-manifest.json`, and writes `CHANGELOG.md`.
+3. To release, merge that PR. The workflow then tags `mcp-server-vX.Y.Z`, creates the GitHub release, and publishes to npm.
 
-This triggers GitHub Actions to automatically:
-1. Build the project
-2. Publish to npm
-3. Create a GitHub release with changelog
+The commit type picks the version bump:
+- `fix:` → patch (2.6.0 → 2.6.1)
+- `feat:` → minor (2.6.0 → 2.7.0)
+- `feat!:` / `BREAKING CHANGE:` footer → major (2.6.0 → 3.0.0)
+- `chore:`, `docs:`, `ci:`, `test:` → no release on their own
 
-**Version Guidelines:**
-- `patch` (2.6.0 → 2.6.1): Bug fixes, CI changes, docs
-- `minor` (2.6.0 → 2.7.0): New features, new tools
-- `major` (2.6.0 → 3.0.0): Breaking changes
+To republish the current version without a new release, run the workflow manually from `main` with `publish_existing`.
 
 ## Code Principles
 
