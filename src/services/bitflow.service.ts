@@ -113,6 +113,7 @@ export class BitflowService {
         BITFLOW_PROVIDER_ADDRESS: config.providerAddress,
         READONLY_CALL_API_KEY: "",
         KEEPER_API_HOST: config.keeperApiHost,
+        ...(config.keeperApiKey && { KEEPER_API_KEY: config.keeperApiKey }),
       });
     } catch (error) {
       console.error("Failed to initialize Bitflow SDK:", error);

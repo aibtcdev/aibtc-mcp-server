@@ -244,6 +244,8 @@ export interface BitflowConfig {
   apiHost: string;
   readOnlyCallApiHost: string;
   keeperApiHost: string;
+  /** Optional Keeper API key (`BITFLOW_KEEPER_API_KEY`), sent by the SDK as `x-api-key`. */
+  keeperApiKey?: string;
   providerAddress: string;
 }
 
@@ -285,6 +287,7 @@ export function getBitflowConfig(): BitflowConfig {
     apiHost: BITFLOW_PUBLIC_API,
     readOnlyCallApiHost: BITFLOW_READONLY_HOST,
     keeperApiHost: process.env.BITFLOW_KEEPER_API_HOST || BITFLOW_KEEPER_HOST,
+    keeperApiKey: process.env.BITFLOW_KEEPER_API_KEY || undefined,
     providerAddress: BITFLOW_PROVIDER_ADDRESS,
   };
 }
