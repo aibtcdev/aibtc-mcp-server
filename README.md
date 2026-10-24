@@ -583,6 +583,7 @@ Or use any SIP-010 token by contract ID: `SP2X...::token-name`
 | `AIBTC_TOOLS` | `core`, `core,<group,...>`, or `all` (see [Tool Profiles](#tool-profiles)). `--install` writes `core` | all tools when unset |
 | `CLIENT_MNEMONIC` | (Optional) Pre-configured mnemonic | - |
 | `HIRO_API_KEY` | (Optional) Hiro API key for higher rate limits | - |
+| `BITFLOW_KEEPER_API_HOST` | (Optional) Bitflow Keeper API host used by the keeper order tools | `https://keeper.bitflowapis.finance` |
 | `SPEND_LIMIT_ENABLED` | Set `false` to disable the wallet spending limit | `true` |
 | `SPEND_LIMIT_DAILY_USTX` / `SPEND_LIMIT_SESSION_USTX` | STX spend cap per day / per unlock (micro-STX) | `50000000` (50 STX) |
 | `SPEND_LIMIT_DAILY_SATS` / `SPEND_LIMIT_SESSION_SATS` | BTC spend cap per day / per unlock (sats) | `50000` |

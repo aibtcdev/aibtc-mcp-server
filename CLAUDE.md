@@ -140,6 +140,7 @@ The server never reads a `.env` file: it would load the `.env` of whatever proje
 - `NETWORK` - "mainnet" or "testnet" (default: mainnet)
 - `AIBTC_TOOLS` - `core` (lean set, written by `--install`), `core,<group,...>`, or `all`. Unset loads everything so pre-profile configs keep their tools; `--profile full` = `all`, `--profile lean` = `core`
 - `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` - Only used by the `bridge` subcommand (drive tools via an OpenRouter model)
+- `BITFLOW_KEEPER_API_HOST` - Bitflow Keeper API host for the keeper order tools (default: `https://keeper.bitflowapis.finance`)
 - `SPEND_LIMIT_ENABLED` - Wallet spending limit on/off (default: true)
 - `SPEND_LIMIT_DAILY_USTX` / `SPEND_LIMIT_SESSION_USTX` - STX spend cap per day / per unlock in micro-STX (default: 50000000 = 50 STX)
 - `SPEND_LIMIT_DAILY_SATS` / `SPEND_LIMIT_SESSION_SATS` - BTC spend cap per day / per unlock in sats (default: 50000)

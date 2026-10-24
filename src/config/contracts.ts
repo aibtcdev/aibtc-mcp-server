@@ -244,6 +244,8 @@ export interface BitflowConfig {
   apiHost: string;
   readOnlyCallApiHost: string;
   keeperApiHost: string;
+  /** Optional Keeper API key (`BITFLOW_KEEPER_API_KEY`), sent by the SDK as `x-api-key`. */
+  keeperApiKey?: string;
   providerAddress: string;
 }
 
@@ -263,10 +265,10 @@ export const BITFLOW_PUBLIC_API = "https://bitflow-sdk-api-gateway-7owjsmt8.uc.g
 export const BITFLOW_READONLY_HOST = "https://api.hiro.so";
 
 /**
- * Keeper API host for automated swap orders.
- * Per Bitflow SDK docs.
+ * Default Keeper API host for automated swap orders: Bitflow's production keeper
+ * (the same default as aibtcdev/skills). Override with `BITFLOW_KEEPER_API_HOST`.
  */
-export const BITFLOW_KEEPER_HOST = "https://bitflow-keeper-test-7owjsmt8.uc.gateway.dev";
+export const BITFLOW_KEEPER_HOST = "https://keeper.bitflowapis.finance";
 
 /**
  * AIBTC provider address tagged onto every Bitflow swap. The SDK injects this
@@ -284,7 +286,8 @@ export function getBitflowConfig(): BitflowConfig {
   return {
     apiHost: BITFLOW_PUBLIC_API,
     readOnlyCallApiHost: BITFLOW_READONLY_HOST,
-    keeperApiHost: BITFLOW_KEEPER_HOST,
+    keeperApiHost: process.env.BITFLOW_KEEPER_API_HOST || BITFLOW_KEEPER_HOST,
+    keeperApiKey: process.env.BITFLOW_KEEPER_API_KEY || undefined,
     providerAddress: BITFLOW_PROVIDER_ADDRESS,
   };
 }
