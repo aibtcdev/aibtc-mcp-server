@@ -1,0 +1,57 @@
+# gitleaks config for aibtc-mcp — used by the CI secret-scan backstop and by
+# the local pre-commit hook when gitleaks is installed.
+#
+# Wallet-secret rules are ANCHORED to a key/identifier (mnemonic =, secretKey:,
+# CLIENT_MNEMONIC=...). An unanchored "12 lowercase words" match is far too noisy
+# in a codebase full of comments and UI strings — it fires on ordinary prose like
+# "both success and error responses". Anchoring keeps precision high.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "mnemonic-assignment"
+# Case-insensitivity is scoped to the identifier via (?i:...) — the BIP-39
+# wordlist is exclusively lowercase, so a global (?i) would match Title-Case
+# prose ("The Quick Brown Fox ...") and false-positive.
+description = "Seed phrase assigned to a mnemonic/seed/secret identifier"
+regex = '''(?i:client[_-]?mnemonic|mnemonic|seed[_-]?phrase|recovery[_-]?phrase|secret[_-]?key)["']?\s*[:=]\s*["']([a-z]+\s+){11,23}[a-z]+["']'''
+tags = ["mnemonic", "wallet"]
+
+[[rules]]
+id = "bip32-xprv"
+description = "BIP32 extended private key"
+regex = '''(xprv|yprv|zprv|tprv)[0-9A-Za-z]{50,}'''
+tags = ["privatekey", "wallet"]
+
+[[rules]]
+id = "named-secp256k1-privkey"
+description = "Named private key with a 64/66-char hex value"
+regex = '''(?i)(priv(ate)?[_-]?key|stxprivatekey|wif)["']?\s*[:=]\s*["']?[0-9a-f]{64,66}'''
+tags = ["privatekey", "wallet"]
+
+[[rules]]
+id = "wif-privkey"
+# WIF (base58, ~52 chars: mainnet 5/K/L, testnet c) is the default export for
+# many Bitcoin tools and would slip past the hex-only rule above.
+description = "Named private key in WIF (base58) format"
+regex = '''(?i:priv(ate)?[_-]?key|wif)["']?\s*[:=]\s*["']?[5KLc][1-9A-HJ-NP-Za-km-z]{50,51}'''
+tags = ["privatekey", "wallet"]
+
+[allowlist]
+description = "Placeholders, public addresses, and deterministic test vectors"
+paths = [
+  '''\.env\.example$''',
+  '''\.md$''',
+  '''(^|/)dist/''',
+  # Test fixtures use well-known public BIP-39 vectors (e.g. the canonical
+  # "abandon abandon ... about" seed) — deterministic test data, zero value.
+  '''(^|/)tests?/''',
+  '''\.test\.[tj]s$''',
+  '''\.spec\.[tj]s$''',
+]
+regexes = [
+  # Public Stacks addresses / contract principals (uppercase Crockford base32).
+  # Covers all c32 version prefixes: SP/SM mainnet, ST/SN testnet. Not secrets;
+  # the default generic-api-key rule mis-flags them.
+  '''S[PMTN][0-9A-HJKMNP-Z]{37,40}''',
+]

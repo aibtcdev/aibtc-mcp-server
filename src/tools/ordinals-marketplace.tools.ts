@@ -17,7 +17,7 @@
  * Magic Eden API docs: https://api-mainnet.magiceden.dev/swagger
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { NETWORK } from "../config/networks.js";
 import { getWalletManager } from "../services/wallet-manager.js";
@@ -101,7 +101,7 @@ Examples:
 - Browse all listings: ordinals_get_listings {}
 - Filter by collection: ordinals_get_listings { collection: "nodemonkes" }
 - Price range: ordinals_get_listings { minPriceSats: 100000, maxPriceSats: 1000000 }`,
-      inputSchema: {
+      inputSchema: z.object({
         collection: z
           .string()
           .optional()
@@ -138,7 +138,7 @@ Examples:
           .optional()
           .default("recentlyListed")
           .describe("Sort order: priceAsc, priceDesc, or recentlyListed (default)"),
-      },
+      }),
     },
     async ({ collection, minPriceSats, maxPriceSats, limit, offset, sortBy }) => {
       try {
@@ -199,7 +199,7 @@ Steps:
 3. Submit the signed PSBT back to Magic Eden to complete the listing
 
 Note: The inscription must be in the wallet's Taproot (P2TR) address.`,
-      inputSchema: {
+      inputSchema: z.object({
         inscriptionId: z
           .string()
           .describe("Inscription ID in txid+index format, e.g. abc123...i0"),
@@ -212,7 +212,7 @@ Note: The inscription must be in the wallet's Taproot (P2TR) address.`,
           .string()
           .optional()
           .describe("BTC address to receive payment (defaults to wallet's Taproot address)"),
-      },
+      }),
     },
     async ({ inscriptionId, priceSats, receiverAddress }) => {
       try {
@@ -278,14 +278,14 @@ Steps:
 1. Call ordinals_list_for_sale to get a listing PSBT
 2. Sign the PSBT using psbt_sign
 3. Call this tool with the signed PSBT to publish the listing`,
-      inputSchema: {
+      inputSchema: z.object({
         inscriptionId: z
           .string()
           .describe("The inscription ID being listed"),
         signedPsbt: z
           .string()
           .describe("The signed PSBT in base64 format returned by psbt_sign"),
-      },
+      }),
     },
     async ({ inscriptionId, signedPsbt }) => {
       try {
@@ -328,7 +328,7 @@ Steps:
 2. Call ordinals_buy with the inscriptionId and desired buyer address
 3. Sign the returned PSBT using psbt_sign
 4. Broadcast using psbt_broadcast`,
-      inputSchema: {
+      inputSchema: z.object({
         inscriptionId: z
           .string()
           .describe("Inscription ID to purchase, e.g. abc123...i0"),
@@ -349,7 +349,7 @@ Steps:
           .positive()
           .optional()
           .describe("Fee rate in sat/vB (optional, uses network default if omitted)"),
-      },
+      }),
     },
     async ({ inscriptionId, buyerAddress, buyerPaymentAddress, feeRate }) => {
       try {
@@ -441,7 +441,7 @@ Steps:
 1. Call this tool with the inscriptionId you want to delist
 2. Sign the returned PSBT using psbt_sign
 3. Broadcast using psbt_broadcast to finalize the cancellation`,
-      inputSchema: {
+      inputSchema: z.object({
         inscriptionId: z
           .string()
           .describe("Inscription ID of the active listing to cancel, e.g. abc123...i0"),
@@ -451,7 +451,7 @@ Steps:
           .describe(
             "BTC Taproot address that owns the listing (defaults to wallet's Taproot address)"
           ),
-      },
+      }),
     },
     async ({ inscriptionId, sellerAddress }) => {
       try {

@@ -4,7 +4,7 @@
  * Tools for checking sponsor relay health and diagnosing nonce issues
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { checkRelayHealth, formatRelayHealthStatus, attemptRbf, attemptFillGaps } from "../utils/relay-health.js";
@@ -28,7 +28,7 @@ Use this tool for operator diagnostics around relay-owned sponsor state. It will
 
 This tool does not redefine caller-facing x402 payment states. Use paymentId
 polling for payment lifecycle truth; use this output only as backup diagnostics.`,
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -67,7 +67,7 @@ Recovery modes:
 If the relay does not yet support relay endpoints it returns a 404 or 501 and this
 tool will respond with a clear message rather than throwing an error. In that case,
 share the txids and nonces from check_relay_health with the AIBTC team.`,
-      inputSchema: {
+      inputSchema: z.object({
         action: z
           .enum(["rbf", "fill-gaps", "both", "resync-local-nonce"])
           .default("both")
@@ -80,7 +80,7 @@ share the txids and nonces from check_relay_health with the AIBTC team.`,
           .array(z.number().int().nonnegative())
           .optional()
           .describe("Specific missing nonces for gap-fill (omit to fill all detected gaps)"),
-      },
+      }),
     },
     async ({ action = "both", txids, nonces }) => {
       try {

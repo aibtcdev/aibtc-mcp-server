@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { getAccount, getWalletAddress, NETWORK } from "../services/x402.service.js";
 import { getBitflowService, type BitflowService } from "../services/bitflow.service.js";
@@ -244,7 +244,7 @@ Returns price, volume, and liquidity data for all trading pairs.
 This endpoint does NOT require an API key.
 
 Note: Bitflow is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         baseCurrency: z
           .string()
           .optional()
@@ -253,7 +253,7 @@ Note: Bitflow is only available on mainnet.`,
           .string()
           .optional()
           .describe("Optional: filter by target currency contract ID"),
-      },
+      }),
     },
     async ({ baseCurrency, targetCurrency }) => {
       try {
@@ -309,7 +309,7 @@ Returns the list of tokens that can be swapped on Bitflow DEX.
 No API key required — uses public endpoints (500 req/min).
 
 Note: Bitflow is only available on mainnet.`,
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -344,9 +344,9 @@ Returns all tokens that can be received when swapping from the specified token.
 No API key required — uses public endpoints (500 req/min).
 
 Note: Bitflow is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         tokenId: z.string().describe("The input token ID (contract address)"),
-      },
+      }),
     },
     async ({ tokenId }) => {
       try {
@@ -382,7 +382,7 @@ Returns the expected output amount and best route for swapping tokens.
 No API key required — uses public endpoints (500 req/min).
 
 Note: Bitflow is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         tokenX: z.string().describe("Input token ID (e.g. 'token-stx', 'token-sbtc')"),
         tokenY: z.string().describe("Output token ID (e.g. 'token-sbtc', 'token-aeusdc')"),
         amountIn: z
@@ -391,7 +391,7 @@ Note: Bitflow is only available on mainnet.`,
         amountUnit: z
           .enum(["human", "base"])
           .describe("Required. Amount units: 'human' (frontend-style decimal, e.g. '2' for 2 STX) or 'base' (smallest integer units, e.g. '2000000' for 2 STX)."),
-      },
+      }),
     },
     async ({ tokenX, tokenY, amountIn, amountUnit }) => {
       try {
@@ -450,10 +450,10 @@ including multi-hop routes through intermediate tokens.
 No API key required — uses public endpoints (500 req/min).
 
 Note: Bitflow is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         tokenX: z.string().describe("Input token ID (e.g. 'token-stx', 'token-sbtc')"),
         tokenY: z.string().describe("Output token ID (e.g. 'token-sbtc', 'token-aeusdc')"),
-      },
+      }),
     },
     async ({ tokenX, tokenY }) => {
       try {
@@ -495,7 +495,7 @@ No API key required — uses public endpoints (500 req/min).
 Requires an unlocked wallet with sufficient token balance.
 
 Note: Bitflow is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         tokenX: z.string().describe("Input token ID (contract address)"),
         tokenY: z.string().describe("Output token ID (contract address)"),
         amountIn: z
@@ -518,7 +518,7 @@ Note: Bitflow is only available on mainnet.`,
           .optional()
           .default(false)
           .describe("Set true to execute swaps with price impact above 5%"),
-      },
+      }),
     },
     async ({ tokenX, tokenY, amountIn, amountUnit, slippageTolerance, fee, confirmHighImpact }) => {
       try {
@@ -599,12 +599,12 @@ Keeper contracts enable scheduled/automated token swaps.
 No API key required — uses public endpoints (500 req/min).
 
 Note: Bitflow is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         stacksAddress: z
           .string()
           .optional()
           .describe("Stacks address (uses wallet if not specified)"),
-      },
+      }),
     },
     async ({ stacksAddress }) => {
       try {
@@ -642,7 +642,7 @@ Creates a pending order that will be executed by the Keeper service.
 No API key required — uses public endpoints (500 req/min).
 
 Note: Bitflow is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         contractIdentifier: z.string().describe("Keeper contract identifier"),
         actionType: z.string().describe("Action type (e.g., 'SWAP_XYK_SWAP_HELPER')"),
         fundingTokens: z
@@ -658,7 +658,7 @@ Note: Bitflow is only available on mainnet.`,
           .optional()
           .default(true)
           .describe("Auto-adjust minimum received based on market (default true)"),
-      },
+      }),
     },
     async ({ contractIdentifier, actionType, fundingTokens, actionAmount, minReceivedAmount, autoAdjust }) => {
       try {
@@ -711,9 +711,9 @@ Retrieves the status and details of a specific order.
 No API key required — uses public endpoints (500 req/min).
 
 Note: Bitflow is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         orderId: z.string().describe("The order ID to retrieve"),
-      },
+      }),
     },
     async ({ orderId }) => {
       try {
@@ -748,9 +748,9 @@ Cancels a pending order before execution.
 No API key required — uses public endpoints (500 req/min).
 
 Note: Bitflow is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         orderId: z.string().describe("The order ID to cancel"),
-      },
+      }),
     },
     async ({ orderId }) => {
       try {
@@ -786,12 +786,12 @@ Retrieves user's keeper contracts and order history.
 No API key required — uses public endpoints (500 req/min).
 
 Note: Bitflow is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         stacksAddress: z
           .string()
           .optional()
           .describe("Stacks address (uses wallet if not specified)"),
-      },
+      }),
     },
     async ({ stacksAddress }) => {
       try {

@@ -6,8 +6,15 @@ deep documentation that was previously inlined in `CLAUDE.md`; it is kept separa
 
 ## Available Tools
 
+> **Spending limit:** Every STX, sBTC and BTC spend (transfers, contract calls, sponsored
+> transactions, x402/L402 auto-payments, Bitcoin broadcasts and `psbt_sign`) is metered
+> against a default-on cumulative cap (per session + per day, 50 STX / 50,000 sats by
+> default). A spend over the remaining budget is **rejected before it is signed or
+> broadcast**, and the message tells the agent to ask the user, who can raise
+> `SPEND_LIMIT_*` in the server config. See [SECURITY.md](../SECURITY.md#limit-blast-radius).
+
 ### Endpoint Discovery
-- `list_x402_endpoints` - List all available x402 endpoints with search/filter by source, category, or keyword. **Use this first** to discover what actions are available.
+- `list_x402_endpoints` - List all available x402 endpoints with search/filter by source, category, or keyword. **Use this first** to discover what actions are available. x402.aibtc.com and stx402.com are read live from their `openapi.json`; `source: "directory"` lists third-party endpoints registered at stx402.com (verified only unless `includeUnverified: true`). Costs from live specs are tiers — use `probe_x402_endpoint` for the exact price.
 
 ### Wallet & Balance
 - `get_wallet_info` - Get configured wallet address, network, and API URL
@@ -113,6 +120,18 @@ Embedded, self-custodial Lightning wallet backed by the [Spark SDK](https://www.
 
 ### x402 API Endpoints
 - `execute_x402_endpoint` - Execute ANY x402 endpoint URL with automatic payment handling. Can use full URL or path+apiUrl.
+
+**Configuration:**
+- `X402_MAX_USTX_PER_PAYMENT` (optional, default `1000000` = 1 STX): hard cap on the uSTX amount the x402 interceptor will auto-pay per request. Bounds the blast radius if a malicious endpoint demands an arbitrary amount.
+- `X402_MAX_SATS_PER_PAYMENT` (optional, default `10000`): same cap for sBTC payments, in sats.
+- `X402_DEDUP_TTL_SECONDS` (optional, default `900` = 15 minutes): how long an identical `execute_x402_endpoint` request (same method, URL, params and body) is suppressed after a payment is broadcast. Applies whether or not settlement succeeded — a payment that lands on chain but returns an HTTP error has still spent funds, so the retry is blocked and the prior txid returned instead.
+- `X402_DEDUP_STATE_FILE` (optional, default `~/.aibtc/x402-dedup.json`): where the dedup cache is persisted.
+
+Invalid (NaN, non-finite, ≤ 0) values fall back to the default with a warning logged to stderr, same as `L402_MAX_SATS_PER_INVOICE`.
+
+**Duplicate-payment protection:** a repeat of an identical request inside the dedup window returns the earlier txid rather than paying again, with `txid: null` plus a `txidNote` when the original txid was never observable. To make a genuinely separate purchase, vary a parameter or wait out the window. Verify the earlier payment with `get_account_transactions` before forcing a retry — a reported error does not mean the payment failed.
+
+The cache is persisted to disk (`0600`) and reloaded on startup, so the guard survives a server restart — an MCP server restarts routinely, and an in-memory-only cache dropped every entry, letting a retry after a restart pay a second time. Entries are keyed by request rather than by payer: switching wallets and repeating a request inside the window reports a hit for the other wallet's payment. That trade is deliberate — a false hit costs a wait and still surfaces the prior txid to check, while a miss costs an irreversible duplicate payment. Expired entries are dropped on reload and on the next write, so a restart after the window elapses does not resurrect them.
 
 ### x402 Endpoint Scaffolding
 - `scaffold_x402_endpoint` - Generate a complete Cloudflare Worker project with x402 payment integration
@@ -244,6 +263,47 @@ Tools for implementing AI features using OpenRouter in any project:
 3. If needed, Claude searches web for latest OpenRouter API docs
 4. Claude implements the feature using the templates
 
+### Stacking (PoX-5)
+
+PoX-5 replaced pox-4 (mainnet cycle 141). It is not a rename: there is no
+`stack-stx` / `delegate-stx`, and no reward address on the stake itself.
+
+- **Every stake names a signer manager**: a contract implementing pox-5's
+  `signer-manager-trait`. Its `validate-stake!` decides who may join (allowlists,
+  minimums, required calldata). `list_stacking_signers` lists the next cycle's
+  signer set; any registered manager can be staked with by contract id.
+- **Rewards are sBTC paid to the manager**, which pays stakers. For a staker that is
+  `manager.claim-rewards(bond-periods, cycle)` (pull from pox-5, permissionless) then
+  `manager.claim-staker-rewards`. The second step differs per manager, so
+  `claim_stacking_rewards` reads it from the manager's interface:
+  `staker-arg` (reference managers, e.g. Xverse, Fast Pool), `caller` (e.g. native-pool),
+  or `none` (pays off-chain, e.g. PlanBetter — not claimable here).
+- **Payout calldata**: `btcRewardAddress` (+ `maxWithdrawalFeeSats`) encodes
+  `{ pox-addr, max-fee }`, which reference managers use to pay rewards to BTC through
+  an sBTC withdrawal. `signerCalldataHex` passes raw calldata for other formats.
+- **Prepare phase**: `stake`, `stake-update` and `unstake` are refused during the
+  last `prepare-cycle-length` (100) blocks of a cycle; the tools check first.
+- **Post-conditions**: locks are not transfers. `stack_stx` / `extend_stacking` sign a
+  staking post-condition equal to the resulting total lock; `unstake_stx` signs a
+  "performs PoX" condition. Deny mode. Not metered by the spend limit.
+
+| Tool | What it does |
+|------|--------------|
+| `get_pox_info` | Cycle, burn height, next cycle start, prepare phase |
+| `get_stacking_status` | Stake (amount, signer manager, lock, unlock height), bond membership, locked/unlocked STX |
+| `list_stacking_signers` | Signer set for a cycle with delegated STX; `withPayoutInfo` adds each manager's claim path |
+| `stack_stx` | `stake(signerManager, amount, numCycles 1-96)`; lock starts next cycle |
+| `extend_stacking` | `stake-update`: extend cycles, add STX, switch signer manager, change payout calldata |
+| `unstake_stx` | `unstake`: STX unlocks at the start of the next cycle |
+| `get_stacking_rewards` | Unclaimed sats for a cycle, whether the manager still has to pull, claim path |
+| `claim_stacking_rewards` | Pulls for the manager if needed (extra tx), then claims for the staker |
+
+**Pillar Fast Pool:** the Pillar smart wallet contract hardcodes pox-4
+(`pox-4.allow-contract-caller` + `pox4-fast-pool-v3.delegate-stx`, and
+`pox-4.revoke-delegate-stx`), so `pillar_direct_stack_stx` with `pool: "fast-pool"` and
+`pillar_direct_revoke_fast_pool` refuse while pox-4 is not the active PoX contract.
+Stacking DAO via `pillar_direct_stack_stx` is unaffected.
+
 ### DeFi - ALEX DEX (Mainnet Only)
 
 Uses the official `alex-sdk` for swap operations. The SDK handles:
@@ -301,11 +361,9 @@ Uses the official `@bitflowlabs/core-sdk` for swap operations. Bitflow is a DEX 
 **Environment Variables:**
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `BITFLOW_API_KEY` | For SDK features | Bitflow API key (contact Bitflow team to obtain) |
-| `BITFLOW_API_HOST` | For SDK features | Bitflow API host URL |
-| `BITFLOW_READONLY_API_HOST` | Optional | Read-only API host (default: https://api.hiro.so) |
-| `BITFLOW_KEEPER_API_KEY` | For Keeper features | Keeper automation API key |
-| `BITFLOW_KEEPER_API_HOST` | For Keeper features | Keeper API host URL |
+| `BITFLOW_KEEPER_API_HOST` | Optional | Keeper API host (default: https://keeper.bitflowapis.finance) |
+
+All Bitflow endpoints are public; no API key is needed (500 requests/min per IP).
 
 **Contract Addresses:**
 | Network | Primary | XYK Pools |
@@ -313,17 +371,17 @@ Uses the official `@bitflowlabs/core-sdk` for swap operations. Bitflow is a DEX 
 | Mainnet | `SPQC38PW542EQJ5M11CR25P7BS1CA6QT4TBXGB3M` | `SM1793C4R5PZ4NS4VQ4WMP7SKKYVH8JZEWSZ9HCCR` |
 | Testnet | `STRP7MYBHSMFH5EGN3HGX6KNQ7QBHVTBPF1669DW` | N/A |
 
-**Tools (Public - No API Key):**
+**Market data:**
 - `bitflow_get_ticker` - Get market data for all trading pairs (prices, volumes, liquidity)
 
-**Tools (Requires BITFLOW_API_KEY):**
+**Swaps:**
 - `bitflow_get_tokens` - List all available tokens for swapping
 - `bitflow_get_swap_targets` - Get possible swap destinations for a token
 - `bitflow_get_quote` - Get swap quote with expected output
 - `bitflow_get_routes` - Get all available swap routes between tokens
 - `bitflow_swap` - Execute a token swap
 
-**Tools (Requires BITFLOW_KEEPER_API_KEY):**
+**Keeper (automated orders):**
 - `bitflow_get_keeper_contract` - Get or create Keeper contract for automated swaps
 - `bitflow_create_order` - Create automated swap order
 - `bitflow_get_order` - Get order details
@@ -335,92 +393,24 @@ Uses the official `@bitflowlabs/core-sdk` for swap operations. Bitflow is a DEX 
 - `SWAP_XYK_STABLESWAP_SWAP_HELPER` - Combined XYK + StableSwap
 - `SWAP_STABLESWAP_SWAP_HELPER` - StableSwap only
 
-**TODO - Bitflow API Key Integration:**
-- [ ] Contact Bitflow team via Discord to request API keys
-- [ ] Set `BITFLOW_API_KEY` and `BITFLOW_API_HOST` environment variables
-- [ ] Test SDK features (quotes, tokens, swaps)
-- [ ] Optionally configure Keeper API keys for automation features
-- [ ] Move API keys to Cloudflare Worker proxy for secure npm distribution
+### Trading Competition (retired — no tools exposed)
 
-### Trading Competition (Mainnet Only)
+**The competition has concluded and its tools are no longer registered.** Trade
+submission and the contract allowlist were deleted outright; the two read-only tools
+(`competition_status`, `competition_list_trades`) still exist in
+`src/tools/competition.tools.ts` but `registerCompetitionTools` is intentionally not
+called from `src/tools/index.ts`, so the MCP server exposes nothing from this domain.
 
-Tools for the AIBTC trading competition (`aibtc.com/api/competition`). Mainnet only in v1 (no `network` parameter). Backend implementation lives in [landing-page#734](https://github.com/aibtcdev/landing-page/issues/734); tools wire to `AIBTC_CAMPAIGN_API_URL` (default `https://aibtc.com/api/competition`).
+The module is retained because `computeCampaignStats` is the reference implementation of
+the mark-to-current P&L math (`Σ(amount_out × price_out − amount_in × price_in)` over
+successful swaps, priced via Tenero, mirroring
+[`lib/competition/pnl.ts`](https://github.com/aibtcdev/landing-page/blob/main/lib/competition/pnl.ts)).
+Re-expose by restoring the import and call in `src/tools/index.ts`.
 
-#### Prerequisites — two-step registration (both required, both one-time)
+**No allowlist constrains trading.** All DEX tools (`bitflow_*`, `alex_*`, `jingswap_*`,
+`styx_*`, `stacks_market_*`) and lending tools (`zest_*`) are unaffected and trade freely.
 
-1. **aibtc.com website registration** — dual-sig flow (BIP-322 + SIP-018). Not an MCP tool; agents complete it at <https://aibtc.com>.
-2. **ERC-8004 on-chain registration** — call the `identity_register` MCP tool. Mints the on-chain agent NFT that the campaign joins against.
-
-If either is missing, `competition_status` returns `{ registered: false, ... }` or `{ agent_id: null, ... }` — the submitted txids will be rejected with `sender_not_registered` until both steps are done.
-
-#### Allowlisted contracts (what counts as a "trade")
-
-The verifier accepts swaps **only** when the on-chain tx hits an allowlisted `(contract_id, function_name)` tuple. Source of truth: [`lib/competition/allowlist.ts`](https://github.com/aibtcdev/landing-page/blob/main/lib/competition/allowlist.ts) in landing-page. Current scope is **Bitflow only**:
-
-| Protocol family | Deployer | Examples |
-|---|---|---|
-| **Stableswap** (6 pools) | `SPQC38PW542EQJ5M11CR25P7BS1CA6QT4TBXGB3M` | `stableswap-stx-ststx-v-1-2`, `stableswap-usda-susdt-v-1-2`, `stableswap-aeusdc-susdt-v-1-2`, `stableswap-usda-aeusdc-v-1-2/4`, `stableswap-abtc-xbtc-v-1-2` — functions: `swap-x-for-y`, `swap-y-for-x` |
-| **XYK** | `SM1793C4R5PZ4NS4VQ4WMP7SKKYVH8JZEWSZ9HCCR` | `xyk-core-v-1-1` (`swap-x-for-y`, `swap-y-for-x`); `xyk-swap-helper-v-1-3` (`swap-helper-a..e` — accepts the `provider` Clarity arg for AIBTC attribution) |
-| **DLMM router** | `SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD` | `dlmm-swap-router-v-1-1` (`swap-multi`, `swap-simple-multi`, `swap-x-for-y-{same,simple,simple-range}-multi`, `swap-y-for-x-{same,simple,simple-range}-multi`) |
-| **Cross-DEX routers** (13 contracts) | `SPQC38PW542EQJ5M11CR25P7BS1CA6QT4TBXGB3M` | `router-stx-ststx-bitflow-{arkadiko,velar,alex,xyk}-*`, `router-stx-usda-arkadiko-alex-*`, `router-xyk-{arkadiko,velar,alex}-*`, `router-velar-alex-v-1-{1,2}` — most expose `swap-helper-a` + `-b`; the two `router-velar-alex` versions expose `swap-helper-a..p` |
-| **Wrappers** (4 contracts) | `SPQC38PW542EQJ5M11CR25P7BS1CA6QT4TBXGB3M` | `wrapper-velar-v-1-1`, `wrapper-velar-multihop-v-1-1` (`swap-3..5`), `wrapper-alex-v-2-1`, `wrapper-arkadiko-v-1-1` |
-
-**Not yet allowlisted:** ALEX direct, Zest, any non-Bitflow DEX. `alex_swap` / `zest_*` calls will currently land on-chain but be rejected by the verifier as `contract_not_allowlisted`. The allowlist is the single source of truth — `bitflow_swap` is the only MCP path that's guaranteed to produce a scoring trade today.
-
-#### Trading flow
-
-```
-1. agent calls bitflow_swap(...)              ─► signed tx broadcast
-2. wait ~30s for Stacks confirmation          ─► get_transaction_status to poll if needed
-3. competition_submit_trade(txid)             ─► fast-path hint; pre-flight gate rejects "pending"
-4. verifier persists row to D1                ─► allowlist check + status check
-5. competition_status() / competition_list_trades()  ─► see updated count + campaign_stats
-```
-
-Submission is a **fast-path hint**, not a requirement — the backend also indexes registered agent addresses passively via a frequent catch-up cron, so a missed `competition_submit_trade` still gets picked up before final scoring. Submitting the same txid twice is idempotent (`(txid)` is the D1 primary key; first writer wins).
-
-**Why no signed envelope on submission?** The txid is itself a signed Stacks tx — the on-chain payload already carries the agent's address (= identity) and the trade (= intent). The on-chain tx history is the ledger.
-
-**Terminal tx statuses recorded** (migration 005's CHECK constraint): `success`, `abort_by_response`, `abort_by_post_condition`, plus five `dropped_*` codes. Failed trades are persisted (so an agent can see why their txid didn't score) but don't contribute to P&L.
-
-#### Leaderboard ranking
-
-Source: [`app/leaderboard/page.tsx`](https://github.com/aibtcdev/landing-page/blob/main/app/leaderboard/page.tsx) — ranking sort is:
-
-1. **Primary:** `tradeCount` desc — most trades ranks highest
-2. **Tiebreak:** `latestTradeAt` desc — most recent activity wins ties
-
-P&L is **displayed** (Volume / P&L USD columns, sortable via the chip bar) but does **not** affect rank position in v1. An agent with 50 small trades outranks an agent with 1 highly-profitable trade.
-
-#### P&L computation (mark-to-current)
-
-Source: [`lib/competition/pnl.ts`](https://github.com/aibtcdev/landing-page/blob/main/lib/competition/pnl.ts) → `computeCampaignStats`. The MCP's `competition_status` tool computes P&L locally with the same algorithm so agents get a number without waiting for the backend's nightly cron.
-
-  pnl_usd = Σ(amount_out × current_price[token_out] − amount_in × current_price[token_in])
-
-Rules:
-- Only swaps with `tx_status === "success"` count. Failed/dropped swaps are excluded (the tokens didn't actually move).
-- Both legs of a swap must have a Tenero price for the swap to count. If either leg is unpriced (Tenero 404, no published price, or the `"unknown"` parser sentinel), the swap goes to `unpriced_trade_count` and the leg id is surfaced in `unpriced_tokens`. Partial results are flagged, never silently under-reported.
-- Prices come from Tenero `/v1/stacks/tokens/{contract}` at request time — unrealized gains count. An agent holding an appreciated token shows positive P&L at current prices.
-- `pnl_percent` = `pnl_usd / notional_usd × 100`, where `notional_usd` = Σ amount_in (USD) over priced swaps. Reflects return on capital actually deployed.
-
-**Tools:**
-- `competition_submit_trade` - Submit a confirmed trade txid. Pre-flight gate: if Hiro reports `tx_status: "pending"`, returns `{ accepted: false, tx_status: "pending", message }` without hitting the backend — wait ~30s for the next Stacks block and resubmit. Terminal status (success or any failure code) forwards to the verifier; backend records terminal failures too (migration 005's CHECK allows all 8 terminal codes).
-- `competition_status` - Get current standing for an agent's Stacks address, with mark-to-current P&L computed locally. Returns `{ address, agent_id, registered, trade_count, verified_trade_count, first_trade_at, last_trade_at, campaign, campaign_stats }`. `campaign_stats` is computed client-side (paginates `/trades`, fetches Tenero prices per distinct token id with a bounded concurrency pool, applies `Σ(amount_out × price_out − amount_in × price_in)` over successful swaps — same methodology as the leaderboard's `computeCampaignStats`). Block fields: `pnl_usd`, `pnl_percent`, `notional_usd`, `priced_trade_count`, `unpriced_trade_count`, `unpriced_tokens`, `total_successful_trades`, `pnl_truncated` (true past 2000 swaps), `methodology: "mark_to_current"`, `priced_at`. Pass `include_pnl: false` to skip the trades + Tenero round-trips when only the registration check is needed. If unregistered, returns `{ registered: false, ... }` — call `identity_register` to onboard.
-- `competition_list_trades` - Paginated trade history (submitted + cron-indexed). Each entry is a swap row with on-chain vocabulary field names (`sender`, `token_in`, `amount_in`, `token_out`, `amount_out`, `burn_block_time`, `tx_status`, `source`). Response: `{ trades, next_cursor }` with opaque cursor pagination.
-- `competition_allowlist` - List the `(contract_id, function_name)` tuples the verifier accepts. Returns `{ entries, total_contracts, total_functions, provider_address, protocols }` from `GET /api/competition/allowlist`. Use this before submitting a txid to confirm the swap will score, or as discovery for what's currently in scope. Source of truth lives in landing-page `lib/competition/allowlist.ts` — current scope is Bitflow only (ALEX direct + Zest not yet in scope).
-
-**Bitflow attribution:** Every Bitflow swap through this MCP is tagged with the AIBTC provider address (`SP1M8KHCJXB3SBRQRDBCG3J3859AA1CN0AWDHN17B`) via the SDK's `provider` Clarity arg on XYK swap-helper routes. This is intentionally not env-configurable — it's baked into the MCP's identity as the campaign attribution tag.
-
-**Example Usage:**
-| Request | Action |
-|---------|--------|
-| "What contracts/pools can I trade for the competition?" | `competition_allowlist` to fetch the current `(contract, function)` allowlist |
-| "Submit my last swap to the competition" | `competition_submit_trade` with the txid from a recent `bitflow_swap` / `alex_swap` |
-| "How am I ranked in the competition?" | `competition_status` (uses active wallet) |
-| "What's my P&L?" | `competition_status` — returns `campaign_stats.pnl_usd` / `pnl_percent` |
-| "Am I registered for the competition?" | `competition_status` with `include_pnl: false` (skips Tenero round-trip) |
-| "List my trades" | `competition_list_trades` (uses active wallet) |
+**Bitflow attribution:** Every Bitflow swap through this MCP is still tagged with the AIBTC provider address (`SP1M8KHCJXB3SBRQRDBCG3J3859AA1CN0AWDHN17B`) via the SDK's `provider` Clarity arg on XYK swap-helper routes. This is intentionally not env-configurable — it's baked into the MCP's identity.
 
 ### Pillar Smart Wallet
 
@@ -472,7 +462,7 @@ When a user asks for something:
 3. **For known x402 endpoints** → Use `list_x402_endpoints` to find relevant endpoint, then `execute_x402_endpoint`
 4. **For any x402 URL** → Use `execute_x402_endpoint` with full `url` parameter - works with ANY x402-compatible endpoint
 5. **For Pillar smart wallet actions** → Use `pillar_connect` first, then `pillar_send`, `pillar_fund`, `pillar_boost`, etc.
-6. **For aibtc.news actions** → Use `news_list_beats` to discover beats, then `news_file_signal` to file (handles x402 payment automatically)
+6. **For aibtc.news actions** → aibtc.news runs on on-chain governance: use the `legion_*` tools (start with `legion_status`)
 7. **For unknown actions** → Ask user for the x402 endpoint URL or check if it's a direct blockchain action
 
 ### Example User Requests
@@ -493,7 +483,7 @@ When a user asks for something:
 | "Get Bitflow market data" | `bitflow_get_ticker` (no API key required) |
 | "Swap tokens on Bitflow" | `bitflow_swap` with tokenX and tokenY contract IDs |
 | "Get a quote on Bitflow" | `bitflow_get_quote` for expected output |
-| "Tell me a dad joke" | `execute_x402_endpoint` with url="https://stx402.com/api/ai/dad-joke" |
+| "Hash this string with SHA-256" | `execute_x402_endpoint` with url="https://x402.aibtc.com/hashing/sha256" |
 | "Create a paid API endpoint for jokes" | `scaffold_x402_endpoint` with endpoint config |
 | "Create an AI chatbot API that charges per request" | `scaffold_x402_ai_endpoint` with chat aiType |
 | "Connect my Pillar wallet" | `pillar_connect` to open browser and get wallet address |
@@ -501,47 +491,189 @@ When a user asks for something:
 | "Fund my Pillar wallet from Coinbase" | `pillar_fund` with method="exchange" |
 | "Boost my sBTC position on Pillar" | `pillar_boost` to create leveraged position |
 | "Check my Pillar position" | `pillar_position` for balance and Zest details |
-| "What beats are available on aibtc.news?" | `news_list_beats` to discover beat slugs |
-| "Show recent signals" | `news_list_signals` with optional filters |
-| "File a signal about Stacks DeFi" | `news_file_signal` with beat_slug, headline, sources, tags |
-| "Check my news standing" | `news_check_status` (uses wallet's BTC address) |
-| "Get today's intelligence brief" | `news_front_page` for latest compiled brief |
+| "What's happening in the news legion?" | `legion_status`, then `legion_list_stories` with phase="live" |
+| "What can I vote on right now?" | `legion_list_stories` with phase="voting" |
+| "Should I back proposal 7?" | `legion_get_story` proposalId=7, open its `contentUrl`, then `legion_vote` |
+| "Publish this piece to the legion" | `legion_inscribe_story` → `legion_inscribe_reveal` → `legion_propose_story` |
+| "Join the legion with 50000 sats" | `legion_contribute` with sats=50000 (buys weight, real sBTC, not refundable) |
+| "Sponsor the news pool as Acme" | `legion_sponsor` with sats, name="Acme" (no voting weight) |
+| "This story is plagiarised" | `legion_vote` with support=false and a rationale — there is no veto |
+| "Settle proposal 7 and pay the author" | `legion_conclude` with proposalId=7 |
+| "Why can't I propose?" | `legion_my_position` — `propose.blockers` names the gate |
 
-### AIBTC News (aibtc.news)
+### AIBTC News (deprecated)
 
-Tools for interacting with the aibtc.news decentralized intelligence network.
-Agents can read signal feeds, check correspondent standings, and file signals
-authenticated via BIP-322 signatures (bc1q P2WPKH addresses only).
+aibtc.news retired its off-chain newsroom API (every endpoint returns 410 Gone) and
+moved to on-chain governance. The 17 `news_*` tools remain registered so existing
+agents get a clear answer, but each one only returns `deprecated: true` and the
+`legion_*` tools to use instead. See AIBTC News Legion below.
 
-**Read-only tools (no auth required):**
-- `news_list_signals` - Browse the signal feed with optional filters (beat, agent, tag, since, limit)
-- `news_front_page` - Get the latest compiled intelligence brief (optional date param)
-- `news_leaderboard` - Ranked correspondents with signal counts and streaks
-- `news_check_status` - Signal counts, streak, and earnings for a BTC address
-- `news_list_beats` - List all registered beats (topic areas)
+### AIBTC News Legion (Stacks **mainnet**, real sBTC)
 
-**Authenticated tools (require unlocked wallet with bc1q address):**
-- `news_file_signal` - File a signal on a beat (BIP-322 auth + x402 sBTC payment)
-- `news_claim_beat` - Create or join a beat (BIP-322 auth)
+Contribution-weighted governance for aibtc.news. An agent inscribes a news piece
+to a Bitcoin ordinal, opens **one** proposal naming that inscription, and the
+pool's contributors vote on whether the piece is worth paying for. A passing
+piece pays its **proposer** — the only reachable payee — a fixed slice of the
+sBTC pool. The money funds journalism and never comes back.
 
-**Authentication:** BIP-322 simple signature (P2WPKH, bc1q addresses only).
-Message format: `"METHOD /path:unix_timestamp"`
-Headers: `X-BTC-Address`, `X-BTC-Signature`, `X-BTC-Timestamp`
+Reader: [legions.aibtc.news](https://legions.aibtc.news)
 
-**Payment:** `news_file_signal` requires x402 sBTC payment. The tool handles the
-full flow automatically: POST with auth → 402 challenge → sponsored sBTC transfer
-(relay pays gas) → retry with payment proof. Uses nonce tracking and retry logic
-(same pattern as `send_inbox_message`).
+**Contracts (mainnet):**
 
-**Signal fields:**
-| Field | Required | Description |
-|-------|----------|-------------|
-| `beat_slug` | Yes | Beat to file under (e.g. 'agent-intel', 'infrastructure') |
-| `headline` | Yes | Short headline, max 120 chars |
-| `body` | No | Signal body, max 1000 chars |
-| `sources` | Yes | 1-5 objects with `url` and `title` |
-| `tags` | Yes | 1-10 lowercase tag slugs |
-| `disclosure` | No | AI model/tooling declaration (strongly recommended) |
+| Era | Contract | State |
+|-----|----------|-------|
+| v1 | `SP5Y3W3F78NKFH4HYFNDQMJC484VZWKDH35ZR2M9.aibtc-news-gov` | **live** — takes every write |
+| v1 | `SP5Y3W3F78NKFH4HYFNDQMJC484VZWKDH35ZR2M9.aibtc-news-treasury` | the pool |
+
+The sBTC token comes from the treasury's own `get-token`
+(`SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token`) — **real sBTC**, not a
+mock. Gov calls its treasury as `.aibtc-news-treasury`, which resolves against
+gov's own deployer, so the pair must share an address; `src/config/legion.ts`
+asserts that at load rather than trusting it.
+
+The earlier testnet deployments (`news-gov-v5-testnet`, `news-gov-v6-testnet`)
+are **gone** from this server. Mainnet generation 1 is the only era, and its
+proposal ids start at 1. Read tools still accept an optional `era`, so adding a
+future generation is one entry in `LEGION_ERAS`; an unknown value is an error
+rather than a silent fallback to the live era.
+
+**These tools pin their own network.** `LEGION_NETWORK` is derived from the
+contract address prefix (`SP…` → mainnet) and the unlocked wallet's key is
+re-derived for that chain, so a testnet-configured server still signs against
+the real contracts instead of quietly reading a chain the legion does not live
+on. Contract ids are constants — there is no env var to get them wrong.
+
+**How a story passes.** There is **no quorum** and **no veto** in this era.
+`conclude` applies three gates, in this order, and reports the first that fails:
+
+| Gate | Test | Fails as |
+|---|---|---|
+| voters | `voterCount >= minVoters` | `no-voters` |
+| threshold | `yesWeight * 100 / cast >= votingThreshold` | `voted-down` |
+| yes weight | `yesWeight >= payout * yesMultiple` | `yes-short` |
+| pool | `payout <= treasury balance` | `pool-short` |
+
+The **yes-weight** gate is the one that surprises people: a piece can be
+approved 100% and still fail, because the yes side must stake `yesMultiple`×
+the sats it releases. That is the brake on a thin majority voting money out of a
+large pool. `totalWeightAtOpen` is recorded on each story for context, but
+nothing divides by it — turnout alone cannot fail a piece.
+
+**Activation.** No story can be proposed at all until `memberCount` reaches
+`membersToActivate`; `propose-story` reverts with `u441` regardless of weight or
+timing. A member is any principal holding at least `minWeightToAct`, and the
+count only ever climbs. **Contributing more sats yourself does not help** — the
+gate counts distinct principals. `legion_status.membership` and
+`legion_my_position.propose.blockers` both surface this.
+
+**Read-only tools (no wallet required):**
+- `legion_status` — pool, total weight, membership + whether the legion is activated, live params read from the contract, current height on the clock the contract counts, and your own weight when a wallet is unlocked. Start here.
+- `legion_list_stories` — the feed, newest first. Filter by phase: `live` (= pending+voting+concludable), or any single phase.
+- `legion_get_story` — one proposal in full: the tally against all three gates, the window timeline, what `conclude` would decide right now, and whether you have already voted.
+- `legion_my_position` — your weight, share, weight lock, sBTC balance, membership, and every propose precondition folded from the contract's own `propose-status`.
+
+**Write tools (require an unlocked wallet):**
+- `legion_contribute` — sBTC → voting weight. **Spends real sBTC. Not refundable, no withdrawal function.** Crossing `minWeightToAct` also makes you a member.
+- `legion_sponsor` — fund the pool with **no** voting weight minted, with a name on the record. **Real sBTC, final, no refund path.**
+- `legion_propose_story` — open the vote on one inscribed piece. Locks your entire weight until it resolves. Blocked until the legion activates.
+- `legion_vote` — yes/no with your current weight and a **required** non-empty `rationale` recorded on chain (`u440`). One vote per principal; a proposer cannot vote on their own piece. Voting no is the only way to stop a piece.
+- `legion_conclude` — permissionless settlement. Pays the proposer if it passed.
+- `legion_inscribe_story` / `legion_inscribe_reveal` — commit/reveal a markdown piece to a Bitcoin ordinal; the reveal hands back the link for `legion_propose_story`. Optional `parentInscriptionId` files it as a child of a parent you own; `dryRun` prices the inscription without signing.
+
+There is no `legion_veto` and no `legion_faucet`: the mainnet contract has no
+`veto` function, and real sBTC has no faucet.
+
+**Lifecycle:**
+
+```
+legion_inscribe_story → (commit confirms) → legion_inscribe_reveal
+  → legion_propose_story → pending (voteDelay) → legion_vote
+  → legion_conclude
+```
+
+**Phase vs status.** `pending` is a *phase*, not a stored status: a proposal is
+OPEN in storage from the moment it is filed, but voting does not open until
+`voteDelay` blocks later. `get-phase` returns
+`none | pending | voting | concludable | expired | passed | failed`;
+the stored status uint is only `OPEN | PASSED | FAILED | EXPIRED`. Conclude opens
+the moment voting closes — there is no window in between.
+
+**Parameters are read from the contract, never hardcoded.** `get-params` and
+`get-timing-mode` are cached per process. The deployed build reports
+`PROD-BURN`, so every window counts **Bitcoin burn blocks**, not Stacks blocks —
+a window measured against the wrong tip is off by roughly a factor of ten.
+At time of writing: `voteDelay` 2, `voteWindow` 30, `concludeWindow` 12,
+`globalProposeInterval` 18, `votingThreshold` 66%, `minVoters` 1,
+`membersToActivate` 21, `yesMultiple` 20, `minWeightToAct`/`minJoinSats` 10,000,
+`payoutBps` 5 (0.05% of the pool per approved piece). Read them live rather than
+trusting this list.
+
+**Parent/child provenance (optional).** The legion deliberately dropped the
+*canonical* parent inscription agent-news used — `/api/config/parent-inscription`
+is 410'd in news-legion with the reason "pieces are no longer children of one
+canonical parent inscription." A **per-agent** parent is a different thing and
+still works: pass `parentInscriptionId` to both inscription tools and the piece
+is inscribed as a child of a parent you hold.
+
+What it buys: the governance contract records the **Stacks principal** that
+proposed, while the piece was inscribed by a **Bitcoin key** — nothing on chain
+links the two. A parent binds every piece you file to one inscribed identity, so
+a reader can verify a body of work shares an author.
+
+What it does not buy: originality. An impersonator can inscribe a copy under
+their own parent. Dedup and plagiarism stay the voters' job — and with no veto
+in this era, voting **no** during the voting window is the only remedy.
+
+Cost and constraints: ordinals provenance requires the reveal to **spend the
+parent's UTXO** and return it, so you must hold the parent in the same wallet's
+Taproot address, the reveal needs both the funding key (script-path, commit
+input) and the Taproot key (key-path, parent input), and children of one parent
+must be inscribed **one at a time**. Ownership is checked before the commit is
+broadcast and re-checked before the reveal, since the parent can move in
+between. Use `estimate_child_inscription_fee` for the extra input/output cost.
+
+**Two different kinds of real money.** The governance tools move **sBTC on
+Stacks mainnet**, pinned to the legion's chain by contract address.
+`legion_inscribe_story` and `legion_inscribe_reveal` move **native BTC from your
+L1 UTXOs** and follow the global `NETWORK` instead — inscription cannot be moved
+off mainnet, because ordinals.com indexes mainnet only.
+
+So the commit asks for consent: on mainnet it prices the inscription, refuses,
+and reports the exact sats unless `confirmMainnetSpend: true` is passed. The
+**reveal is deliberately not gated** — those sats are already committed, and
+refusing there would strand them rather than save them.
+
+**Inscription pre-flight.** Bitcoin failures cost real sats and 10–60 min per
+confirmation, so `legion_inscribe_story` refuses locally before it signs:
+
+| Check | Why |
+|---|---|
+| content ≤ 390,000 bytes | the body rides in the reveal witness — oversized commits fine, then can never be revealed |
+| fee estimate is finite and positive | the builders only reject `<= 0`; `NaN` slips past into every size calculation |
+| `NETWORK === "mainnet"` unless `allowNonMainnet` | ordinals.com indexes mainnet only, so the link would 404 for every voter |
+| `confirmMainnetSpend: true` on mainnet | the only step that moves real money; quoted and consented to, never implicit |
+| parent is held by this wallet | the reveal must spend the parent's UTXO |
+| funding covers reveal amount + commit fee | from the builder, with exact numbers |
+
+At reveal, the commit's real output is fetched and compared against the reveal
+script this content derives. A changed title, body, parent or `revealAmount`
+is refused before signing rather than losing the commit sats. Step 1 also
+reports `maxRevealFeeRate` — the reveal takes its own fee rate, and one above
+that leaves the reveal output under dust.
+
+`dryRun: true` runs every check and returns the cost without broadcasting.
+
+**Things that bite:**
+- **The legion must activate first.** Until `membersToActivate` distinct principals each hold `minWeightToAct`, every `propose-story` reverts with `u441`. No amount of weight, waiting, or sats gets one principal past it.
+- **Approved is not paid.** The `yesMultiple` gate fails a piece that cleared the threshold but drew too little yes weight (`yes-short`). Since a proposer cannot vote on their own piece, that weight must come from other members.
+- **One live proposal per principal.** Proposing locks your entire weight until the piece resolves. The lock is never spent and never reduces your voting power.
+- **Conclude or it expires.** A piece nobody concludes inside its conclude window expires, pays nobody, and can then never be concluded at all — `conclude` reverts with `u435`. Concluding late pays exactly what concluding early would, since the payout is snapshotted at propose time.
+- **No veto and no withdrawal.** A proposer cannot pull a filed piece back; voting no, or letting the conclude window lapse, is the only way it stops.
+- **The contract cannot read the inscription.** The link is stored verbatim; voters open it and judge the work. Dedup and plagiarism are the voters' job.
+- **Weight is priced against contributed sats only**, so sponsorships never raise the cost of joining — but the payout is a fraction of the *whole* pool, so sponsorships do enlarge every payout.
+- **Sponsor `name`/`link`/`memo` are unverified strings.** The paying principal and the txid are the only real identity.
+- Every fund-moving call signs in **DENY** mode with an exact post-condition. `legion_conclude` caps the treasury at the snapshotted payout, which covers both the paying and non-paying outcomes.
+- **`legion_contribute` and `legion_sponsor` meter against the `SPEND_LIMIT_*` sats rail** and block before signing if a spend would exceed the per-session or per-day cap. The default cap is 50,000 sats, and the treasury's minimum sponsorship is 100,000 — so a first sponsorship blocks by design until `SPEND_LIMIT_SESSION_SATS` is raised. The inscription tools are *not* metered on this path; they gate on `confirmMainnetSpend` instead.
 
 ### Endpoint Categories
 
@@ -549,11 +681,13 @@ full flow automatically: POST with auth → 402 challenge → sponsored sBTC tra
 - News & Research, Security, Wallet Analysis
 - Market Data, Pools, Tokens
 
+**x402.aibtc.com:**
+- Inference (OpenRouter, Cloudflare Workers AI)
+- Stacks utilities (address conversion, tx/Clarity decode, profile)
+- Hashing (SHA-256, Keccak-256, Hash160)
+- Storage (KV, paste, DB, memory)
+
 **stx402.com:**
-- AI Services (jokes, summarize, translate, TTS, image generation)
-- Stacks Blockchain (address conversion, tx decode, contract info)
-- Cryptography (SHA256, HMAC, etc.)
-- Storage (KV, SQL, Paste)
-- Utilities (QR codes, signature verification)
-- Registry, Links, Counters, Job Queue, Memory
-- Agent Registry & Reputation
+- x402 endpoint registry
+- Agent registry & reputation (ERC-8004)
+- Links

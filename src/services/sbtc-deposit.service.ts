@@ -36,6 +36,7 @@
  *
  * // Step 4: Broadcast and notify
  * const { txid, notification } = await service.broadcastAndNotify(
+ *   { address: stacksAddress, btcAddress: bitcoinAddress }, // billed by the spending limit
  *   signedTxHex,
  *   depositResult.depositScript,
  *   depositResult.reclaimScript,
@@ -75,6 +76,7 @@ import { getContracts, parseContractId } from "../config/contracts.js";
 import { MempoolApi } from "./mempool-api.js";
 import type { UTXO } from "./mempool-api.js";
 import { UnisatIndexer } from "./unisat-indexer.js";
+import { meteredBtcBroadcast, type BtcSpender } from "./btc-spend.js";
 
 /**
  * Result from generating a deposit address
@@ -361,6 +363,7 @@ export class SbtcDepositService {
    * 1. Broadcasts the signed Bitcoin transaction to the mempool
    * 2. Notifies the Emily API about the deposit (required for sBTC minting)
    *
+   * @param spender - Wallet the deposit is billed to by the spending limit
    * @param signedTxHex - Signed transaction hex string
    * @param depositScript - Deposit script hex (from buildDepositTransaction)
    * @param reclaimScript - Reclaim script hex (from buildDepositTransaction)
@@ -368,13 +371,14 @@ export class SbtcDepositService {
    * @returns Transaction ID and notification response
    */
   async broadcastAndNotify(
+    spender: BtcSpender,
     signedTxHex: string,
     depositScript: string,
     reclaimScript: string,
     vout?: number
   ): Promise<{ txid: string; notification: unknown }> {
-    // Broadcast transaction to Bitcoin network
-    const txid = await this.mempoolApi.broadcastTransaction(signedTxHex);
+    // Broadcast transaction to Bitcoin network, metered by the spending limit
+    const txid = await meteredBtcBroadcast(this.mempoolApi, signedTxHex, spender, this.network);
 
     // Notify Emily API about the deposit
     const notification = await this.apiClient.notifySbtc({
@@ -504,6 +508,7 @@ export class SbtcDepositService {
 
     // Step 3: Broadcast and notify
     return await this.broadcastAndNotify(
+      { address: stacksAddress, btcAddress: bitcoinAddress },
       signedTxHex,
       depositResult.depositScript,
       depositResult.reclaimScript,

@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { getWalletAddress, NETWORK, API_URL } from "../services/x402.service.js";
 import { getStxBalance } from "../services/hiro-api.js";
@@ -106,12 +106,12 @@ export function registerWalletTools(server: McpServer): void {
     "get_stx_balance",
     {
       description: "Get the STX balance for a wallet address.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
           .describe("Wallet address to check. Uses configured wallet if not provided."),
-      },
+      }),
     },
     async ({ address }) => {
       try {

@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { getWalletAddress, NETWORK } from "../services/x402.service.js";
 import { getHiroApi } from "../services/hiro-api.js";
@@ -94,12 +94,12 @@ export function registerQueryTools(server: McpServer): void {
     "get_account_info",
     {
       description: "Get detailed account information including nonce and balance.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
           .describe("Stacks address. Uses configured wallet if not provided."),
-      },
+      }),
     },
     async ({ address }) => {
       try {
@@ -125,14 +125,14 @@ export function registerQueryTools(server: McpServer): void {
     "get_account_transactions",
     {
       description: "Get transaction history for an account.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
           .describe("Stacks address. Uses configured wallet if not provided."),
         limit: z.number().optional().default(20).describe("Maximum number of results"),
         offset: z.number().optional().default(0).describe("Offset for pagination"),
-      },
+      }),
     },
     async ({ address, limit, offset }) => {
       try {
@@ -166,9 +166,9 @@ export function registerQueryTools(server: McpServer): void {
     "get_block_info",
     {
       description: "Get information about a specific block.",
-      inputSchema: {
+      inputSchema: z.object({
         heightOrHash: z.string().describe("Block height (number) or block hash"),
-      },
+      }),
     },
     async ({ heightOrHash }) => {
       try {
@@ -199,11 +199,11 @@ export function registerQueryTools(server: McpServer): void {
     "get_mempool_info",
     {
       description: "Get pending transactions in the mempool.",
-      inputSchema: {
+      inputSchema: z.object({
         senderAddress: z.string().optional().describe("Filter by sender address"),
         limit: z.number().optional().default(20).describe("Maximum number of results"),
         offset: z.number().optional().default(0).describe("Offset for pagination"),
-      },
+      }),
     },
     async ({ senderAddress, limit, offset }) => {
       try {
@@ -237,9 +237,9 @@ export function registerQueryTools(server: McpServer): void {
     "get_contract_info",
     {
       description: "Get information about a smart contract including its ABI.",
-      inputSchema: {
+      inputSchema: z.object({
         contractId: z.string().describe("Contract ID in format: address.contract-name"),
-      },
+      }),
     },
     async ({ contractId }) => {
       try {
@@ -274,11 +274,11 @@ export function registerQueryTools(server: McpServer): void {
     "get_contract_events",
     {
       description: "Get events emitted by a smart contract.",
-      inputSchema: {
+      inputSchema: z.object({
         contractId: z.string().describe("Contract ID in format: address.contract-name"),
         limit: z.number().optional().default(20).describe("Maximum number of results"),
         offset: z.number().optional().default(0).describe("Offset for pagination"),
-      },
+      }),
     },
     async ({ contractId, limit, offset }) => {
       try {

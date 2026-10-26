@@ -13,7 +13,7 @@ import {
   bufferCV,
 } from "@stacks/transactions";
 import { AlexSDK, Currency, type TokenInfo } from "alex-sdk";
-import { HiroApiService, getHiroApi } from "./hiro-api.js";
+import { HiroApiService, getHiroApi, isNotFoundError } from "./hiro-api.js";
 import {
   getAlexContracts,
   getZestContracts,
@@ -255,8 +255,9 @@ export class AlexDexService {
       }
 
       return null;
-    } catch {
-      return null;
+    } catch (error) {
+      if (isNotFoundError(error)) return null;
+      throw error;
     }
   }
 
@@ -544,8 +545,9 @@ export class ZestProtocolService {
         borrowed,
         healthFactor: position["health-factor"]?.value,
       };
-    } catch {
-      return null;
+    } catch (error) {
+      if (isNotFoundError(error)) return null;
+      throw error;
     }
   }
 
@@ -569,8 +571,9 @@ export class ZestProtocolService {
       }
 
       return cvToJSON(hexToCV(result.result));
-    } catch {
-      return null;
+    } catch (error) {
+      if (isNotFoundError(error)) return null;
+      throw error;
     }
   }
 
@@ -621,8 +624,11 @@ export class ZestProtocolService {
           return BigInt(value);
         }
       }
-    } catch {
-      // Fall back to shares as lower bound estimate
+    } catch (error) {
+      // Only fall back to the shares lower-bound estimate when the vault
+      // function is missing — network/server failures must surface, or the
+      // post-conditions built from this value would be silently wrong.
+      if (!isNotFoundError(error)) throw error;
     }
     return shares;
   }
@@ -650,8 +656,9 @@ export class ZestProtocolService {
           return BigInt(value);
         }
       }
-    } catch {
-      // Fall back to amount as upper bound
+    } catch (error) {
+      // Same rationale as getUnderlyingFromShares: estimate only on 404.
+      if (!isNotFoundError(error)) throw error;
     }
     return amount;
   }

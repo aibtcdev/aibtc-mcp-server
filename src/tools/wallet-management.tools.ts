@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { getWalletManager } from "../services/wallet-manager.js";
@@ -80,7 +80,7 @@ export function registerWalletManagementTools(server: McpServer): void {
       description: `Create a new wallet for the agent with a generated BIP39 24-word mnemonic.
 The wallet is encrypted locally and stored in ~/.aibtc/.
 IMPORTANT: Save the mnemonic securely - it will only be shown once!`,
-      inputSchema: {
+      inputSchema: z.object({
         name: z.string().describe("Name for the wallet (e.g., 'main', 'trading')"),
         password: z
           .string()
@@ -90,7 +90,7 @@ IMPORTANT: Save the mnemonic securely - it will only be shown once!`,
           .enum(["mainnet", "testnet"])
           .optional()
           .describe("Network for the wallet (default: current network)"),
-      },
+      }),
     },
     async ({ name, password, network }) => {
       try {
@@ -142,7 +142,7 @@ IMPORTANT: Save the mnemonic securely - it will only be shown once!`,
     {
       description: `Import an existing wallet for the agent using a BIP39 mnemonic phrase.
 The wallet is encrypted locally and stored in ~/.aibtc/.`,
-      inputSchema: {
+      inputSchema: z.object({
         name: z.string().describe("Name for the wallet"),
         mnemonic: z.string().describe("24-word BIP39 mnemonic phrase - WARNING: sensitive value"),
         password: z
@@ -153,7 +153,7 @@ The wallet is encrypted locally and stored in ~/.aibtc/.`,
           .enum(["mainnet", "testnet"])
           .optional()
           .describe("Network for the wallet (default: current network)"),
-      },
+      }),
     },
     async ({ name, mnemonic, password, network }) => {
       try {
@@ -204,13 +204,13 @@ The wallet is encrypted locally and stored in ~/.aibtc/.`,
     {
       description: `Unlock the agent's wallet to enable transactions.
 If no wallet ID is provided, unlocks the active wallet.`,
-      inputSchema: {
+      inputSchema: z.object({
         walletId: z
           .string()
           .optional()
           .describe("Wallet ID to unlock (uses active wallet if not specified)"),
         password: z.string().describe("Wallet password - WARNING: sensitive value"),
-      },
+      }),
     },
     async ({ walletId, password }) => {
       try {
@@ -330,9 +330,9 @@ If no wallet ID is provided, unlocks the active wallet.`,
     {
       description: `Switch to a different wallet.
 Note: The new wallet will need to be unlocked before use.`,
-      inputSchema: {
+      inputSchema: z.object({
         walletId: z.string().describe("Wallet ID to switch to"),
-      },
+      }),
     },
     async ({ walletId }) => {
       try {
@@ -366,13 +366,13 @@ Note: The new wallet will need to be unlocked before use.`,
     {
       description: `Permanently delete a wallet.
 WARNING: This cannot be undone! Make sure you have backed up your mnemonic.`,
-      inputSchema: {
+      inputSchema: z.object({
         walletId: z.string().describe("Wallet ID to delete"),
         password: z.string().describe("Wallet password for confirmation - WARNING: sensitive value"),
         confirm: z
           .literal("DELETE")
           .describe("Type 'DELETE' to confirm deletion"),
-      },
+      }),
     },
     async ({ walletId, password, confirm }) => {
       try {
@@ -411,7 +411,7 @@ WARNING: This cannot be undone! Make sure you have backed up your mnemonic.`,
     {
       description: `Export the mnemonic phrase for a wallet.
 WARNING: Only use this in a secure environment! Anyone with the mnemonic can access your funds.`,
-      inputSchema: {
+      inputSchema: z.object({
         walletId: z
           .string()
           .optional()
@@ -420,7 +420,7 @@ WARNING: Only use this in a secure environment! Anyone with the mnemonic can acc
         confirm: z
           .literal("I_UNDERSTAND_THE_RISKS")
           .describe("Type 'I_UNDERSTAND_THE_RISKS' to confirm"),
-      },
+      }),
     },
     async ({ walletId, password, confirm }) => {
       try {
@@ -473,7 +473,7 @@ WARNING: Only use this in a secure environment! Anyone with the mnemonic can acc
       description: `Change the password for a wallet's encrypted keystore.
 Performs an atomic operation: backs up the keystore, re-encrypts with the new password, verifies the round-trip, then cleans up. If anything fails, the original keystore is restored.
 If the wallet is currently unlocked, it will be locked after rotation (requires re-unlock with new password).`,
-      inputSchema: {
+      inputSchema: z.object({
         walletId: z
           .string()
           .optional()
@@ -483,7 +483,7 @@ If the wallet is currently unlocked, it will be locked after rotation (requires 
           .string()
           .min(8)
           .describe("New password (minimum 8 characters) - WARNING: sensitive value"),
-      },
+      }),
     },
     async ({ walletId, oldPassword, newPassword }) => {
       try {
@@ -529,12 +529,12 @@ If the wallet is currently unlocked, it will be locked after rotation (requires 
     {
       description:
         "Set how long the agent's wallet stays unlocked before automatically locking. Set to 0 to disable auto-lock.",
-      inputSchema: {
+      inputSchema: z.object({
         minutes: z
           .number()
           .min(0)
           .describe("Minutes until auto-lock (0 = never auto-lock)"),
-      },
+      }),
     },
     async ({ minutes }) => {
       try {
