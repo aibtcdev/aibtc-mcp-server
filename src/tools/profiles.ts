@@ -48,7 +48,7 @@ export const CORE_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 export const TOOL_GROUPS = {
-  wallet: "Wallet management extras, encrypted credential store",
+  wallet: "Wallet management extras, encrypted credential store, AIBTC agent accounts",
   stacks: "Stacks transactions, contracts, tokens, NFTs, chain queries, nonce tools",
   sbtc: "sBTC deposit/withdraw, Styx BTC→sBTC",
   bitcoin: "Bitcoin L1 UTXOs, mempool watch",

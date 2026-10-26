@@ -278,8 +278,8 @@ export function registerAllTools(server: McpServer, selection: ToolSelection): v
   // Earning Opportunities (static "how to put your assets to work" menu)
   inGroup("earn", registerEarningTools);
 
-  // Agent Account (two-role smart wallet — deploy + owner actions via landing-page handoff)
-  registerAgentAccountTools(server);
+  // Agent Account (aibtc-acct two-role smart wallet — operate an existing account)
+  inGroup("wallet", registerAgentAccountTools);
 
   restoreRegisterTool();
 }

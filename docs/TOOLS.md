@@ -453,6 +453,18 @@ Pillar sessions are stored in `~/.aibtc/pillar-session.json` containing the conn
 - `pillar_add_admin` - Add backup admin address for recovery
 - `pillar_invite` - Get referral link to share with friends
 
+### AIBTC Agent Account (aibtc-acct)
+
+A two-role smart wallet contract: `ACCOUNT_OWNER` has full control and receives every withdrawal; `ACCOUNT_AGENT` acts under bit-gated permissions (manage-assets, use-proposals and approve-revoke-contracts on by default; buy-sell-assets off). Accounts are created by AIBTC: the deploy-time `auto-register-agent-account` call into `SP29D6YMDNAKN1P045T6Z817RTE1AC0JAA99WAX2B.agent-account-registry` only accepts AIBTC's deployer, so there is no deploy tool. Every tool takes the account's contract id and signs with the active wallet, which must be the account's agent or owner.
+
+- `agent_account_get_config` - Owner, agent, account principal and permission flags (read-only)
+- `agent_account_deposit_stx` / `agent_account_deposit_ft` - Deposit from the wallet; exact `eq` post condition on the caller (metered for STX/sBTC)
+- `agent_account_withdraw_stx` / `agent_account_withdraw_ft` - Withdraw to the OWNER; `eq` post condition on the account. FT must be approved (type=token)
+- `agent_account_approve_contract` / `agent_account_revoke_contract` - Allowlist (types: voting, swap, token)
+- `agent_account_buy_dao_token` / `agent_account_sell_dao_token` - Swap through an approved adapter with the account's funds. Allow mode; the caller's own STX/sBTC is capped at 0
+- `agent_account_create/vote/conclude/veto_action_proposal` - DAO action proposals through an approved voting contract
+- `agent_account_set_permission` - Owner-only permission toggle
+
 ## Agent Behavior Guidelines
 
 When a user asks for something:
