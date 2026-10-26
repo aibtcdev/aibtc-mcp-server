@@ -65,9 +65,19 @@ function apiContractParam(market: MarketConfig): string {
   return market.contractName === "sbtc-stx-jing" ? "" : `?contract=${market.contractName}`;
 }
 
-async function jingswapGet(path: string): Promise<any> {
+export const JINGSWAP_CONTRACT_ADDRESS = "SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22";
+export const SBTC_CONTRACT = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
+
+export const PYTH_CONTRACTS = {
+  storage: { address: "SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y", name: "pyth-storage-v4" },
+  decoder: { address: "SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y", name: "pyth-pnau-decoder-v3" },
+  wormhole: { address: "SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y", name: "wormhole-core-v4" },
+};
+
+export async function jingswapGet(path: string): Promise<any> {
   const res = await fetch(`${JINGSWAP_API}${path}`, {
     headers: { "x-api-key": JINGSWAP_API_KEY },
+    signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`Jingswap API ${res.status}: ${await res.text()}`);
   const json = await res.json();
@@ -242,9 +252,6 @@ export function registerJingswapTools(server: McpServer): void {
   );
 
   // ── Deposit STX ─────────────────────────────────────────────
-
-  const JINGSWAP_CONTRACT_ADDRESS = "SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22";
-  const SBTC_CONTRACT = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
 
   async function assertDepositPhase(market: MarketConfig): Promise<void> {
     const data = await jingswapGet(`/api/auction/cycle-state${apiContractParam(market)}`);
@@ -551,12 +558,6 @@ export function registerJingswapTools(server: McpServer): void {
   );
 
   // ── Settle with Refresh (fresh Pyth VAAs) ───────────────────
-
-  const PYTH_CONTRACTS = {
-    storage: { address: "SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y", name: "pyth-storage-v4" },
-    decoder: { address: "SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y", name: "pyth-pnau-decoder-v3" },
-    wormhole: { address: "SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y", name: "wormhole-core-v4" },
-  };
 
   server.registerTool(
     "jingswap_settle_with_refresh",
