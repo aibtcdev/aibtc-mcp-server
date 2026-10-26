@@ -1,6 +1,7 @@
+import { McpServer } from "@modelcontextprotocol/server";
+
 // Pillar MCP Tools - Handoff model
 // MCP creates intent → Opens frontend → Frontend handles signing → MCP polls for result
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getPillarApi } from "../services/pillar-api.service.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
@@ -120,7 +121,7 @@ export function registerPillarTools(server: McpServer): void {
       description:
         "Connect to your Pillar smart wallet. Opens the Pillar website - if you're logged in, " +
         "it will automatically connect and return your wallet address. Use this first before other Pillar actions.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -187,7 +188,7 @@ export function registerPillarTools(server: McpServer): void {
     "pillar_disconnect",
     {
       description: "Disconnect from Pillar. Clears locally stored wallet address.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       const session = await loadSession();
@@ -206,7 +207,7 @@ export function registerPillarTools(server: McpServer): void {
     "pillar_status",
     {
       description: "Check if you're connected to Pillar and get your wallet address.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       const session = await loadSession();
@@ -233,11 +234,11 @@ export function registerPillarTools(server: McpServer): void {
         "Send sBTC from your Pillar smart wallet. Requires being connected first (use pillar_connect). " +
         "Opens the frontend for signing, then waits for confirmation. " +
         "Supports three recipient types: 'bns' for BNS names (muneeb.btc), 'wallet' for Pillar wallet names (iphone), 'address' for Stacks addresses (SP...).",
-      inputSchema: {
+      inputSchema: z.object({
         to: z.string().describe("Recipient: BNS name (muneeb.btc), Pillar wallet name (iphone), or Stacks address (SP...)"),
         amount: z.number().positive().describe("Amount in satoshis"),
         recipientType: z.enum(["bns", "wallet", "address"]).optional().describe("Type of recipient: 'bns' (default), 'wallet' for Pillar smart wallets, or 'address' for raw Stacks addresses"),
-      },
+      }),
     },
     async ({ to, amount, recipientType }) => {
       try {
@@ -318,12 +319,12 @@ export function registerPillarTools(server: McpServer): void {
         "- 'btc': Deposit BTC from your Leather/Xverse wallet - auto-converts to sBTC\n" +
         "- 'sbtc': Deposit sBTC directly from your Leather/Xverse wallet\n" +
         "Opens the frontend with the appropriate deposit flow.",
-      inputSchema: {
+      inputSchema: z.object({
         method: z.enum(["exchange", "btc", "sbtc"]).describe(
           "Funding method: 'exchange' (deposit from Coinbase/Binance), 'btc' (from Leather/Xverse BTC), 'sbtc' (from Leather/Xverse sBTC)"
         ),
         amount: z.number().positive().optional().describe("Amount in satoshis to deposit (optional, can be set in UI)"),
-      },
+      }),
     },
     async ({ method, amount }) => {
       try {
@@ -382,9 +383,9 @@ export function registerPillarTools(server: McpServer): void {
       description:
         "Add a backup admin address to your Pillar smart wallet for recovery purposes. " +
         "The admin can help recover funds if you lose access to your passkey.",
-      inputSchema: {
+      inputSchema: z.object({
         adminAddress: z.string().optional().describe("Stacks address (SP...) to add as backup admin (can be set in UI)"),
-      },
+      }),
     },
     async ({ adminAddress }) => {
       try {
@@ -439,9 +440,9 @@ export function registerPillarTools(server: McpServer): void {
         "Earn yield on your Bitcoin. Supply sBTC from your Pillar smart wallet to Zest Protocol. " +
         "Your sBTC earns interest with no leverage and no liquidation risk. " +
         "This is the simplest way to earn on Pillar (Earn tab). For leveraged exposure, use pillar_boost instead.",
-      inputSchema: {
+      inputSchema: z.object({
         amount: z.number().positive().optional().describe("Amount in satoshis to supply (optional, can be set in UI)"),
-      },
+      }),
     },
     async ({ amount }) => {
       try {
@@ -495,10 +496,10 @@ export function registerPillarTools(server: McpServer): void {
       description:
         "Configure auto-compound for your Pillar wallet. " +
         "When enabled, a keeper will automatically boost your position when sBTC accumulates in your wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         minSbtc: z.number().nonnegative().optional().describe("Minimum sBTC to keep in wallet (in sats)"),
         trigger: z.number().positive().optional().describe("Amount above minimum that triggers auto-compound (in sats)"),
-      },
+      }),
     },
     async ({ minSbtc, trigger }) => {
       try {
@@ -550,9 +551,9 @@ export function registerPillarTools(server: McpServer): void {
       description:
         "Close or reduce your leveraged sBTC position. " +
         "Opens a modal to repay borrowed sBTC and withdraw collateral back to your wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         percentage: z.number().min(1).max(100).optional().describe("Percentage of position to unwind (1-100, optional, can be set in UI)"),
-      },
+      }),
     },
     async ({ percentage }) => {
       try {
@@ -610,9 +611,9 @@ export function registerPillarTools(server: McpServer): void {
         "For simple yield without leverage, use pillar_supply (Earn) instead. " +
         "Amounts over 100,000 sats automatically enter DCA mode -- split into daily 100k-sat chunks " +
         "(max 700k sats per schedule). The first chunk executes immediately, the rest follow daily.",
-      inputSchema: {
+      inputSchema: z.object({
         amount: z.number().positive().optional().describe("Amount in satoshis to boost (optional, shown as suggestion)"),
-      },
+      }),
     },
     async ({ amount }) => {
       try {
@@ -666,7 +667,7 @@ export function registerPillarTools(server: McpServer): void {
       description:
         "View your Pillar wallet balance and Zest position. " +
         "Opens the Position page in the browser AND returns the data (sBTC balance, collateral, borrowed, LTV, liquidation price).",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -764,9 +765,9 @@ export function registerPillarTools(server: McpServer): void {
         "Create a new Pillar smart wallet. Opens the Pillar website to complete registration. " +
         "You'll need to enter your email to receive updates. " +
         "If the user doesn't have a referral link, tell them they can DM @pillar_btc on X (https://x.com/pillar_btc) to request one before signing up.",
-      inputSchema: {
+      inputSchema: z.object({
         referral: z.string().optional().describe("Referral wallet address (optional, defaults to MCP referral)"),
-      },
+      }),
     },
     async ({ referral }) => {
       try {
@@ -835,7 +836,7 @@ export function registerPillarTools(server: McpServer): void {
     {
       description:
         "Get your Pillar referral link to invite friends. Share this link and earn rewards when friends sign up.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -868,9 +869,9 @@ export function registerPillarTools(server: McpServer): void {
       description:
         "Invite a DCA partner by email or wallet address. " +
         "DCA partners hold each other accountable — both must boost each week to keep the streak alive.",
-      inputSchema: {
+      inputSchema: z.object({
         partner: z.string().describe("Partner's email address or Stacks wallet address (SP...)"),
-      },
+      }),
     },
     async ({ partner }) => {
       try {
@@ -915,7 +916,7 @@ export function registerPillarTools(server: McpServer): void {
       description:
         "View your DCA partners and weekly status. " +
         "Shows active partnerships with streak, PnL, and weekly status badges, plus any pending invites.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -982,7 +983,7 @@ export function registerPillarTools(server: McpServer): void {
     {
       description:
         "View the DCA streak leaderboard. Shows top partnerships by streak length, and highlights your entry if you have one.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -1043,7 +1044,7 @@ export function registerPillarTools(server: McpServer): void {
       description:
         "Check your DCA schedule status. Shows all active DCA schedules (up to 10) with chunk progress " +
         "(completed, pending, failed) and next execution time.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {

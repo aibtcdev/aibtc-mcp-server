@@ -1,15 +1,15 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { createApiClient, API_URL, probeEndpoint, formatPaymentAmount, type ProbeResult, checkSufficientBalance, generateDedupKey, checkDedupCache, recordTransaction, NETWORK } from "../services/x402.service.js";
+import { createApiClient, API_URL, probeEndpoint, formatPaymentAmount, type ProbeResult, checkSufficientBalance, generateDedupKey, checkDedupCache, recordTransaction, X402_DEDUP_TTL_MS, NETWORK } from "../services/x402.service.js";
+import { STATIC_ENDPOINTS, formatEndpointsTable, type X402Endpoint } from "../endpoints/registry.js";
 import {
-  ALL_ENDPOINTS,
-  searchEndpoints,
-  formatEndpointsTable,
-  getEndpointsBySource,
-  getCategories,
-} from "../endpoints/registry.js";
+  discoverOpenApiEndpoints,
+  fetchDirectoryEntries,
+  type DirectoryEntry,
+  type UnavailableSource,
+} from "../services/x402-discovery.service.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
-import { X402_HEADERS } from "../utils/x402-protocol.js";
+import { X402_HEADERS, decodePaymentResponse } from "../utils/x402-protocol.js";
 import type { HttpPaymentStatusResponse } from "@aibtc/tx-schemas/http";
 import {
   extractPaymentIdFromPaymentSignature,
@@ -19,7 +19,6 @@ import {
 import { formatCanonicalPaymentStatus } from "../utils/x402-payment-state.js";
 import { emitPaymentLog } from "../utils/x402-payment-logging.js";
 
-const ALL_SOURCES = "x402.biwas.xyz, x402.aibtc.com, stx402.com, aibtc.com";
 
 interface ParsedEndpointUrl {
   baseUrl: string;
@@ -85,6 +84,7 @@ function buildCallWith(options: {
   apiUrl?: string;
   params?: Record<string, string>;
   data?: Record<string, unknown>;
+  asset?: string;
 }): Record<string, unknown> {
   const callWith: Record<string, unknown> = { method: options.method, autoApprove: true };
   if (options.url) callWith.url = options.url;
@@ -92,6 +92,8 @@ function buildCallWith(options: {
   if (options.apiUrl) callWith.apiUrl = options.apiUrl;
   if (options.params && Object.keys(options.params).length > 0) callWith.params = options.params;
   if (options.data && Object.keys(options.data).length > 0) callWith.data = options.data;
+  // Echo the asset so executing the quote pays in the asset that was quoted.
+  if (options.asset) callWith.asset = options.asset;
   return callWith;
 }
 
@@ -140,18 +142,30 @@ function formatProbeResponse(
     });
   }
 
+  // Derive the message from the same asset the machine-readable block reports.
+  // These used to disagree — the text said "29 STX" while payment.asset was
+  // USDCx — because the formatter treated every unknown token as STX (#613).
   const formattedCost = formatPaymentAmount(result.amount, result.asset);
   const prefix = messagePrefix ?? 'No payment made. ';
+  const alternatives = (result.accepts ?? []).filter((o) => o.asset !== result.asset);
+  const altNote =
+    alternatives.length > 0
+      ? ` This endpoint also accepts ${alternatives
+          .map((o) => `${o.formatted}${o.payable ? '' : ' [not payable by this client]'}`)
+          .join(', ')} — pass the \`asset\` parameter to pay with one of those instead.`
+      : '';
   return createJsonResponse({
     type: 'payment_required',
     endpoint: `${method} ${fullUrl}`,
-    message: `${prefix}This endpoint costs ${formattedCost}. To execute and pay, call execute_x402_endpoint with autoApprove: true and the parameters shown in callWith below.`,
+    message: `${prefix}This endpoint costs ${formattedCost}. To execute and pay, call execute_x402_endpoint with autoApprove: true and the parameters shown in callWith below.${altNote}`,
     payment: {
       amount: result.amount,
       asset: result.asset,
+      ...(result.symbol && { symbol: result.symbol }),
       recipient: result.recipient,
       network: result.network,
     },
+    ...(result.accepts && result.accepts.length > 0 && { accepts: result.accepts }),
     callWith: buildCallWith(callWithOptions),
   });
 }
@@ -161,27 +175,26 @@ export function registerEndpointTools(server: McpServer): void {
   server.registerTool(
     "list_x402_endpoints",
     {
-      description: `List known x402 API endpoints from ${ALL_SOURCES}.
-
-The agent can:
-1. Execute x402 endpoints from these sources (paid API calls with automatic payment handling)
-2. Execute direct Stacks transactions (transfer STX, call contracts, deploy contracts)
+      description: `List x402 API endpoints. x402.aibtc.com and stx402.com are read live from their OpenAPI specs; the stx402.com directory lists x402 endpoints registered by third parties.
 
 Sources:
 - x402.biwas.xyz: DeFi analytics, market data, wallet analysis, Zest/ALEX protocols
-- x402.aibtc.com: AI inference, OpenRouter integration, Stacks utilities, hashing, storage
-- stx402.com: AI services, cryptography, storage, utilities, agent registry
-- aibtc.com: Inbox messaging system`,
-      inputSchema: {
+- x402.aibtc.com: AI inference, Stacks utilities, hashing, storage (live)
+- stx402.com: x402 endpoint registry, agent registry (ERC-8004), links (live)
+- aibtc.com: Inbox messaging
+- directory: third-party endpoints registered at stx402.com (live, mainnet). Unverified entries are hidden unless includeUnverified is true — probe before paying.
+
+Costs from live specs are tiers ("paid (standard)", "paid (dynamic)"); use probe_x402_endpoint for the exact price.`,
+      inputSchema: z.object({
         source: z
-          .enum(["x402.biwas.xyz", "x402.aibtc.com", "stx402.com", "aibtc.com", "all"])
+          .enum(["x402.biwas.xyz", "x402.aibtc.com", "stx402.com", "aibtc.com", "directory", "all"])
           .optional()
           .default("all")
           .describe("Filter by API source"),
         category: z
           .string()
           .optional()
-          .describe("Filter by category (use without value to see available categories)"),
+          .describe("Filter by category (case-insensitive)"),
         search: z
           .string()
           .optional()
@@ -194,14 +207,50 @@ Sources:
           .boolean()
           .optional()
           .describe("Only show paid endpoints (require x402 payment)"),
-      },
+        includeUnverified: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Include unverified third-party entries from the stx402.com directory"),
+      }),
     },
-    async ({ source, category, search, showFreeOnly, showPaidOnly }) => {
+    async ({ source, category, search, showFreeOnly, showPaidOnly, includeUnverified }) => {
       try {
-        let endpoints = ALL_ENDPOINTS;
+        const wanted = source ?? "all";
+        const unavailable: UnavailableSource[] = [];
 
-        if (source && source !== "all") {
-          endpoints = getEndpointsBySource(source);
+        let endpoints: X402Endpoint[] = STATIC_ENDPOINTS.filter(
+          (ep) => wanted === "all" || ep.source === wanted
+        );
+
+        if (wanted === "all" || wanted === "x402.aibtc.com" || wanted === "stx402.com") {
+          const live = await discoverOpenApiEndpoints();
+          endpoints.push(...live.endpoints.filter((ep) => wanted === "all" || ep.source === wanted));
+          unavailable.push(
+            ...live.unavailable.filter((u) => wanted === "all" || u.source === wanted)
+          );
+        }
+
+        let directory: DirectoryEntry[] = [];
+        // Directory entries carry no method or price, so they only answer
+        // unfiltered or keyword/category browsing, not free/paid filters.
+        if ((wanted === "all" || wanted === "directory") && !showFreeOnly && !showPaidOnly) {
+          if (NETWORK !== "mainnet") {
+            if (wanted === "directory") {
+              unavailable.push({ source: "directory", error: "the stx402.com directory lists mainnet endpoints only" });
+            }
+          } else {
+            try {
+              directory = (await fetchDirectoryEntries()).filter(
+                (e) => includeUnverified || e.status === "verified"
+              );
+            } catch (error) {
+              unavailable.push({
+                source: "directory",
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
         }
 
         if (showFreeOnly) {
@@ -211,44 +260,67 @@ Sources:
         }
 
         if (category) {
-          endpoints = endpoints.filter(
-            (ep) => ep.category.toLowerCase() === category.toLowerCase()
-          );
+          const c = category.toLowerCase();
+          endpoints = endpoints.filter((ep) => ep.category.toLowerCase() === c);
+          directory = directory.filter((e) => e.category.toLowerCase() === c);
         }
 
         if (search) {
-          const searchResults = searchEndpoints(search);
-          endpoints = endpoints.filter((ep) => searchResults.includes(ep));
+          const q = search.toLowerCase();
+          endpoints = endpoints.filter(
+            (ep) =>
+              ep.path.toLowerCase().includes(q) ||
+              ep.description.toLowerCase().includes(q) ||
+              ep.category.toLowerCase().includes(q)
+          );
+          directory = directory.filter(
+            (e) =>
+              e.name.toLowerCase().includes(q) ||
+              e.url.toLowerCase().includes(q) ||
+              e.category.toLowerCase().includes(q)
+          );
         }
 
-        if (endpoints.length === 0) {
-          const categories = getCategories();
+        const unavailableText =
+          unavailable.length > 0
+            ? `\n\n## Unavailable sources\n${unavailable.map((u) => `- ${u.source}: ${u.error}`).join("\n")}`
+            : "";
+
+        if (endpoints.length === 0 && directory.length === 0) {
           return {
             content: [
               {
                 type: "text" as const,
-                text: `No endpoints found matching your criteria.
-
-Available categories: ${categories.join(", ")}
-
-Sources: ${ALL_SOURCES}
-
-If you're looking to perform a direct blockchain action (transfer STX, call a contract), those are available via separate tools.`,
+                text:
+                  `No endpoints found matching your criteria (source: ${wanted}).` +
+                  unavailableText +
+                  `\n\nIf you're looking to perform a direct blockchain action (transfer STX, call a contract), those are available via separate tools.`,
               },
             ],
           };
         }
 
-        const formatted = formatEndpointsTable(endpoints);
-        const sourceInfo =
-          source === "all"
-            ? `Sources: ${ALL_SOURCES}`
-            : `Source: ${source}`;
+        const directoryText =
+          directory.length > 0
+            ? `\n\n## Directory (stx402.com, third-party)\n` +
+              directory
+                .map((e) => `- ${e.name} [${e.category}, ${e.status}]\n  ${e.url}`)
+                .join("\n")
+            : "";
+
         return {
           content: [
             {
               type: "text" as const,
-              text: `# Available x402 Endpoints (${endpoints.length} total)\n\n${sourceInfo}\nDefault API: ${API_URL}\n${formatted}\n\n---\nUse execute_x402_endpoint to call any of these endpoints.`,
+              text:
+                `# Available x402 Endpoints (${endpoints.length + directory.length} total)\n\n` +
+                `Source: ${wanted}\nDefault API: ${API_URL}\n` +
+                (endpoints.length > 0 ? `\n${formatEndpointsTable(endpoints)}` : "") +
+                directoryText +
+                unavailableText +
+                `\n\n---\nUse execute_x402_endpoint to call an endpoint: pass apiUrl="https://<source>" with the path ` +
+                `(the source is in each heading; a bare path goes to ${API_URL}), or the full url for directory entries. ` +
+                `Use probe_x402_endpoint first to see the exact price.`,
             },
           ],
         };
@@ -265,16 +337,16 @@ If you're looking to perform a direct blockchain action (transfer STX, call a co
       description: `Execute an x402 API endpoint. Payment is handled automatically.
 
 Supported sources:
-- x402.biwas.xyz (default): Use path like "/api/pools/trending"
-- x402.aibtc.com (mainnet) / x402.aibtc.dev (testnet): Use apiUrl="https://x402.aibtc.com" with path like "/inference/openrouter/chat"
-- stx402.com: Use apiUrl="https://stx402.com" with path like "/ai/dad-joke"
+- x402.aibtc.com (mainnet) / x402.aibtc.dev (testnet), the default: Use path like "/inference/openrouter/chat"
+- x402.biwas.xyz: Use apiUrl="https://x402.biwas.xyz" with path like "/api/pools/trending"
+- stx402.com: Use apiUrl="https://stx402.com" with path like "/registry/list"
 - aibtc.com (mainnet) / aibtc.dev (testnet): Use apiUrl="https://aibtc.com" with path like "/api/inbox/{address}"
 - Any x402-compatible URL: Use url parameter with full endpoint URL
 
 Use list_x402_endpoints to discover available endpoints.
 
 For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs a standard sBTC transfer and settles directly through the x402 facilitator.`,
-      inputSchema: {
+      inputSchema: z.object({
         method: z
           .enum(["GET", "POST", "PUT", "DELETE"])
           .default("GET")
@@ -283,7 +355,7 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
           .string()
           .url()
           .optional()
-          .describe("Full endpoint URL (e.g., 'https://stx402.com/ai/dad-joke'). Takes precedence over path+apiUrl."),
+          .describe("Full endpoint URL (e.g., 'https://x402.aibtc.com/hashing/sha256'). Takes precedence over path+apiUrl."),
         path: z
           .string()
           .optional()
@@ -292,7 +364,7 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
           .string()
           .url()
           .optional()
-          .describe("API base URL. Known sources: x402.biwas.xyz, x402.aibtc.com, stx402.com, aibtc.com. Defaults to configured API_URL."),
+          .describe("API base URL: https:// plus the source host from list_x402_endpoints (x402.aibtc.com, x402.biwas.xyz, stx402.com, aibtc.com). Defaults to x402.aibtc.com (testnet x402.aibtc.dev)."),
         params: z
           .record(z.string(), z.string())
           .optional()
@@ -306,10 +378,19 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
           .optional()
           .default(false)
           .describe("Skip cost probe and execute immediately. When false (default), probes first and returns cost info for paid endpoints. When true, executes atomically like before. Free endpoints always execute transparently."),
-      },
+        asset: z
+          .string()
+          .optional()
+          .describe(
+            "Which asset to pay with when the endpoint accepts several. Accepts a symbol (\"sBTC\", \"STX\") or a full contract identifier. Defaults to the first asset this client can pay. Only STX and sBTC can be signed; requesting any other asset returns an error listing what is accepted."
+          ),
+      }),
     },
-    async ({ method, url, path, apiUrl, params, data, autoApprove }) => {
+    async ({ method, url, path, apiUrl, params, data, autoApprove, asset }) => {
       let fullUrl = "";
+      // Hoisted so the catch can record a broadcast payment for dedup — a
+      // failed settlement still spends real funds (#630).
+      let dedupKey: string | null = null;
 
       try {
         const parsed = parseEndpointUrl({ url, path, apiUrl, params });
@@ -317,36 +398,56 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
         params = parsed.params;
 
         if (!autoApprove) {
-          const probeResult = await probeEndpoint({ method, url: fullUrl, params, data });
-          return formatProbeResponse(probeResult, method, fullUrl, { method, url, path, apiUrl, params, data });
+          const probeResult = await probeEndpoint({ method, url: fullUrl, params, data, asset });
+          return formatProbeResponse(probeResult, method, fullUrl, { method, url, path, apiUrl, params, data, asset });
         }
 
         // autoApprove=true: check dedup cache before any network request, then execute
         // with a single request. Balance validation happens inside the onBeforePayment
         // callback when the interceptor receives the 402, eliminating the separate probe.
-        const dedupKey = generateDedupKey(method, fullUrl, params, data);
-        const existingTxid = checkDedupCache(dedupKey);
+        dedupKey = generateDedupKey(method, fullUrl, params, data);
+        const existingTxid = await checkDedupCache(dedupKey);
         if (existingTxid) {
+          const windowSeconds = Math.round(X402_DEDUP_TTL_MS / 1000);
+          const pending = existingTxid.startsWith("pending:");
           return createJsonResponse({
             endpoint: `${method} ${fullUrl}`,
-            message: 'Request already processed within the last 60 seconds. This prevents accidental duplicate payments.',
-            txid: existingTxid,
-            note: 'Wait 60s or use different endpoint/params to force a new transaction.',
+            // Deliberately says "broadcast", not "paid": the entry is written
+            // whenever a payment was signed and broadcast, including when
+            // settlement then reported an error. Claiming it succeeded would
+            // be wrong in exactly the cases the caller most needs to check.
+            message: `An identical request already broadcast a payment within the last ${windowSeconds} seconds. This prevents accidental duplicate payments.`,
+            // A prior attempt whose txid was never observable is recorded with a
+            // synthetic marker. Report it as null rather than leaking the marker,
+            // which is not a chain txid and must not be treated as one.
+            txid: pending ? null : existingTxid,
+            ...(pending && {
+              txidNote:
+                "The earlier payment was broadcast but its txid was not observable in the response. " +
+                "Query get_account_transactions to find the settled txid before paying again.",
+            }),
+            note: `The earlier payment may have settled even if it reported an error — verify it before retrying. Wait ${windowSeconds}s or vary the endpoint/params to force a new transaction.`,
           });
         }
 
         const api = await createApiClient(parsed.baseUrl, {
           toolName: "execute_x402_endpoint",
+          asset,
           onBeforePayment: async (requirements) => {
-            // Non-sponsored: sender pays its own gas, so validate STX for the
-            // fee too (sponsored=false is the default, passed explicitly here).
-            await checkSufficientBalance(requirements.account, requirements.amount, requirements.asset, false);
+            // Self-paid payments also need STX for the fee; sponsored ones don't.
+            await checkSufficientBalance(requirements.account, requirements.amount, requirements.asset, requirements.sponsored);
           },
         });
         const response = await api.request({ method, url: parsed.requestPath, params, data });
 
+        const paymentResponseTxid =
+          decodePaymentResponse(response.headers?.[X402_HEADERS.PAYMENT_RESPONSE])?.transaction ||
+          undefined;
+        const paymentBodyTxid = (response.data as { payment?: { txid?: unknown } })?.payment?.txid;
         const rawTxid = (response.data as { txid?: string; payment_txid?: string })?.txid ||
                      (response.data as { payment_txid?: string })?.payment_txid ||
+                     paymentResponseTxid ||
+                     (typeof paymentBodyTxid === "string" ? paymentBodyTxid : undefined) ||
                      response.headers?.['x-transaction-id'] ||
                      undefined;
 
@@ -368,7 +469,7 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
         // observable, using a synthetic pending marker that cannot be
         // confused for a real chain txid.
         if (paymentAttempted) {
-          recordTransaction(dedupKey, txid ?? `pending:${dedupKey}`);
+          await recordTransaction(dedupKey, txid ?? `pending:${dedupKey}`);
         }
 
         // Build the txid response fields per the behavior matrix:
@@ -409,9 +510,22 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
         const canonicalStatus = axiosError.x402PaymentStatus as
           | HttpPaymentStatusResponse
           | undefined;
+
+        // The presence of this header means the interceptor signed and
+        // broadcast a payment. That spends real funds whether or not
+        // settlement succeeded, so record it for dedup before returning any
+        // error — otherwise an identical retry passes the dedup guard and pays
+        // a second time for an invoice already settled on chain (#630).
+        // Mirrors the success path, including the synthetic pending marker
+        // used when the txid is not yet observable.
+        const paymentSigHeader = axiosError.config?.headers?.[X402_HEADERS.PAYMENT_SIGNATURE];
+        if (paymentSigHeader && dedupKey) {
+          const broadcastTxid = extractTxidFromPaymentSignature(paymentSigHeader);
+          await recordTransaction(dedupKey, broadcastTxid ?? `pending:${dedupKey}`);
+        }
+
         if (canonicalStatus) {
           const baseError = formatEndpointError(error, label);
-          const paymentSigHeader = axiosError.config?.headers?.[X402_HEADERS.PAYMENT_SIGNATURE];
           const fallbackTxid = paymentSigHeader
             ? extractTxidFromPaymentSignature(paymentSigHeader)
             : null;
@@ -446,7 +560,6 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
           };
         }
 
-        const paymentSigHeader = axiosError.config?.headers?.[X402_HEADERS.PAYMENT_SIGNATURE];
         if (paymentSigHeader) {
           const txid = extractTxidFromPaymentSignature(paymentSigHeader);
           const fallbackPaymentId = extractPaymentIdFromPaymentSignature(paymentSigHeader);
@@ -500,12 +613,12 @@ For paid endpoints, returns payment details (amount, asset, recipient) without e
 After probing a paid endpoint, use execute_x402_endpoint to actually execute and pay.
 
 Supported sources:
-- x402.biwas.xyz (default): Use path like "/api/pools/trending"
-- x402.aibtc.com (mainnet) / x402.aibtc.dev (testnet): Use apiUrl="https://x402.aibtc.com" with path like "/inference/openrouter/chat"
-- stx402.com: Use apiUrl="https://stx402.com" with path like "/ai/dad-joke"
+- x402.aibtc.com (mainnet) / x402.aibtc.dev (testnet), the default: Use path like "/inference/openrouter/chat"
+- x402.biwas.xyz: Use apiUrl="https://x402.biwas.xyz" with path like "/api/pools/trending"
+- stx402.com: Use apiUrl="https://stx402.com" with path like "/registry/list"
 - aibtc.com (mainnet) / aibtc.dev (testnet): Use apiUrl="https://aibtc.com" with path like "/api/inbox/{address}"
 - Any x402-compatible URL: Use url parameter with full endpoint URL`,
-      inputSchema: {
+      inputSchema: z.object({
         method: z
           .enum(["GET", "POST", "PUT", "DELETE"])
           .default("GET")
@@ -514,7 +627,7 @@ Supported sources:
           .string()
           .url()
           .optional()
-          .describe("Full endpoint URL (e.g., 'https://stx402.com/ai/dad-joke'). Takes precedence over path+apiUrl."),
+          .describe("Full endpoint URL (e.g., 'https://x402.aibtc.com/hashing/sha256'). Takes precedence over path+apiUrl."),
         path: z
           .string()
           .optional()
@@ -523,7 +636,7 @@ Supported sources:
           .string()
           .url()
           .optional()
-          .describe("API base URL. Known sources: x402.biwas.xyz, x402.aibtc.com, stx402.com, aibtc.com. Defaults to configured API_URL."),
+          .describe("API base URL: https:// plus the source host from list_x402_endpoints (x402.aibtc.com, x402.biwas.xyz, stx402.com, aibtc.com). Defaults to x402.aibtc.com (testnet x402.aibtc.dev)."),
         params: z
           .record(z.string(), z.string())
           .optional()
@@ -532,9 +645,15 @@ Supported sources:
           .record(z.string(), z.unknown())
           .optional()
           .describe("Request body for POST/PUT requests"),
-      },
+        asset: z
+          .string()
+          .optional()
+          .describe(
+            "Quote the cost in this asset when the endpoint accepts several. Accepts a symbol (\"sBTC\", \"STX\") or a full contract identifier. Defaults to the first asset this client can pay; the full accepts[] list is always returned."
+          ),
+      }),
     },
-    async ({ method, url, path, apiUrl, params, data }) => {
+    async ({ method, url, path, apiUrl, params, data, asset }) => {
       let fullUrl = "";
 
       try {
@@ -542,8 +661,8 @@ Supported sources:
         fullUrl = parsed.fullUrl;
         params = parsed.params;
 
-        const result = await probeEndpoint({ method, url: fullUrl, params, data });
-        return formatProbeResponse(result, method, fullUrl, { method, url, path, apiUrl, params, data });
+        const result = await probeEndpoint({ method, url: fullUrl, params, data, asset });
+        return formatProbeResponse(result, method, fullUrl, { method, url, path, apiUrl, params, data, asset });
       } catch (error) {
         return formatEndpointError(error, fullUrl || "unknown");
       }

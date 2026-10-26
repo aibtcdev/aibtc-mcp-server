@@ -18,7 +18,7 @@
  * - identity_transfer          - Transfer identity NFT to new owner
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { NETWORK, getExplorerTxUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
@@ -45,7 +45,7 @@ export function registerIdentityTools(server: McpServer): void {
       description:
         "Get the most recently minted agent ID from the ERC-8004 identity registry. " +
         "Returns null if no agents have been registered.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -73,9 +73,9 @@ export function registerIdentityTools(server: McpServer): void {
       description:
         "Get agent identity information from ERC-8004 identity registry. " +
         "Returns owner address, URI, and wallet address if set.",
-      inputSchema: {
+      inputSchema: z.object({
         agentId: z.number().int().min(0).describe("Agent ID to look up"),
-      },
+      }),
     },
     async ({ agentId }) => {
       try {
@@ -110,10 +110,10 @@ export function registerIdentityTools(server: McpServer): void {
       description:
         "Read a single metadata value by key from an agent's ERC-8004 identity. " +
         "Returns the raw buffer value as a hex string.",
-      inputSchema: {
+      inputSchema: z.object({
         agentId: z.number().int().min(0).describe("Agent ID to query"),
         key: z.string().max(MAX_METADATA_KEY_LENGTH).describe("Metadata key to read"),
-      },
+      }),
     },
     async ({ agentId, key }) => {
       try {
@@ -153,7 +153,7 @@ export function registerIdentityTools(server: McpServer): void {
         "Register a new agent identity on-chain using ERC-8004 identity registry. " +
         "Returns a transaction ID. Check the transaction result to get the assigned agent ID. " +
         "Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         uri: z
           .string()
           .optional()
@@ -174,7 +174,7 @@ export function registerIdentityTools(server: McpServer): void {
           .optional()
           .describe('Fee preset ("low", "medium", "high") or micro-STX amount. Optional.'),
         sponsored: sponsoredSchema,
-      },
+      }),
     },
     async ({ uri, metadata, fee, sponsored }) => {
       try {
@@ -232,7 +232,7 @@ export function registerIdentityTools(server: McpServer): void {
       description:
         "Update the URI for an agent identity in the ERC-8004 identity registry. " +
         "Requires an unlocked wallet. Must be called by agent owner or approved operator.",
-      inputSchema: {
+      inputSchema: z.object({
         agentId: z.number().int().min(0).describe("Agent ID to update"),
         uri: z.string().describe("New URI pointing to agent metadata (IPFS, HTTP, etc.)"),
         fee: z
@@ -240,7 +240,7 @@ export function registerIdentityTools(server: McpServer): void {
           .optional()
           .describe('Fee preset ("low", "medium", "high") or micro-STX amount. Optional.'),
         sponsored: sponsoredSchema,
-      },
+      }),
     },
     async ({ agentId, uri, fee, sponsored }) => {
       try {
@@ -276,7 +276,7 @@ export function registerIdentityTools(server: McpServer): void {
         "Value must be a hex-encoded buffer (max 512 bytes). " +
         'The key "agentWallet" is reserved — use identity_set_wallet instead. ' +
         "Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         agentId: z.number().int().min(0).describe("Agent ID to update"),
         key: z.string().max(MAX_METADATA_KEY_LENGTH).describe("Metadata key (max 128 chars)"),
         value: z
@@ -289,7 +289,7 @@ export function registerIdentityTools(server: McpServer): void {
           .optional()
           .describe('Fee preset ("low", "medium", "high") or micro-STX amount. Optional.'),
         sponsored: sponsoredSchema,
-      },
+      }),
     },
     async ({ agentId, key, value, fee, sponsored }) => {
       try {
@@ -338,7 +338,7 @@ export function registerIdentityTools(server: McpServer): void {
         "Approve or revoke an operator for an agent identity in the ERC-8004 identity registry. " +
         "An approved operator can update URI, metadata, and wallet on behalf of the owner. " +
         "Only the NFT owner can call this. Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         agentId: z.number().int().min(0).describe("Agent ID to update"),
         operator: z.string().describe("Stacks address of the operator to approve or revoke"),
         approved: z
@@ -351,7 +351,7 @@ export function registerIdentityTools(server: McpServer): void {
           .optional()
           .describe('Fee preset ("low", "medium", "high") or micro-STX amount. Optional.'),
         sponsored: sponsoredSchema,
-      },
+      }),
     },
     async ({ agentId, operator, approved, fee, sponsored }) => {
       try {
@@ -386,14 +386,14 @@ export function registerIdentityTools(server: McpServer): void {
       description:
         "Link the active Stacks wallet address to an agent identity in the ERC-8004 identity registry. " +
         "Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         agentId: z.number().int().min(0).describe("Agent ID to update"),
         fee: z
           .string()
           .optional()
           .describe('Fee preset ("low", "medium", "high") or micro-STX amount. Optional.'),
         sponsored: sponsoredSchema,
-      },
+      }),
     },
     async ({ agentId, fee, sponsored }) => {
       try {
@@ -426,14 +426,14 @@ export function registerIdentityTools(server: McpServer): void {
       description:
         "Remove the agent wallet association from an agent identity in the ERC-8004 identity registry. " +
         "Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         agentId: z.number().int().min(0).describe("Agent ID to update"),
         fee: z
           .string()
           .optional()
           .describe('Fee preset ("low", "medium", "high") or micro-STX amount. Optional.'),
         sponsored: sponsoredSchema,
-      },
+      }),
     },
     async ({ agentId, fee, sponsored }) => {
       try {
@@ -467,7 +467,7 @@ export function registerIdentityTools(server: McpServer): void {
         "Transfer an agent identity NFT to a new owner in the ERC-8004 identity registry. " +
         "This clears the agent wallet association — run identity_set_wallet after if needed. " +
         "Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         agentId: z.number().int().min(0).describe("Agent ID (token ID) to transfer"),
         recipient: z.string().describe("Stacks address of the new owner"),
         fee: z
@@ -475,7 +475,7 @@ export function registerIdentityTools(server: McpServer): void {
           .optional()
           .describe('Fee preset ("low", "medium", "high") or micro-STX amount. Optional.'),
         sponsored: sponsoredSchema,
-      },
+      }),
     },
     async ({ agentId, recipient, fee, sponsored }) => {
       try {

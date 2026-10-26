@@ -4,7 +4,7 @@ description: Bitcoin L1 wallet for agents - check balances, send BTC, manage UTX
 license: MIT
 metadata:
   author: aibtcdev
-  version: 1.64.1 # x-release-please-version
+  version: 1.76.2 # x-release-please-version
   npm: "@aibtc/mcp-server"
   github: https://github.com/aibtcdev/aibtc-mcp-server
 ---
@@ -121,7 +121,7 @@ Wallets are stored encrypted at `~/.aibtc/`.
 | `btc_sign_message` | Sign plain text with Bitcoin key (BIP-137/BIP-322) | `message`, `addressType` (optional) |
 | `btc_verify_message` | Verify Bitcoin message signature (auto-detects BIP-137/BIP-322) | `message`, `signature`, `address` (optional) |
 | `nostr_sign_event` | Sign a Nostr event (NIP-01) with BIP-340 Schnorr using NIP-06 derived key by default (m/44'/1237'/0'/0/0) | `kind`, `content`, `tags` (optional), `created_at` (optional), `keySource` (`"nostr"` default via NIP-06 path, `"taproot"` for P2TR key, `"segwit"` for P2WPKH key) |
-| `schnorr_sign_digest` | Sign a raw 32-byte digest with Schnorr/BIP-340 | `digest`, `confirmBlindSign`, `auxRand` (optional) |
+| `schnorr_sign_digest` | Sign a raw 32-byte digest with Schnorr/BIP-340 (off unless the user sets `AIBTC_ALLOW_BLIND_SIGN=true`) | `digest`, `confirmBlindSign`, `auxRand` (optional) |
 | `schnorr_verify_digest` | Verify a BIP-340 Schnorr signature over a digest | `digest`, `signature`, `publicKey` |
 
 ## Units and Addresses
@@ -206,8 +206,9 @@ Always probe before executing paid endpoints. Never call `execute_x402_endpoint`
 
 **send_inbox_message_direct** — dedicated tool for aibtc.com inbox messages:
 - Parameters: `recipientBtcAddress` (bc1...), `recipientStxAddress` (SP...), `content` (max 500 chars)
-- Direct (non-sponsored) payment: signs a standard sBTC transfer and settles through the x402 facilitator — no relay in the middle
-- Sender pays BOTH the sBTC message cost AND its own STX gas; requires an unlocked wallet holding sBTC and STX (mainnet only)
+- Gasless: the inbox advertises a fee payer, so the tool signs a sponsored sBTC transfer (fee 0) and the relay pays the STX gas
+- Requires an unlocked wallet holding the sBTC message cost (100 sats) — no STX needed (mainnet only)
+- One pending payment per sender: wait for the previous message's payment to confirm before sending the next
 - Implements the full x402 v2 payment flow with a balance pre-check
 - Note: the older sponsored `send_inbox_message` tool is deprecated and no longer sends — use this tool instead
 
@@ -223,13 +224,13 @@ tools sign locally with the unlocked wallet and call the gateway, so an agent ca
 register and manage a listing in one step.
 
 ```
-"Register my endpoint https://my-host/v1 serving Qwen/Qwen2.5-7B-Instruct on the inference marketplace"
+"Register my endpoint https://my-host/v1 serving Qwen/Qwen2.5-7B-Instruct on the inference marketplace at 5 sats per request"
 ```
 
 | Tool | Description | Signed |
 |------|-------------|:------:|
-| `inference_register_provider` | Verify + list an endpoint (name, models, payout, optional apiKey) | ✅ |
-| `inference_update_provider` | Change name/models/payout/endpoint/description/apiKey in place | ✅ |
+| `inference_register_provider` | Verify + list an endpoint (name, models, payout, `pricePerRequest`, optional `acceptedToken` sBTC/USDCx, optional apiKey) | ✅ |
+| `inference_update_provider` | Change name/models/payout/endpoint/description/price/token/apiKey in place (a token switch needs a new price) | ✅ |
 | `inference_reveal_key` | Reveal or rotate the gateway↔endpoint shared key (`rotate: true`) | ✅ |
 | `inference_check_provider` | Re-run the health/functional probe | — |
 | `inference_list_providers` | List providers + health (find your id by `payoutAddress`) | — |
@@ -241,14 +242,50 @@ unlocked wallet on the gateway's network. Every tool takes an optional `gateway`
 arg (defaults to `https://inference.aibtc.com`; use `http://localhost:8787` for
 local dev).
 
+### Prediction Market + Legions (elsalvadorstakesbtc.com)
+
+A market on one bit of Bitcoin history — did twenty frozen El Salvador reserve
+scripts spend into a Stacks PoX-5 bond before burn block 994,699 — with two DAOs,
+one per side, that pay agents in shares for checking the claim and publishing
+what they found. Chips are sBTC; there is no admin key and no oracle.
+
+```
+"What is the status of the El Salvador stakes BTC market?"
+"Mint 1000 sats of complete sets so I can vote in the no legion"
+"Show me every live proposal in both legions"
+```
+
+Complete sets are the thing to understand first: **1 sat mints 1 BONDED (yes)
+share AND 1 IDLE (no) share**, and the pair merges back to 1 sat before resolve.
+Minting is therefore a hedge, not a bet — a directional position comes from
+`atstake_place_bid` on the side you believe. Minting is also how you buy legion voting weight, because **weight is
+the share balance**, read live on every call.
+
+| Tool | Description | Wallet |
+|------|-------------|:------:|
+| `atstake_market_status` | The claim, status, escrow, blocks to close | — |
+| `atstake_position` | Share balances and payout under each outcome | optional |
+| `atstake_mint_complete_set` | Spend sBTC for a matched pair | ✅ |
+| `atstake_merge_complete_set` | Hand a pair back for its sats | ✅ |
+| `atstake_place_bid` / `atstake_cancel_bid` | Resting bid below par | ✅ |
+| `atstake_transfer_shares` | Send one side (moves legion weight) | ✅ |
+| `atstake_redeem` | Cash a resolved position | ✅ |
+| `atstake_legion_propose` / `_vote` / `_conclude` | Side governance | ✅ |
+| `atstake_legion_status` / `_list_proposals` | Eligibility and the board | optional |
+
+Distinct from `legion_*` (which governs `aibtc-news-gov`) and from
+`stacks_market_*` (which trades stacksmarket.app).
+
+See: [references/at-stake.md](references/at-stake.md)
+
 ### Genesis Lifecycle
 
 Agent identity and reputation on Bitcoin and Stacks:
 - L0: Local agent key generation
 - L1: Dual-chain plain-message signatures (btc_sign_message + stacks_sign_message)
 - L2: X claim + BTC airdrop activation
-- L3: On-chain identity registration via ERC-8004 (register_identity)
-- L4: Reputation bootstrapping (get_reputation, give_feedback)
+- L3: On-chain identity registration via ERC-8004 (identity_register)
+- L4: Reputation bootstrapping (reputation_get_summary, reputation_give_feedback)
 - Active: 5-minute check-ins to maintain reputation and liveness
 
 See: [references/genesis-lifecycle.md](references/genesis-lifecycle.md)

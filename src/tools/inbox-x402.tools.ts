@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import axios, { AxiosError } from "axios";
 import {
@@ -8,7 +8,8 @@ import {
   X402_HEADERS,
   type StacksAccount,
 } from "x402-stacks";
-import { getAccount, NETWORK } from "../services/x402.service.js";
+import { createApiClient, getAccount, NETWORK } from "../services/x402.service.js";
+import { getSpendLimiter } from "../services/spend-limiter.js";
 import { getSbtcService } from "../services/sbtc.service.js";
 import { getHiroApi } from "../services/hiro-api.js";
 import { getExplorerTxUrl } from "../config/networks.js";
@@ -27,16 +28,17 @@ const INBOX_BASE = "https://aibtc.com/api/inbox";
  * We budget against `medium_priority`, capped at this ceiling, so the pre-flight
  * reflects what the transaction will actually cost.
  */
-const MAX_REALISTIC_FEE_USTX = 50_000n; // 0.05 STX — generous headroom
+const MAX_REALISTIC_FEE_USTX = 3_000n; // 0.003 STX — the sbtc_transfer fee ceiling
 
 /**
- * Pre-flight balance check for a non-sponsored sBTC inbox payment.
- * Verifies the wallet holds enough sBTC for the message AND enough STX for a
- * realistic transfer fee (the sender pays its own gas).
+ * Pre-flight balance check for an sBTC inbox payment.
+ * Verifies the wallet holds enough sBTC for the message, and — unless the
+ * payment is sponsored — enough STX for a realistic transfer fee.
  */
 export async function checkDirectInboxBalance(
   address: string,
-  amount: string
+  amount: string,
+  sponsored = false
 ): Promise<void> {
   const sbtcService = getSbtcService(NETWORK);
   const sbtcBalance = BigInt((await sbtcService.getBalance(address)).balance);
@@ -52,6 +54,9 @@ export async function checkDirectInboxBalance(
       shortfall.toString()
     );
   }
+
+  // Sponsored: the facilitator pays the gas, so no STX is needed.
+  if (sponsored) return;
 
   const hiro = getHiroApi(NETWORK);
   const stxBalance = BigInt((await hiro.getStxBalance(address)).balance);
@@ -83,24 +88,38 @@ export async function checkDirectInboxBalance(
 }
 
 /**
- * Direct (non-sponsored) x402 inbox messaging.
+ * True when a failed x402-stacks request had already carried the signed
+ * payment: the retried request's config holds the payment-signature header,
+ * either on the error itself (the retry failed outright) or on its `cause`
+ * (the interceptor's "402 after payment was sent").
+ */
+function paymentWasSent(error: unknown): boolean {
+  const carried = (e: unknown): boolean => {
+    const headers = (e as { config?: { headers?: unknown } } | undefined)?.config?.headers;
+    if (!headers || typeof headers !== "object") return false;
+    const wanted = X402_HEADERS.PAYMENT_SIGNATURE.toLowerCase();
+    return Object.entries(headers).some(
+      ([name, value]) => name.toLowerCase() === wanted && value != null
+    );
+  };
+  return carried(error) || carried((error as { cause?: unknown } | undefined)?.cause);
+}
+
+/**
+ * x402 inbox messaging. The transaction is signed but not broadcast; the
+ * inbox endpoint settles it through its x402 facilitator.
  *
- * Unlike `send_inbox_message` — which builds a *sponsored* sBTC transfer
- * (`sponsored: true`, `fee: 0n`) so the aibtc relay co-signs and pays the STX
- * gas — this tool uses the standard `x402-stacks` client interceptor
- * (`wrapAxiosWithPayment`). That signs a normal standard-auth sBTC transfer
- * where the *sender pays its own STX gas*. The transaction is signed but not
- * broadcast; the inbox endpoint settles it via the x402 facilitator's
- * `/settle` flow (no relay sponsorship).
+ * The inbox decides who pays gas. When its 402 advertises `extra.feePayer`,
+ * the `x402-stacks` interceptor (`wrapAxiosWithPayment`, >=2.1.0) signs a
+ * sponsored sBTC transfer with fee 0 and the facilitator co-signs and pays the
+ * STX gas. Without it, the payment goes through `createApiClient`, which signs
+ * a standard transfer at the `sbtc_transfer` fee clamp (max 0.003 STX) with an
+ * exact-amount post-condition. The SDK's standard path leaves the fee to
+ * stacks.js auto-estimation, which has no ceiling (#700).
  *
  * Server side: `lib/inbox/x402-verify.ts` deserializes the payment tx and
- * branches on `tx.auth.authType`. A standard-auth tx (what x402-stacks signs)
- * takes the non-sponsored `X402PaymentVerifier.settle()` path — the relay never
- * adds a sponsor signature or pays gas.
- *
- * Trade-off vs the sponsored tool: the sender must hold STX to cover the
- * transfer fee (the pre-flight check enforces this). In exchange there is no
- * relay in the middle of the payment authorization.
+ * branches on `tx.auth.authType` (sponsored → relay sponsors; standard →
+ * relay `/settle` broadcasts as-is).
  */
 export function registerInboxX402Tools(server: McpServer): void {
   server.registerTool(
@@ -109,11 +128,12 @@ export function registerInboxX402Tools(server: McpServer): void {
       description:
         "Send a paid x402 message to another agent's inbox on aibtc.com. This is the canonical inbox " +
         "send tool (the older sponsored send_inbox_message is deprecated).\n\n" +
-        "It signs a standard sBTC transfer with the x402-stacks client interceptor — you pay BOTH the sBTC " +
-        "message cost AND your own STX gas fee. No relay sits in the middle of the payment; the inbox settles " +
-        "the signed transaction via the x402 facilitator.\n\n" +
-        "Requires an unlocked wallet holding sBTC (message cost) and STX (gas). Mainnet only.",
-      inputSchema: {
+        "It signs an sBTC transfer with the x402-stacks client interceptor and the inbox settles it via its " +
+        "x402 facilitator. When the inbox offers sponsorship (402 `extra.feePayer`), the transfer is gasless — " +
+        "you pay only the sBTC message cost. Otherwise you also pay your own STX gas fee.\n\n" +
+        "Requires an unlocked wallet holding sBTC (message cost), plus STX for gas when the inbox does not " +
+        "sponsor. Mainnet only.",
+      inputSchema: z.object({
         recipientBtcAddress: z
           .string()
           .describe("Recipient's Bitcoin address (bc1...)"),
@@ -124,7 +144,7 @@ export function registerInboxX402Tools(server: McpServer): void {
           .string()
           .max(500)
           .describe("Message content (max 500 characters)"),
-      },
+      }),
     },
     async ({ recipientBtcAddress, recipientStxAddress, content }) => {
       try {
@@ -180,30 +200,55 @@ export function registerInboxX402Tools(server: McpServer): void {
         }
         const accept = paymentRequired.accepts[0];
 
-        // Step 2: Pre-flight balance check — sBTC for the message AND a
-        // realistic STX gas budget (sender pays its own fee).
-        await checkDirectInboxBalance(account.address, accept.amount);
+        // The SDK signs a sponsored (fee 0) transfer exactly when the
+        // requirement names a fee payer — mirror its check.
+        const sponsored = typeof accept.extra?.feePayer === "string";
 
-        // Step 3: Build a payment-enabled axios client. wrapAxiosWithPayment
-        // installs the x402-stacks interceptor: on a 402 it signs a standard
-        // (non-sponsored) sBTC transfer and retries with the payment-signature
-        // header. The sender's wallet pays the gas.
-        const stacksAccount: StacksAccount = {
-          address: account.address,
-          privateKey: account.privateKey,
-          network: NETWORK,
-        };
-        const api = wrapAxiosWithPayment(
-          axios.create({ timeout: 120_000 }),
-          stacksAccount
-        );
+        // Step 2: Pre-flight balance check — sBTC for the message, plus a
+        // realistic STX gas budget when the sender pays its own fee.
+        await checkDirectInboxBalance(account.address, accept.amount, sponsored);
 
-        // Step 4: Send. The interceptor handles 402 -> sign -> retry.
-        const response = await api.post(inboxUrl, body, {
-          headers: { "Content-Type": "application/json" },
-        });
+        // Step 3: Send. Either interceptor handles 402 -> sign -> retry.
+        let response;
+        if (sponsored) {
+          // The message cost is a signed sBTC spend: book it before signing.
+          const spendLimiter = getSpendLimiter();
+          const reservation = await spendLimiter.reserve(
+            [{ unit: "sats", amount: BigInt(accept.amount) }],
+            account.address
+          );
 
-        // Step 5: Decode the settlement (txid + payer) from the response header.
+          const stacksAccount: StacksAccount = {
+            address: account.address,
+            privateKey: account.privateKey,
+            network: NETWORK,
+          };
+          const api = wrapAxiosWithPayment(
+            axios.create({ timeout: 120_000 }),
+            stacksAccount
+          );
+          try {
+            response = await api.post(inboxUrl, body, {
+              headers: { "Content-Type": "application/json" },
+            });
+          } catch (error) {
+            // Once the signed payment rode the retried request, the inbox may
+            // have settled it, so the booking stands.
+            if (!paymentWasSent(error)) await spendLimiter.release(reservation);
+            throw error;
+          }
+        } else {
+          // Self-paid: createApiClient clamps the fee and meters the spend.
+          const api = await createApiClient(INBOX_BASE, {
+            toolName: "send_inbox_message_direct",
+            asset: accept.asset,
+          });
+          response = await api.post(inboxUrl, body, {
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+
+        // Step 4: Decode the settlement (txid + payer) from the response header.
         const settlement = decodePaymentResponse(
           response.headers[X402_HEADERS.PAYMENT_RESPONSE]
         );
@@ -212,7 +257,9 @@ export function registerInboxX402Tools(server: McpServer): void {
 
         return createJsonResponse({
           success: true,
-          message: "Message delivered (direct non-sponsored x402)",
+          message: sponsored
+            ? "Message delivered (x402, gas sponsored)"
+            : "Message delivered (x402, sender paid gas)",
           recipient: {
             btcAddress: recipientBtcAddress,
             stxAddress: recipientStxAddress,
@@ -220,14 +267,16 @@ export function registerInboxX402Tools(server: McpServer): void {
           contentLength: content.length,
           inbox: response.data,
           payment: {
-            mode: "direct-x402-nonsponsored",
+            mode: sponsored ? "x402-sponsored" : "direct-x402-nonsponsored",
             amount: accept.amount + " sats sBTC",
             ...(payer && { payer }),
             ...(txid && {
               txid,
               explorer: getExplorerTxUrl(txid, NETWORK),
             }),
-            note: "Sender paid its own STX gas — no relay sponsorship.",
+            note: sponsored
+              ? `STX gas paid by the inbox facilitator (${accept.extra?.feePayer}).`
+              : "Sender paid its own STX gas — no relay sponsorship.",
           },
         });
       } catch (error) {

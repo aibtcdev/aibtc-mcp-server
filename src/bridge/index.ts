@@ -28,9 +28,9 @@
  *   --max-turns <n>        tool-call loop cap (default 10)
  */
 
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { ALL_ENDPOINTS } from "../endpoints/registry.js";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { Client } from "@modelcontextprotocol/client";
+import { STATIC_ENDPOINTS } from "../endpoints/registry.js";
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const DEFAULT_MODEL = "anthropic/claude-3.5-haiku";
@@ -163,7 +163,7 @@ function printSafetyReceipt<T extends { name: string }>(
     `  write_tool_count=${writeToolCount}`,
     `  blocked_tool_count=${opts.block.size}`,
     `  session_spend_cap=${opts.maxSpendUstx ?? "default"} uSTX / ${opts.maxSpendSats ?? "default"} sats`,
-    `  x402_endpoints_known=${ALL_ENDPOINTS.length}`,
+    `  x402_static_endpoints=${STATIC_ENDPOINTS.length}`,
     "  (reports configured execution boundaries only; no value has moved)",
   ];
   console.error(lines.join("\n"));

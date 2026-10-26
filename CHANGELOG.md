@@ -1,5 +1,179 @@
 # Changelog
 
+## [1.76.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.76.1...mcp-server-v1.76.2) (2026-10-26)
+
+
+### Bug Fixes
+
+* **bitflow:** default the keeper host to keeper.bitflowapis.finance ([#729](https://github.com/aibtcdev/aibtc-mcp-server/issues/729)) ([e9fe0bc](https://github.com/aibtcdev/aibtc-mcp-server/commit/e9fe0bc3b24c4aa4be5ef26129ee29fb68c6e8c1)), closes [#726](https://github.com/aibtcdev/aibtc-mcp-server/issues/726)
+
+## [1.76.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.76.0...mcp-server-v1.76.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* **inference:** send pricePerRequest and acceptedToken to the marketplace gateway ([#722](https://github.com/aibtcdev/aibtc-mcp-server/issues/722)) ([f48de19](https://github.com/aibtcdev/aibtc-mcp-server/commit/f48de19d80495de08200c37c48426d80bd4573ec)), closes [#721](https://github.com/aibtcdev/aibtc-mcp-server/issues/721)
+
+## [1.76.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.75.0...mcp-server-v1.76.0) (2026-10-14)
+
+
+### Features
+
+* **x402:** sign sponsored payments when the endpoint offers gas sponsorship ([#715](https://github.com/aibtcdev/aibtc-mcp-server/issues/715)) ([c7fb05b](https://github.com/aibtcdev/aibtc-mcp-server/commit/c7fb05b149818288085df87a2c604115bfab6ae2))
+
+
+### Bug Fixes
+
+* **inbox:** sign self-paid inbox payments with the sbtc_transfer fee clamp ([#708](https://github.com/aibtcdev/aibtc-mcp-server/issues/708)) ([e48e30d](https://github.com/aibtcdev/aibtc-mcp-server/commit/e48e30da4939d54f397e24b599261c0a47eec779)), closes [#700](https://github.com/aibtcdev/aibtc-mcp-server/issues/700)
+* sbtc_transfer uses its own fee tier; At Stake legions join the legion group ([#707](https://github.com/aibtcdev/aibtc-mcp-server/issues/707)) ([b74f575](https://github.com/aibtcdev/aibtc-mcp-server/commit/b74f5750306de677aa22c92f9009d83e375f6ceb)), closes [#704](https://github.com/aibtcdev/aibtc-mcp-server/issues/704) [#695](https://github.com/aibtcdev/aibtc-mcp-server/issues/695)
+* **spend-limit:** book spends before signing so the daily cap holds across processes ([#712](https://github.com/aibtcdev/aibtc-mcp-server/issues/712)) ([6aa48d9](https://github.com/aibtcdev/aibtc-mcp-server/commit/6aa48d989815adb0651284410ee34557d9f4a2fb))
+* **x402:** meter the sender's STX fee on auto-payments ([#714](https://github.com/aibtcdev/aibtc-mcp-server/issues/714)) ([ce6dd7c](https://github.com/aibtcdev/aibtc-mcp-server/commit/ce6dd7c998063116716c45ab1b6cb331815d172d)), closes [#713](https://github.com/aibtcdev/aibtc-mcp-server/issues/713)
+* **yield-dashboard:** drop hardcoded APYs, fix Zest reserve decoding ([#684](https://github.com/aibtcdev/aibtc-mcp-server/issues/684)) ([51ea731](https://github.com/aibtcdev/aibtc-mcp-server/commit/51ea731e0a75c4c6c47ac6d4f4a9059cae8143b0)), closes [#678](https://github.com/aibtcdev/aibtc-mcp-server/issues/678)
+
+## [1.75.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.74.0...mcp-server-v1.75.0) (2026-10-05)
+
+
+### Features
+
+* **x402:** write extra.payment_id as the payment memo, cut to 34 bytes ([#705](https://github.com/aibtcdev/aibtc-mcp-server/issues/705)) ([0ff0d79](https://github.com/aibtcdev/aibtc-mcp-server/commit/0ff0d7975c6e3cf7d969be90439db55351d1a479))
+
+## [1.74.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.73.1...mcp-server-v1.74.0) (2026-10-02)
+
+
+### Features
+
+* **inbox:** gasless send when the inbox advertises a fee payer; meter sBTC ([#701](https://github.com/aibtcdev/aibtc-mcp-server/issues/701)) ([279fff1](https://github.com/aibtcdev/aibtc-mcp-server/commit/279fff1dc464dab9f947454a46217bb1290e95ab))
+
+## [1.73.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.73.0...mcp-server-v1.73.1) (2026-10-01)
+
+
+### Bug Fixes
+
+* **fee:** cap plain sBTC transfer fees at 0.003 STX ([#697](https://github.com/aibtcdev/aibtc-mcp-server/issues/697)) ([05f472d](https://github.com/aibtcdev/aibtc-mcp-server/commit/05f472da7af38f66ed2d88a2d1c57f0a73ed0218))
+
+## [1.73.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.72.1...mcp-server-v1.73.0) (2026-09-28)
+
+
+### Features
+
+* **spend-limit:** meter every signed spend, default 50 STX / 50k sats ([#693](https://github.com/aibtcdev/aibtc-mcp-server/issues/693)) ([4e7f021](https://github.com/aibtcdev/aibtc-mcp-server/commit/4e7f021d53b1c718c4859b3d9593a5973e3362f6))
+
+## [1.72.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.72.0...mcp-server-v1.72.1) (2026-09-27)
+
+
+### Bug Fixes
+
+* **config:** stop loading .env from the working directory ([#691](https://github.com/aibtcdev/aibtc-mcp-server/issues/691)) ([7ab2608](https://github.com/aibtcdev/aibtc-mcp-server/commit/7ab260870f6468213c614d658d36618e4e2bb3c3))
+
+## [1.72.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.71.0...mcp-server-v1.72.0) (2026-09-27)
+
+
+### Features
+
+* **install:** create the agent wallet during --install ([#688](https://github.com/aibtcdev/aibtc-mcp-server/issues/688)) ([148029e](https://github.com/aibtcdev/aibtc-mcp-server/commit/148029e152a3bda879923e0132b492c4532f0def))
+* **mcp:** move to MCP TypeScript SDK v2 and serve protocol 2026-07-28 ([#685](https://github.com/aibtcdev/aibtc-mcp-server/issues/685)) ([84e74fa](https://github.com/aibtcdev/aibtc-mcp-server/commit/84e74fa6285e90292bc391d2a98384897d988739))
+* **tools:** lean default tool profile, x402.aibtc.com as default API_URL ([#686](https://github.com/aibtcdev/aibtc-mcp-server/issues/686)) ([b085abf](https://github.com/aibtcdev/aibtc-mcp-server/commit/b085abf1a64b9f7bf60aafeafe2ee823b75d6a7a))
+* **tools:** unset AIBTC_TOOLS loads every tool; --install writes core ([#690](https://github.com/aibtcdev/aibtc-mcp-server/issues/690)) ([30d383b](https://github.com/aibtcdev/aibtc-mcp-server/commit/30d383ba2823f2f136b344a7ff8ba0e4596afd53))
+
+
+### Bug Fixes
+
+* **x402:** hardcode the default x402 base URL per network ([#689](https://github.com/aibtcdev/aibtc-mcp-server/issues/689)) ([c1c770c](https://github.com/aibtcdev/aibtc-mcp-server/commit/c1c770c2d636356460c15bfab5a5c7f45051573a))
+
+## [1.71.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.70.1...mcp-server-v1.71.0) (2026-09-16)
+
+
+### Features
+
+* **stacking:** move stacking tools to pox-5 ([#682](https://github.com/aibtcdev/aibtc-mcp-server/issues/682)) ([01b9769](https://github.com/aibtcdev/aibtc-mcp-server/commit/01b9769c2e5926d2c4167821db4787d46d10f592))
+* **x402:** discover x402.aibtc.com and stx402.com endpoints live ([#680](https://github.com/aibtcdev/aibtc-mcp-server/issues/680)) ([fa76f0f](https://github.com/aibtcdev/aibtc-mcp-server/commit/fa76f0fa409030bd5bab183fb74e621f794dde96))
+
+
+### Bug Fixes
+
+* **registry:** drop dead stx402.com endpoints and correct x402.aibtc.com routes ([#679](https://github.com/aibtcdev/aibtc-mcp-server/issues/679)) ([91a8c56](https://github.com/aibtcdev/aibtc-mcp-server/commit/91a8c56c9789960ec6ac2596140544bc7b1bd931))
+
+## [1.70.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.70.0...mcp-server-v1.70.1) (2026-09-16)
+
+
+### Bug Fixes
+
+* deprecate news tools (aibtc.news API returns 410) ([#675](https://github.com/aibtcdev/aibtc-mcp-server/issues/675)) ([d650f90](https://github.com/aibtcdev/aibtc-mcp-server/commit/d650f9030615a3efc73fc123f2a51663fd5fb1ce))
+* recover x402 V2 settlement txid ([#667](https://github.com/aibtcdev/aibtc-mcp-server/issues/667)) ([02dcd68](https://github.com/aibtcdev/aibtc-mcp-server/commit/02dcd681d1071f010907248042dd266999368d42))
+* restore psbt and settings tools, correct stale config and docs ([#676](https://github.com/aibtcdev/aibtc-mcp-server/issues/676)) ([b72301b](https://github.com/aibtcdev/aibtc-mcp-server/commit/b72301bf31b720feea48b276da181b8a4c1f7c28))
+
+## [1.70.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.69.0...mcp-server-v1.70.0) (2026-09-16)
+
+
+### Features
+
+* **at-stake:** add El Salvador prediction market and side-legion tools ([#670](https://github.com/aibtcdev/aibtc-mcp-server/issues/670)) ([d48b17a](https://github.com/aibtcdev/aibtc-mcp-server/commit/d48b17a7f61d9c413accce54010743d9fe374609))
+
+
+### Bug Fixes
+
+* **spend-limiter:** lock the shared day ledger against the skills engine's writer ([#671](https://github.com/aibtcdev/aibtc-mcp-server/issues/671)) ([4bcadaf](https://github.com/aibtcdev/aibtc-mcp-server/commit/4bcadaf75d0f2a67aa7a9a4b615c0c67a8744be3))
+
+## [1.69.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.68.0...mcp-server-v1.69.0) (2026-09-01)
+
+
+### Features
+
+* **ordinals:** return contentSha256 from inscribe + validate on inscribe_reveal ([#653](https://github.com/aibtcdev/aibtc-mcp-server/issues/653)) ([1a64995](https://github.com/aibtcdev/aibtc-mcp-server/commit/1a6499592d08bbb438cd28cb863f0af5ac78b67f))
+
+
+### Bug Fixes
+
+* meter contract-call spends against the spending limit ([#663](https://github.com/aibtcdev/aibtc-mcp-server/issues/663)) ([f715878](https://github.com/aibtcdev/aibtc-mcp-server/commit/f715878c288d1f808a88394e4c9995f808487cda))
+
+## [1.68.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.67.0...mcp-server-v1.68.0) (2026-08-17)
+
+
+### Features
+
+* **legion:** move the News Legion tools to mainnet ([#656](https://github.com/aibtcdev/aibtc-mcp-server/issues/656)) ([4c4bc00](https://github.com/aibtcdev/aibtc-mcp-server/commit/4c4bc007350b8f0c431145aff70461deac752889))
+
+## [1.67.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.66.0...mcp-server-v1.67.0) (2026-08-05)
+
+
+### Features
+
+* **legion:** require explicit consent before spending mainnet BTC ([#647](https://github.com/aibtcdev/aibtc-mcp-server/issues/647)) ([6300405](https://github.com/aibtcdev/aibtc-mcp-server/commit/6300405976591952b621d038139fdeb91a1b9dc9))
+
+## [1.66.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.65.1...mcp-server-v1.66.0) (2026-08-03)
+
+
+### Features
+
+* **legion:** add News Legion governance tools ([#642](https://github.com/aibtcdev/aibtc-mcp-server/issues/642)) ([5413ba5](https://github.com/aibtcdev/aibtc-mcp-server/commit/5413ba5be8c961137afa6c16d9d2d04f753eaca7))
+
+
+### Bug Fixes
+
+* **deps:** bump postcss to 8.5.18 (GHSA-r28c-9q8g-f849) ([#638](https://github.com/aibtcdev/aibtc-mcp-server/issues/638)) ([1306c51](https://github.com/aibtcdev/aibtc-mcp-server/commit/1306c51d9129d5db8a2b689ed375019a412677e3))
+
+## [1.65.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.65.0...mcp-server-v1.65.1) (2026-07-29)
+
+
+### Bug Fixes
+
+* **x402:** record dedup entry on failed settlement, persist the cache ([#631](https://github.com/aibtcdev/aibtc-mcp-server/issues/631)) ([7e52844](https://github.com/aibtcdev/aibtc-mcp-server/commit/7e5284404cc8453bc119f7529f3562e3425068d1))
+
+## [1.65.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.64.2...mcp-server-v1.65.0) (2026-07-21)
+
+
+### Features
+
+* nudge agents to hunt bounties ([#624](https://github.com/aibtcdev/aibtc-mcp-server/issues/624)) ([5211884](https://github.com/aibtcdev/aibtc-mcp-server/commit/52118846dc7672be13d286ad82f405072cc12eb3))
+
+## [1.64.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.64.1...mcp-server-v1.64.2) (2026-07-20)
+
+
+### Bug Fixes
+
+* **dual-stacking:** decode Clarity tuples from cvToJSON's nested shape ([#611](https://github.com/aibtcdev/aibtc-mcp-server/issues/611)) ([#620](https://github.com/aibtcdev/aibtc-mcp-server/issues/620)) ([16e56ab](https://github.com/aibtcdev/aibtc-mcp-server/commit/16e56abd7446d5ca0dc06e806697dffef6c6fa08))
+* **x402:** select payment asset instead of hardcoding accepts[0] ([#613](https://github.com/aibtcdev/aibtc-mcp-server/issues/613)) ([#622](https://github.com/aibtcdev/aibtc-mcp-server/issues/622)) ([491e7bc](https://github.com/aibtcdev/aibtc-mcp-server/commit/491e7bcc061e7591529a36f89d73e35a603b4552))
+
 ## [1.64.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.64.0...mcp-server-v1.64.1) (2026-07-16)
 
 

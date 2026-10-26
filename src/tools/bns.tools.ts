@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { getAccount, getWalletAddress, NETWORK } from "../services/x402.service.js";
 import { getBnsService } from "../services/bns.service.js";
@@ -11,9 +11,9 @@ export function registerBnsTools(server: McpServer): void {
     "lookup_bns_name",
     {
       description: "Resolve a .btc domain name to its Stacks address.",
-      inputSchema: {
+      inputSchema: z.object({
         name: z.string().describe("BNS name to lookup (e.g., 'alice.btc' or 'alice')"),
-      },
+      }),
     },
     async ({ name }) => {
       try {
@@ -47,12 +47,12 @@ export function registerBnsTools(server: McpServer): void {
     "reverse_bns_lookup",
     {
       description: "Get the BNS domain names owned by an address.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
           .describe("Stacks address to lookup. Uses configured wallet if not provided."),
-      },
+      }),
     },
     async ({ address }) => {
       try {
@@ -77,9 +77,9 @@ export function registerBnsTools(server: McpServer): void {
     "get_bns_info",
     {
       description: "Get detailed information about a BNS domain name.",
-      inputSchema: {
+      inputSchema: z.object({
         name: z.string().describe("BNS name to lookup (e.g., 'alice.btc')"),
-      },
+      }),
     },
     async ({ name }) => {
       try {
@@ -110,9 +110,9 @@ export function registerBnsTools(server: McpServer): void {
     "check_bns_availability",
     {
       description: "Check if a BNS domain name is available for registration.",
-      inputSchema: {
+      inputSchema: z.object({
         name: z.string().describe("BNS name to check (e.g., 'alice')"),
-      },
+      }),
     },
     async ({ name }) => {
       try {
@@ -135,9 +135,9 @@ export function registerBnsTools(server: McpServer): void {
     "get_bns_price",
     {
       description: "Get the registration price for a BNS domain name.",
-      inputSchema: {
+      inputSchema: z.object({
         name: z.string().describe("BNS name to check (e.g., 'alice')"),
-      },
+      }),
     },
     async ({ name }) => {
       try {
@@ -164,12 +164,12 @@ export function registerBnsTools(server: McpServer): void {
     "list_user_domains",
     {
       description: "List all BNS domains owned by an address.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
           .describe("Stacks address to check. Uses configured wallet if not provided."),
-      },
+      }),
     },
     async ({ address }) => {
       try {
@@ -198,7 +198,7 @@ export function registerBnsTools(server: McpServer): void {
         "This is the RECOMMENDED method — no preorder/register wait needed. " +
         "Burns the name price in STX and mints the BNS NFT atomically. " +
         "Works for all open namespaces (BNS V2).",
-      inputSchema: {
+      inputSchema: z.object({
         name: z
           .string()
           .describe("BNS name to claim (e.g., 'myname' or 'myname.btc')"),
@@ -206,7 +206,7 @@ export function registerBnsTools(server: McpServer): void {
           .string()
           .optional()
           .describe("Optional recipient address. Defaults to the wallet's own address."),
-      },
+      }),
     },
     async ({ name, sendTo }) => {
       try {
@@ -260,7 +260,7 @@ export function registerBnsTools(server: McpServer): void {
         "Use this 2-step flow only for non-.btc namespaces or if claim-fast is unavailable. " +
         "After preorder is confirmed (~10 minutes), call register_bns_name with the same salt. " +
         "IMPORTANT: Save the returned salt - you'll need it for the register step!",
-      inputSchema: {
+      inputSchema: z.object({
         name: z
           .string()
           .describe("BNS name to preorder (e.g., 'myname' or 'myname.btc')"),
@@ -268,7 +268,7 @@ export function registerBnsTools(server: McpServer): void {
           .string()
           .optional()
           .describe("Optional salt for the preorder hash. If not provided, a random salt will be generated."),
-      },
+      }),
     },
     async ({ name, salt }) => {
       try {
@@ -325,14 +325,14 @@ export function registerBnsTools(server: McpServer): void {
         "You MUST use the same salt from the preorder step. " +
         "Only call this after the preorder transaction has been confirmed on-chain (~10 minutes). " +
         "Auto-detects contract version: V2 for .btc names, V1 for other namespaces.",
-      inputSchema: {
+      inputSchema: z.object({
         name: z
           .string()
           .describe("BNS name to register (must match the preordered name)"),
         salt: z
           .string()
           .describe("The hex salt used in the preorder step (REQUIRED - must match exactly)"),
-      },
+      }),
     },
     async ({ name, salt }) => {
       try {

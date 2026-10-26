@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // vi.hoisted() creates values BEFORE vi.mock hoisting, so they can be referenced in factory functions.
-const { mockSdkMethods, mockMakeContractCall, mockBroadcastTransaction, mockHexToCV, mockCvToJSON } = vi.hoisted(() => ({
+const { mockSdkMethods, mockCallContract, mockHexToCV, mockCvToJSON } = vi.hoisted(() => ({
   mockSdkMethods: {
     getAvailableTokens: vi.fn(),
     getAllPossibleTokenY: vi.fn(),
@@ -14,8 +14,7 @@ const { mockSdkMethods, mockMakeContractCall, mockBroadcastTransaction, mockHexT
     cancelOrder: vi.fn(),
     getUser: vi.fn(),
   },
-  mockMakeContractCall: vi.fn(),
-  mockBroadcastTransaction: vi.fn(),
+  mockCallContract: vi.fn(),
   mockHexToCV: vi.fn(),
   mockCvToJSON: vi.fn(),
 }));
@@ -40,16 +39,14 @@ vi.mock("@bitflowlabs/core-sdk", () => {
 });
 
 vi.mock("@stacks/transactions", () => ({
-  makeContractCall: mockMakeContractCall,
-  broadcastTransaction: mockBroadcastTransaction,
-  PostConditionMode: { Deny: 1 },
+  PostConditionMode: { Deny: 2 },
   hexToCV: mockHexToCV,
   cvToJSON: mockCvToJSON,
 }));
 
-vi.mock("@stacks/network", () => ({
-  STACKS_MAINNET: { id: "mainnet" },
-  STACKS_TESTNET: { id: "testnet" },
+// Swaps go through the shared builder, which meters post conditions.
+vi.mock("../../src/transactions/builder.js", () => ({
+  callContract: mockCallContract,
 }));
 
 vi.mock("axios", () => ({
@@ -681,10 +678,6 @@ describe("bitflow.service", () => {
       privateKey: "mock-private-key",
     };
 
-    const mockTx = {
-      serialize: vi.fn(() => new Uint8Array([1, 2, 3])),
-    };
-
     const MOCK_SWAP_PARAMS = {
       contractAddress: "SP1K0JKPPS18BVNKEV53H3QKMU7FELX76BEJCBPJT",
       contractName: "swap-router",
@@ -694,8 +687,8 @@ describe("bitflow.service", () => {
     };
 
     beforeEach(() => {
-      mockMakeContractCall.mockResolvedValue(mockTx);
-      mockBroadcastTransaction.mockResolvedValue({ txid: "mock-txid-abc123" });
+      mockCallContract.mockReset();
+      mockCallContract.mockResolvedValue({ txid: "mock-txid-abc123", rawTx: "010203" });
     });
 
     function makeSwapQuoteResult(tokenXDecimals: number | undefined, amountIn: number = 100) {
@@ -788,10 +781,9 @@ describe("bitflow.service", () => {
 
     it("should throw when broadcast fails with error response", async () => {
       setupSwapMocks(6);
-      mockBroadcastTransaction.mockResolvedValue({
-        error: "BadNonce",
-        reason: "transaction nonce is too high",
-      });
+      mockCallContract.mockRejectedValue(
+        new Error("Broadcast failed: BadNonce - transaction nonce is too high")
+      );
 
       const service = new BitflowService("mainnet");
 
@@ -807,7 +799,23 @@ describe("bitflow.service", () => {
       const result = await service.swap(mockAccount as any, "token-x", "token-y", 100);
 
       expect(result.txid).toBe("mock-txid-abc123");
-      expect(result.rawTx).toBeInstanceOf(Uint8Array);
+      expect(result.rawTx).toBe("010203");
+    });
+
+    it("sends the swap through callContract in Deny mode with the SDK post conditions", async () => {
+      setupSwapMocks(6);
+
+      const service = new BitflowService("mainnet");
+      await service.swap(mockAccount as any, "token-x", "token-y", 100);
+
+      expect(mockCallContract).toHaveBeenCalledWith(mockAccount, {
+        contractAddress: MOCK_SWAP_PARAMS.contractAddress,
+        contractName: MOCK_SWAP_PARAMS.contractName,
+        functionName: MOCK_SWAP_PARAMS.functionName,
+        functionArgs: MOCK_SWAP_PARAMS.functionArgs,
+        postConditions: MOCK_SWAP_PARAMS.postConditions,
+        postConditionMode: 2,
+      });
     });
 
     it("should reject on testnet with mainnet-only error", async () => {

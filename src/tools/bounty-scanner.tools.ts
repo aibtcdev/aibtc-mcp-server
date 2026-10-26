@@ -36,7 +36,7 @@
  * Reference: https://aibtc.com/docs/bounties.txt, https://aibtc.com/api/openapi.json
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import {
   p2wpkh,
@@ -164,7 +164,7 @@ Filters:
 Each bounty record includes a derived 'status' field computed from its timestamps.
 
 No authentication required.`,
-      inputSchema: {
+      inputSchema: z.object({
         status: bountyStatusSchema
           .optional()
           .describe("Filter by computed status. Default: 'active' (excludes terminal states)."),
@@ -176,7 +176,7 @@ No authentication required.`,
         tag: z.string().optional().describe("Filter by a single tag"),
         limit: z.number().int().min(1).max(100).optional().describe("Max results (default 20, max 100)"),
         offset: z.number().int().min(0).optional().describe("Pagination offset"),
-      },
+      }),
     },
     async ({ status, poster, submitter, tag, limit, offset }) => {
       try {
@@ -210,9 +210,9 @@ Returns the bounty record, the first page of submissions, and:
 - 'payment' hint (when status='winner-announced'): expectedMemo='BNTY:{bountyId}', recipientStxAddress, amountSats, sbtcContract
 
 No authentication required.`,
-      inputSchema: {
+      inputSchema: z.object({
         bounty_id: z.string().describe("Bounty ID"),
-      },
+      }),
     },
     async ({ bounty_id }) => {
       try {
@@ -235,11 +235,11 @@ No authentication required.`,
 Submissions are public (the inbox is public, so are bounty submissions).
 
 No authentication required.`,
-      inputSchema: {
+      inputSchema: z.object({
         bounty_id: z.string().describe("Bounty ID"),
         limit: z.number().int().min(1).max(100).optional().describe("Max results (default 20)"),
         offset: z.number().int().min(0).optional().describe("Pagination offset"),
-      },
+      }),
     },
     async ({ bounty_id, limit, offset }) => {
       try {
@@ -272,7 +272,7 @@ Fields:
 - tags: optional list (max 5 tags, max 24 chars each)
 
 Signs with BIP-322 over: "AIBTC Bounty Create | {posterBtc} | {title} | {description} | {rewardSats} | {expiresAt} | {tagsCommaJoined} | {signedAt}"`,
-      inputSchema: {
+      inputSchema: z.object({
         title: z.string().min(1).max(120).describe("Bounty title (max 120 chars)"),
         description: z.string().min(1).max(4000).describe("Task description (max 4000 chars)"),
         reward_sats: z.number().int().positive().describe("Reward in satoshis"),
@@ -280,7 +280,7 @@ Signs with BIP-322 over: "AIBTC Bounty Create | {posterBtc} | {title} | {descrip
           .string()
           .describe("ISO 8601 expiry timestamp (e.g. '2026-06-01T00:00:00Z'). Min 1 hour, max 365 days from now."),
         tags: z.array(z.string().max(24)).max(5).optional().describe("Up to 5 tags"),
-      },
+      }),
     },
     async ({ title, description, reward_sats, expires_at, tags }) => {
       try {
@@ -328,11 +328,11 @@ Fields:
 
 Signs with BIP-322 over: "AIBTC Bounty Submit | {bountyId} | {submitterBtc} | {message} | {contentUrl} | {signedAt}"
 (contentUrl is the empty string when omitted)`,
-      inputSchema: {
+      inputSchema: z.object({
         bounty_id: z.string().describe("Bounty ID to submit to"),
         message: z.string().min(1).max(2000).describe("Submission message (max 2000 chars)"),
         content_url: z.string().optional().describe("Optional link to the deliverable"),
-      },
+      }),
     },
     async ({ bounty_id, message, content_url }) => {
       try {
@@ -373,10 +373,10 @@ to use for the payout. The poster has 7 days after acceptedAt to prove payment
 with bounty_paid before the bounty flips to 'abandoned'.
 
 Signs with BIP-322 over: "AIBTC Bounty Accept | {bountyId} | {submissionId} | {signedAt}"`,
-      inputSchema: {
+      inputSchema: z.object({
         bounty_id: z.string().describe("Bounty ID"),
         submission_id: z.string().describe("Submission ID to accept as the winner"),
-      },
+      }),
     },
     async ({ bounty_id, submission_id }) => {
       try {
@@ -417,12 +417,12 @@ recipient = winner STX, amount ≥ rewardSats, memo equals 'BNTY:{bountyId}' byt
 tx time > acceptedAt − 60s. The same txid cannot pay two bounties.
 
 Signs with BIP-322 over: "AIBTC Bounty Paid | {bountyId} | {txid} | {signedAt}"`,
-      inputSchema: {
+      inputSchema: z.object({
         bounty_id: z.string().describe("Bounty ID being paid"),
         txid: z
           .string()
           .describe("Confirmed Stacks tx ID for the sBTC transfer with memo 'BNTY:{bountyId}'"),
-      },
+      }),
     },
     async ({ bounty_id, txid }) => {
       try {
@@ -453,9 +453,9 @@ Signs with BIP-322 over: "AIBTC Bounty Paid | {bountyId} | {txid} | {signedAt}"`
       description: `Cancel a bounty. Only the poster can call this, and only while status is 'open' or 'judging' (i.e. before any submission has been accepted).
 
 Signs with BIP-322 over: "AIBTC Bounty Cancel | {bountyId} | {signedAt}"`,
-      inputSchema: {
+      inputSchema: z.object({
         bounty_id: z.string().describe("Bounty ID to cancel"),
-      },
+      }),
     },
     async ({ bounty_id }) => {
       try {
@@ -490,7 +490,7 @@ which are still open for submissions, which are in 'judging', and which need a w
 Pass status='paid' / 'cancelled' / 'abandoned' to see specific terminal states. Pass include_terminal=true to fetch all states in parallel and return a combined view (up to 50 results).
 
 No authentication required.`,
-      inputSchema: {
+      inputSchema: z.object({
         btc_address: z
           .string()
           .optional()
@@ -504,7 +504,7 @@ No authentication required.`,
           .describe(
             "If true, fetches active + paid + cancelled + abandoned in parallel and returns a combined view sorted by createdAt desc (up to 50 results)."
           ),
-      },
+      }),
     },
     async ({ btc_address, status, include_terminal }) => {
       try {
@@ -540,7 +540,7 @@ on any row to see whether your specific submission was the one accepted, and whe
 By default returns up to 50 active (non-terminal) bounties. Pass include_terminal=true for a combined view across all states.
 
 No authentication required.`,
-      inputSchema: {
+      inputSchema: z.object({
         btc_address: z
           .string()
           .optional()
@@ -552,7 +552,7 @@ No authentication required.`,
           .boolean()
           .optional()
           .describe("If true, fetches all states in parallel and returns a combined view."),
-      },
+      }),
     },
     async ({ btc_address, status, include_terminal }) => {
       try {

@@ -7,8 +7,11 @@
  * accounts, no API keys. These tools sign locally with the unlocked wallet and
  * call the gateway, so an agent can register/update/check in one step.
  *
+ * Each listing charges a flat `pricePerRequest`, set by the provider, in its
+ * `acceptedToken` (sBTC or USDCx), as a whole number of the token's base unit.
+ *
  * - inference_register_provider: verify + list an endpoint (signed)
- * - inference_update_provider:   change name/models/payout/endpoint in place (signed)
+ * - inference_update_provider:   change name/models/payout/endpoint/price in place (signed)
  * - inference_reveal_key:        reveal or rotate the gateway↔endpoint shared key (signed)
  * - inference_check_provider:    re-run the health/functional probe (unsigned)
  * - inference_list_providers:    list registered providers + health (unsigned)
@@ -18,7 +21,7 @@
  * and that model ids are real, text-generation, commercially-licensed HF repos.
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import {
   signMessageHashRsv,
@@ -140,18 +143,32 @@ const allowUnsafeGatewayArg = z
       "(and any apiKey) to an arbitrary host — leave unset unless you deliberately self-host the gateway."
   );
 
+const acceptedTokenArg = z
+  .enum(["sBTC", "USDCx"])
+  .describe("Token callers pay in, and the unit of pricePerRequest.");
+
+/** Whole base units only: the gateway rejects decimals, zero and negatives. */
+const pricePerRequestArg = z
+  .string()
+  .regex(/^[1-9][0-9]*$/, "pricePerRequest must be a whole number greater than zero, in base units")
+  .describe(
+    "Flat price per request, as a whole number in the accepted token's base unit: sats for sBTC " +
+      "(\"5\" = 5 sats), 0.000001 USDCx for USDCx (\"2000\" = 0.002 USDCx). No decimals."
+  );
+
 export function registerInferenceMarketplaceTools(server: McpServer): void {
   // Register (verify + list) an endpoint — signed
   server.registerTool(
     "inference_register_provider",
     {
       description:
-        "List an OpenAI-compatible model endpoint on the AIBTC Inference Marketplace and get paid per request in sBTC. " +
+        "List an OpenAI-compatible model endpoint on the AIBTC Inference Marketplace and get paid a flat price per request " +
+          "that you set, in sBTC (default) or USDCx. " +
         "Signs a registration message with the unlocked payout wallet (proving ownership) and POSTs it. " +
         "The gateway verifies the signature recovers to payoutAddress, that the endpoint is reachable AND actually " +
         "serving inference, and that model ids are real/commercial Hugging Face repos — then lists it. " +
         "Requires an unlocked wallet on the gateway's network.",
-      inputSchema: {
+      inputSchema: z.object({
         name: z.string().describe("Display name for your node, e.g. \"Alice's Qwen node\"."),
         endpoint: z
           .string()
@@ -165,15 +182,17 @@ export function registerInferenceMarketplaceTools(server: McpServer): void {
           .string()
           .optional()
           .describe("Stacks address that receives sBTC. Defaults to the unlocked wallet's address (must match the gateway network)."),
+        pricePerRequest: pricePerRequestArg,
+        acceptedToken: acceptedTokenArg.optional().describe("Token callers pay in: sBTC (default) or USDCx. Sets the unit of pricePerRequest."),
         apiKey: z
           .string()
           .optional()
           .describe("Optional: a key your endpoint requires. Locks the endpoint so only the gateway (which presents it) can call it."),
         gateway: gatewayArg,
         allowUnsafeGateway: allowUnsafeGatewayArg,
-      },
+      }),
     },
-    async ({ name, endpoint, models, payoutAddress, apiKey, gateway, allowUnsafeGateway }) => {
+    async ({ name, endpoint, models, payoutAddress, pricePerRequest, acceptedToken, apiKey, gateway, allowUnsafeGateway }) => {
       try {
         const account = requireUnlockedWallet();
         const base = resolveGateway(gateway, allowUnsafeGateway ?? false);
@@ -187,6 +206,8 @@ export function registerInferenceMarketplaceTools(server: McpServer): void {
             endpoint,
             payoutAddress: payout,
             models,
+            pricePerRequest,
+            ...(acceptedToken ? { acceptedToken } : {}),
             ...(apiKey ? { apiKey } : {}),
           }),
         });
@@ -211,23 +232,43 @@ export function registerInferenceMarketplaceTools(server: McpServer): void {
     "inference_update_provider",
     {
       description:
-        "Update your marketplace listing in place — name, models, payout address, endpoint, or description — no delete/re-add. " +
+        "Update your marketplace listing in place — name, models, payout address, endpoint, description, price, or accepted " +
+          "token — no delete/re-add. Switching acceptedToken requires a new pricePerRequest in the same call. " +
         "Signs an update message with the unlocked payout wallet and PATCHes it. Only fields you pass change. " +
         "Changing the endpoint re-verifies reachability before taking effect. Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         providerId: z.string().describe("The provider id returned at registration (from inference_list_providers)."),
         name: z.string().optional().describe("New display name."),
         endpoint: z.string().url().optional().describe("New OpenAI-compatible base URL (re-verified before it takes effect)."),
         models: z.array(z.string()).optional().describe("New Hugging Face repo id list."),
         payoutAddress: z.string().optional().describe("New payout address (must match the gateway network)."),
         description: z.string().optional().describe("New description."),
+        pricePerRequest: pricePerRequestArg.optional(),
+        acceptedToken: acceptedTokenArg.optional().describe("New token callers pay in: sBTC or USDCx. Requires pricePerRequest too."),
         apiKey: z.string().optional().describe("Set/replace the key your endpoint requires (locks the endpoint)."),
         gateway: gatewayArg,
         allowUnsafeGateway: allowUnsafeGatewayArg,
-      },
+      }),
     },
-    async ({ providerId, name, endpoint, models, payoutAddress, description, apiKey, gateway, allowUnsafeGateway }) => {
+    async ({
+      providerId,
+      name,
+      endpoint,
+      models,
+      payoutAddress,
+      description,
+      pricePerRequest,
+      acceptedToken,
+      apiKey,
+      gateway,
+      allowUnsafeGateway,
+    }) => {
       try {
+        if (acceptedToken !== undefined && pricePerRequest === undefined) {
+          throw new Error(
+            "Changing acceptedToken requires a new pricePerRequest in that token's base unit (sats for sBTC, 0.000001 USDCx for USDCx)."
+          );
+        }
         const account = requireUnlockedWallet();
         const base = resolveGateway(gateway, allowUnsafeGateway ?? false);
         const patch: Record<string, unknown> = {};
@@ -236,9 +277,11 @@ export function registerInferenceMarketplaceTools(server: McpServer): void {
         if (models !== undefined) patch.models = models;
         if (payoutAddress !== undefined) patch.payoutAddress = payoutAddress;
         if (description !== undefined) patch.description = description;
+        if (pricePerRequest !== undefined) patch.pricePerRequest = pricePerRequest;
+        if (acceptedToken !== undefined) patch.acceptedToken = acceptedToken;
         if (apiKey !== undefined) patch.apiKey = apiKey;
         if (Object.keys(patch).length === 0) {
-          throw new Error("Nothing to update — pass at least one of name/endpoint/models/payoutAddress/description/apiKey.");
+          throw new Error("Nothing to update — pass at least one of name/endpoint/models/payoutAddress/description/pricePerRequest/acceptedToken/apiKey.");
         }
         const headers = signAuthHeaders(account, "update", providerId);
         const { ok, status, body } = await gatewayFetch(`${base}/v1/providers/${providerId}`, {
@@ -267,12 +310,12 @@ export function registerInferenceMarketplaceTools(server: McpServer): void {
         "Reveal or rotate your provider's shared key — the gateway↔endpoint credential the gateway presents when it " +
         "calls your endpoint (NOT an ownership token; ownership is your wallet). The gateway stores it write-only, so a " +
         "wallet signature is the only way to read it back. Pass rotate=true to issue a new one. Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         providerId: z.string().describe("The provider id (from inference_list_providers)."),
         rotate: z.boolean().optional().describe("true = generate and return a NEW key (invalidates the old one). false/omitted = reveal the current key."),
         gateway: gatewayArg,
         allowUnsafeGateway: allowUnsafeGatewayArg,
-      },
+      }),
     },
     async ({ providerId, rotate, gateway, allowUnsafeGateway }) => {
       try {
@@ -306,11 +349,11 @@ export function registerInferenceMarketplaceTools(server: McpServer): void {
       description:
         "Re-run the marketplace's health + functional probe for a provider on demand (checks the endpoint is reachable and " +
         "actually returns a completion). No signature required. Useful right after (re)starting your node or tunnel.",
-      inputSchema: {
+      inputSchema: z.object({
         providerId: z.string().describe("The provider id to check."),
         gateway: gatewayArg,
         allowUnsafeGateway: allowUnsafeGatewayArg,
-      },
+      }),
     },
     async ({ providerId, gateway, allowUnsafeGateway }) => {
       try {
@@ -330,12 +373,13 @@ export function registerInferenceMarketplaceTools(server: McpServer): void {
     "inference_list_providers",
     {
       description:
-        "List providers registered on the marketplace with their models, health/status, and flagged state. No signature " +
+        "List providers registered on the marketplace with their models, price per request and accepted token, health/status, " +
+          "and flagged state. No signature " +
         "required. Use it to find your provider id (match on payoutAddress) after registering.",
-      inputSchema: {
+      inputSchema: z.object({
         gateway: gatewayArg,
         allowUnsafeGateway: allowUnsafeGatewayArg,
-      },
+      }),
     },
     async ({ gateway, allowUnsafeGateway }) => {
       try {

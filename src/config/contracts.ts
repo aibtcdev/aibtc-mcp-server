@@ -17,12 +17,12 @@ export const MAINNET_CONTRACTS = {
   BNS: "SP000000000000000000002Q6VF78.bns",
 
   // Stacking
-  POX_4: "SP000000000000000000002Q6VF78.pox-4",
+  POX_5: "SP000000000000000000002Q6VF78.pox-5",
 
   // ALEX DEX (SDK handles most operations, but we need pool contract for queries)
   ALEX_AMM_POOL: "SP3K8BC0PPEVCV7NZ6QSRWPQ2JE9E5B6N3PA0KBR9.amm-swap-pool-v1-1",
   ALEX_TOKEN: "SP102V8P0F7JX67ARQ77WEA3D3CFB5XW39REDT0AM.token-alex",
-  ALEX_WSTX: "SP3K8BC0PPEVCV7NZ6QSRWPQ2JE9E5B6N3PA0KBR9.token-wstx-v2",
+  ALEX_WSTX: "SP102V8P0F7JX67ARQ77WEA3D3CFB5XW39REDT0AM.token-wstx-v2",
 
   // Zest Protocol v2
   ZEST_MARKET: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-4-market",
@@ -143,7 +143,7 @@ export const TESTNET_CONTRACTS = {
   BNS: "ST000000000000000000002AMW42H.bns",
 
   // Stacking
-  POX_4: "ST000000000000000000002AMW42H.pox-4",
+  POX_5: "ST000000000000000000002AMW42H.pox-5",
 
   // ERC-8004 Identity & Reputation
   IDENTITY_REGISTRY: "ST3YT0XW92E6T2FE59B2G5N2WNNFSBZ6MZKQS5D18.identity-registry-v2",
@@ -263,10 +263,13 @@ export const BITFLOW_PUBLIC_API = "https://bitflow-sdk-api-gateway-7owjsmt8.uc.g
 export const BITFLOW_READONLY_HOST = "https://api.hiro.so";
 
 /**
- * Keeper API host for automated swap orders.
- * Per Bitflow SDK docs.
+ * Keeper API host for automated swap orders. The SDK's documented default
+ * (bitflow-keeper-test-7owjsmt8.uc.gateway.dev) 404s on every keeper path;
+ * the production keeper is keeper.bitflowapis.finance.
+ * Override with BITFLOW_KEEPER_API_HOST.
  */
-export const BITFLOW_KEEPER_HOST = "https://bitflow-keeper-test-7owjsmt8.uc.gateway.dev";
+export const BITFLOW_KEEPER_HOST =
+  process.env.BITFLOW_KEEPER_API_HOST || "https://keeper.bitflowapis.finance";
 
 /**
  * AIBTC provider address tagged onto every Bitflow swap. The SDK injects this

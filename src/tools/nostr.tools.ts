@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import WebSocket from "ws";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
@@ -110,7 +110,7 @@ export function registerNostrTools(server: McpServer): void {
         "Uses the NIP-06 derivation path (m/44'/1237'/0'/0/0). " +
         "Returns both hex pubkey and npub (bech32) formats. " +
         "Requires an unlocked wallet.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -132,7 +132,7 @@ export function registerNostrTools(server: McpServer): void {
         "Publish a short-text note (kind:1) to Nostr relays. " +
         "Optionally include hashtag tags and specify target relays. " +
         "Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         content: z.string().describe("The note content to publish."),
         tags: z
           .string()
@@ -147,7 +147,7 @@ export function registerNostrTools(server: McpServer): void {
           .describe(
             `Relay URLs to publish to. Defaults to ${DEFAULT_RELAYS.join(", ")}.`
           ),
-      },
+      }),
     },
     async ({ content, tags, relays }) => {
       try {
@@ -198,7 +198,7 @@ export function registerNostrTools(server: McpServer): void {
         "Read recent kind:1 notes from Nostr relays. " +
         "Optionally filter by author pubkey. " +
         "No wallet required.",
-      inputSchema: {
+      inputSchema: z.object({
         pubkey: z
           .string()
           .optional()
@@ -214,7 +214,7 @@ export function registerNostrTools(server: McpServer): void {
           .url()
           .optional()
           .describe("Single relay URL to query. Defaults to all DEFAULT_RELAYS."),
-      },
+      }),
     },
     async ({ pubkey, limit, relay }) => {
       try {
@@ -266,7 +266,7 @@ export function registerNostrTools(server: McpServer): void {
       description:
         "Search Nostr for kind:1 notes matching hashtags using NIP-12 #t filter. " +
         "No wallet required.",
-      inputSchema: {
+      inputSchema: z.object({
         tags: z
           .string()
           .describe(
@@ -284,7 +284,7 @@ export function registerNostrTools(server: McpServer): void {
           .url()
           .optional()
           .describe("Single relay URL to query. Defaults to all DEFAULT_RELAYS."),
-      },
+      }),
     },
     async ({ tags, limit, relay }) => {
       try {
@@ -338,7 +338,7 @@ export function registerNostrTools(server: McpServer): void {
       description:
         "Get a Nostr profile (kind:0 metadata) for any public key. " +
         "No wallet required.",
-      inputSchema: {
+      inputSchema: z.object({
         pubkey: z
           .string()
           .describe("Public key to look up (hex or npub bech32 format)."),
@@ -347,7 +347,7 @@ export function registerNostrTools(server: McpServer): void {
           .url()
           .optional()
           .describe("Single relay URL to query. Defaults to all DEFAULT_RELAYS."),
-      },
+      }),
     },
     async ({ pubkey, relay }) => {
       try {
@@ -407,7 +407,7 @@ export function registerNostrTools(server: McpServer): void {
         "Only provided fields are updated; existing fields are preserved by fetching " +
         "the current profile first. " +
         "Requires an unlocked wallet.",
-      inputSchema: {
+      inputSchema: z.object({
         name: z.string().optional().describe("Display name."),
         about: z.string().optional().describe("Bio / about text."),
         picture: z.string().url().optional().describe("Profile picture URL."),
@@ -429,7 +429,7 @@ export function registerNostrTools(server: McpServer): void {
           .describe(
             `Relay URLs to publish to. Defaults to ${DEFAULT_RELAYS.join(", ")}.`
           ),
-      },
+      }),
     },
     async ({ name, about, picture, banner, website, nip05, relays }) => {
       try {
@@ -496,7 +496,7 @@ export function registerNostrTools(server: McpServer): void {
     {
       description:
         "List the configured default Nostr relay URLs. No wallet required.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {

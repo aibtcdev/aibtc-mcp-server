@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createJsonResponse } from "../utils/index.js";
 
@@ -15,7 +15,7 @@ Use this tool when you need to add AI capabilities to any project. Returns:
 - Error handling patterns
 
 This is a reference tool - use the returned code as a template for implementation.`,
-      inputSchema: {
+      inputSchema: z.object({
         environment: z
           .enum(["nodejs", "cloudflare-worker", "browser", "all"])
           .optional()
@@ -26,7 +26,7 @@ This is a reference tool - use the returned code as a template for implementatio
           .optional()
           .default("all")
           .describe("Specific AI feature to implement"),
-      },
+      }),
     },
     async ({ environment, feature }) => {
       const guides: Record<string, string> = {};
@@ -515,13 +515,13 @@ async function safeChat(messages: ChatMessage[], model: string) {
       description: `Get list of popular OpenRouter models with capabilities and context lengths.
 
 Use this to choose the right model for your use case. For latest pricing, check openrouter.ai/models`,
-      inputSchema: {
+      inputSchema: z.object({
         category: z
           .enum(["fast", "quality", "cheap", "code", "long-context", "all"])
           .optional()
           .default("all")
           .describe("Filter by model category"),
-      },
+      }),
     },
     async ({ category }) => {
       const allModels = [

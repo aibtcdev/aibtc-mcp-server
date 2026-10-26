@@ -210,6 +210,30 @@ describe("parseArgToClarityValue", () => {
       expect(cv.type).toBe(ClarityType.Buffer);
     });
 
+    it("should accept 0x-prefixed hex and produce the same bytes as raw hex", () => {
+      const raw = parseArgToClarityValue({ type: "buffer", value: "deadbeef" });
+      const prefixed = parseArgToClarityValue({ type: "buffer", value: "0xdeadbeef" });
+      expect(prefixed.type).toBe(ClarityType.Buffer);
+      expect(cvToString(prefixed)).toBe(cvToString(raw));
+    });
+
+    it("should accept 0X-prefixed hex (uppercase prefix)", () => {
+      const raw = parseArgToClarityValue({ type: "buffer", value: "deadbeef" });
+      const prefixed = parseArgToClarityValue({ type: "buffer", value: "0Xdeadbeef" });
+      expect(prefixed.type).toBe(ClarityType.Buffer);
+      expect(cvToString(prefixed)).toBe(cvToString(raw));
+    });
+
+    it("should reject odd-length or non-hex buffer values", () => {
+      expect(() => parseArgToClarityValue({ type: "buffer", value: "abc" })).toThrow(/Invalid hex/);
+      expect(() => parseArgToClarityValue({ type: "buffer", value: "deadbeefz1" })).toThrow(/Invalid hex/);
+    });
+
+    it("should accept an empty buffer", () => {
+      const cv = parseArgToClarityValue({ type: "buffer", value: "" });
+      expect(cvToString(cv)).toBe("0x");
+    });
+
     it("should convert Buffer instance", () => {
       const buffer = Buffer.from([0xde, 0xad, 0xbe, 0xef]);
       const cv = parseArgToClarityValue(buffer);

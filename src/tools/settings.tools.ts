@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createRequire } from "module";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
@@ -29,12 +29,12 @@ export function registerSettingsTools(server: McpServer): void {
       description: `Save a Hiro API key to ~/.aibtc/config.json for authenticated Hiro API requests.
 Authenticated requests get higher rate limits than public (unauthenticated) requests.
 Get a free API key at https://platform.hiro.so/`,
-      inputSchema: {
+      inputSchema: z.object({
         apiKey: z
           .string()
           .min(1)
           .describe("Your Hiro API key - WARNING: sensitive value"),
-      },
+      }),
     },
     async ({ apiKey }) => {
       try {
@@ -66,7 +66,7 @@ Get a free API key at https://platform.hiro.so/`,
     {
       description:
         "Check whether a Hiro API key is configured. Shows the key source (stored file or environment variable) and a masked preview.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -110,7 +110,7 @@ Get a free API key at https://platform.hiro.so/`,
     {
       description:
         "Remove the stored Hiro API key from ~/.aibtc/config.json. If HIRO_API_KEY is set in the environment, that will still be used as a fallback.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -150,12 +150,12 @@ Get a free API key at https://platform.hiro.so/`,
 Use this if you run your own stacks-blockchain-api node (default port 3999) or use a third-party provider.
 The URL should serve the same /v2/ and /extended/v1/ endpoints as api.hiro.so.
 Example: http://localhost:3999`,
-      inputSchema: {
+      inputSchema: z.object({
         url: z
           .string()
           .url()
           .describe("Base URL of your Stacks API node (e.g. http://localhost:3999)"),
-      },
+      }),
     },
     async ({ url }) => {
       try {
@@ -185,7 +185,7 @@ Example: http://localhost:3999`,
     {
       description:
         "Show the current Stacks API URL being used for blockchain queries. Indicates whether it's a custom node or the default Hiro API.",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -217,7 +217,7 @@ Example: http://localhost:3999`,
     {
       description:
         "Remove the custom Stacks API URL and revert to the default Hiro API (api.mainnet.hiro.so or api.testnet.hiro.so).",
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -253,7 +253,7 @@ Example: http://localhost:3999`,
       description: `Check the currently running MCP server version and compare with the latest published version on npm.
 Use this to detect if you're running a stale cached version (common with npx).
 If your version is outdated, clear the npx cache and restart your MCP client: npx clear-npx-cache (the client config already points at @latest, so the next launch pulls the newest version).`,
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {

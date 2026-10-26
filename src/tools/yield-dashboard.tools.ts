@@ -13,18 +13,20 @@
  * Mirrors the yield-dashboard skill (aibtcdev/skills/yield-dashboard/).
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import {
   contractPrincipalCV,
   standardPrincipalCV,
   uintCV,
   hexToCV,
-  cvToValue,
+  ClarityType,
+  type ClarityValue,
 } from "@stacks/transactions";
 import { NETWORK } from "../services/x402.service.js";
 import { getWalletAddress } from "../services/x402.service.js";
 import { getHiroApi } from "../services/hiro-api.js";
+import { getStackingService } from "../services/stacking.service.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 
 // ============================================================================
@@ -52,14 +54,6 @@ const ALEX_TOKEN_Y_ADDRESS = "SP2XD7417HGPRTREMKF748VNEQPDRR0RMANB7X1NK";
 const ALEX_TOKEN_Y_NAME = "token-abtc";
 const ALEX_FACTOR = 100_000_000;
 
-// Bitflow public API
-const BITFLOW_API = "https://app.bitflow.finance/api";
-
-// Stacking (PoX-4)
-const POX_CONTRACT = "SP000000000000000000002Q6VF78";
-const POX_NAME = "pox-4";
-const POX_CONTRACT_ID = `${POX_CONTRACT}.${POX_NAME}`;
-
 // Mainnet Hiro API base URL (direct — not network-switched, this skill is mainnet-only)
 const MAINNET_HIRO_API = "https://api.hiro.so";
 
@@ -72,7 +66,8 @@ interface ProtocolPosition {
   asset: string;
   valueSats: number;
   valueUnit: "sats" | "microSTX";
-  apyPct: number;
+  /** Live APY, or null when no live source exists (never an estimate). */
+  apyPct: number | null;
   riskScore: number;
   details: Record<string, unknown>;
 }
@@ -81,19 +76,25 @@ interface ProtocolPosition {
 // Helpers
 // ============================================================================
 
-function decodeTupleField(result: string, field: string): bigint | null {
-  try {
-    const hex = result.startsWith("0x") ? result.slice(2) : result;
-    const cv = hexToCV(hex);
-    const decoded = cvToValue(cv, true) as Record<string, unknown>;
-    const val = decoded[field];
-    if (val === undefined || val === null) return null;
-    if (typeof val === "bigint") return val;
-    if (typeof val === "number") return BigInt(val);
-    return null;
-  } catch {
-    return null;
+/**
+ * Decode a read-only result that is `(ok (tuple ...))` or a bare tuple and
+ * return its fields as ClarityValues.
+ */
+function decodeTuple(result: string): Record<string, ClarityValue> {
+  let cv = hexToCV(result.startsWith("0x") ? result.slice(2) : result);
+  if (cv.type === ClarityType.ResponseOk) cv = cv.value;
+  if (cv.type !== ClarityType.Tuple) {
+    throw new Error(`Expected a tuple result, got ${cv.type}`);
   }
+  return cv.value;
+}
+
+function uintField(fields: Record<string, ClarityValue>, name: string): bigint {
+  const cv = fields[name];
+  if (!cv || cv.type !== ClarityType.UInt) {
+    throw new Error(`Missing uint field "${name}"`);
+  }
+  return BigInt(cv.value);
 }
 
 function formatBtc(sats: number): string {
@@ -114,7 +115,7 @@ async function readZestPosition(walletAddress: string): Promise<ProtocolPosition
     asset: "sBTC",
     valueSats: 0,
     valueUnit: "sats",
-    apyPct: 0,
+    apyPct: null,
     riskScore: 20,
     details: {},
   };
@@ -130,48 +131,36 @@ async function readZestPosition(walletAddress: string): Promise<ProtocolPosition
       ZEST_POOL_CONTRACT
     );
 
-    if (res.okay && res.result) {
-      const liquidityRate = decodeTupleField(res.result, "current-liquidity-rate");
-      if (liquidityRate !== null && liquidityRate > 0n) {
-        // Ray units: 1e27 = 100%
-        pos.apyPct = Number(liquidityRate) / 1e25;
-      }
-      const borrowsStable = decodeTupleField(res.result, "total-borrows-stable") ?? 0n;
-      const borrowsVariable = decodeTupleField(res.result, "total-borrows-variable") ?? 0n;
-      pos.details.totalBorrows = (borrowsStable + borrowsVariable).toString();
-
-      // Try to get user a-token balance
-      try {
-        const hex = res.result.startsWith("0x") ? res.result.slice(2) : res.result;
-        const cv = hexToCV(hex);
-        const decoded = cvToValue(cv, true) as Record<string, unknown>;
-        const aTokenAddr = decoded["a-token-address"];
-        if (aTokenAddr && typeof aTokenAddr === "string" && aTokenAddr.includes(".")) {
-          const [aTokContract, aTokName] = aTokenAddr.split(".");
-          const balRes = await hiro.callReadOnlyFunction(
-            `${aTokContract}.${aTokName}`,
-            "ft-get-balance",
-            [standardPrincipalCV(walletAddress)],
-            aTokContract
-          );
-          if (balRes.okay && balRes.result) {
-            const balHex = balRes.result.startsWith("0x")
-              ? balRes.result.slice(2)
-              : balRes.result;
-            const balCv = hexToCV(balHex);
-            const balance = cvToValue(balCv, true);
-            pos.valueSats =
-              typeof balance === "bigint"
-                ? Number(balance)
-                : typeof balance === "number"
-                  ? balance
-                  : 0;
-          }
-        }
-      } catch {
-        // Position read failed — APY still valid
-      }
+    if (!res.okay || !res.result) {
+      throw new Error(`get-reserve-state failed: ${res.cause ?? "no result"}`);
     }
+    const reserve = decodeTuple(res.result);
+    // Zest v1 rates are 8-decimal fixed point (one-8 = 1e8 = 100%)
+    pos.apyPct = Number(uintField(reserve, "current-liquidity-rate")) / 1e6;
+    pos.details.totalBorrows = (
+      uintField(reserve, "total-borrows-stable") +
+      uintField(reserve, "total-borrows-variable")
+    ).toString();
+
+    const aToken = reserve["a-token-address"];
+    if (aToken?.type !== ClarityType.PrincipalContract) {
+      throw new Error("get-reserve-state returned no a-token contract");
+    }
+    const [aTokContract] = aToken.value.split(".");
+    const balRes = await hiro.callReadOnlyFunction(
+      aToken.value,
+      "get-balance",
+      [standardPrincipalCV(walletAddress)],
+      aTokContract
+    );
+    if (!balRes.okay || !balRes.result) {
+      throw new Error(`${aToken.value} get-balance failed: ${balRes.cause ?? "no result"}`);
+    }
+    const balCv = hexToCV(balRes.result.slice(2));
+    if (balCv.type !== ClarityType.ResponseOk || balCv.value.type !== ClarityType.UInt) {
+      throw new Error(`${aToken.value} get-balance returned an unexpected value`);
+    }
+    pos.valueSats = Number(balCv.value.value);
   } catch (e) {
     pos.details.error = String(e);
   }
@@ -185,7 +174,7 @@ async function readAlexPosition(_walletAddress: string): Promise<ProtocolPositio
     asset: "aBTC/STX LP",
     valueSats: 0,
     valueUnit: "sats",
-    apyPct: 0,
+    apyPct: null,
     riskScore: 50,
     details: {},
   };
@@ -204,15 +193,14 @@ async function readAlexPosition(_walletAddress: string): Promise<ProtocolPositio
     );
 
     if (res.okay && res.result) {
-      const balX = decodeTupleField(res.result, "balance-x") ?? 0n;
-      const balY = decodeTupleField(res.result, "balance-y") ?? 0n;
-      const totalSupply = decodeTupleField(res.result, "total-supply") ?? 0n;
+      const pool = decodeTuple(res.result);
+      const balX = uintField(pool, "balance-x");
+      const balY = uintField(pool, "balance-y");
+      const totalSupply = uintField(pool, "total-supply");
       pos.details.poolBalanceX = balX.toString();
       pos.details.poolBalanceY = balY.toString();
       pos.details.poolTotalSupply = totalSupply.toString();
-      // ALEX typical LP APY estimate from fee revenue
-      pos.apyPct = 3.5;
-      pos.details.apySource = "static estimate, not live";
+      pos.details.apySource = "unavailable: no live APY source for ALEX AMM v2";
       pos.details.note =
         "ALEX AMM v2 does not expose user LP positions via read-only calls. " +
         `Pool total supply: ${totalSupply.toString()} units. ` +
@@ -232,47 +220,14 @@ async function readBitflowPosition(_walletAddress: string): Promise<ProtocolPosi
     asset: "sBTC",
     valueSats: 0,
     valueUnit: "sats",
-    apyPct: 0,
+    apyPct: null,
     riskScore: 35,
     details: {},
   };
 
-  try {
-    const res = await fetch(`${BITFLOW_API}/pools`, {
-      headers: { Accept: "application/json" },
-    });
-    if (res.ok) {
-      const pools = (await res.json()) as Array<{
-        token0?: string;
-        token1?: string;
-        apy?: number;
-        tvl?: number;
-        [k: string]: unknown;
-      }>;
-      const sbtcPool = pools.find(
-        (p) =>
-          (p.token0 && p.token0.toLowerCase().includes("sbtc")) ||
-          (p.token1 && p.token1.toLowerCase().includes("sbtc"))
-      );
-      if (sbtcPool) {
-        pos.apyPct = sbtcPool.apy ?? 2.8;
-        pos.details.tvl = sbtcPool.tvl;
-        pos.details.pool = sbtcPool;
-      } else {
-        pos.apyPct = 2.8;
-        pos.details.apySource = "fallback estimate";
-      }
-    } else {
-      pos.apyPct = 2.8;
-      pos.details.apySource = "fallback estimate (API unavailable)";
-    }
-  } catch (e) {
-    pos.apyPct = 2.8;
-    pos.details.error = String(e);
-    pos.details.apySource = "fallback estimate (API unavailable)";
-  }
-
-  // Bitflow LP position reading requires on-chain query (not yet implemented)
+  // Bitflow's public pools API (app.bitflow.finance/api/pools) is gone and the
+  // SDK gateway exposes no APY/TVL, so there is no live rate to report.
+  pos.details.apySource = "unavailable: Bitflow publishes no pool APY endpoint";
   return pos;
 }
 
@@ -282,36 +237,23 @@ async function readStackingPosition(walletAddress: string): Promise<ProtocolPosi
     asset: "STX",
     valueSats: 0,
     valueUnit: "microSTX",
-    apyPct: 0,
+    apyPct: null,
     riskScore: 10,
     details: {},
   };
 
   try {
-    const hiro = getHiroApi("mainnet");
-    const res = await hiro.callReadOnlyFunction(
-      POX_CONTRACT_ID,
-      "get-stacker-info",
-      [standardPrincipalCV(walletAddress)],
-      POX_CONTRACT
-    );
-
-    if (res.okay && res.result) {
-      const hex = res.result.startsWith("0x") ? res.result.slice(2) : res.result;
-      const cv = hexToCV(hex);
-      const val = cvToValue(cv, true);
-      if (val && typeof val === "object" && "lock-amount" in (val as object)) {
-        const lockAmount = (val as Record<string, unknown>)["lock-amount"];
-        pos.valueSats =
-          typeof lockAmount === "bigint"
-            ? Number(lockAmount)
-            : typeof lockAmount === "number"
-              ? lockAmount
-              : 0;
-        pos.apyPct = 8.0;
-        pos.details.apySource = "static estimate, not live";
-        pos.details.stackerInfo = val;
-      }
+    const info = await getStackingService("mainnet").getStakerInfo(walletAddress);
+    if (info) {
+      pos.valueSats = Number(info.amountUstx);
+      pos.details.apySource = "unavailable: pox-5 rewards are sBTC paid per signer manager";
+      pos.details.stakerInfo = {
+        signerManager: info.signerManager,
+        firstRewardCycle: info.firstRewardCycle,
+        numCycles: info.numCycles,
+        unlockCycle: info.unlockCycle,
+        unlockBurnHeight: info.unlockBurnHeight,
+      };
     }
   } catch (e) {
     pos.details.error = String(e);
@@ -375,8 +317,9 @@ per-protocol breakdown.
 Read-only. Mainnet-only. Requires an unlocked wallet for address context.
 
 Note: ALEX LP and Bitflow LP position values are 0 — these protocols do not
-expose user LP positions via read-only calls. APY figures are still returned.`,
-      inputSchema: {},
+expose user LP positions via read-only calls. Only Zest has a live APY; ALEX,
+Bitflow and Stacking report apyPct: null.`,
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -403,13 +346,17 @@ expose user LP positions via read-only calls. APY figures are still returned.`,
         const stxPositions = positions.filter((p) => p.valueUnit === "microSTX");
         const totalValueSats = satsPositions.reduce((sum, p) => sum + p.valueSats, 0);
         const totalValueMicroStx = stxPositions.reduce((sum, p) => sum + p.valueSats, 0);
+        // Weighted only over value whose APY is known; value without a live APY
+        // is reported separately rather than counted at 0% or an estimate.
+        const ratedPositions = satsPositions.filter((p) => p.apyPct !== null);
+        const ratedValueSats = ratedPositions.reduce((sum, p) => sum + p.valueSats, 0);
         const weightedApyPct =
-          totalValueSats > 0
-            ? satsPositions.reduce(
-                (sum, p) => sum + p.apyPct * (p.valueSats / totalValueSats),
+          ratedValueSats > 0
+            ? ratedPositions.reduce(
+                (sum, p) => sum + (p.apyPct as number) * (p.valueSats / ratedValueSats),
                 0
               )
-            : 0;
+            : null;
 
         return createJsonResponse({
           walletAddress,
@@ -417,8 +364,13 @@ expose user LP positions via read-only calls. APY figures are still returned.`,
           totalValueBtc: formatBtc(totalValueSats),
           totalValueMicroStx,
           totalValueStx: totalValueMicroStx / 1_000_000,
-          weightedApyPct: Math.round(weightedApyPct * 100) / 100,
-          note: "totalValueSats excludes STX stacking (different unit). See totalValueStx separately.",
+          weightedApyPct:
+            weightedApyPct === null ? null : Math.round(weightedApyPct * 100) / 100,
+          unratedValueSats: totalValueSats - ratedValueSats,
+          note:
+            "totalValueSats excludes STX stacking (different unit). See totalValueStx separately. " +
+            "weightedApyPct covers only positions with a live APY; unratedValueSats is excluded. " +
+            "apyPct is null where no live source exists.",
           protocols: {
             zest: {
               valueSats: zest.valueSats,
@@ -462,9 +414,10 @@ Read-only. Mainnet-only. Requires an unlocked wallet for address context.
 
 Known limitations:
 - ALEX LP and Bitflow LP: valueSats shows 0 (protocol does not expose user
-  LP balances via read-only calls). APY is still returned.
+  LP balances via read-only calls).
+- apyPct is null for ALEX, Bitflow and Stacking (no live source).
 - Stacking: denominated in microSTX, not sats.`,
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -517,12 +470,12 @@ Bitflow (sBTC LP), and STX Stacking. No wallet required — pure market data.
 
 Data sources:
 - Zest Protocol: on-chain reserve state (current-liquidity-rate, Ray units)
-- ALEX DEX: static 3.5% estimate (pool data available but per-user APY not live)
-- Bitflow: public API at app.bitflow.finance/api/pools (fallback: 2.8% estimate)
-- STX Stacking: static 8.0% estimate
+- ALEX DEX: null — no live APY source
+- Bitflow: null — no public pool APY endpoint
+- STX Stacking: null — pox-5 rewards are sBTC, paid per signer manager
 
 Mainnet data only (contract addresses are mainnet-specific).`,
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -560,7 +513,7 @@ Mainnet data only (contract addresses are mainnet-specific).`,
             {
               protocol: "STX Stacking",
               asset: "STX",
-              apyPct: 8.0,
+              apyPct: null,
               riskScore: 10,
             },
           ],
@@ -587,13 +540,13 @@ Risk tolerance levels:
 - high:   Zest 50%, ALEX 30%, Bitflow 20%, Stacking 0%
 
 Read-only. Mainnet-only. Requires an unlocked wallet for address context.`,
-      inputSchema: {
+      inputSchema: z.object({
         riskTolerance: z
           .enum(["low", "medium", "high"])
           .optional()
           .default("medium")
           .describe("Risk tolerance level: low, medium, or high (default: medium)"),
-      },
+      }),
     },
     async ({ riskTolerance }) => {
       try {
@@ -653,7 +606,7 @@ Read-only. Mainnet-only. Requires an unlocked wallet for address context.`,
         }
 
         const zestApy = positions[0].apyPct;
-        if (zestApy > 6) {
+        if (zestApy !== null && zestApy > 6) {
           suggestions.push(
             `Zest APY is elevated at ${zestApy.toFixed(1)}% — good time to increase lending allocation`
           );

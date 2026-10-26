@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { promises as fsPromises } from "fs";
+import os from "os";
+import path from "path";
 
 // ============================================================================
 // Mocks — must be declared before importing the module under test
@@ -32,10 +35,15 @@ const {
   generateDedupKey,
   checkDedupCache,
   recordTransaction,
+  X402_DEDUP_TTL_MS,
+  setDedupStateFile,
   detectTokenType,
   formatPaymentAmount,
   createApiClient,
   getAccount,
+  selectPaymentOption,
+  summarizePaymentOptions,
+  resolveAssetSymbol,
 } = await import("../../src/services/x402.service.js");
 
 const { InsufficientBalanceError } = await import("../../src/utils/errors.js");
@@ -81,13 +89,24 @@ describe("detectTokenType", () => {
     expect(detectTokenType("SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token")).toBe("sBTC");
   });
 
-  it("returns STX for unknown asset identifiers", () => {
-    expect(detectTokenType("some-random-token")).toBe("STX");
-    expect(detectTokenType("")).toBe("STX");
+  // Previously every unrecognized asset fell back to "STX", which routed a
+  // USDCx-denominated 402 into the interceptor's native-STX branch and signed a
+  // real STX transfer for it. Unknown assets must be refused, not guessed (#613).
+  it("returns unsupported for unknown asset identifiers", () => {
+    expect(detectTokenType("some-random-token")).toBe("unsupported");
+    expect(detectTokenType("")).toBe("unsupported");
+    expect(detectTokenType("SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx")).toBe(
+      "unsupported"
+    );
+  });
+
+  it("recognizes CAIP-19-style native STX references", () => {
+    expect(detectTokenType("stacks:1/native")).toBe("STX");
+    expect(detectTokenType("stacks:1/slip44:5773")).toBe("STX");
   });
 
   it("does not false-match contract names containing sbtc-token as substring", () => {
-    expect(detectTokenType("SP123.not-sbtc-token-wrapper")).toBe("STX");
+    expect(detectTokenType("SP123.not-sbtc-token-wrapper")).toBe("unsupported");
   });
 });
 
@@ -100,6 +119,122 @@ describe("formatPaymentAmount", () => {
   it("formats sBTC amounts from sats", () => {
     expect(formatPaymentAmount("100", "sbtc")).toBe("0.000001 sBTC");
     expect(formatPaymentAmount("100000000", "sbtc")).toBe("1 sBTC");
+  });
+
+  // The probe reported "This endpoint costs 29 STX" while payment.asset said
+  // USDCx, because the unknown asset was scaled by 1e6 and labelled STX (#613).
+  it("never labels a third-party token as STX", () => {
+    const formatted = formatPaymentAmount(
+      "29000000",
+      "SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx",
+      { tokenType: "USDCx" }
+    );
+    expect(formatted).not.toMatch(/STX/);
+    expect(formatted).toContain("USDCx");
+    // Decimals are unknown, so the raw base units must survive unscaled.
+    expect(formatted).toContain("29000000");
+  });
+
+  it("falls back to the contract name when the server advertises no symbol", () => {
+    expect(resolveAssetSymbol("SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx")).toBe(
+      "usdcx"
+    );
+  });
+});
+
+// The real payment-required header served by arc0btc.com, which is the endpoint
+// in #613. Order matters: USDCx is listed first, so accepts[0] selection sent
+// sBTC-only wallets down the USDCx path.
+const ARC_ACCEPTS = [
+  {
+    scheme: "exact",
+    network: "stacks:1",
+    amount: "29000000",
+    asset: "SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx",
+    payTo: "SP2GHQRCRMYY4S8PMBR49BEKX144VR437YT42SF3B",
+    maxTimeoutSeconds: 3600,
+    extra: { tokenType: "USDCx" },
+  },
+  {
+    scheme: "exact",
+    network: "stacks:1",
+    amount: "45385",
+    asset: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token",
+    payTo: "SP2GHQRCRMYY4S8PMBR49BEKX144VR437YT42SF3B",
+    maxTimeoutSeconds: 3600,
+    extra: { tokenType: "sBTC" },
+  },
+  {
+    scheme: "exact",
+    network: "stacks:1",
+    amount: "159911365",
+    asset: "STX",
+    payTo: "SP2GHQRCRMYY4S8PMBR49BEKX144VR437YT42SF3B",
+    maxTimeoutSeconds: 3600,
+    extra: { tokenType: "STX" },
+  },
+] as never as Parameters<typeof selectPaymentOption>[0];
+
+describe("selectPaymentOption (#613)", () => {
+  it("skips the unpayable first entry instead of picking accepts[0]", () => {
+    // The old code took accepts[0] (USDCx) and, because detectTokenType fell
+    // back to STX, would have signed a 29 STX native transfer for it.
+    const selected = selectPaymentOption(ARC_ACCEPTS);
+    expect(selected.asset).toBe(
+      "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token"
+    );
+    expect(selected.amount).toBe("45385");
+  });
+
+  it("honors an explicit asset symbol", () => {
+    expect(selectPaymentOption(ARC_ACCEPTS, "STX").amount).toBe("159911365");
+    expect(selectPaymentOption(ARC_ACCEPTS, "sBTC").amount).toBe("45385");
+    // Case-insensitive, and full contract identifiers work too.
+    expect(selectPaymentOption(ARC_ACCEPTS, "sbtc").amount).toBe("45385");
+    expect(
+      selectPaymentOption(
+        ARC_ACCEPTS,
+        "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token"
+      ).amount
+    ).toBe("45385");
+  });
+
+  it("refuses an accepted-but-unsignable asset rather than substituting another", () => {
+    // USDCx IS accepted by the endpoint, but this client cannot sign it. The
+    // caller must get an error, never a silent swap to STX.
+    expect(() => selectPaymentOption(ARC_ACCEPTS, "USDCx")).toThrow(
+      /not supported/i
+    );
+  });
+
+  it("errors with the accepted list when the asset is not offered at all", () => {
+    expect(() => selectPaymentOption(ARC_ACCEPTS, "DOGE")).toThrow(
+      /does not accept "DOGE"/
+    );
+    expect(() => selectPaymentOption(ARC_ACCEPTS, "DOGE")).toThrow(/sBTC/);
+  });
+
+  it("errors when no offered asset is payable", () => {
+    const usdcxOnly = [ARC_ACCEPTS[0]] as typeof ARC_ACCEPTS;
+    expect(() => selectPaymentOption(usdcxOnly)).toThrow(/No payable asset/i);
+  });
+
+  it("rejects non-Stacks networks", () => {
+    const evmOnly = [
+      { ...ARC_ACCEPTS[0], network: "eip155:1" },
+    ] as typeof ARC_ACCEPTS;
+    expect(() => selectPaymentOption(evmOnly)).toThrow(/No compatible Stacks/i);
+  });
+});
+
+describe("summarizePaymentOptions (#613)", () => {
+  it("reports every asset with a payability flag so callers can choose", () => {
+    const summary = summarizePaymentOptions(ARC_ACCEPTS);
+    expect(summary).toHaveLength(3);
+    expect(summary.map((o) => o.symbol)).toEqual(["USDCx", "sBTC", "STX"]);
+    expect(summary.map((o) => o.payable)).toEqual([false, true, true]);
+    expect(summary[1].formatted).toBe("0.00045385 sBTC");
+    expect(summary[2].formatted).toBe("159.911365 STX");
   });
 });
 
@@ -141,42 +276,105 @@ describe("generateDedupKey", () => {
 });
 
 describe("checkDedupCache / recordTransaction", () => {
-  beforeEach(() => {
+  let stateFile: string;
+
+  beforeEach(async () => {
+    // Never touch the real ~/.aibtc/x402-dedup.json from tests.
+    stateFile = path.join(
+      await fsPromises.mkdtemp(path.join(os.tmpdir(), "x402-dedup-")),
+      "state.json"
+    );
+    setDedupStateFile(stateFile);
     vi.useFakeTimers();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     vi.useRealTimers();
+    await fsPromises.rm(path.dirname(stateFile), { recursive: true, force: true });
   });
 
-  it("returns null for unknown keys", () => {
-    expect(checkDedupCache("nonexistent-key")).toBeNull();
+  it("returns null for unknown keys", async () => {
+    expect(await checkDedupCache("nonexistent-key")).toBeNull();
   });
 
-  it("returns txid for recently recorded transactions", () => {
+  it("returns txid for recently recorded transactions", async () => {
     const key = "test-key-1";
-    recordTransaction(key, "0xabc123");
-    expect(checkDedupCache(key)).toBe("0xabc123");
+    await recordTransaction(key, "0xabc123");
+    expect(await checkDedupCache(key)).toBe("0xabc123");
   });
 
-  it("returns null after 60 second TTL expires", () => {
+  it("returns null after the dedup TTL expires", async () => {
     const key = "test-key-ttl";
-    recordTransaction(key, "0xexpired");
+    await recordTransaction(key, "0xexpired");
 
-    // Still valid at 59 seconds
-    vi.advanceTimersByTime(59_000);
-    expect(checkDedupCache(key)).toBe("0xexpired");
+    // Still valid just inside the window
+    vi.advanceTimersByTime(X402_DEDUP_TTL_MS - 1_000);
+    expect(await checkDedupCache(key)).toBe("0xexpired");
 
-    // Expired at 61 seconds
+    // Expired just past it
     vi.advanceTimersByTime(2_000);
-    expect(checkDedupCache(key)).toBeNull();
+    expect(await checkDedupCache(key)).toBeNull();
   });
 
-  it("overwrites previous entry for the same key", () => {
+  it("holds the entry well past the old 60s window (#630)", async () => {
+    const key = "test-key-retry-latency";
+    await recordTransaction(key, "0xbroadcast");
+
+    // The incident behind #630 retried 362s after the first payment. The old
+    // 60s TTL had long expired by then, so the duplicate was not suppressed.
+    vi.advanceTimersByTime(362_000);
+    expect(await checkDedupCache(key)).toBe("0xbroadcast");
+  });
+
+  it("overwrites previous entry for the same key", async () => {
     const key = "test-key-overwrite";
-    recordTransaction(key, "0xfirst");
-    recordTransaction(key, "0xsecond");
-    expect(checkDedupCache(key)).toBe("0xsecond");
+    await recordTransaction(key, "0xfirst");
+    await recordTransaction(key, "0xsecond");
+    expect(await checkDedupCache(key)).toBe("0xsecond");
+  });
+
+  it("suppresses a retry across a server restart", async () => {
+    const key = "test-key-restart";
+    await recordTransaction(key, "0xbroadcast_before_restart");
+
+    // Re-pointing at the same file drops memory and forces a reload from disk,
+    // which is what a fresh server process does. Without persistence the guard
+    // was lost here and the retry paid a second time.
+    setDedupStateFile(stateFile);
+
+    expect(await checkDedupCache(key)).toBe("0xbroadcast_before_restart");
+  });
+
+  it("does not resurrect entries that expired while the server was down", async () => {
+    const key = "test-key-restart-expired";
+    await recordTransaction(key, "0xstale");
+
+    vi.advanceTimersByTime(X402_DEDUP_TTL_MS + 1_000);
+    setDedupStateFile(stateFile);
+
+    expect(await checkDedupCache(key)).toBeNull();
+  });
+
+  it("keeps entries written by another server instance", async () => {
+    // Simulate a second process that recorded a payment we never saw.
+    await fsPromises.writeFile(
+      stateFile,
+      JSON.stringify({ "other-instance-key": { txid: "0xother", timestamp: Date.now() } })
+    );
+
+    await recordTransaction("our-key", "0xours");
+    setDedupStateFile(stateFile);
+
+    expect(await checkDedupCache("other-instance-key")).toBe("0xother");
+    expect(await checkDedupCache("our-key")).toBe("0xours");
+  });
+
+  it("survives a corrupt state file instead of failing the payment path", async () => {
+    await fsPromises.writeFile(stateFile, "{not json");
+
+    await expect(checkDedupCache("any-key")).resolves.toBeNull();
+    await recordTransaction("post-corruption", "0xrecovered");
+    expect(await checkDedupCache("post-corruption")).toBe("0xrecovered");
   });
 });
 
