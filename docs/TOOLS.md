@@ -361,11 +361,9 @@ Uses the official `@bitflowlabs/core-sdk` for swap operations. Bitflow is a DEX 
 **Environment Variables:**
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `BITFLOW_API_KEY` | For SDK features | Bitflow API key (contact Bitflow team to obtain) |
-| `BITFLOW_API_HOST` | For SDK features | Bitflow API host URL |
-| `BITFLOW_READONLY_API_HOST` | Optional | Read-only API host (default: https://api.hiro.so) |
-| `BITFLOW_KEEPER_API_KEY` | For Keeper features | Keeper automation API key |
 | `BITFLOW_KEEPER_API_HOST` | Optional | Keeper API host (default: https://keeper.bitflowapis.finance) |
+
+All Bitflow endpoints are public; no API key is needed (500 requests/min per IP).
 
 **Contract Addresses:**
 | Network | Primary | XYK Pools |
@@ -373,17 +371,17 @@ Uses the official `@bitflowlabs/core-sdk` for swap operations. Bitflow is a DEX 
 | Mainnet | `SPQC38PW542EQJ5M11CR25P7BS1CA6QT4TBXGB3M` | `SM1793C4R5PZ4NS4VQ4WMP7SKKYVH8JZEWSZ9HCCR` |
 | Testnet | `STRP7MYBHSMFH5EGN3HGX6KNQ7QBHVTBPF1669DW` | N/A |
 
-**Tools (Public - No API Key):**
+**Market data:**
 - `bitflow_get_ticker` - Get market data for all trading pairs (prices, volumes, liquidity)
 
-**Tools (Requires BITFLOW_API_KEY):**
+**Swaps:**
 - `bitflow_get_tokens` - List all available tokens for swapping
 - `bitflow_get_swap_targets` - Get possible swap destinations for a token
 - `bitflow_get_quote` - Get swap quote with expected output
 - `bitflow_get_routes` - Get all available swap routes between tokens
 - `bitflow_swap` - Execute a token swap
 
-**Tools (Requires BITFLOW_KEEPER_API_KEY):**
+**Keeper (automated orders):**
 - `bitflow_get_keeper_contract` - Get or create Keeper contract for automated swaps
 - `bitflow_create_order` - Create automated swap order
 - `bitflow_get_order` - Get order details
@@ -394,13 +392,6 @@ Uses the official `@bitflowlabs/core-sdk` for swap operations. Bitflow is a DEX 
 - `SWAP_XYK_SWAP_HELPER` - XYK pool swap
 - `SWAP_XYK_STABLESWAP_SWAP_HELPER` - Combined XYK + StableSwap
 - `SWAP_STABLESWAP_SWAP_HELPER` - StableSwap only
-
-**TODO - Bitflow API Key Integration:**
-- [ ] Contact Bitflow team via Discord to request API keys
-- [ ] Set `BITFLOW_API_KEY` and `BITFLOW_API_HOST` environment variables
-- [ ] Test SDK features (quotes, tokens, swaps)
-- [ ] Optionally configure Keeper API keys for automation features
-- [ ] Move API keys to Cloudflare Worker proxy for secure npm distribution
 
 ### Trading Competition (retired — no tools exposed)
 

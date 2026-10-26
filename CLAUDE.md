@@ -234,7 +234,7 @@ The allowlist is re-enforced at `tools/call` time, so the model can't reach a to
 | OpenRouter | `openrouter_integration_guide`, `openrouter_models` | AI feature integration |
 | ALEX DEX | `alex_list_pools/get_swap_quote/swap/get_pool_info` | Mainnet only; `alex-sdk` |
 | Zest | `zest_list_assets/get_position/supply/withdraw/borrow/repay` | Mainnet only; 10 assets |
-| Bitflow DEX | `bitflow_get_ticker/tokens/swap_targets/quote/routes/swap` + Keeper tools | Mainnet only; ticker is public, rest need `BITFLOW_API_KEY` |
+| Bitflow DEX | `bitflow_get_ticker/tokens/swap_targets/quote/routes/swap` + Keeper tools | Mainnet only; public endpoints, no API key; `BITFLOW_KEEPER_API_HOST` overrides the keeper host |
 | Pillar | `pillar_connect/disconnect/status/send/fund/supply/boost/unwind/auto_compound/position/create_wallet/add_admin/invite` | Browser handoff for passkey signing |
 | AIBTC News | `news_*` (17 tools) | **Deprecated** — the aibtc.news API is retired (410). Tools stay registered but only return a pointer to `legion_*` |
 | News Legion | `legion_status/list_stories/get_story/my_position` (read) + `legion_contribute/sponsor/propose_story/vote/conclude` + `legion_inscribe_story/inscribe_reveal` | **Stacks mainnet, real sBTC**, pinned by contract address — never follows global `NETWORK`. No veto, no quorum, no faucet. Proposals blocked until 21 members join (`u441`); a story also needs yes weight ≥ 20× its payout. `contribute`/`sponsor` meter the `SPEND_LIMIT_*` sats rail. Inscription is the exception: native L1 BTC on whatever `NETWORK` names, gated by `confirmMainnetSpend` |
