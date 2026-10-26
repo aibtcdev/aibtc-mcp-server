@@ -263,10 +263,13 @@ export const BITFLOW_PUBLIC_API = "https://bitflow-sdk-api-gateway-7owjsmt8.uc.g
 export const BITFLOW_READONLY_HOST = "https://api.hiro.so";
 
 /**
- * Keeper API host for automated swap orders.
- * Per Bitflow SDK docs.
+ * Keeper API host for automated swap orders. The SDK's documented default
+ * (bitflow-keeper-test-7owjsmt8.uc.gateway.dev) 404s on every keeper path;
+ * the production keeper is keeper.bitflowapis.finance.
+ * Override with BITFLOW_KEEPER_API_HOST.
  */
-export const BITFLOW_KEEPER_HOST = "https://bitflow-keeper-test-7owjsmt8.uc.gateway.dev";
+export const BITFLOW_KEEPER_HOST =
+  process.env.BITFLOW_KEEPER_API_HOST || "https://keeper.bitflowapis.finance";
 
 /**
  * AIBTC provider address tagged onto every Bitflow swap. The SDK injects this

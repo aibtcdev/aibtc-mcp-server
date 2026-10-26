@@ -365,7 +365,7 @@ Uses the official `@bitflowlabs/core-sdk` for swap operations. Bitflow is a DEX 
 | `BITFLOW_API_HOST` | For SDK features | Bitflow API host URL |
 | `BITFLOW_READONLY_API_HOST` | Optional | Read-only API host (default: https://api.hiro.so) |
 | `BITFLOW_KEEPER_API_KEY` | For Keeper features | Keeper automation API key |
-| `BITFLOW_KEEPER_API_HOST` | For Keeper features | Keeper API host URL |
+| `BITFLOW_KEEPER_API_HOST` | Optional | Keeper API host (default: https://keeper.bitflowapis.finance) |
 
 **Contract Addresses:**
 | Network | Primary | XYK Pools |
