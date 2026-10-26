@@ -4,11 +4,19 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      publish_existing:
+        description: Publish the current package.json version even if no new release is created in this run
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
   pull-requests: write
   packages: write
+  id-token: write
 
 jobs:
   release-please:
@@ -26,7 +34,12 @@ jobs:
 
   publish:
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created }}
+    # Manual republish (workflow_dispatch + publish_existing) is gated to
+    # refs/heads/main so an attacker with branch-push rights cannot publish
+    # an unreviewed feature-branch build to @aibtc/mcp-server. The npm Trusted
+    # Publisher binding validates org/repo/workflow but not the ref, so this
+    # guard is the defense-in-depth boundary.
+    if: ${{ needs.release-please.outputs.release_created || (github.event_name == 'workflow_dispatch' && inputs.publish_existing && github.ref == 'refs/heads/main') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -35,10 +48,14 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+          cache: npm
+
+      - name: Update npm
+        run: npm install -g npm@latest
 
       - name: Install dependencies
         run: npm ci
@@ -49,13 +66,11 @@ jobs:
       - name: Publish to npm
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          if npm view "@aibtc/mcp-server@${VERSION}" version 2>/dev/null; then
+          if npm view "@aibtc/mcp-server@${VERSION}" version >/dev/null 2>&1; then
             echo "::notice::@aibtc/mcp-server@${VERSION} already published to npm, skipping"
           else
             npm publish --access public
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Setup Node.js for GitHub Packages
         uses: actions/setup-node@v4
@@ -71,38 +86,3 @@ jobs:
           npm pkg set name="@aibtc/mcp-server"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Reset npm registry for ClawHub
-        if: ${{ !contains(needs.release-please.outputs.tag_name, '-') }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Publish to ClawHub
-        if: ${{ !contains(needs.release-please.outputs.tag_name, '-') }}
-        continue-on-error: true
-        run: |
-          VERSION="${{ needs.release-please.outputs.version }}"
-
-          # Authenticate with ClawHub
-          npx clawhub login --token "$CLAWHUB_API_TOKEN" --no-browser
-
-          # Get previous tag for changelog
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-
-          # Generate changelog for ClawHub
-          if [ -n "$PREV_TAG" ]; then
-            CHANGELOG=$(git log --pretty=format:"- %s" ${PREV_TAG}..HEAD | head -20)
-          else
-            CHANGELOG="Initial release"
-          fi
-
-          npx clawhub publish ./skill \
-            --slug aibtc-bitcoin-wallet \
-            --name "AIBTC Bitcoin Wallet" \
-            --version "$VERSION" \
-            --changelog "$CHANGELOG" \
-            --tags latest
-        env:
-          CLAWHUB_API_TOKEN: ${{ secrets.CLAWHUB_API_TOKEN }}

@@ -12,12 +12,15 @@ The plugin automatically handles x402 payment challenges when accessing paid end
 
 ## API Sources
 
-The agent supports two x402 API sources:
+`list_x402_endpoints` covers these x402 API sources; `execute_x402_endpoint` also accepts any x402 URL. Hosts that publish `openapi.json` are read live (`src/services/x402-discovery.service.ts`, 10-minute cache, a failed fetch is reported as an unavailable source); the rest are static entries in `src/endpoints/registry.ts`:
 
 | Source | URL | Endpoints |
 |--------|-----|-----------|
-| x402.biwas.xyz | https://x402.biwas.xyz | DeFi analytics, market data, wallet analysis |
-| stx402.com | https://stx402.com | AI services, cryptography, storage, utilities, agent registry |
+| x402.biwas.xyz | https://x402.biwas.xyz | DeFi analytics, market data, wallet analysis (static) |
+| x402.aibtc.com | https://x402.aibtc.com (testnet: x402.aibtc.dev) | Inference, Stacks utilities, hashing, storage (live, [openapi](https://x402.aibtc.com/openapi.json)) |
+| stx402.com | https://stx402.com | x402 endpoint registry, agent registry (ERC-8004), links (live, [openapi](https://stx402.com/openapi.json)) |
+| directory | https://stx402.com/registry/list | Third-party x402 endpoints registered at stx402.com (live, mainnet; verified only unless `includeUnverified`) |
+| aibtc.com | https://aibtc.com | Inbox messaging (static) |
 
 ## Build Commands
 
@@ -30,22 +33,19 @@ npm start         # Run compiled server
 
 ## Publishing & Releases
 
-**After major changes or version updates, publish a new release:**
+Releases are cut by [release-please](https://github.com/googleapis/release-please) (`.github/workflows/release-please.yml`). Don't run `npm version` or push tags by hand.
 
-```bash
-npm version patch   # or minor/major depending on changes
-git push && git push --tags
-```
+1. Merge PRs to `main` with [Conventional Commit](https://www.conventionalcommits.org) titles (they're squash-merged, so the PR title is the commit).
+2. release-please opens or updates a `chore(main): release mcp-server X.Y.Z` PR. It bumps `package.json`, `package-lock.json`, `server.json`, `skill/SKILL.md` and `.release-please-manifest.json`, and writes `CHANGELOG.md`.
+3. To release, merge that PR. The workflow then tags `mcp-server-vX.Y.Z`, creates the GitHub release, and publishes to npm.
 
-This triggers GitHub Actions to automatically:
-1. Build the project
-2. Publish to npm
-3. Create a GitHub release with changelog
+The commit type picks the version bump:
+- `fix:` → patch (2.6.0 → 2.6.1)
+- `feat:` → minor (2.6.0 → 2.7.0)
+- `feat!:` / `BREAKING CHANGE:` footer → major (2.6.0 → 3.0.0)
+- `chore:`, `docs:`, `ci:`, `test:` → no release on their own
 
-**Version Guidelines:**
-- `patch` (2.6.0 → 2.6.1): Bug fixes, CI changes, docs
-- `minor` (2.6.0 → 2.7.0): New features, new tools
-- `major` (2.6.0 → 3.0.0): Breaking changes
+To republish the current version without a new release, run the workflow manually from `main` with `publish_existing`.
 
 ## Code Principles
 
@@ -70,7 +70,7 @@ aibtc-mcp-server MCP Server (src/index.ts)
     ↓
 ┌─────────────────────────────────────────────────────────┐
 │  x402 Endpoints                          Stacks TX      │
-│  (via api.ts)                         (via wallet.ts)   │
+│  (x402.service)                          (builder.ts)   │
 │  ┌─────────────┐  ┌─────────────┐                       │
 │  │x402.biwas.xyz│  │ stx402.com  │                       │
 │  └─────────────┘  └─────────────┘                       │
@@ -82,19 +82,33 @@ aibtc-mcp-server MCP Server (src/index.ts)
 ### Key Files
 
 - `src/index.ts` - MCP server with all tool definitions
-- `src/api.ts` - Axios client with x402-stacks payment interceptor (supports multiple API sources)
-- `src/wallet.ts` - Wallet operations and transaction signing using @stacks/transactions
+- `src/services/x402.service.ts` - x402 API client (`createApiClient`) with automatic 402 payment handling, spend metering, and dedup
+- `src/transactions/builder.ts` - Stacks transaction building and signing (`transferStx`, `callContract`, `deployContract`)
 - `src/services/wallet-manager.ts` - Managed wallet creation, encryption, and session management
 - `src/services/defi.service.ts` - ALEX DEX (via alex-sdk) and Zest Protocol integrations
 - `src/services/bitflow.service.ts` - Bitflow DEX integration (via @bitflowlabs/core-sdk)
 - `src/services/mempool-api.ts` - mempool.space API client for Bitcoin UTXO, fee, and broadcast
 - `src/transactions/bitcoin-builder.ts` - Bitcoin transaction building and signing (P2WPKH)
-- `src/endpoints/registry.ts` - Known x402 endpoint registry from both API sources
+- `src/endpoints/registry.ts` - Static x402 endpoint entries for hosts without an OpenAPI spec (x402.biwas.xyz, aibtc.com inbox)
+- `src/services/x402-discovery.service.ts` - Live endpoint discovery from x402.aibtc.com / stx402.com `openapi.json` and the stx402.com directory
 - `src/services/bns.service.ts` - BNS name resolution (supports both V1 and V2)
 - `src/services/hiro-api.ts` - Hiro API client + BNS V2 API client
 - `src/config/contracts.ts` - Contract addresses and Zest asset configuration (LP tokens, oracles, decimals)
 - `src/services/scaffold.service.ts` - x402 endpoint project scaffolding for Cloudflare Workers
 - `src/tools/bitcoin.tools.ts` - Bitcoin L1 tools (balance, fees, UTXOs, transfer)
+- `src/services/stacking.service.ts` / `src/tools/stacking.tools.ts` - PoX-5 staking (signer managers, stake/stake-update/unstake, reward claims)
+- `src/tools/news.tools.ts` - AIBTC News tools (**deprecated** — aibtc.news API returns 410; each `news_*` tool returns a redirect to `legion_*`)
+- `src/tools/legion.tools.ts` - AIBTC News Legion governance (inscribe → propose → vote → conclude, contribute, sponsor)
+- `src/services/legion.service.ts` - Legion chain reads, network-pinned account, phase/outcome derivation
+- `src/config/legion.ts` - Legion mainnet contract ids (constants), network derivation, contract error codes
+- `src/tools/at-stake.tools.ts` - At Stake market (elsalvadorstakesbtc.com — complete-set mint/merge, bids, transfer, redeem, resolve-idle)
+- `src/tools/at-stake-legion.tools.ts` - At Stake side legions (aibtc.com/legions — propose, vote, conclude, vault settlement)
+- `src/services/at-stake.service.ts` - At Stake chain reads, network-pinned account, conclude-outcome prediction
+- `src/config/at-stake.ts` - At Stake contract ids, side mapping (BONDED=yes, IDLE=no), contract error codes
+- `src/tools/profiles.ts` - Tool profiles: the lean `CORE_TOOLS` set, `TOOL_GROUPS`, and `AIBTC_TOOLS` / `--profile` resolution (groups are assigned per module in `src/tools/index.ts`)
+- `src/tools/competition.tools.ts` - AIBTC Trading Competition (concluded; **not registered** — module kept for the `computeCampaignStats` P&L reference, exposes no MCP tools)
+- `src/tools/psbt.tools.ts` - PSBT create/sign/broadcast/decode (used by ordinals marketplace, P2P and taproot multisig flows)
+- `src/tools/settings.tools.ts` - Hiro API key, custom Stacks API URL, server version
 - `src/tools/pillar.tools.ts` - Pillar smart wallet tools (handoff model)
 - `src/services/pillar-api.service.ts` - Pillar API client
 - `src/config/pillar.ts` - Pillar configuration (API URL, API key)
@@ -114,17 +128,33 @@ BNS tools automatically check V2 first for `.btc` names, falling back to V1 for 
 
 1. Client makes request to x402 endpoint
 2. Endpoint returns HTTP 402 with payment requirements
-3. `withPaymentInterceptor` from x402-stacks intercepts the 402
+3. The response interceptor in `createApiClient` (`src/services/x402.service.ts`) intercepts the 402
 4. Interceptor signs and broadcasts payment transaction
 5. Request is retried with payment proof
 6. Endpoint returns actual response
 
 ## Configuration
 
-Set environment variables in `.env`:
+The server never reads a `.env` file: it would load the `.env` of whatever project the MCP client was opened in. Installed users set these in the client config's `env` block (`--install` writes it) or the shell. In this repo, `npm run dev` / `npm start` load `./.env` explicitly (`--env-file-if-exists`):
 - `CLIENT_MNEMONIC` - 24-word Stacks wallet mnemonic (optional - can use managed wallets instead)
 - `NETWORK` - "mainnet" or "testnet" (default: mainnet)
-- `API_URL` - Default x402 API base URL (default: https://x402.biwas.xyz)
+- `AIBTC_TOOLS` - `core` (lean set, written by `--install`), `core,<group,...>`, or `all`. Unset loads everything so pre-profile configs keep their tools; `--profile full` = `all`, `--profile lean` = `core`
+- `OPENROUTER_API_KEY` / `OPENROUTER_MODEL` - Only used by the `bridge` subcommand (drive tools via an OpenRouter model)
+- `SPEND_LIMIT_ENABLED` - Wallet spending limit on/off (default: true)
+- `SPEND_LIMIT_DAILY_USTX` / `SPEND_LIMIT_SESSION_USTX` - STX spend cap per day / per unlock in micro-STX (default: 50000000 = 50 STX)
+- `SPEND_LIMIT_DAILY_SATS` / `SPEND_LIMIT_SESSION_SATS` - BTC spend cap per day / per unlock in sats (default: 50000)
+- `AIBTC_ALLOW_BLIND_SIGN` - `true` lets `schnorr_sign_digest` sign raw digests (off by default: a signed sighash spends outside the limit)
+
+### Spending Limit
+
+A default-on safety rail (`src/services/spend-limiter.ts`) meters every signed spend against a cumulative per-session **and** per-day cap, tracked in two ledgers (`uSTX`, `sats`) and persisted to `~/.aibtc/spend-state.json`. Each spend is booked with `reserve()` **before it is signed or broadcast**: the cap check and the booking are one step under the shared `x402-guards.lock` lease, so two processes on one ledger (this server and the skills engine) cannot both pass against the same day total. A spend over the cap throws; the message tells the agent to ask the user (never how to disable the rail). A spend is given back with `release()` only when it provably never left: signing failed, the node returned an explicit rejection (Stacks `error` response, mempool 4xx), or the sponsor relay refused it. A broadcast that throws, a Lightning/L402 payment that throws, or an x402 request that already carried the payment keeps its booking (over-counting is the safe direction). `release()` is idempotent and never throws. If the lease cannot be taken, `reserve()` refuses; a stale lease whose holder is provably dead is reclaimed by the same `.reclaim` protocol the skills engine uses. The session ledger resets on wallet unlock/lock. The chokepoints:
+- **STX transfers**: `transferStx` (`builder.ts`) meters amount + fee; `sponsoredStxTransfer` (`sponsor-builder.ts`) books the amount and releases it when the relay refuses (before the direct fallback, which books its own amount + fee).
+- **Contract calls**: `callContract` and `sponsoredContractCall` go through `planContractCallSpends` (`spend-limiter.ts`). Caller-owned `eq`/`lt`/`lte` STX and sBTC post conditions are the cap (no price oracle); a caller-owned `gt`/`gte` on STX/sBTC is refused (no upper bound). Post condition mode **Allow** requires `callerSpendCaps` (`{ ustx, sats }`), which become chain-enforced `lte` post conditions on the caller and are metered; `call_contract` exposes them as `maxStxSpend` / `maxSbtcSpend`. Direct calls add the fee to the `ustx` ledger. Non-sBTC tokens are not metered (no ledger). Bitflow swaps route through `callContract`. The Legion sBTC spends sign an exact `willSendEq` and must not meter again at the tool.
+- **Bitcoin L1**: every tool that broadcasts a transaction spending this wallet's BTC calls `meteredBtcBroadcast` (`src/services/btc-spend.ts`), which values each input from its previous output and meters own inputs minus outputs back to the wallet's SegWit/Taproot addresses (payment + fee). `psbt_sign` meters the inputs it signed at signing time (a signed PSBT can be broadcast by anyone) and refuses inputs without a `witnessUtxo` amount.
+- **x402/L402** auto-payments (`x402.service.ts`; x402 books the amount plus the sender's STX fee in `ustx`) and manual `lightning_pay_invoice` (`lightning.tools.ts` — decodes the BOLT-11 amount, refuses amountless invoices). Lightning keys the `sats` ledger by the active Stacks address, falling back to a dedicated `__lightning__` bucket when the main STX wallet is locked.
+- **Blind signing**: `schnorr_sign_digest` is refused unless `AIBTC_ALLOW_BLIND_SIGN=true`, since a signed sighash spends outside every meter.
+
+The rail runs in this process: it does not contain an agent with shell access to the machine (it could edit the client config or, given the password, decrypt the keystore). `wallet_export` is left out of the lean core for that reason.
 
 ### Wallet Storage
 
@@ -138,360 +168,80 @@ Managed wallets are stored encrypted in `~/.aibtc/`:
         └── keystore.json  # Encrypted mnemonic (AES-256-GCM)
 ```
 
-## Adding to Claude Code or Claude Desktop
+## Adding to an MCP Client
 
-**Claude Code (terminal):**
+This is a standard stdio MCP server, so it works with any MCP-compatible client. The `--install` helper writes the right config for a target; Claude Code is the default, others are selected with a flag. The install registry lives in `src/index.ts` (`INSTALL_TARGETS`).
+
 ```bash
-npx @aibtc/mcp-server@latest --install
+npx @aibtc/mcp-server@latest --install              # Claude Code (default)
+npx @aibtc/mcp-server@latest --install --desktop    # Claude Desktop (OS-detected path)
+npx @aibtc/mcp-server@latest --install --cursor     # Cursor
+npx @aibtc/mcp-server@latest --install --windsurf   # Windsurf
+npx @aibtc/mcp-server@latest --install --gemini     # Gemini CLI
+npx @aibtc/mcp-server@latest --install --codex      # OpenAI Codex CLI (TOML)
+npx @aibtc/mcp-server@latest --install --vscode     # VS Code (./.vscode/mcp.json)
 ```
 
-**Claude Desktop (app):**
-```bash
-npx @aibtc/mcp-server@latest --install --desktop
-```
+Each installer merges into the existing config rather than overwriting it. After writing the config, `--install` creates a wallet for the target network if none exists (`ensureInstallWallet` in `src/index.ts`): the generated password and mnemonic are printed once, the mnemonic is stored encrypted in `~/.aibtc/`, the password is never persisted. `--no-wallet` skips it. Zed and Cline are manual-config only (their schemas/paths vary by version) — see README for snippets. The `@latest` tag ensures users always get the newest features.
 
-The `--desktop` flag auto-detects your OS and writes to the correct Claude Desktop config path. The `@latest` tag ensures users always get the newest features.
-
-**For testnet:** Add `--testnet` to either command, e.g. `npx @aibtc/mcp-server@latest --install --desktop --testnet`
+**For testnet:** Add `--testnet` to any install command, e.g. `npx @aibtc/mcp-server@latest --install --cursor --testnet`
 
 **Note:** `CLIENT_MNEMONIC` is optional. Users can either:
 1. **Managed wallets (recommended)**: Use `wallet_create` or `wallet_import` to generate/import wallets with password protection
 2. **Environment mnemonic**: Set `CLIENT_MNEMONIC` in env (for power users)
 
+## OpenRouter Bridge
+
+`bridge` is a CLI subcommand (`src/bridge/index.ts`, routed in `src/index.ts` next to `yield-hunter`) that lets an [OpenRouter](https://openrouter.ai) model drive the tools without an MCP host. It spawns this same binary in server mode over stdio, lists tools, converts each to an OpenAI function-tool schema (verbatim `inputSchema` passthrough), and runs the tool-call loop against `https://openrouter.ai/api/v1/chat/completions`. This is OpenRouter's own client-side MCP pattern ([cookbook](https://openrouter.ai/docs/cookbook/coding-agents/mcp-servers)) ported to Node — the client connects to MCP; there is no OpenRouter-side MCP hosting.
+
+```bash
+export OPENROUTER_API_KEY=sk-or-...
+npx @aibtc/mcp-server@latest bridge "what's the STX balance of SP3..."
+```
+
+Safety flags (default exposes all tools; constrain with these):
+- `--read-only` — heuristic allowlist; never includes a transfer/swap/deploy/spend tool
+- `--allow a,b` / `--block a,b` — explicit overrides (`--block` wins)
+- `--max-spend-ustx <n>` / `--max-spend-sats <n>` — forwarded to the spawned server's `SPEND_LIMIT_SESSION_*` rail
+- `--list-tools` — preview exposed set, no API key needed
+- `--model` / `--network` / `--max-turns`
+
+The allowlist is re-enforced at `tools/call` time, so the model can't reach a tool outside the exposed set. Frameworks with native MCP support (`@openrouter/agent`, OpenAI/Claude Agents SDKs) can point at the server directly instead.
+
 ## Available Tools
 
-### Endpoint Discovery
-- `list_x402_endpoints` - List all available x402 endpoints with search/filter by source, category, or keyword. **Use this first** to discover what actions are available.
+> **Profiles:** new installs get `AIBTC_TOOLS=core`, which registers only the 24-tool lean core in `src/tools/profiles.ts`; everything else loads by group (`AIBTC_TOOLS=core,defi`) or with `all`. An unset `AIBTC_TOOLS` (configs from before profiles) registers everything. A new tool goes in its module's group automatically; add it to `CORE_TOOLS` only if a fresh install needs it.
 
-### Wallet & Balance
-- `get_wallet_info` - Get configured wallet address, network, and API URL
-- `get_stx_balance` - Get STX balance for any address
+> **Full tool reference:** [`docs/TOOLS.md`](docs/TOOLS.md) — per-tool parameters,
+> examples, contract addresses, asset tables, and P&L methodology. The MCP server also exposes each tool's description at runtime, so the
+> table below is just a discovery map. Read the reference doc before working on a tool's
+> behavior.
 
-### Wallet Management
-- `wallet_create` - Generate a new wallet with BIP39 mnemonic (encrypted locally)
-- `wallet_import` - Import an existing wallet from mnemonic
-- `wallet_unlock` - Unlock a wallet for transactions (requires password)
-- `wallet_lock` - Lock the wallet (clear from memory)
-- `wallet_list` - List all available wallets
-- `wallet_switch` - Switch active wallet
-- `wallet_delete` - Permanently delete a wallet
-- `wallet_export` - Export mnemonic (with security warning)
-- `wallet_status` - Get current wallet/session status
-
-### Bitcoin L1 Transactions
-
-Tools for Bitcoin L1 blockchain operations via mempool.space API:
-
-**Read Operations:**
-- `get_btc_balance` - Get BTC balance for any Bitcoin address (total, confirmed, unconfirmed)
-- `get_btc_fees` - Get current fee estimates (fast ~10min, medium ~30min, slow ~1hr) in sat/vB
-- `get_btc_utxos` - List UTXOs for a Bitcoin address (useful for debugging/transparency)
-
-**Write Operations:**
-- `transfer_btc` - Transfer BTC to a recipient address (requires unlocked wallet)
-  - `recipient`: Bitcoin address (bc1... for mainnet, tb1... for testnet)
-  - `amount`: Amount in satoshis (1 BTC = 100,000,000 satoshis)
-  - `feeRate`: "fast" | "medium" | "slow" or custom sat/vB number (default: "medium")
-
-**Notes:**
-- All tools work on mainnet (`bc1...` addresses) or testnet (`tb1...` addresses) based on NETWORK config
-- Read operations can use any address or fall back to wallet's Bitcoin address
-- Write operations require an unlocked wallet with BTC balance
-- Uses P2WPKH (native SegWit) transactions for optimal fees
-- Change is sent back to the sender address
-
-**Example Usage:**
-| Request | Action |
-|---------|--------|
-| "What's my BTC balance?" | `get_btc_balance` (uses wallet's btcAddress) |
-| "Check BTC fees" | `get_btc_fees` |
-| "Show UTXOs for bc1q..." | `get_btc_utxos` with address |
-| "Send 50000 sats to tb1q..." | `transfer_btc` with recipient, amount=50000 |
-| "Transfer 0.001 BTC with fast fees" | `transfer_btc` with amount=100000, feeRate="fast" |
-
-### Mempool Watch (Bitcoin)
-- `get_btc_mempool_info` - Get current Bitcoin mempool statistics (tx count, vsize, fees, fee histogram)
-- `get_btc_transaction_status` - Get confirmation status and details for a Bitcoin transaction by txid
-- `get_btc_address_txs` - Get recent transaction history for a Bitcoin address (last 25 transactions)
-
-### Direct Stacks Transactions
-- `transfer_stx` - Transfer STX tokens to a recipient (signs and broadcasts)
-- `call_contract` - Call a smart contract function (signs and broadcasts)
-- `deploy_contract` - Deploy a Clarity smart contract
-- `get_transaction_status` - Check transaction status by txid
-- `broadcast_transaction` - Broadcast a pre-signed transaction
-
-### x402 API Endpoints
-- `execute_x402_endpoint` - Execute ANY x402 endpoint URL with automatic payment handling. Can use full URL or path+apiUrl.
-
-### x402 Endpoint Scaffolding
-- `scaffold_x402_endpoint` - Generate a complete Cloudflare Worker project with x402 payment integration
-
-**Parameters:**
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `outputDir` | Yes | Absolute path to output directory |
-| `projectName` | Yes | Project name (lowercase, hyphens) |
-| `endpoints` | Yes | Array of endpoint configs |
-| `recipientAddress` | Yes | Stacks address to receive payments |
-| `network` | No | "mainnet" or "testnet" (default: mainnet) |
-| `facilitatorUrl` | No | Custom facilitator URL |
-
-**Endpoint Config:**
-```typescript
-{
-  path: "/api/premium",       // Endpoint path
-  method: "GET" | "POST",     // HTTP method
-  description: "...",         // For docs
-  amount: "0.001",            // Payment amount
-  tokenType: "STX" | "sBTC" | "USDCx"
-}
-```
-
-**Generated Project Structure:**
-```
-{projectName}/
-├── src/
-│   ├── index.ts              # Hono app with routes
-│   └── x402-middleware.ts    # Payment verification
-├── wrangler.jsonc            # Cloudflare config
-├── package.json
-├── tsconfig.json
-├── .env.example
-├── .gitignore
-└── README.md
-```
-
-**Example:**
-```
-scaffold_x402_endpoint({
-  outputDir: "/Users/me/projects",
-  projectName: "my-paid-api",
-  endpoints: [{
-    path: "/api/joke",
-    method: "GET",
-    description: "Generate a joke",
-    amount: "0.001",
-    tokenType: "STX"
-  }],
-  recipientAddress: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
-  network: "testnet"
-})
-```
-
-### x402 AI Endpoint Scaffolding (OpenRouter)
-- `scaffold_x402_ai_endpoint` - Generate x402 endpoint project with OpenRouter AI integration
-
-**AI Types:**
-| Type | Description |
-|------|-------------|
-| `chat` | General chat/Q&A endpoint |
-| `completion` | Text completion/continuation |
-| `summarize` | Summarize provided text |
-| `translate` | Translate text to target language |
-| `custom` | Custom system prompt |
-
-**AI Endpoint Config:**
-```typescript
-{
-  path: "/api/chat",
-  description: "Chat with AI",
-  amount: "0.01",
-  tokenType: "STX" | "sBTC" | "USDCx",
-  aiType: "chat" | "completion" | "summarize" | "translate" | "custom",
-  model?: "anthropic/claude-3-haiku",  // Optional, uses defaultModel
-  systemPrompt?: "You are..."          // Optional, for custom prompts
-}
-```
-
-**Example:**
-```
-scaffold_x402_ai_endpoint({
-  outputDir: "/Users/me/projects",
-  projectName: "my-ai-api",
-  endpoints: [{
-    path: "/api/chat",
-    description: "Chat with AI",
-    amount: "0.01",
-    tokenType: "STX",
-    aiType: "chat"
-  }, {
-    path: "/api/summarize",
-    description: "Summarize text",
-    amount: "0.005",
-    tokenType: "STX",
-    aiType: "summarize"
-  }],
-  recipientAddress: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
-  defaultModel: "anthropic/claude-3-haiku"
-})
-```
-
-**Popular OpenRouter Models:**
-- `anthropic/claude-sonnet-4.5` - Best overall, 1M context
-- `anthropic/claude-3.5-haiku` - Fast and affordable
-- `openai/gpt-4o-mini` - Fast and cheap
-- `google/gemini-2.5-flash` - 1M context, fast
-- `x-ai/grok-4` - xAI flagship, real-time knowledge
-- `deepseek/deepseek-r1` - Excellent reasoning
-- `meta-llama/llama-3.3-70b-instruct` - Best open source value
-
-### OpenRouter Integration (AI Features)
-
-Tools for implementing AI features using OpenRouter in any project:
-
-- `openrouter_integration_guide` - Get code examples and patterns for integrating OpenRouter
-- `openrouter_models` - List available models with capabilities
-
-**Usage:** When implementing AI features:
-1. Call `openrouter_integration_guide` to get code examples for the target environment
-2. If documentation is incomplete or outdated, search the web for latest OpenRouter docs
-3. Use the returned code templates to implement the feature
-
-**Example Workflow:**
-1. User: "Add AI chat to my Cloudflare Worker"
-2. Claude calls `openrouter_integration_guide` with `environment: "cloudflare-worker"`
-3. If needed, Claude searches web for latest OpenRouter API docs
-4. Claude implements the feature using the templates
-
-### DeFi - ALEX DEX (Mainnet Only)
-
-Uses the official `alex-sdk` for swap operations. The SDK handles:
-- Token resolution (symbols like "STX", "ALEX" → Currency enum)
-- Route optimization
-- STX wrapping/unwrapping
-- Post conditions
-
-Tools:
-- `alex_list_pools` - **Start here!** Discover all available trading pools
-- `alex_get_swap_quote` - Get expected output for a token swap (uses `sdk.getAmountTo()`)
-- `alex_swap` - Execute a token swap (uses `sdk.runSwap()`)
-- `alex_get_pool_info` - Get liquidity pool reserves and details
-
-**Token symbols supported:** STX, WSTX, ALEX, or any token name from `fetchSwappableCurrency()`
-
-### DeFi - Zest Protocol (Mainnet Only)
-
-Uses the `pool-borrow-v2-3` contract with proper function signatures. Asset configuration in `src/config/contracts.ts` includes LP tokens and oracles for all 10 supported assets.
-
-**Supported Assets:**
-| Symbol | Token | Decimals |
-|--------|-------|----------|
-| sBTC | SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token | 8 |
-| aeUSDC | SP3Y2ZSH8P7D50B0VBTSX11S7XSG24M1VB9YFQA4K.token-aeusdc | 6 |
-| stSTX | SP4SZE494VC2YC5JYG7AYFQ44F5Q4PYV7DVMDPBG.ststx-token | 6 |
-| wSTX | SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.wstx | 6 |
-| USDH | SPN5AKG35QZSK2M8GAMR4AFX45659RJHDW353HSG.usdh-token-v1 | 8 |
-| sUSDT | SP2XD7417HGPRTREMKF748VNEQPDRR0RMANB7X1NK.token-susdt | 6 |
-| USDA | SP2C2YFP12AJZB4MABJBAJ55XECVS7E4PMMZ89YZR.usda-token | 6 |
-| DIKO | SP2C2YFP12AJZB4MABJBAJ55XECVS7E4PMMZ89YZR.arkadiko-token | 6 |
-| ALEX | SP102V8P0F7JX67ARQ77WEA3D3CFB5XW39REDT0AM.token-alex | 8 |
-| stSTX-BTC | SP4SZE494VC2YC5JYG7AYFQ44F5Q4PYV7DVMDPBG.ststxbtc-token-v2 | 6 |
-
-**Contract Function Signatures:**
-- `supply(lp, pool-reserve, asset, amount, owner)`
-- `withdraw(pool-reserve, asset, lp, oracle, assets-list, amount, owner)`
-- `borrow(pool-reserve, oracle, asset, lp, assets-list, amount, fee-calc, rate-mode, owner)`
-- `repay(asset, amount, on-behalf-of, payer)`
-
-Tools:
-- `zest_list_assets` - **Start here!** Lists all supported assets with metadata
-- `zest_get_position` - Get user's lending position (supplied/borrowed amounts)
-- `zest_supply` - Supply assets to earn interest
-- `zest_withdraw` - Withdraw supplied assets
-- `zest_borrow` - Borrow assets against collateral
-- `zest_repay` - Repay borrowed assets
-
-All Zest tools accept asset symbols (e.g., 'stSTX', 'aeUSDC') or full contract IDs.
-
-### DeFi - Bitflow DEX (Mainnet Only)
-
-Uses the official `@bitflowlabs/core-sdk` for swap operations. Bitflow is a DEX aggregator that routes trades across multiple liquidity sources for best prices.
-
-**Environment Variables:**
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `BITFLOW_API_KEY` | For SDK features | Bitflow API key (contact Bitflow team to obtain) |
-| `BITFLOW_API_HOST` | For SDK features | Bitflow API host URL |
-| `BITFLOW_READONLY_API_HOST` | Optional | Read-only API host (default: https://api.hiro.so) |
-| `BITFLOW_KEEPER_API_KEY` | For Keeper features | Keeper automation API key |
-| `BITFLOW_KEEPER_API_HOST` | For Keeper features | Keeper API host URL |
-
-**Contract Addresses:**
-| Network | Primary | XYK Pools |
-|---------|---------|-----------|
-| Mainnet | `SPQC38PW542EQJ5M11CR25P7BS1CA6QT4TBXGB3M` | `SM1793C4R5PZ4NS4VQ4WMP7SKKYVH8JZEWSZ9HCCR` |
-| Testnet | `STRP7MYBHSMFH5EGN3HGX6KNQ7QBHVTBPF1669DW` | N/A |
-
-**Tools (Public - No API Key):**
-- `bitflow_get_ticker` - Get market data for all trading pairs (prices, volumes, liquidity)
-
-**Tools (Requires BITFLOW_API_KEY):**
-- `bitflow_get_tokens` - List all available tokens for swapping
-- `bitflow_get_swap_targets` - Get possible swap destinations for a token
-- `bitflow_get_quote` - Get swap quote with expected output
-- `bitflow_get_routes` - Get all available swap routes between tokens
-- `bitflow_swap` - Execute a token swap
-
-**Tools (Requires BITFLOW_KEEPER_API_KEY):**
-- `bitflow_get_keeper_contract` - Get or create Keeper contract for automated swaps
-- `bitflow_create_order` - Create automated swap order
-- `bitflow_get_order` - Get order details
-- `bitflow_cancel_order` - Cancel pending order
-- `bitflow_get_keeper_user` - Get user's Keeper info and orders
-
-**Keeper Action Types:**
-- `SWAP_XYK_SWAP_HELPER` - XYK pool swap
-- `SWAP_XYK_STABLESWAP_SWAP_HELPER` - Combined XYK + StableSwap
-- `SWAP_STABLESWAP_SWAP_HELPER` - StableSwap only
-
-**TODO - Bitflow API Key Integration:**
-- [ ] Contact Bitflow team via Discord to request API keys
-- [ ] Set `BITFLOW_API_KEY` and `BITFLOW_API_HOST` environment variables
-- [ ] Test SDK features (quotes, tokens, swaps)
-- [ ] Optionally configure Keeper API keys for automation features
-- [ ] Move API keys to Cloudflare Worker proxy for secure npm distribution
-
-### Pillar Smart Wallet
-
-Pillar tools use a **handoff model**: the MCP server creates an operation intent, opens the Pillar frontend in the browser for passkey signing, then polls for completion. This design is required because Privy embedded wallets use WebAuthn passkeys that can only sign in a browser context.
-
-**Handoff Flow:**
-1. MCP calls `/api/mcp/create-op` → returns `opId`
-2. Opens `https://pillarbtc.com/?op={opId}` in the user's browser
-3. Polls `/api/mcp/op-status/{opId}` every 3s until completed, failed, cancelled, or timeout
-
-**Environment Variables:**
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `PILLAR_API_URL` | No | Pillar API base URL (default: `https://pillarbtc.com`) |
-| `PILLAR_API_KEY` | No | Bearer token for Pillar API authentication |
-| `PILLAR_POLL_TIMEOUT_MS` | No | Max polling wait in ms (default: `300000` / 5 min) |
-| `PILLAR_DEFAULT_REFERRAL` | No | Default referral address for new wallets (default: `SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22.beta-v2-wallet`) |
-
-**Session Storage:**
-Pillar sessions are stored in `~/.aibtc/pillar-session.json` containing the connected wallet address and name.
-
-**Tools - Connection:**
-- `pillar_connect` - **Start here!** Connect to existing Pillar wallet (opens browser, returns wallet address)
-- `pillar_disconnect` - Disconnect and clear local session
-- `pillar_status` - Check connection status and wallet address
-
-**Tools - Transactions:**
-- `pillar_send` - Send sBTC to BNS names, Pillar wallet names, or Stacks addresses
-- `pillar_fund` - Fund wallet via exchange deposit, BTC (auto-converts to sBTC), or sBTC transfer
-
-**Tools - DeFi (Zest Protocol):**
-- `pillar_supply` - Supply sBTC to Zest Protocol for yield
-- `pillar_boost` - Create/increase leveraged sBTC position (up to 1.5x)
-- `pillar_unwind` - Close or reduce leveraged positions
-- `pillar_auto_compound` - Configure automatic compounding settings
-- `pillar_position` - View wallet balance, collateral, and Zest position details
-
-**Tools - Wallet Management:**
-- `pillar_create_wallet` - Create a new Pillar smart wallet with referral
-- `pillar_add_admin` - Add backup admin address for recovery
-- `pillar_invite` - Get referral link to share with friends
+| Domain | Key tools | Notes |
+|--------|-----------|-------|
+| Discovery | `list_x402_endpoints` | Start here to find x402 actions |
+| Earning | `earning_opportunities` | Static "how to put your assets to work" menu; surface after `identity_register` |
+| Bounties | `bounty_list/get/submissions` (read) + `bounty_submit/create/accept/paid/cancel` (BIP-322 auth) + `bounty_my_posted/my_submissions` | aibtc.com sBTC bounty board; most direct way to earn. Submit needs Registered (L1+); create needs Genesis (L2+); bc1q/P2WPKH signing; accepted submission paid in sBTC |
+| Wallet & balance | `get_wallet_info`, `get_stx_balance` | |
+| Wallet mgmt | `wallet_create/import/unlock/lock/list/switch/delete/export/status` | On mainnet, create/import also derive a Spark Lightning wallet from the same mnemonic |
+| Bitcoin L1 | `get_btc_balance/fees/utxos`, `transfer_btc` | mempool.space; P2WPKH; sats |
+| Mempool watch | `get_btc_mempool_info`, `get_btc_transaction_status`, `get_btc_address_txs` | |
+| Lightning (L402) | `lightning_create/import/unlock/lock/status/fund_from_btc/claim_deposit/pay_invoice/create_invoice` | Mainnet only; Spark SDK; `L402_MAX_SATS_PER_INVOICE` cap |
+| Stacks tx | `transfer_stx`, `call_contract`, `deploy_contract`, `get_transaction_status`, `broadcast_transaction` | |
+| Stacking (PoX-5) | `get_pox_info`, `get_stacking_status`, `list_stacking_signers`, `get_stacking_rewards` (read) + `stack_stx`, `extend_stacking`, `unstake_stx`, `claim_stacking_rewards` | Every stake names a signer manager contract; rewards are sBTC paid through that manager (claim path read from its interface; some pay off-chain). Stake/update/unstake refused in the prepare phase. Locks carry pox-5 staking / pox post-conditions, not STX transfer ones, and are not spend-metered. `pillar_direct_stack_stx` (fast-pool) and `pillar_direct_revoke_fast_pool` are refused while pox-4 is not active — the Pillar wallet contract hardcodes pox-4 |
+| x402 | `execute_x402_endpoint` | Any x402 URL, auto-payment |
+| Scaffolding | `scaffold_x402_endpoint`, `scaffold_x402_ai_endpoint` | Cloudflare Worker projects |
+| OpenRouter | `openrouter_integration_guide`, `openrouter_models` | AI feature integration |
+| ALEX DEX | `alex_list_pools/get_swap_quote/swap/get_pool_info` | Mainnet only; `alex-sdk` |
+| Zest | `zest_list_assets/get_position/supply/withdraw/borrow/repay` | Mainnet only; 10 assets |
+| Bitflow DEX | `bitflow_get_ticker/tokens/swap_targets/quote/routes/swap` + Keeper tools | Mainnet only; public endpoints, no API key; `BITFLOW_KEEPER_API_HOST` overrides the keeper host |
+| Pillar | `pillar_connect/disconnect/status/send/fund/supply/boost/unwind/auto_compound/position/create_wallet/add_admin/invite` | Browser handoff for passkey signing |
+| AIBTC News | `news_*` (17 tools) | **Deprecated** — the aibtc.news API is retired (410). Tools stay registered but only return a pointer to `legion_*` |
+| News Legion | `legion_status/list_stories/get_story/my_position` (read) + `legion_contribute/sponsor/propose_story/vote/conclude` + `legion_inscribe_story/inscribe_reveal` | **Stacks mainnet, real sBTC**, pinned by contract address — never follows global `NETWORK`. No veto, no quorum, no faucet. Proposals blocked until 21 members join (`u441`); a story also needs yes weight ≥ 20× its payout. `contribute`/`sponsor` meter the `SPEND_LIMIT_*` sats rail. Inscription is the exception: native L1 BTC on whatever `NETWORK` names, gated by `confirmMainnetSpend` |
+| At Stake | `atstake_market_status/position/subject/get_bid` (read) + `atstake_mint_complete_set/merge_complete_set/place_bid/cancel_bid/transfer_shares/redeem/resolve_idle` + `atstake_legion_status/list_proposals/get_proposal/propose/vote/conclude/redeem_vault/claim_credit` | **Stacks mainnet, real sBTC**, pinned by contract address. Minting is a hedge, not a bet; legion weight is the live share balance (min 1,000) |
+| Settings | `set/get/delete_hiro_api_key`, `set/get/delete_stacks_api_url`, `get_server_version` | Stored in `~/.aibtc/config.json` |
+| PSBT | `psbt_create_ordinal_buy`, `psbt_sign`, `psbt_broadcast`, `psbt_decode` | Signing step for ordinals marketplace / P2P / taproot multisig flows |
+| Inbox | `send_inbox_message_direct` | Mainnet only; **gasless** — the inbox 402 advertises `extra.feePayer`, so x402-stacks signs a sponsored sBTC transfer (fee 0) and the relay pays STX gas (relay `sponsorPayment`, one pending payment per sender). Without `feePayer` it falls back to a self-paid transfer signed by `createApiClient` (fee capped at the `sbtc_transfer` clamp, 0.003 STX). Meters the sBTC cost against the spend limit. `send_inbox_message` is **deprecated** — it no longer sends and just redirects here |
 
 ## Agent Behavior Guidelines
 
@@ -502,49 +252,10 @@ When a user asks for something:
 3. **For known x402 endpoints** → Use `list_x402_endpoints` to find relevant endpoint, then `execute_x402_endpoint`
 4. **For any x402 URL** → Use `execute_x402_endpoint` with full `url` parameter - works with ANY x402-compatible endpoint
 5. **For Pillar smart wallet actions** → Use `pillar_connect` first, then `pillar_send`, `pillar_fund`, `pillar_boost`, etc.
-6. **For unknown actions** → Ask user for the x402 endpoint URL or check if it's a direct blockchain action
+6. **For aibtc.news / News Legion governance** → Start with `legion_status` (check `membership.activated` — proposals are blocked until the legion activates), then `legion_list_stories`. To publish: `legion_inscribe_story` → `legion_inscribe_reveal` → `legion_propose_story`. To judge: `legion_get_story` (open its `contentUrl` and read the piece) → `legion_vote` with a rationale → `legion_conclude`
+7. **For unknown actions** → Ask user for the x402 endpoint URL or check if it's a direct blockchain action
 
-### Example User Requests
-
-| Request | Action |
-|---------|--------|
-| "Send 2 STX to ST1..." | `transfer_stx` with amount "2000000" |
-| "Send 50000 sats to tb1q..." | `transfer_btc` with recipient, amount=50000 |
-| "Transfer 0.001 BTC with fast fees" | `transfer_btc` with amount=100000, feeRate="fast" |
-| "What's my BTC balance?" | `get_btc_balance` (uses wallet's btcAddress) |
-| "What are trending pools?" | `execute_x402_endpoint` with path="/api/pools/trending" |
-| "What pools can I trade on ALEX?" | `alex_list_pools` to discover available pairs |
-| "Swap 0.1 STX for ALEX" | `alex_swap` with tokenX="STX", tokenY="ALEX" (SDK handles resolution) |
-| "How much ALEX for 10 STX?" | `alex_get_swap_quote` with simple symbols |
-| "Supply 1000 stSTX to Zest" | `zest_supply` with asset="stSTX" |
-| "Borrow 100 aeUSDC from Zest" | `zest_borrow` with asset="aeUSDC" |
-| "Check my Zest position" | `zest_get_position` for supplied/borrowed |
-| "Get Bitflow market data" | `bitflow_get_ticker` (no API key required) |
-| "Swap tokens on Bitflow" | `bitflow_swap` with tokenX and tokenY contract IDs |
-| "Get a quote on Bitflow" | `bitflow_get_quote` for expected output |
-| "Tell me a dad joke" | `execute_x402_endpoint` with url="https://stx402.com/api/ai/dad-joke" |
-| "Create a paid API endpoint for jokes" | `scaffold_x402_endpoint` with endpoint config |
-| "Create an AI chatbot API that charges per request" | `scaffold_x402_ai_endpoint` with chat aiType |
-| "Connect my Pillar wallet" | `pillar_connect` to open browser and get wallet address |
-| "Send 10000 sats to muneeb.btc on Pillar" | `pillar_send` with to="muneeb.btc", amount=10000 |
-| "Fund my Pillar wallet from Coinbase" | `pillar_fund` with method="exchange" |
-| "Boost my sBTC position on Pillar" | `pillar_boost` to create leveraged position |
-| "Check my Pillar position" | `pillar_position` for balance and Zest details |
-
-### Endpoint Categories
-
-**x402.biwas.xyz:**
-- News & Research, Security, Wallet Analysis
-- Market Data, Pools, Tokens
-
-**stx402.com:**
-- AI Services (jokes, summarize, translate, TTS, image generation)
-- Stacks Blockchain (address conversion, tx decode, contract info)
-- Cryptography (SHA256, HMAC, etc.)
-- Storage (KV, SQL, Paste)
-- Utilities (QR codes, signature verification)
-- Registry, Links, Counters, Job Queue, Memory
-- Agent Registry & Reputation
+See [`docs/TOOLS.md`](docs/TOOLS.md) for the full example-request → tool mapping.
 
 ---
 

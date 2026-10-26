@@ -7,7 +7,7 @@
  * @see https://github.com/aibtcdev/aibtc-mcp-server/issues/413
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { NETWORK } from "../services/x402.service.js";
@@ -108,14 +108,14 @@ Returns:
 - chain: possibleNextNonce, lastExecuted, mempool nonces, missing nonces
 - healthy: whether the nonce state looks good
 - issues: list of detected problems with recommendations`,
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
           .describe(
             "STX address to check. Defaults to the active wallet address."
           ),
-      },
+      }),
     },
     async ({ address: inputAddress }) => {
       try {
@@ -270,13 +270,13 @@ PoX burn address.
 Use nonce_health first to identify gaps, then call this tool for each missing nonce.
 
 Requires the wallet to be unlocked. The fee is auto-estimated.`,
-      inputSchema: {
+      inputSchema: z.object({
         nonce: z
           .number()
           .int()
           .nonnegative()
           .describe("The specific nonce to fill"),
-      },
+      }),
     },
     async ({ nonce }) => {
       try {
@@ -343,14 +343,14 @@ Output per nonce slot:
 
 Use this when check_relay_health shows issues but you need per-transaction clarity.
 Returns structured JSON with pendingSlots, sponsorMissingNonces, and summary counts.`,
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
           .describe(
             "STX address to check. Defaults to the active wallet address."
           ),
-      },
+      }),
     },
     async ({ address: inputAddress }) => {
       try {
@@ -542,7 +542,7 @@ Returns:
 - actions: per-action detail (fill_gap or bump_head) with txids, fees, status
 - warnings: informational notes
 - summary: human-readable description of what happened`,
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
@@ -568,7 +568,7 @@ Returns:
           .describe(
             "Fee multiplier for RBF bump (e.g. 1.5 = 50% higher fee). Minimum 1.1. Default 1.5."
           ),
-      },
+      }),
     },
     async ({ address: inputAddress, dryRun, bumpHead, feeMultiplier }) => {
       try {

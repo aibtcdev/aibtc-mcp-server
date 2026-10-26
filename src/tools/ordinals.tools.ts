@@ -11,7 +11,8 @@
  * Uses micro-ordinals library to parse and create inscriptions.
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { NETWORK } from "../config/networks.js";
 import {
@@ -37,6 +38,7 @@ import {
   type InscriptionData,
 } from "../transactions/inscription-builder.js";
 import { signBtcTransaction } from "../transactions/bitcoin-builder.js";
+import { meteredBtcBroadcast } from "../services/btc-spend.js";
 
 /**
  * Format inscription data for display
@@ -108,7 +110,7 @@ export function registerOrdinalsTools(server: McpServer): void {
         "Calculate the total cost (in satoshis) for creating an inscription. " +
         "Returns breakdown of commit fee, reveal fee, and total cost. " +
         "Content should be provided as base64-encoded string.",
-      inputSchema: {
+      inputSchema: z.object({
         contentType: z
           .string()
           .describe("MIME type (e.g., 'text/plain', 'image/png')"),
@@ -120,7 +122,7 @@ export function registerOrdinalsTools(server: McpServer): void {
           .positive()
           .optional()
           .describe("Fee rate in sat/vB (optional, defaults to current medium fee)"),
-      },
+      }),
     },
     async ({ contentType, contentBase64, feeRate }) => {
       try {
@@ -189,7 +191,7 @@ export function registerOrdinalsTools(server: McpServer): void {
         "After the commit confirms (typically 10-60 min), use `inscribe_reveal` with the same " +
         "contentType and contentBase64 to complete the inscription.\n\n" +
         "Returns: commitTxid, revealAddress, revealAmount, and feeRate (save these for inscribe_reveal)",
-      inputSchema: {
+      inputSchema: z.object({
         contentType: z
           .string()
           .describe("MIME type (e.g., 'text/plain', 'image/png', 'text/html')"),
@@ -200,7 +202,7 @@ export function registerOrdinalsTools(server: McpServer): void {
           .union([z.enum(["fast", "medium", "slow"]), z.number().positive()])
           .optional()
           .describe("Fee rate: 'fast' (~10 min), 'medium' (~30 min), 'slow' (~1 hr), or number in sat/vB (default: medium)"),
-      },
+      }),
     },
     async ({ contentType, contentBase64, feeRate }) => {
       try {
@@ -276,7 +278,7 @@ export function registerOrdinalsTools(server: McpServer): void {
         });
 
         const commitSigned = signBtcTransaction(commitResult.tx, account.btcPrivateKey);
-        const commitTxid = await mempoolApi.broadcastTransaction(commitSigned.txHex);
+        const commitTxid = await meteredBtcBroadcast(mempoolApi, commitSigned.txHex, account, NETWORK);
         const commitExplorerUrl = getMempoolTxUrl(commitTxid, NETWORK);
 
         // Return immediately with commit info
@@ -293,9 +295,11 @@ export function registerOrdinalsTools(server: McpServer): void {
           feeRate: actualFeeRate,
           contentType,
           contentSize: body.length,
+          contentSha256: createHash("sha256").update(body).digest("hex"),
           nextStep:
             "After commit confirms, call inscribe_reveal with the same contentType, contentBase64, " +
-            "plus commitTxid and revealAmount from this response.",
+            "plus commitTxid and revealAmount from this response. Pass contentSha256 back to inscribe_reveal " +
+            "to have the server abort before the reveal fee is spent if the decoded body differs by even one byte.",
         });
       } catch (error) {
         return createErrorResponse(error);
@@ -312,7 +316,7 @@ export function registerOrdinalsTools(server: McpServer): void {
         "Call this AFTER the commit transaction from `inscribe` has confirmed.\n" +
         "You must provide the same contentType and contentBase64 used in the commit step.\n\n" +
         "Returns: inscriptionId ({revealTxid}i0) on success",
-      inputSchema: {
+      inputSchema: z.object({
         commitTxid: z
           .string()
           .length(64)
@@ -327,13 +331,23 @@ export function registerOrdinalsTools(server: McpServer): void {
         contentBase64: z
           .string()
           .describe("Content as base64-encoded string (must match the commit step)"),
+        contentSha256: z
+          .string()
+          .regex(/^[0-9a-f]{64}$/i)
+          .optional()
+          .describe(
+            "Optional: sha256 hex digest of the decoded body from the inscribe commit response. " +
+              "If provided, the server computes sha256 over the locally-decoded body and aborts before " +
+              "broadcasting the reveal if they differ — prevents burning the reveal fee on a witness-hash " +
+              "mismatch when the base64 param drifts between the inscribe and inscribe_reveal calls."
+          ),
         feeRate: z
           .union([z.enum(["fast", "medium", "slow"]), z.number().positive()])
           .optional()
           .describe("Fee rate for reveal tx (default: medium)"),
-      },
+      }),
     },
-    async ({ commitTxid, revealAmount, contentType, contentBase64, feeRate }) => {
+    async ({ commitTxid, revealAmount, contentType, contentBase64, contentSha256, feeRate }) => {
       try {
         // Check wallet session
         const walletManager = getWalletManager();
@@ -364,6 +378,27 @@ export function registerOrdinalsTools(server: McpServer): void {
 
         // Reconstruct the inscription and reveal script
         const body = Buffer.from(contentBase64, "base64");
+
+        // If the caller supplied the sha256 digest from the commit response, verify the
+        // decoded body matches BEFORE we spend the reveal fee. Silent byte drift between
+        // the two calls would otherwise commit a tapscript hash that Bitcoin Core rejects
+        // as witness-hash-mismatch, burning the reveal-address sats permanently.
+        if (contentSha256) {
+          const localSha256 = createHash("sha256").update(body).digest("hex");
+          if (localSha256.toLowerCase() !== contentSha256.toLowerCase()) {
+            return createErrorResponse(
+              new Error(
+                `contentSha256 mismatch: the decoded body's sha256 (${localSha256}) does not match ` +
+                  `the digest from the inscribe commit response (${contentSha256}). This means the ` +
+                  `base64 payload passed to inscribe_reveal is not the exact bytes committed on-chain. ` +
+                  `Aborting BEFORE broadcasting the reveal so the reveal-address sats are not burned. ` +
+                  `Re-send the exact base64 from the successful inscribe call (or fix the transport / ` +
+                  `serialization layer that mutated it).`
+              )
+            );
+          }
+        }
+
         const inscription: InscriptionData = {
           contentType,
           body,
@@ -407,7 +442,7 @@ export function registerOrdinalsTools(server: McpServer): void {
         });
 
         const revealSigned = signBtcTransaction(revealResult.tx, account.btcPrivateKey);
-        const revealTxid = await mempoolApi.broadcastTransaction(revealSigned.txHex);
+        const revealTxid = await meteredBtcBroadcast(mempoolApi, revealSigned.txHex, account, NETWORK);
 
         // Inscription ID is reveal txid + output index (always 0 for first inscription)
         const inscriptionId = `${revealTxid}i0`;
@@ -446,14 +481,14 @@ export function registerOrdinalsTools(server: McpServer): void {
         "Get inscription content from a Bitcoin reveal transaction. " +
         "Fetches the transaction from mempool.space and parses inscription data from the witness. " +
         "Returns content type, body (as base64 and text if applicable), and metadata tags.",
-      inputSchema: {
+      inputSchema: z.object({
         txid: z
           .string()
           .length(64)
           .describe(
             "Transaction ID of the reveal transaction containing the inscription"
           ),
-      },
+      }),
     },
     async ({ txid }) => {
       try {

@@ -78,6 +78,7 @@ async function encrypt(data: string, password: string): Promise<EncryptedData> {
   const iv = crypto.randomBytes(12);
   const key = await deriveKey(password, salt);
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  key.fill(0); // cipher holds its own copy
   const encrypted = Buffer.concat([cipher.update(data, "utf8"), cipher.final()]);
   const authTag = cipher.getAuthTag();
   return {
@@ -97,6 +98,7 @@ async function decrypt(encrypted: EncryptedData, password: string): Promise<stri
     key,
     Buffer.from(encrypted.iv, "base64")
   );
+  key.fill(0); // decipher holds its own copy
   decipher.setAuthTag(Buffer.from(encrypted.authTag, "base64"));
   const decrypted = Buffer.concat([
     decipher.update(Buffer.from(encrypted.ciphertext, "base64")),
@@ -112,12 +114,15 @@ function emptyStore(): CredentialStore {
 
 async function save(): Promise<void> {
   if (!_store || !_password) throw new Error("Store not unlocked");
-  await fs.mkdir(getStoreDir(), { recursive: true });
+  await fs.mkdir(getStoreDir(), { recursive: true, mode: 0o700 });
   const file: EncryptedFile = {
     version: VERSION,
     encrypted: await encrypt(JSON.stringify(_store), _password),
   };
-  await fs.writeFile(getStoreFile(), JSON.stringify(file, null, 2));
+  // Owner-only perms + atomic rename, same pattern as the wallet keystores
+  const tempFile = getStoreFile() + ".tmp";
+  await fs.writeFile(tempFile, JSON.stringify(file, null, 2), { mode: 0o600 });
+  await fs.rename(tempFile, getStoreFile());
 }
 
 async function load(password: string): Promise<CredentialStore> {

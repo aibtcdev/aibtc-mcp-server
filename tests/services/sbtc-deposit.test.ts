@@ -2,8 +2,7 @@
  * SbtcDepositService Integration Tests
  *
  * These tests verify the SbtcDepositService's core behaviors:
- * - Cardinal UTXO filtering on mainnet (ordinal safety)
- * - All UTXOs on testnet (Hiro API not available)
+ * - Cardinal UTXO filtering (ordinal/rune safety) on both networks
  * - includeOrdinals flag to override safety
  * - Error handling when no cardinal UTXOs available
  *
@@ -12,7 +11,7 @@
  * these tests focus on the service's UTXO selection logic and error cases
  * rather than full end-to-end transaction construction.
  *
- * The critical ordinal safety behavior is tested in detail, as ordinal
+ * The critical ordinal/rune safety behavior is tested in detail, as that
  * safety was added on top of the base sBTC deposit implementation from PR #66.
  */
 
@@ -20,7 +19,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { SbtcDepositService } from "../../src/services/sbtc-deposit.service.js";
 import type { UTXO } from "../../src/services/mempool-api.js";
 import { MempoolApi } from "../../src/services/mempool-api.js";
-import { OrdinalIndexer } from "../../src/services/ordinal-indexer.js";
+import { UnisatIndexer } from "../../src/services/unisat-indexer.js";
 
 describe("SbtcDepositService - Ordinal Safety", () => {
   let service: SbtcDepositService;
@@ -51,8 +50,8 @@ describe("SbtcDepositService - Ordinal Safety", () => {
     );
     vi.spyOn(MempoolApi.prototype, "getUtxos").mockResolvedValue(mockUtxos);
 
-    // Mock OrdinalIndexer methods
-    vi.spyOn(OrdinalIndexer.prototype, "getCardinalUtxos").mockResolvedValue(
+    // Mock UnisatIndexer methods (replaces deprecated Hiro Ordinals indexer)
+    vi.spyOn(UnisatIndexer.prototype, "getCardinalUtxos").mockResolvedValue(
       mockCardinalUtxos
     );
 
@@ -81,7 +80,7 @@ describe("SbtcDepositService - Ordinal Safety", () => {
       }
 
       // Verify cardinal UTXOs were fetched (ordinal safety)
-      expect(OrdinalIndexer.prototype.getCardinalUtxos).toHaveBeenCalledWith(
+      expect(UnisatIndexer.prototype.getCardinalUtxos).toHaveBeenCalledWith(
         "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh"
       );
 
@@ -112,12 +111,12 @@ describe("SbtcDepositService - Ordinal Safety", () => {
       );
 
       // Verify cardinal filtering was NOT used
-      expect(OrdinalIndexer.prototype.getCardinalUtxos).not.toHaveBeenCalled();
+      expect(UnisatIndexer.prototype.getCardinalUtxos).not.toHaveBeenCalled();
     });
 
     it("should throw descriptive error when no cardinal UTXOs available", async () => {
-      // Mock OrdinalIndexer to return no cardinal UTXOs
-      vi.spyOn(OrdinalIndexer.prototype, "getCardinalUtxos").mockResolvedValue(
+      // Mock UnisatIndexer to return no cardinal UTXOs
+      vi.spyOn(UnisatIndexer.prototype, "getCardinalUtxos").mockResolvedValue(
         []
       );
 
@@ -152,7 +151,7 @@ describe("SbtcDepositService - Ordinal Safety", () => {
       ).rejects.toThrow(/No UTXOs found for address/);
     });
 
-    it("should use all UTXOs on testnet (Hiro API not available)", async () => {
+    it("should use cardinal UTXOs on testnet too (Unisat indexer supports testnet)", async () => {
       const testnetService = new SbtcDepositService("testnet");
 
       try {
@@ -167,13 +166,13 @@ describe("SbtcDepositService - Ordinal Safety", () => {
         // Allow failure due to mocking
       }
 
-      // On testnet, should use MempoolApi.getUtxos (Hiro Ordinals API is mainnet-only)
-      expect(MempoolApi.prototype.getUtxos).toHaveBeenCalledWith(
+      // Cardinal filtering is now applied on both networks via UnisatIndexer
+      expect(UnisatIndexer.prototype.getCardinalUtxos).toHaveBeenCalledWith(
         "tb1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh"
       );
 
-      // Cardinal filtering should NOT be used on testnet
-      expect(OrdinalIndexer.prototype.getCardinalUtxos).not.toHaveBeenCalled();
+      // Should NOT call MempoolApi.getUtxos directly when ordinal-safe path is taken
+      expect(MempoolApi.prototype.getUtxos).not.toHaveBeenCalled();
     });
   });
 

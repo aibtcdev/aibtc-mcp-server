@@ -9,9 +9,11 @@ import {
   principalCV,
   noneCV,
   someCV,
+  listCV,
+  bufferCV,
 } from "@stacks/transactions";
 import { AlexSDK, Currency, type TokenInfo } from "alex-sdk";
-import { HiroApiService, getHiroApi } from "./hiro-api.js";
+import { HiroApiService, getHiroApi, isNotFoundError } from "./hiro-api.js";
 import {
   getAlexContracts,
   getZestContracts,
@@ -253,8 +255,9 @@ export class AlexDexService {
       }
 
       return null;
-    } catch {
-      return null;
+    } catch (error) {
+      if (isNotFoundError(error)) return null;
+      throw error;
     }
   }
 
@@ -342,13 +345,93 @@ export class AlexDexService {
 // Zest Protocol v2 Service
 // ============================================================================
 
+// Feed IDs registered on-chain at SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-assets
+// (confirmed 2026-05-08 via v0-assets.status-multi reads — reconfirm if new assets are added)
+const ZEST_PYTH_FEED_IDS = [
+  "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43", // BTC/USD
+  "ec7a775f46379b5e943c3526b1c8d54cd49749176b0b98e02dde68d1bd335c17", // STX/USD
+  "eaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a", // USDC/USD
+] as const;
+
+// Zest v0.4 oracle-timestamp-fresh check allows 120s staleness; 10s broadcast margin
+const VAA_CACHE_TTL_MS = 110_000;
+
+/**
+ * Thrown when Hermes (Pyth price oracle) is unreachable or returns a non-OK response.
+ * Callers can detect this vs. on-chain rejection and apply the direct-broadcast workaround
+ * (borrow-helper-v2-1-7 pattern) without catching generic Error.
+ */
+export class ZestPythUnavailableError extends Error {
+  readonly feedId: string;
+  readonly status?: number;
+  constructor(feedId: string, status?: number) {
+    super(
+      status
+        ? `Hermes ${status} for feed ${feedId.slice(0, 8)} — use borrow-helper-v2-1-7 direct-broadcast as workaround`
+        : `No VAA data returned for feed ${feedId.slice(0, 8)} — use borrow-helper-v2-1-7 direct-broadcast as workaround`
+    );
+    this.name = "ZestPythUnavailableError";
+    this.feedId = feedId;
+    this.status = status;
+  }
+}
+
 export class ZestProtocolService {
   private hiro: HiroApiService;
   private contracts: ReturnType<typeof getZestContracts>;
+  private vaaCache: { value: ClarityValue; fetchedAt: number } | null = null;
+  private vaaInFlight: Promise<ClarityValue> | null = null;
 
   constructor(private network: Network) {
     this.hiro = getHiroApi(network);
     this.contracts = getZestContracts(network);
+  }
+
+  /**
+   * Fetch fresh signed Pyth VAAs for all 3 Zest-registered feeds (BTC/USD, STX/USD, USDC/USD).
+   *
+   * The contract expects (optional (list 3 (buff 8192))) where each element is a separate VAA.
+   * Hermes batches multiple feed IDs into one aggregate VAA by default, so we fetch each
+   * feed individually via Promise.all to get 3 discrete buffers.
+   *
+   * Caches for 110s (Zest max-staleness = 120s, 10s broadcast margin).
+   */
+  private async fetchZestPriceFeeds(): Promise<ClarityValue> {
+    const now = Date.now();
+    if (this.vaaCache && now - this.vaaCache.fetchedAt < VAA_CACHE_TTL_MS) {
+      return this.vaaCache.value;
+    }
+
+    // Coalesce concurrent callers: if a fetch is already in-flight, await it rather
+    // than firing duplicate Hermes requests.
+    if (this.vaaInFlight) {
+      return this.vaaInFlight;
+    }
+
+    this.vaaInFlight = (async () => {
+      try {
+        const vaas = await Promise.all(
+          ZEST_PYTH_FEED_IDS.map(async (id) => {
+            const res = await fetch(
+              `https://hermes.pyth.network/v2/updates/price/latest?ids[]=${id}&encoding=hex`
+            );
+            if (!res.ok) throw new ZestPythUnavailableError(id, res.status);
+            const data = await res.json() as { binary: { data: string[] } };
+            const hex = data?.binary?.data?.[0];
+            if (!hex) throw new ZestPythUnavailableError(id);
+            return bufferCV(Buffer.from(hex, "hex"));
+          })
+        );
+
+        const value = someCV(listCV(vaas));
+        this.vaaCache = { value, fetchedAt: Date.now() };
+        return value;
+      } finally {
+        this.vaaInFlight = null;
+      }
+    })();
+
+    return this.vaaInFlight;
   }
 
   private ensureMainnet(): void {
@@ -379,7 +462,7 @@ export class ZestProtocolService {
   }
 
   /**
-   * Get all supported assets from Zest Protocol v2
+   * Get all supported assets from Zest Protocol (v0-4-market)
    */
   async getAssets(): Promise<ZestAsset[]> {
     this.ensureMainnet();
@@ -404,7 +487,7 @@ export class ZestProtocolService {
   }
 
   /**
-   * Get user's full position on Zest v2 via the data helper contract.
+   * Get user's full position on Zest via the protocol-data helper contract.
    * Returns collateral, debt, health factor, and LTV data in a single call.
    */
   async getUserPosition(
@@ -462,8 +545,9 @@ export class ZestProtocolService {
         borrowed,
         healthFactor: position["health-factor"]?.value,
       };
-    } catch {
-      return null;
+    } catch (error) {
+      if (isNotFoundError(error)) return null;
+      throw error;
     }
   }
 
@@ -487,8 +571,9 @@ export class ZestProtocolService {
       }
 
       return cvToJSON(hexToCV(result.result));
-    } catch {
-      return null;
+    } catch (error) {
+      if (isNotFoundError(error)) return null;
+      throw error;
     }
   }
 
@@ -539,8 +624,11 @@ export class ZestProtocolService {
           return BigInt(value);
         }
       }
-    } catch {
-      // Fall back to shares as lower bound estimate
+    } catch (error) {
+      // Only fall back to the shares lower-bound estimate when the vault
+      // function is missing — network/server failures must surface, or the
+      // post-conditions built from this value would be silently wrong.
+      if (!isNotFoundError(error)) throw error;
     }
     return shares;
   }
@@ -568,14 +656,15 @@ export class ZestProtocolService {
           return BigInt(value);
         }
       }
-    } catch {
-      // Fall back to amount as upper bound
+    } catch (error) {
+      // Same rationale as getUnderlyingFromShares: estimate only on 404.
+      if (!isNotFoundError(error)) throw error;
     }
     return amount;
   }
 
   /**
-   * Supply assets to Zest v2 via market's supply-collateral-add.
+   * Supply assets to Zest Protocol via market's supply-collateral-add.
    * Atomically deposits into vault and adds zTokens as collateral.
    * This earns yield AND provides borrowing power.
    *
@@ -630,7 +719,7 @@ export class ZestProtocolService {
   }
 
   /**
-   * Add existing zTokens as collateral on Zest v2.
+   * Add existing zTokens as collateral on Zest Protocol.
    * Use this when you deposited directly to a vault (via depositToVault)
    * and need to register those zTokens as collateral for borrowing.
    *
@@ -654,9 +743,9 @@ export class ZestProtocolService {
     const [vaultAddr, vaultName] = parseContractIdTuple(assetConfig.vault);
 
     const functionArgs: ClarityValue[] = [
-      contractPrincipalCV(vaultAddr, vaultName),  // ft (zToken vault contract)
-      uintCV(amount),                              // amount of zTokens
-      noneCV(),                                    // price-feeds (use cached)
+      contractPrincipalCV(vaultAddr, vaultName),    // ft (zToken vault contract)
+      uintCV(amount),                                // amount of zTokens
+      await this.fetchZestPriceFeeds(),              // price-feeds: fresh Pyth VAAs for LTV validation
     ];
 
     // Post-condition: user sends zTokens to market-vault
@@ -677,7 +766,7 @@ export class ZestProtocolService {
   }
 
   /**
-   * Withdraw assets from Zest v2 via market's collateral-remove-redeem.
+   * Withdraw assets from Zest Protocol via market's collateral-remove-redeem.
    * Atomically removes zToken collateral and redeems for underlying.
    *
    * Token flow (3 ft-transfers):
@@ -705,11 +794,11 @@ export class ZestProtocolService {
     const expectedUnderlying = await this.getExpectedUnderlying(assetConfig, amount, account.address);
 
     const functionArgs: ClarityValue[] = [
-      contractPrincipalCV(vaultAddr, vaultName),  // ft (zToken / vault contract, NOT underlying)
-      uintCV(amount),                              // amount (zToken shares)
+      contractPrincipalCV(vaultAddr, vaultName),    // ft (zToken / vault contract, NOT underlying)
+      uintCV(amount),                                // amount (zToken shares)
       uintCV(expectedUnderlying > 0n ? (expectedUnderlying * 95n) / 100n : 0n),  // min-underlying (5% slippage tolerance)
-      noneCV(),                                    // receiver (none = tx-sender)
-      noneCV(),                                    // price-feeds (use cached)
+      noneCV(),                                      // receiver (none = tx-sender)
+      await this.fetchZestPriceFeeds(),              // price-feeds: fresh Pyth VAAs for LTV validation
     ];
 
     // Post-conditions (Deny mode requires ALL ft-transfers to be covered):
@@ -757,10 +846,10 @@ export class ZestProtocolService {
     const [assetAddr, assetName] = parseContractIdTuple(assetConfig.token);
 
     const functionArgs: ClarityValue[] = [
-      contractPrincipalCV(assetAddr, assetName),  // ft (token to borrow)
-      uintCV(amount),                              // amount
-      noneCV(),                                    // receiver (none = tx-sender)
-      noneCV(),                                    // price-feeds (use cached)
+      contractPrincipalCV(assetAddr, assetName),    // ft (token to borrow)
+      uintCV(amount),                                // amount
+      noneCV(),                                      // receiver (none = tx-sender)
+      await this.fetchZestPriceFeeds(),              // price-feeds: fresh Pyth VAAs required for LTV check
     ];
 
     // Post-condition: vault sends borrowed underlying to user

@@ -1,8 +1,71 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { getWalletManager } from "../services/wallet-manager.js";
+import {
+  getLightningManager,
+  type LightningUnifiedSetupResult,
+} from "../services/lightning-manager.js";
 import { NETWORK, API_URL } from "../config/networks.js";
+import type { Network } from "../config/networks.js";
+
+/**
+ * Try to derive a Lightning wallet from the main wallet's mnemonic during
+ * wallet_create / wallet_import.
+ *
+ * Returns a payload to merge into the response body. Failures here must NOT
+ * fail the main wallet flow — the Stacks/BTC wallet has already been
+ * persisted by the time we get here, so we render Lightning issues as a
+ * warning instead.
+ */
+async function tryUnifiedLightningSetup(
+  mnemonic: string,
+  password: string,
+  name: string,
+  network: Network
+): Promise<{
+  result: LightningUnifiedSetupResult | null;
+  warning?: string;
+}> {
+  try {
+    const result = await getLightningManager().setupFromMainMnemonic(
+      mnemonic,
+      password,
+      name,
+      network
+    );
+    return { result };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      result: null,
+      warning: `Lightning setup skipped due to error: ${message}`,
+    };
+  }
+}
+
+function renderLightningSection(
+  setup: LightningUnifiedSetupResult | null,
+  warning?: string
+): Record<string, unknown> {
+  if (!setup) {
+    return {
+      "Lightning (BTC L2)": warning ?? "Lightning setup not attempted.",
+    };
+  }
+  if (setup.kind === "skipped") {
+    return { "Lightning (BTC L2)": setup.message };
+  }
+  return {
+    "Lightning (BTC L2)": {
+      "Deposit Address": `${setup.depositAddress} (fund Lightning from L1 BTC)`,
+      ...(setup.lightningAddress
+        ? { "Lightning Address": setup.lightningAddress }
+        : {}),
+      "Note": "Derived from the same mnemonic — one backup covers all wallets.",
+    },
+  };
+}
 
 /**
  * Register wallet management tools
@@ -17,7 +80,7 @@ export function registerWalletManagementTools(server: McpServer): void {
       description: `Create a new wallet for the agent with a generated BIP39 24-word mnemonic.
 The wallet is encrypted locally and stored in ~/.aibtc/.
 IMPORTANT: Save the mnemonic securely - it will only be shown once!`,
-      inputSchema: {
+      inputSchema: z.object({
         name: z.string().describe("Name for the wallet (e.g., 'main', 'trading')"),
         password: z
           .string()
@@ -27,17 +90,26 @@ IMPORTANT: Save the mnemonic securely - it will only be shown once!`,
           .enum(["mainnet", "testnet"])
           .optional()
           .describe("Network for the wallet (default: current network)"),
-      },
+      }),
     },
     async ({ name, password, network }) => {
       try {
         const walletManager = getWalletManager();
         const result = await walletManager.createWallet(name, password, network);
 
+        const resolvedNetwork = network || NETWORK;
+        const { result: lightningSetup, warning: lightningWarning } =
+          await tryUnifiedLightningSetup(
+            result.mnemonic,
+            password,
+            name,
+            resolvedNetwork
+          );
+
         return createJsonResponse({
           success: true,
           message:
-            "Wallet created successfully! Bitcoin L1 (SegWit + Taproot) and Stacks L2 addresses ready.",
+            "Wallet created successfully! Bitcoin L1 (SegWit + Taproot), Stacks L2, and Lightning addresses ready.",
           walletId: result.walletId,
           "Bitcoin (L1)": {
             "Native SegWit": `${result.btcAddress} (send/receive BTC)`,
@@ -47,12 +119,14 @@ IMPORTANT: Save the mnemonic securely - it will only be shown once!`,
             "Address": result.address,
             "Tip": "Register a BNS name for on-chain identity",
           },
-          network: network || NETWORK,
+          ...renderLightningSection(lightningSetup, lightningWarning),
+          network: resolvedNetwork,
           "---": "",
           mnemonic: result.mnemonic,
           warning:
             "CRITICAL: Save this mnemonic phrase securely! It will NOT be shown again. " +
-            "This is the only way to recover the wallet if the password is forgotten.",
+            "This is the only way to recover the wallet if the password is forgotten. " +
+            "Note: Lightning is derived from the same mnemonic — a single leaked mnemonic exposes all wallets.",
         });
       } catch (error) {
         return createErrorResponse(error);
@@ -68,7 +142,7 @@ IMPORTANT: Save the mnemonic securely - it will only be shown once!`,
     {
       description: `Import an existing wallet for the agent using a BIP39 mnemonic phrase.
 The wallet is encrypted locally and stored in ~/.aibtc/.`,
-      inputSchema: {
+      inputSchema: z.object({
         name: z.string().describe("Name for the wallet"),
         mnemonic: z.string().describe("24-word BIP39 mnemonic phrase - WARNING: sensitive value"),
         password: z
@@ -79,7 +153,7 @@ The wallet is encrypted locally and stored in ~/.aibtc/.`,
           .enum(["mainnet", "testnet"])
           .optional()
           .describe("Network for the wallet (default: current network)"),
-      },
+      }),
     },
     async ({ name, mnemonic, password, network }) => {
       try {
@@ -91,9 +165,19 @@ The wallet is encrypted locally and stored in ~/.aibtc/.`,
           network
         );
 
+        const resolvedNetwork = network || NETWORK;
+        const { result: lightningSetup, warning: lightningWarning } =
+          await tryUnifiedLightningSetup(
+            mnemonic,
+            password,
+            name,
+            resolvedNetwork
+          );
+
         return createJsonResponse({
           success: true,
-          message: "Wallet imported successfully! Bitcoin L1 (SegWit + Taproot) and Stacks L2 addresses ready.",
+          message:
+            "Wallet imported successfully! Bitcoin L1 (SegWit + Taproot), Stacks L2, and Lightning addresses ready.",
           walletId: result.walletId,
           "Bitcoin (L1)": {
             "Native SegWit": `${result.btcAddress} (send/receive BTC)`,
@@ -103,7 +187,8 @@ The wallet is encrypted locally and stored in ~/.aibtc/.`,
             "Address": result.address,
             "Tip": "Register a BNS name for on-chain identity",
           },
-          network: network || NETWORK,
+          ...renderLightningSection(lightningSetup, lightningWarning),
+          network: resolvedNetwork,
         });
       } catch (error) {
         return createErrorResponse(error);
@@ -119,13 +204,13 @@ The wallet is encrypted locally and stored in ~/.aibtc/.`,
     {
       description: `Unlock the agent's wallet to enable transactions.
 If no wallet ID is provided, unlocks the active wallet.`,
-      inputSchema: {
+      inputSchema: z.object({
         walletId: z
           .string()
           .optional()
           .describe("Wallet ID to unlock (uses active wallet if not specified)"),
         password: z.string().describe("Wallet password - WARNING: sensitive value"),
-      },
+      }),
     },
     async ({ walletId, password }) => {
       try {
@@ -245,9 +330,9 @@ If no wallet ID is provided, unlocks the active wallet.`,
     {
       description: `Switch to a different wallet.
 Note: The new wallet will need to be unlocked before use.`,
-      inputSchema: {
+      inputSchema: z.object({
         walletId: z.string().describe("Wallet ID to switch to"),
-      },
+      }),
     },
     async ({ walletId }) => {
       try {
@@ -281,13 +366,13 @@ Note: The new wallet will need to be unlocked before use.`,
     {
       description: `Permanently delete a wallet.
 WARNING: This cannot be undone! Make sure you have backed up your mnemonic.`,
-      inputSchema: {
+      inputSchema: z.object({
         walletId: z.string().describe("Wallet ID to delete"),
         password: z.string().describe("Wallet password for confirmation - WARNING: sensitive value"),
         confirm: z
           .literal("DELETE")
           .describe("Type 'DELETE' to confirm deletion"),
-      },
+      }),
     },
     async ({ walletId, password, confirm }) => {
       try {
@@ -326,7 +411,7 @@ WARNING: This cannot be undone! Make sure you have backed up your mnemonic.`,
     {
       description: `Export the mnemonic phrase for a wallet.
 WARNING: Only use this in a secure environment! Anyone with the mnemonic can access your funds.`,
-      inputSchema: {
+      inputSchema: z.object({
         walletId: z
           .string()
           .optional()
@@ -335,7 +420,7 @@ WARNING: Only use this in a secure environment! Anyone with the mnemonic can acc
         confirm: z
           .literal("I_UNDERSTAND_THE_RISKS")
           .describe("Type 'I_UNDERSTAND_THE_RISKS' to confirm"),
-      },
+      }),
     },
     async ({ walletId, password, confirm }) => {
       try {
@@ -388,7 +473,7 @@ WARNING: Only use this in a secure environment! Anyone with the mnemonic can acc
       description: `Change the password for a wallet's encrypted keystore.
 Performs an atomic operation: backs up the keystore, re-encrypts with the new password, verifies the round-trip, then cleans up. If anything fails, the original keystore is restored.
 If the wallet is currently unlocked, it will be locked after rotation (requires re-unlock with new password).`,
-      inputSchema: {
+      inputSchema: z.object({
         walletId: z
           .string()
           .optional()
@@ -398,7 +483,7 @@ If the wallet is currently unlocked, it will be locked after rotation (requires 
           .string()
           .min(8)
           .describe("New password (minimum 8 characters) - WARNING: sensitive value"),
-      },
+      }),
     },
     async ({ walletId, oldPassword, newPassword }) => {
       try {
@@ -444,12 +529,12 @@ If the wallet is currently unlocked, it will be locked after rotation (requires 
     {
       description:
         "Set how long the agent's wallet stays unlocked before automatically locking. Set to 0 to disable auto-lock.",
-      inputSchema: {
+      inputSchema: z.object({
         minutes: z
           .number()
           .min(0)
           .describe("Minutes until auto-lock (0 = never auto-lock)"),
-      },
+      }),
     },
     async ({ minutes }) => {
       try {

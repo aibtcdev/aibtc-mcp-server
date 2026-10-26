@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { PostConditionMode, PostCondition } from "@stacks/transactions";
 import { getAccount, NETWORK } from "../services/x402.service.js";
@@ -113,8 +113,10 @@ For typed arguments, use objects like {type: 'uint', value: 100} or {type: 'prin
 Post conditions constrain what assets the transaction can move. Each condition is an object:
 - STX: {type: 'stx', principal: 'SP...', conditionCode: 'eq'|'gt'|'gte'|'lt'|'lte', amount: '1000000'}
 - FT: {type: 'ft', principal: 'SP...', asset: 'SP...contract', assetName: 'token-name', conditionCode: 'eq', amount: '1000'}
-- NFT: {type: 'nft', principal: 'SP...', asset: 'SP...contract', assetName: 'nft-name', tokenId: '1', notSend?: boolean}`,
-      inputSchema: {
+- NFT: {type: 'nft', principal: 'SP...', asset: 'SP...contract', assetName: 'nft-name', tokenId: '1', notSend?: boolean}
+
+Spending limit: STX and sBTC leaving this wallet are metered against the wallet's spending cap. In 'deny' mode that is read from eq/lt/lte post conditions on this wallet ('gt'/'gte' on this wallet's own STX or sBTC are refused: they set no upper bound). In 'allow' mode, set maxStxSpend / maxSbtcSpend: they are added as on-chain post conditions on this wallet and metered.`,
+      inputSchema: z.object({
         contractAddress: z.string().describe("The contract deployer's address (e.g., SP2...)"),
         contractName: z.string().describe("The contract name (e.g., 'my-token')"),
         functionName: z.string().describe("The function to call (e.g., 'transfer')"),
@@ -125,7 +127,17 @@ Post conditions constrain what assets the transaction can move. Each condition i
         postConditionMode: z
           .enum(["allow", "deny"])
           .default("deny")
-          .describe("'deny' (default): Blocks unexpected transfers. 'allow': Permits any transfers."),
+          .describe("'deny' (default): Blocks unexpected transfers. 'allow': Permits transfers not covered by a post condition, except this wallet's STX/sBTC, which maxStxSpend/maxSbtcSpend bound."),
+        maxStxSpend: z
+          .string()
+          .regex(/^\d+$/)
+          .default("0")
+          .describe("'allow' mode only: most micro-STX this call may take from this wallet (on-chain post condition, metered). Default 0."),
+        maxSbtcSpend: z
+          .string()
+          .regex(/^\d+$/)
+          .default("0")
+          .describe("'allow' mode only: most sBTC sats this call may take from this wallet (on-chain post condition, metered). Default 0."),
         postConditions: z
           .array(z.unknown())
           .optional()
@@ -135,9 +147,9 @@ Post conditions constrain what assets the transaction can move. Each condition i
           .optional()
           .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount. Clamped to 50,000 uSTX max for contract calls. If omitted, medium-priority fee is auto-resolved. Ignored when sponsored=true."),
         sponsored: sponsoredSchema,
-      },
+      }),
     },
-    async ({ contractAddress, contractName, functionName, functionArgs, postConditionMode, postConditions, fee, sponsored }) => {
+    async ({ contractAddress, contractName, functionName, functionArgs, postConditionMode, maxStxSpend, maxSbtcSpend, postConditions, fee, sponsored }) => {
       try {
         const account = await getAccount();
         const clarityArgs = functionArgs.map(parseArgToClarityValue);
@@ -155,6 +167,9 @@ Post conditions constrain what assets the transaction can move. Each condition i
           postConditionMode:
             postConditionMode === "allow" ? PostConditionMode.Allow : PostConditionMode.Deny,
           ...(parsedPostConditions && { postConditions: parsedPostConditions }),
+          ...(postConditionMode === "allow" && {
+            callerSpendCaps: { ustx: BigInt(maxStxSpend), sats: BigInt(maxSbtcSpend) },
+          }),
         };
 
         let result: TransferResult;
@@ -191,7 +206,7 @@ Post conditions constrain what assets the transaction can move. Each condition i
     "deploy_contract",
     {
       description: "Deploy a Clarity smart contract to the Stacks blockchain.",
-      inputSchema: {
+      inputSchema: z.object({
         contractName: z.string().describe("Unique name for the contract (lowercase, hyphens allowed)"),
         codeBody: z.string().describe("The complete Clarity source code"),
         fee: z
@@ -199,7 +214,7 @@ Post conditions constrain what assets the transaction can move. Each condition i
           .optional()
           .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount. Clamped to 50,000 uSTX max for deployments. If omitted, medium-priority fee is auto-resolved. Ignored when sponsored=true."),
         sponsored: sponsoredSchema,
-      },
+      }),
     },
     async ({ contractName, codeBody, fee, sponsored }) => {
       try {
@@ -237,9 +252,9 @@ Post conditions constrain what assets the transaction can move. Each condition i
     "get_transaction_status",
     {
       description: "Check the status of a Stacks transaction by its txid.",
-      inputSchema: {
+      inputSchema: z.object({
         txid: z.string().describe("The transaction ID (64 character hex string)"),
-      },
+      }),
     },
     async ({ txid }) => {
       try {
@@ -262,7 +277,7 @@ Post conditions constrain what assets the transaction can move. Each condition i
     "call_read_only_function",
     {
       description: "Call a read-only function on a smart contract (no signing required).",
-      inputSchema: {
+      inputSchema: z.object({
         contractId: z.string().describe("Contract ID in format: address.contract-name"),
         functionName: z.string().describe("The read-only function to call"),
         functionArgs: z
@@ -270,7 +285,7 @@ Post conditions constrain what assets the transaction can move. Each condition i
           .default([])
           .describe("Function arguments. For explicit types: {type: 'uint'|'int'|'principal'|..., value: ...}"),
         senderAddress: z.string().optional().describe("Optional sender address for the call"),
-      },
+      }),
     },
     async ({ contractId, functionName, functionArgs, senderAddress }) => {
       try {

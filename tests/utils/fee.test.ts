@@ -168,6 +168,12 @@ describe("fee utility", () => {
       expect(result).toBe(3000n); // medium_priority 4000 clamped to ceiling 3000
     });
 
+    it("should price sbtc_transfer from the contract_call tier, clamped to 3000", async () => {
+      const { resolveDefaultFee } = await import("../../src/utils/fee.js");
+      const result = await resolveDefaultFee("mainnet", "sbtc_transfer");
+      expect(result).toBe(3000n); // contract_call medium_priority 6000 clamped to ceiling 3000
+    });
+
     it("should use contract_call as default txType", async () => {
       const { resolveDefaultFee } = await import("../../src/utils/fee.js");
       const result = await resolveDefaultFee("mainnet");
@@ -234,6 +240,11 @@ describe("fee utility", () => {
         expect(result).toBe(3000n); // Clamped from 1000
       });
 
+      it("should not raise sbtc_transfer low fee to the contract_call floor", async () => {
+        const result = await resolveFee("low", "mainnet", "sbtc_transfer");
+        expect(result).toBe(1000n); // contract_call low 1000, above the 500 floor
+      });
+
       it("should clamp smart_contract low fee to floor (10000)", async () => {
         const result = await resolveFee("low", "mainnet", "smart_contract");
         expect(result).toBe(10000n); // Clamped from 5000
@@ -254,6 +265,11 @@ describe("fee utility", () => {
       it("should clamp contract_call high fee to ceiling (50000)", async () => {
         const result = await resolveFee("high", "mainnet", "contract_call");
         expect(result).toBe(50000n); // Clamped from 200000
+      });
+
+      it("should clamp sbtc_transfer high fee to ceiling (3000)", async () => {
+        const result = await resolveFee("high", "mainnet", "sbtc_transfer");
+        expect(result).toBe(3000n); // Clamped from contract_call 200000
       });
 
       it("should clamp smart_contract high fee to ceiling (50000)", async () => {

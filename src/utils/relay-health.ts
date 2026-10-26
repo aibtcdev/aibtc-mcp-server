@@ -16,11 +16,23 @@ export interface StuckTransaction {
   sponsor_nonce?: number;
 }
 
+export interface RelayPoolState {
+  poolAvailable: number;
+  poolReserved: number;
+  conflictsDetected: number;
+  circuitBreakerOpen: boolean;
+  effectiveCapacity: number;
+  poolStatus: string;
+  lastConflictAt: string | null;
+  recommendation: string | null;
+}
+
 export interface RelayHealthStatus {
   healthy: boolean;
   network: Network;
   version?: string;
   sponsorAddress?: string;
+  poolState?: RelayPoolState;
   nonceStatus?: {
     lastExecuted: number;
     lastMempool: number | null;
@@ -65,8 +77,27 @@ export async function isRelayHealthy(network: Network): Promise<boolean> {
 
     if (!res.ok) return false;
 
-    const data = await res.json() as { status?: string };
-    return data.status === "ok";
+    const data = await res.json() as {
+      status?: string;
+      nonce?: {
+        circuitBreakerOpen?: boolean;
+        poolStatus?: string;
+        effectiveCapacity?: number;
+        conflictsDetected?: number;
+      };
+    };
+
+    if (data.status !== "ok") return false;
+
+    // Check pool state fields when present (relay v1.26.1+)
+    if (data.nonce) {
+      if (data.nonce.circuitBreakerOpen) return false;
+      if (data.nonce.poolStatus === "critical") return false;
+      if (data.nonce.effectiveCapacity !== undefined && data.nonce.effectiveCapacity < 5) return false;
+      if (data.nonce.conflictsDetected !== undefined && data.nonce.conflictsDetected > 10) return false;
+    }
+
+    return true;
   } catch {
     return false;
   } finally {
@@ -97,11 +128,55 @@ export async function checkRelayHealth(network: Network): Promise<RelayHealthSta
       };
     }
 
-    const healthData = await healthRes.json() as { status?: string; version?: string; network?: string };
+    const healthData = await healthRes.json() as {
+      status?: string;
+      version?: string;
+      network?: string;
+      nonce?: {
+        poolAvailable?: number;
+        poolReserved?: number;
+        conflictsDetected?: number;
+        circuitBreakerOpen?: boolean;
+        effectiveCapacity?: number;
+        poolStatus?: string;
+        lastConflictAt?: string | null;
+        recommendation?: string | null;
+      };
+    };
     const version = healthData.version;
 
     if (healthData.status !== "ok") {
       issues.push(`Relay status: ${healthData.status || "unknown"}`);
+    }
+
+    // Read pool state fields from relay /health response (v1.26.1+)
+    let poolState: RelayPoolState | undefined;
+    if (healthData.nonce) {
+      const n = healthData.nonce;
+      poolState = {
+        poolAvailable: n.poolAvailable ?? 0,
+        poolReserved: n.poolReserved ?? 0,
+        conflictsDetected: n.conflictsDetected ?? 0,
+        circuitBreakerOpen: n.circuitBreakerOpen ?? false,
+        effectiveCapacity: n.effectiveCapacity ?? 0,
+        poolStatus: n.poolStatus ?? "unknown",
+        lastConflictAt: n.lastConflictAt ?? null,
+        recommendation: n.recommendation ?? null,
+      };
+
+      if (poolState.circuitBreakerOpen) {
+        issues.push("Relay circuit breaker is open — sends will fail");
+      }
+      if (poolState.poolStatus === "critical") {
+        issues.push("Relay nonce pool is critical");
+      }
+      if (n.effectiveCapacity !== undefined && n.effectiveCapacity < 5) {
+        const total = poolState.poolAvailable + poolState.poolReserved;
+        issues.push(`Relay effective capacity degraded (${n.effectiveCapacity}/${total})`);
+      }
+      if (n.conflictsDetected !== undefined && n.conflictsDetected > 10) {
+        issues.push(`Relay has ${n.conflictsDetected} nonce conflicts`);
+      }
     }
 
     // Check sponsor address nonce status
@@ -112,6 +187,7 @@ export async function checkRelayHealth(network: Network): Promise<RelayHealthSta
         healthy: issues.length === 0,
         network,
         version,
+        poolState,
         issues: issues.length > 0 ? issues : undefined,
       };
     }
@@ -190,6 +266,7 @@ export async function checkRelayHealth(network: Network): Promise<RelayHealthSta
       network,
       version,
       sponsorAddress,
+      poolState,
       nonceStatus,
       stuckTransactions,
       issues: issues.length > 0 ? issues : undefined,
@@ -220,7 +297,24 @@ export function formatRelayHealthStatus(status: RelayHealthStatus): string {
   if (status.sponsorAddress) {
     lines.push(`Sponsor: ${status.sponsorAddress}`);
   }
-  
+
+  if (status.poolState) {
+    const ps = status.poolState;
+    lines.push("");
+    lines.push("Relay Pool State:");
+    lines.push(`  Pool status: ${ps.poolStatus}`);
+    lines.push(`  Circuit breaker: ${ps.circuitBreakerOpen ? "OPEN" : "closed"}`);
+    lines.push(`  Effective capacity: ${ps.effectiveCapacity}`);
+    lines.push(`  Available / Reserved: ${ps.poolAvailable} / ${ps.poolReserved}`);
+    lines.push(`  Conflicts detected: ${ps.conflictsDetected}`);
+    if (ps.lastConflictAt) {
+      lines.push(`  Last conflict: ${ps.lastConflictAt}`);
+    }
+    if (ps.recommendation) {
+      lines.push(`  Recommendation: ${ps.recommendation}`);
+    }
+  }
+
   if (status.nonceStatus) {
     const ns = status.nonceStatus;
     lines.push("");

@@ -5,6 +5,9 @@ import {
   uintCV,
   principalCV,
   noneCV,
+  someCV,
+  bufferCVFromString,
+  Pc,
   PostConditionMode,
 } from "@stacks/transactions";
 import {
@@ -13,18 +16,24 @@ import {
   generatePaymentId,
   buildPaymentIdentifierExtension,
   X402_HEADERS,
+  type PaymentRequirementsV2,
 } from "../utils/x402-protocol.js";
 import { generateWallet, getStxAddress } from "@stacks/wallet-sdk";
 import { NETWORK, API_URL, getStacksNetwork, type Network } from "../config/networks.js";
 import { getNetworkFromStacksChainId } from "../config/caip.js";
 import type { Account } from "../transactions/builder.js";
 import { getWalletManager } from "./wallet-manager.js";
+import { getSpendLimiter, type SpendReservation } from "./spend-limiter.js";
 import { formatStx, formatSbtc } from "../utils/formatting.js";
 import { getSbtcService } from "./sbtc.service.js";
 import { getHiroApi } from "./hiro-api.js";
 import { createHash } from "crypto";
+import { promises as fs } from "fs";
+import os from "os";
+import path from "path";
 import { InsufficientBalanceError } from "../utils/errors.js";
 import { getContracts, parseContractId } from "../config/contracts.js";
+import { resolveDefaultFee } from "../utils/fee.js";
 import {
   classifyCanonicalPaymentStatus,
   formatCanonicalPaymentStatus,
@@ -36,12 +45,108 @@ import {
   emitCanonicalPaymentPollLogs,
   emitPaymentLog,
 } from "../utils/x402-payment-logging.js";
+import {
+  parseL402Challenge,
+  buildL402AuthHeader,
+  getCachedL402Auth,
+  cacheL402Auth,
+  invalidateL402Auth,
+} from "../utils/l402-protocol.js";
+import { getLightningManager } from "./lightning-manager.js";
+import { decode as decodeBolt11 } from "light-bolt11-decoder";
+
+/**
+ * Maximum Lightning invoice amount (in sats) the L402 interceptor will pay
+ * without user confirmation. Overridable via the L402_MAX_SATS_PER_INVOICE env
+ * var. Defaults to 10_000 sats (~$5 at $50k/BTC) — a malicious server can
+ * return a BOLT-11 invoice for an arbitrary amount, so this cap bounds the
+ * blast radius when the Lightning wallet is unlocked.
+ *
+ * If the env var is set to a non-numeric, non-finite, or non-positive value,
+ * we log a warning to stderr and fall back to the default — `Number(undefined)`
+ * is NaN, and `amountSats > NaN` is always false, which would silently disable
+ * the cap and allow arbitrary-amount invoices through.
+ */
+const DEFAULT_L402_MAX_SATS = 10000;
+function parseSatsCap(envName: string, fallback: number): number {
+  const raw = process.env[envName];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.error(
+      `[L402] Invalid ${envName}="${raw}", falling back to ${fallback}`
+    );
+    return fallback;
+  }
+  return parsed;
+}
+const L402_MAX_SATS_PER_INVOICE = parseSatsCap(
+  "L402_MAX_SATS_PER_INVOICE",
+  DEFAULT_L402_MAX_SATS
+);
+
+/**
+ * Per-payment caps for the Stacks x402 interceptor, mirroring the L402 cap
+ * above: a malicious endpoint can demand an arbitrary amount in its 402
+ * response and an autoApprove'd call would pay it, bounded only by wallet
+ * balance. Known registry endpoints cost at most 0.02 STX / 100 sats, so the
+ * defaults leave generous headroom. Overridable via env vars.
+ */
+const X402_MAX_USTX_PER_PAYMENT = parseSatsCap(
+  "X402_MAX_USTX_PER_PAYMENT",
+  1_000_000 // 1 STX
+);
+const X402_MAX_SATS_PER_PAYMENT = parseSatsCap(
+  "X402_MAX_SATS_PER_PAYMENT",
+  10_000
+);
 
 // Track payment attempts per client instance (auto-cleanup via WeakMap)
 const paymentAttempts: WeakMap<AxiosInstance, number> = new WeakMap();
 
 // Track 429 retry counts per client instance
 const rateLimitRetries: WeakMap<AxiosInstance, number> = new WeakMap();
+
+// Track L402 payment attempts per {client, request URL} so a retry limit for
+// endpoint A doesn't bleed into endpoint B. A single WeakMap<AxiosInstance,
+// Map<string, number>> is sufficient because the per-instance map is garbage
+// collected with the axios client.
+const l402Attempts: WeakMap<AxiosInstance, Map<string, number>> = new WeakMap();
+
+/**
+ * Look up the per-URL L402 attempt count for a client instance.
+ */
+function getL402AttemptCount(instance: AxiosInstance, key: string): number {
+  return l402Attempts.get(instance)?.get(key) ?? 0;
+}
+
+/**
+ * Increment the per-URL L402 attempt count for a client instance.
+ */
+function incrementL402AttemptCount(
+  instance: AxiosInstance,
+  key: string
+): number {
+  let map = l402Attempts.get(instance);
+  if (!map) {
+    map = new Map();
+    l402Attempts.set(instance, map);
+  }
+  const next = (map.get(key) ?? 0) + 1;
+  map.set(key, next);
+  return next;
+}
+
+/**
+ * Clear the per-URL L402 attempt count for a client instance on successful
+ * response, so a later retry (e.g. from an expired cache entry) gets a fresh
+ * budget.
+ */
+function clearL402AttemptCount(instance: AxiosInstance, key: string): void {
+  const map = l402Attempts.get(instance);
+  if (!map) return;
+  map.delete(key);
+}
 
 /**
  * Error thrown when an x402 endpoint returns 429 Too Many Requests and all retries are exhausted.
@@ -53,14 +158,187 @@ export class X402RateLimitError extends Error {
   }
 }
 
+/**
+ * How long a completed x402 request suppresses an identical repeat.
+ *
+ * This was 60s, which is shorter than a realistic agent retry: an agent that
+ * reports a failure to its operator and retries takes minutes, not seconds.
+ * In the incident behind #630 the two payments landed 362s apart — 6x the old
+ * window — so the guard never engaged and the endpoint was paid twice.
+ *
+ * The asymmetry favours a long window: a false dedup hit costs a wait (and
+ * still returns the prior txid so the caller can verify), while a miss costs a
+ * duplicate on-chain payment that cannot be reversed. Deliberate repeat
+ * purchases of the same endpoint with the same params must wait it out or vary
+ * a param; raise or lower via X402_DEDUP_TTL_SECONDS.
+ */
+export const X402_DEDUP_TTL_MS =
+  parseSatsCap("X402_DEDUP_TTL_SECONDS", 900) * 1000; // 15 minutes
+
+interface DedupEntry {
+  txid: string;
+  timestamp: number;
+}
+type PersistedDedup = Record<string, DedupEntry>;
+
 // Transaction deduplication cache: {dedupKey -> {txid, timestamp}}
-const dedupCache: Map<string, { txid: string; timestamp: number }> = new Map();
+const dedupCache: Map<string, DedupEntry> = new Map();
+
+/**
+ * Where the dedup cache is persisted.
+ *
+ * Memory alone left the guard open to the same double-pay it exists to stop: an
+ * MCP server restarts routinely (client reconnect, config change, crash), and a
+ * restart inside the TTL window dropped every entry. An agent retrying after one
+ * sailed past the guard and paid a second time — #630's outcome reached by a
+ * different route.
+ *
+ * Keys are SHA-256 digests (see generateDedupKey) and values are chain txids, so
+ * no request content reaches disk. The file is still written 0600 under a 0700
+ * directory to match the wallet store.
+ *
+ * Caveat: entries are keyed by request, not by payer. Switching wallets and
+ * repeating a request inside the window reports a hit for the other wallet's
+ * payment. That is the asymmetry the TTL already takes — a false hit costs a
+ * wait and still surfaces the prior txid to verify, while a miss costs an
+ * irreversible duplicate payment.
+ *
+ * Override the location with X402_DEDUP_STATE_FILE.
+ */
+let dedupStateFile =
+  process.env.X402_DEDUP_STATE_FILE ||
+  path.join(os.homedir(), ".aibtc", "x402-dedup.json");
+
+let dedupLoad: Promise<void> | null = null;
+let dedupWriteLock: Promise<void> = Promise.resolve();
+
+/**
+ * Point the dedup cache at a different state file and drop what is in memory.
+ *
+ * Also the seam tests use to simulate a restart: re-pointing at the same file
+ * clears memory and forces the next read to come off disk.
+ */
+export function setDedupStateFile(file: string): void {
+  dedupStateFile = file;
+  dedupLoad = null;
+  dedupCache.clear();
+}
+
+function isFresh(entry: DedupEntry, now: number): boolean {
+  return now - entry.timestamp <= X402_DEDUP_TTL_MS;
+}
+
+/** Read persisted entries. A missing file is the normal first-run case. */
+async function readDedupState(): Promise<PersistedDedup> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(dedupStateFile, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.error(
+        `[x402-dedup] Could not read ${dedupStateFile}: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw) as PersistedDedup;
+    if (!parsed || typeof parsed !== "object") return {};
+    return parsed;
+  } catch {
+    // A corrupt file must not brick every x402 call. Report it and continue
+    // with the in-memory guard; the next write replaces the file.
+    console.error(`[x402-dedup] Ignoring corrupt state at ${dedupStateFile}`);
+    return {};
+  }
+}
+
+/**
+ * Load persisted entries into memory once per state file.
+ *
+ * Must be awaited before any dedup read: answering from a not-yet-loaded cache
+ * would report "no prior payment" for one that is sitting on disk, which is the
+ * exact miss this persistence closes.
+ */
+async function ensureDedupLoaded(): Promise<void> {
+  if (!dedupLoad) {
+    dedupLoad = (async () => {
+      const persisted = await readDedupState();
+      const now = Date.now();
+      for (const [key, entry] of Object.entries(persisted)) {
+        if (
+          !entry ||
+          typeof entry.txid !== "string" ||
+          typeof entry.timestamp !== "number"
+        ) {
+          continue;
+        }
+        if (!isFresh(entry, now)) continue;
+        // Anything recorded in this process is at least as fresh as disk.
+        const existing = dedupCache.get(key);
+        if (!existing || existing.timestamp < entry.timestamp) {
+          dedupCache.set(key, entry);
+        }
+      }
+    })();
+  }
+  return dedupLoad;
+}
+
+/**
+ * Merge memory over disk and write atomically, dropping expired entries.
+ *
+ * Re-reads inside the lock so a second server instance sharing the file does not
+ * lose the entries this one never saw. A failure here is logged rather than
+ * thrown: the caller records *after* funds have already moved, so rejecting
+ * would turn a recorded payment into a reported error while leaving the
+ * in-memory guard intact.
+ */
+async function persistDedupCache(): Promise<void> {
+  dedupWriteLock = dedupWriteLock
+    .then(async () => {
+      const onDisk = await readDedupState();
+      const now = Date.now();
+      const merged: PersistedDedup = {};
+      for (const [key, entry] of Object.entries(onDisk)) {
+        if (
+          entry &&
+          typeof entry.txid === "string" &&
+          typeof entry.timestamp === "number" &&
+          isFresh(entry, now)
+        ) {
+          merged[key] = entry;
+        }
+      }
+      for (const [key, entry] of dedupCache) {
+        if (!isFresh(entry, now)) continue;
+        const existing = merged[key];
+        if (!existing || existing.timestamp <= entry.timestamp) {
+          merged[key] = entry;
+        }
+      }
+      await fs.mkdir(path.dirname(dedupStateFile), {
+        recursive: true,
+        mode: 0o700,
+      });
+      // pid-suffixed so concurrent servers do not clobber each other's temp.
+      const tmp = `${dedupStateFile}.${process.pid}.tmp`;
+      await fs.writeFile(tmp, JSON.stringify(merged), { mode: 0o600 });
+      await fs.rename(tmp, dedupStateFile);
+    })
+    .catch((err) => {
+      console.error(
+        `[x402-dedup] Could not persist ${dedupStateFile}: ${err instanceof Error ? err.message : String(err)}`
+      );
+    });
+  return dedupWriteLock;
+}
 
 // Cleanup expired dedup entries every 5 minutes
 setInterval(() => {
   const now = Date.now();
   for (const [key, value] of dedupCache) {
-    if (now - value.timestamp > 60000) {
+    if (!isFresh(value, now)) {
       dedupCache.delete(key);
     }
   }
@@ -205,6 +483,8 @@ export interface PaymentRequirements {
   recipient: string;
   network: string;
   account: Account;
+  /** True when the endpoint advertised `extra.sponsored` — the relay pays the STX fee. */
+  sponsored: boolean;
 }
 
 /**
@@ -218,6 +498,51 @@ export interface CreateApiClientOptions {
    */
   onBeforePayment?: (requirements: PaymentRequirements) => Promise<void>;
   toolName?: string;
+  /**
+   * Which asset to pay with when the endpoint offers several — an asset
+   * identifier ("SM3V....sbtc-token") or a symbol ("sBTC", "STX", "USDCx").
+   * Unset means the first entry this client can pay for.
+   */
+  asset?: string;
+}
+
+/**
+ * Build a canonical absolute URL for a request so that the L402 attempt
+ * counter and macaroon cache are keyed by the actual endpoint, not the
+ * relative path. Without this, two `createApiClient(differentBaseURL)`
+ * instances both 402-ing on `/foo` would collide on the same cache entry.
+ *
+ * `URL` constructor would be cleaner but throws on inputs that aren't valid
+ * absolute URLs — paths like `/foo` are exactly the case we need to handle,
+ * so a forgiving string concat is the right shape here.
+ */
+function canonicalUrl(config: {
+  baseURL?: string;
+  url?: string;
+}): string {
+  const url = config.url ?? "";
+  const baseURL = config.baseURL ?? "";
+  if (!baseURL || /^https?:\/\//i.test(url)) {
+    return url;
+  }
+  if (baseURL.endsWith("/") && url.startsWith("/")) {
+    return baseURL + url.slice(1);
+  }
+  if (!baseURL.endsWith("/") && !url.startsWith("/")) {
+    return baseURL + "/" + url;
+  }
+  return baseURL + url;
+}
+
+/**
+ * Resolve the canonical request URL from an axios config, returning an empty
+ * string when the config or url is missing. Wrapper around `canonicalUrl`
+ * for the common axios-config shape.
+ */
+function canonicalRequestUrl(config: unknown): string {
+  if (!config || typeof config !== "object") return "";
+  const c = config as { baseURL?: string; url?: string };
+  return canonicalUrl({ baseURL: c.baseURL, url: c.url });
 }
 
 /**
@@ -238,6 +563,201 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
   };
 
   const axiosInstance = createBaseAxiosInstance(url);
+
+  // L402 rail interceptor (registered before the x402 chain so it can inspect
+  // the raw 402 response). Preference rule:
+  //   - If the response advertises a Stacks x402 payment-required header AND a
+  //     Stacks wallet is unlocked, pass through and let the x402 chain handle
+  //     it (x402-stacks is preferred).
+  //   - Otherwise, if the response advertises an L402 challenge AND an LN
+  //     wallet is unlocked, pay the invoice and retry with the L402
+  //     Authorization header.
+  //   - Otherwise, pass through (the x402 chain will reject if it can't pay).
+  axiosInstance.interceptors.response.use(
+    (response) => {
+      // Reset the per-URL L402 attempt counter on any success so the next
+      // unrelated 402 on the same client gets a full retry budget.
+      const method = (response.config?.method ?? "get").toUpperCase();
+      const canonical = canonicalRequestUrl(response.config);
+      if (canonical) {
+        clearL402AttemptCount(axiosInstance, `${method}:${canonical}`);
+      }
+      return response;
+    },
+    async (error) => {
+      if (error.response?.status !== 402) {
+        return Promise.reject(error);
+      }
+
+      // Check for an L402 challenge FIRST. If there isn't one, there is
+      // nothing for this interceptor to do — pass through to the x402
+      // chain without touching the wallet manager. This keeps tests that
+      // mock only the x402-stacks surface area from tripping over
+      // wallet-manager methods they didn't stub.
+      const wwwAuth =
+        error.response?.headers?.["www-authenticate"] ??
+        error.response?.headers?.["WWW-Authenticate"];
+      const challenge = parseL402Challenge(
+        typeof wwwAuth === "string" ? wwwAuth : null
+      );
+      if (!challenge) {
+        // No L402 header — nothing we can do, pass through.
+        return Promise.reject(error);
+      }
+
+      // We have an L402 challenge. Decide whether x402-stacks is a
+      // preferred rail for this response — only now do we need to touch
+      // the wallet manager.
+      const x402HeaderValue = error.response?.headers?.[X402_HEADERS.PAYMENT_REQUIRED];
+      const x402PaymentRequired = decodePaymentRequired(x402HeaderValue);
+      const hasStacksOption = !!x402PaymentRequired?.accepts?.some(
+        (opt) => opt.network?.startsWith("stacks:")
+      );
+      const stacksWalletUnlocked = getWalletManager().isUnlocked();
+
+      if (hasStacksOption && stacksWalletUnlocked) {
+        // Let the x402 interceptor chain handle it.
+        return Promise.reject(error);
+      }
+
+      const lnProvider = getLightningManager().getProvider();
+      if (!lnProvider) {
+        return Promise.reject(
+          new Error(
+            "L402 payment required but Lightning wallet is not unlocked. " +
+              "Run lightning_unlock (or lightning_create) first."
+          )
+        );
+      }
+
+      const method = (error.config?.method ?? "get").toUpperCase();
+      const canonicalUrlKey = canonicalRequestUrl(error.config);
+      const attemptKey = `${method}:${canonicalUrlKey}`;
+
+      // Guard against L402 retry loops — counted per-URL so paying endpoint A
+      // doesn't poison endpoint B.
+      const attempts = getL402AttemptCount(axiosInstance, attemptKey);
+      if (attempts >= 1) {
+        return Promise.reject(
+          new Error(
+            "L402 retry limit exceeded (max 1 attempt). Server returned 402 again after preimage was submitted."
+          )
+        );
+      }
+      incrementL402AttemptCount(axiosInstance, attemptKey);
+
+      // Cache hit: reuse the macaroon+preimage without paying. If the server
+      // rejects the retry with 401 / 402 / 403, the cached entry is stale —
+      // drop it so subsequent calls re-pay instead of looping on a dead
+      // macaroon. Many servers signal stale credentials with non-402 status
+      // codes (401 Unauthorized for missing/expired auth, 403 Forbidden for
+      // caveat violations).
+      const cached = getCachedL402Auth(method, canonicalUrlKey);
+      if (cached) {
+        const originalRequest = error.config;
+        originalRequest.headers = originalRequest.headers || {};
+        originalRequest.headers["Authorization"] = buildL402AuthHeader(
+          cached.macaroon,
+          cached.preimage
+        );
+        return axiosInstance.request(originalRequest).catch((retryErr) => {
+          const status = retryErr?.response?.status;
+          if (status === 401 || status === 402 || status === 403) {
+            invalidateL402Auth(method, canonicalUrlKey);
+          }
+          return Promise.reject(retryErr);
+        });
+      }
+
+      // Validate the invoice amount BEFORE paying. A malicious server can
+      // issue a BOLT-11 invoice for an arbitrary amount; Spark's maxFeeSats
+      // only caps routing fees, not the payable amount itself.
+      let decoded: ReturnType<typeof decodeBolt11>;
+      try {
+        decoded = decodeBolt11(challenge.invoice);
+      } catch (decodeErr) {
+        return Promise.reject(
+          new Error(
+            `L402 invoice could not be decoded: ${decodeErr instanceof Error ? decodeErr.message : String(decodeErr)}`
+          )
+        );
+      }
+
+      // light-bolt11-decoder returns the amount in millisats as a string on
+      // the "amount" section. Amountless invoices have no amount section (or
+      // a zero/missing value). Convert to sats for the cap comparison.
+      const amountSection = decoded.sections.find(
+        (s): s is { name: "amount"; letters: string; value: string } =>
+          s.name === "amount"
+      );
+      const amountMsat = amountSection?.value
+        ? BigInt(amountSection.value)
+        : 0n;
+      const amountSats = Number(amountMsat / 1000n);
+      if (amountSats === 0) {
+        return Promise.reject(
+          new Error(
+            "L402 invoice has no amount; refusing to pay amountless invoices for safety."
+          )
+        );
+      }
+      if (amountSats > L402_MAX_SATS_PER_INVOICE) {
+        return Promise.reject(
+          new Error(
+            `L402 invoice amount (${amountSats} sats) exceeds the configured cap ` +
+              `of ${L402_MAX_SATS_PER_INVOICE} sats (L402_MAX_SATS_PER_INVOICE). ` +
+              `Refusing to pay.`
+          )
+        );
+      }
+
+      // Cumulative spending limit (sats ledger) — bounds a drain-by-loop of
+      // sub-cap L402 invoices. Keyed by the wallet's Stacks address so all sats
+      // spends (BTC L1, sBTC, L402) share one ledger, or the __lightning__
+      // bucket when the STX wallet is locked (as lightning_pay_invoice does).
+      // Kept even if the payment throws: that does not prove it did not route.
+      const l402Addr = getWalletManager().getActiveAccount()?.address ?? "__lightning__";
+      await getSpendLimiter().reserve([{ unit: "sats", amount: BigInt(amountSats) }], l402Addr);
+
+      // Pay the Lightning invoice.
+      let payment: { preimage: string; feesPaid: number };
+      try {
+        payment = await lnProvider.payInvoice(challenge.invoice);
+      } catch (payErr) {
+        return Promise.reject(
+          new Error(
+            `L402 payment failed: ${payErr instanceof Error ? payErr.message : String(payErr)}`
+          )
+        );
+      }
+
+      cacheL402Auth(
+        method,
+        canonicalUrlKey,
+        challenge.macaroon,
+        payment.preimage
+      );
+
+      const originalRequest = error.config;
+      originalRequest.headers = originalRequest.headers || {};
+      originalRequest.headers["Authorization"] = buildL402AuthHeader(
+        challenge.macaroon,
+        payment.preimage
+      );
+      // Mirror the cache-hit path: if the freshly-paid retry is itself
+      // rejected with 401 / 402 / 403 (e.g. the server rejected the preimage
+      // due to a macaroon caveat violation, IP binding, expired auth, etc.),
+      // the just-cached entry is dead — drop it so subsequent calls re-pay
+      // instead of looping on a poisoned cache entry.
+      return axiosInstance.request(originalRequest).catch((retryErr) => {
+        const status = retryErr?.response?.status;
+        if (status === 401 || status === 402 || status === 403) {
+          invalidateL402Auth(method, canonicalUrlKey);
+        }
+        return Promise.reject(retryErr);
+      });
+    }
+  );
 
   // Interceptor 1 (FIFO): max-1-payment-attempt guard.
   // On the first 402, increments the counter and re-rejects so Interceptor 2 can handle it.
@@ -319,6 +839,9 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
         return Promise.reject(error);
       }
 
+      // Booked before signing; given back if the payment fails before the
+      // signed transaction is handed to the endpoint.
+      let reservation: SpendReservation | undefined;
       try {
         // Decode payment requirements from header
         const headerValue = error.response?.headers?.[X402_HEADERS.PAYMENT_REQUIRED];
@@ -330,15 +853,30 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           );
         }
 
-        // Select first Stacks-compatible payment option
-        const selectedOption = paymentRequired.accepts.find(
-          (opt) => opt.network?.startsWith("stacks:")
-        );
+        // Select the payment option: the caller's requested asset, else the
+        // first entry this client can actually sign for. Throws with the list
+        // of accepted assets rather than falling back to a different one.
+        let selectedOption: PaymentRequirementsV2;
+        try {
+          selectedOption = selectPaymentOption(paymentRequired.accepts, options?.asset);
+        } catch (selectionError) {
+          return Promise.reject(selectionError);
+        }
 
-        if (!selectedOption) {
-          const networks = paymentRequired.accepts.map((a) => a.network).join(", ");
+        // Guaranteed non-'unsupported' by selectPaymentOption, so the branch
+        // below can never route a third-party token into the native-STX path.
+        const tokenType = detectTokenType(selectedOption.asset) as 'STX' | 'sBTC';
+        const amount = BigInt(selectedOption.amount);
+        const isSbtc = tokenType === "sBTC";
+        const cap = isSbtc ? X402_MAX_SATS_PER_PAYMENT : X402_MAX_USTX_PER_PAYMENT;
+        const unit = isSbtc ? "sats" : "uSTX";
+        if (amount > BigInt(Math.floor(cap))) {
           return Promise.reject(
-            new Error(`No compatible Stacks payment option found. Available networks: ${networks}`)
+            new Error(
+              `x402 payment of ${amount} ${unit} exceeds the per-payment cap of ${cap} ${unit}. ` +
+              `If this cost is expected, raise the cap via the ` +
+              `${isSbtc ? "X402_MAX_SATS_PER_PAYMENT" : "X402_MAX_USTX_PER_PAYMENT"} env var.`
+            )
           );
         }
 
@@ -356,6 +894,10 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           );
         }
 
+        // The endpoint offers gas sponsorship: sign with `sponsored: true, fee: 0`
+        // and its relay co-signs and pays the STX fee at settlement.
+        const sponsored = selectedOption.extra?.sponsored === true;
+
         // Invoke pre-payment callback (e.g. balance check) before signing/broadcasting.
         // If the callback throws, the payment is aborted and the error propagates to the caller.
         if (options?.onBeforePayment) {
@@ -365,13 +907,35 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
             recipient: selectedOption.payTo,
             network: paymentNetwork ?? acct.network,
             account: acct,
+            sponsored,
           });
         }
 
-        // Build a sponsored signed transaction (relay pays gas; fee: 0n)
-        const tokenType = detectTokenType(selectedOption.asset);
-        const amount = BigInt(selectedOption.amount);
+        // Clamped fee — do NOT let @stacks auto-estimate, since Hiro's
+        // contract_call tiers are polluted by outliers (observed >2000 STX).
+        // The sbtc_transfer clamp caps it at 0.003 STX.
+        const fee = sponsored
+          ? 0n
+          : await resolveDefaultFee(acct.network, isSbtc ? "sbtc_transfer" : "token_transfer");
+
+        // Cumulative spending limit: the per-payment cap above bounds a single
+        // 402, but a malicious endpoint can loop sub-cap payments. This blocks
+        // once the session/day total would be exceeded. A self-paying sender
+        // pays the fee, so it is booked in ustx alongside the amount.
+        reservation = await getSpendLimiter().reserve(
+          [
+            { unit: isSbtc ? "sats" : "ustx", amount },
+            ...(sponsored ? [] : [{ unit: "ustx" as const, amount: fee }]),
+          ],
+          acct.address
+        );
+
+        // Build the signed transaction. Self-paid: the sender pays its own STX
+        // gas and the facilitator verifies and broadcasts it. Sponsored: the
+        // sponsor slot is left empty for the endpoint's relay to fill.
         const networkName = getStacksNetwork(acct.network);
+
+        const memo = paymentIdMemo(selectedOption.extra);
 
         let transaction;
         if (tokenType === "sBTC") {
@@ -388,13 +952,20 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
               uintCV(amount),
               principalCV(acct.address),
               principalCV(selectedOption.payTo),
-              noneCV(),
+              memo ? someCV(bufferCVFromString(memo)) : noneCV(),
             ],
             senderKey: acct.privateKey,
             network: networkName,
-            postConditionMode: PostConditionMode.Allow,
-            sponsored: true,
-            fee: 0n,
+            // The payment amount is known at build time, so pin it: a
+            // compromised token contract must not be able to pull more.
+            postConditionMode: PostConditionMode.Deny,
+            postConditions: [
+              Pc.principal(acct.address)
+                .willSendEq(amount)
+                .ft(contracts.SBTC_TOKEN as `${string}.${string}`, "sbtc-token"),
+            ],
+            fee,
+            sponsored,
           });
         } else {
           transaction = await makeSTXTokenTransfer({
@@ -402,9 +973,9 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
             amount,
             senderKey: acct.privateKey,
             network: networkName,
-            memo: "",
-            sponsored: true,
-            fee: 0n,
+            memo: memo ?? "",
+            fee,
+            sponsored,
           });
         }
 
@@ -429,6 +1000,10 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
           compatShimUsed: false,
         });
 
+        // The signed payment tx is handed to the facilitator from here on, so
+        // the booked spend stands.
+        reservation = undefined;
+
         // Retry the original request with the payment header
         const originalRequest = error.config;
         originalRequest.headers = originalRequest.headers || {};
@@ -436,6 +1011,7 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
 
         return axiosInstance.request(originalRequest);
       } catch (paymentError) {
+        if (reservation) await getSpendLimiter().release(reservation);
         return Promise.reject(
           new Error(
             `x402 payment failed: ${paymentError instanceof Error ? paymentError.message : String(paymentError)}`
@@ -499,9 +1075,13 @@ export type ProbeResultPaymentRequired = {
   type: 'payment_required';
   amount: string;
   asset: string;
+  /** Display symbol for `asset` (e.g. "USDCx"), when derivable. */
+  symbol?: string;
   recipient: string;
   network: string;
   endpoint: string;
+  /** Every asset the endpoint accepts, so the caller can pick another. */
+  accepts?: PaymentOptionSummary[];
   resource?: {
     url: string;
     description?: string;
@@ -513,11 +1093,24 @@ export type ProbeResultPaymentRequired = {
 export type ProbeResult = ProbeResultFree | ProbeResultPaymentRequired;
 
 /**
- * Detect token type from asset identifier
- * @param asset - Full contract identifier or token name
- * @returns 'STX' for native STX, 'sBTC' for sBTC token
+ * Token rails this client can actually build and sign a payment for.
+ * Anything else is `unsupported` — see detectTokenType.
  */
-export function detectTokenType(asset: string): 'STX' | 'sBTC' {
+export type PaymentTokenType = 'STX' | 'sBTC' | 'unsupported';
+
+/**
+ * Detect token type from asset identifier.
+ *
+ * STX must be identified POSITIVELY, never as a fallback. This function used
+ * to return 'STX' for any unrecognized asset, which meant a USDCx-denominated
+ * 402 (asset `SP120...usdcx`, amount `29000000`) was routed to the interceptor's
+ * native-STX branch and signed as a 29 STX transfer — real funds, wrong asset,
+ * and the endpoint never credits it. Unknown assets are now `unsupported` so
+ * the payment is refused instead of silently mis-sent (#613).
+ *
+ * @param asset - Full contract identifier or token name
+ */
+export function detectTokenType(asset: string): PaymentTokenType {
   const assetLower = asset.trim().toLowerCase();
   // Treat as sBTC if the asset is exactly "sbtc" (token name),
   // a full contract identifier ending with "::token-sbtc",
@@ -525,21 +1118,183 @@ export function detectTokenType(asset: string): 'STX' | 'sBTC' {
   if (assetLower === 'sbtc' || assetLower.endsWith('::token-sbtc') || assetLower.endsWith('.sbtc-token')) {
     return 'sBTC';
   }
-  return 'STX';
+  // Native STX: the bare symbol, or a CAIP-19-style native reference
+  // ("stacks:1/native" / ".../slip44:5773") used by some manifests.
+  if (assetLower === 'stx' || /(^|\/)(native|slip44:5773)$/.test(assetLower)) {
+    return 'STX';
+  }
+  return 'unsupported';
+}
+
+const STACKS_MEMO_MAX_BYTES = 34;
+
+/**
+ * Memo for an x402 payment from the server's `extra.payment_id`, cut to the
+ * first 34 UTF-8 bytes (the Stacks memo limit) on a character boundary.
+ * Gateways that bind payments on the memo match that prefix.
+ */
+export function paymentIdMemo(extra?: Record<string, unknown>): string | undefined {
+  const id = extra?.payment_id;
+  if (typeof id !== "string" || id.length === 0) return undefined;
+  let memo = "";
+  let bytes = 0;
+  for (const ch of id) {
+    const size = Buffer.byteLength(ch, "utf8");
+    if (bytes + size > STACKS_MEMO_MAX_BYTES) break;
+    memo += ch;
+    bytes += size;
+  }
+  return memo;
 }
 
 /**
- * Format payment amount into human-readable string with token symbol
- * @param amount - Raw amount string (microSTX or satoshis)
- * @param asset - Token asset identifier
- * @returns Formatted string like "0.000001 sBTC" or "0.001 STX"
+ * Best-effort display symbol for an asset. Servers advertise a friendly name in
+ * `extra.tokenType` (arc0btc sends "USDCx"); otherwise fall back to the contract
+ * name, then the raw identifier.
  */
-export function formatPaymentAmount(amount: string, asset: string): string {
+export function resolveAssetSymbol(asset: string, extra?: Record<string, unknown>): string {
+  const advertised = extra?.tokenType;
+  if (typeof advertised === 'string' && advertised.trim()) {
+    return advertised.trim();
+  }
+  const tokenType = detectTokenType(asset);
+  if (tokenType !== 'unsupported') {
+    return tokenType;
+  }
+  // "SP120....usdcx" -> "usdcx"; strip any "::asset-name" suffix first.
+  const withoutAssetName = asset.split('::')[0];
+  const contractName = withoutAssetName.split('.')[1];
+  return contractName || asset;
+}
+
+/**
+ * Format payment amount into human-readable string with token symbol.
+ *
+ * Only STX and sBTC have known decimal scales here. For any other asset the
+ * amount is rendered in raw base units with an explicit marker rather than
+ * being run through the STX formatter — dividing a USDCx amount by 1e6 and
+ * labelling it "STX" is how `29000000` USDCx base units got reported as
+ * "29 STX" (#613).
+ *
+ * @param amount - Raw amount string (microSTX, satoshis, or token base units)
+ * @param asset - Token asset identifier
+ * @param extra - Scheme-specific `extra` block from the accepts[] entry
+ * @returns Formatted string like "0.000001 sBTC", "0.001 STX", or "29000000 USDCx (base units)"
+ */
+export function formatPaymentAmount(
+  amount: string,
+  asset: string,
+  extra?: Record<string, unknown>
+): string {
   const tokenType = detectTokenType(asset);
   if (tokenType === 'sBTC') {
     return formatSbtc(amount);
   }
+  if (tokenType === 'unsupported') {
+    // Decimals are unknown, so do not invent a scaled figure.
+    return `${amount} ${resolveAssetSymbol(asset, extra)} (base units)`;
+  }
   return formatStx(amount);
+}
+
+/**
+ * Does `requested` name this accepts[] entry? Matches on the full asset
+ * identifier or on the display symbol, both case-insensitively, so callers can
+ * say "sBTC", "usdcx", or the full "SM3V....sbtc-token".
+ */
+function assetMatches(option: PaymentRequirementsV2, requested: string): boolean {
+  const want = requested.trim().toLowerCase();
+  if (!want) return false;
+  if (option.asset.trim().toLowerCase() === want) return true;
+  if (resolveAssetSymbol(option.asset, option.extra).toLowerCase() === want) return true;
+  // "sbtc" should also match the full sbtc-token contract id, and "stx" the
+  // native entry, without the caller needing the exact string.
+  const tokenType = detectTokenType(option.asset);
+  return tokenType !== 'unsupported' && tokenType.toLowerCase() === want;
+}
+
+/** One payment option, summarised for callers choosing between them. */
+export interface PaymentOptionSummary {
+  asset: string;
+  symbol: string;
+  amount: string;
+  formatted: string;
+  payTo: string;
+  /** False when this client cannot build a transaction for the asset. */
+  payable: boolean;
+}
+
+export function summarizePaymentOptions(
+  accepts: PaymentRequirementsV2[]
+): PaymentOptionSummary[] {
+  return accepts.map((opt) => ({
+    asset: opt.asset,
+    symbol: resolveAssetSymbol(opt.asset, opt.extra),
+    amount: opt.amount,
+    formatted: formatPaymentAmount(opt.amount, opt.asset, opt.extra),
+    payTo: opt.payTo,
+    payable: detectTokenType(opt.asset) !== 'unsupported',
+  }));
+}
+
+/**
+ * Choose which entry of `accepts[]` to pay.
+ *
+ * Previously this was hardcoded to the first Stacks-network entry, so on a
+ * multi-asset endpoint the caller got whatever the server happened to list
+ * first — USDCx on arc0btc — with no way to ask for anything else (#613).
+ *
+ * - `preferredAsset` set: that asset or an explicit error naming what IS on
+ *   offer. Never silently substitutes a different asset than the one asked for.
+ * - unset: the first entry this client can actually pay for, in the server's
+ *   own preference order. Deliberately NOT balance-aware — auto-selecting by
+ *   wallet contents would let a manifest reorder change which asset leaves the
+ *   wallet without the caller ever naming it.
+ */
+export function selectPaymentOption(
+  accepts: PaymentRequirementsV2[],
+  preferredAsset?: string
+): PaymentRequirementsV2 {
+  const stacksOptions = accepts.filter((opt) => opt.network?.startsWith('stacks:'));
+  if (stacksOptions.length === 0) {
+    const networks = accepts.map((a) => a.network).join(', ') || 'none';
+    throw new Error(
+      `No compatible Stacks payment option found. Available networks: ${networks}`
+    );
+  }
+
+  const describe = (opts: PaymentRequirementsV2[]) =>
+    opts
+      .map((o) => `${resolveAssetSymbol(o.asset, o.extra)} (${o.asset})`)
+      .join(', ');
+
+  if (preferredAsset) {
+    const match = stacksOptions.find((opt) => assetMatches(opt, preferredAsset));
+    if (!match) {
+      throw new Error(
+        `Endpoint does not accept "${preferredAsset}". Accepted assets: ${describe(stacksOptions)}.`
+      );
+    }
+    if (detectTokenType(match.asset) === 'unsupported') {
+      throw new Error(
+        `Payment in ${resolveAssetSymbol(match.asset, match.extra)} (${match.asset}) is not supported — ` +
+          `this client can only sign STX and sBTC payments. ` +
+          `Accepted assets: ${describe(stacksOptions)}.`
+      );
+    }
+    return match;
+  }
+
+  const payable = stacksOptions.find(
+    (opt) => detectTokenType(opt.asset) !== 'unsupported'
+  );
+  if (!payable) {
+    throw new Error(
+      `No payable asset offered: this client can only sign STX and sBTC payments, ` +
+        `but the endpoint accepts ${describe(stacksOptions)}.`
+    );
+  }
+  return payable;
 }
 
 /**
@@ -551,8 +1306,10 @@ export async function probeEndpoint(options: {
   url: string;
   params?: Record<string, string>;
   data?: Record<string, unknown>;
+  /** Asset to quote (identifier or symbol). Defaults to the first payable entry. */
+  asset?: string;
 }): Promise<ProbeResult> {
-  const { method, url, params, data } = options;
+  const { method, url, params, data, asset: preferredAsset } = options;
   const axiosInstance = createBaseAxiosInstance();
 
   try {
@@ -574,7 +1331,9 @@ export async function probeEndpoint(options: {
 
       // If v2 header is successfully parsed, use it
       if (paymentRequired?.accepts?.length) {
-        const acceptedPayment = paymentRequired.accepts[0];
+        // Pick the requested asset, or the first one we can actually pay —
+        // NOT blindly accepts[0], which quoted USDCx to sBTC-only wallets (#613).
+        const acceptedPayment = selectPaymentOption(paymentRequired.accepts, preferredAsset);
 
         // Convert CAIP-2 network identifier to human-readable format
         const network = getNetworkFromStacksChainId(acceptedPayment.network) ?? NETWORK;
@@ -583,11 +1342,13 @@ export async function probeEndpoint(options: {
           type: 'payment_required',
           amount: acceptedPayment.amount,
           asset: acceptedPayment.asset,
+          symbol: resolveAssetSymbol(acceptedPayment.asset, acceptedPayment.extra),
           recipient: acceptedPayment.payTo,
           network,
           endpoint: url,
           resource: paymentRequired.resource,
           maxTimeoutSeconds: acceptedPayment.maxTimeoutSeconds,
+          accepts: summarizePaymentOptions(paymentRequired.accepts),
         };
       }
 
@@ -644,16 +1405,21 @@ export function generateDedupKey(
 }
 
 /**
- * Check if a request was recently processed (within 60s)
+ * Check if a request was recently processed (within X402_DEDUP_TTL_MS).
+ *
+ * Loads persisted entries first so a payment broadcast before a server restart
+ * still suppresses the retry that follows it.
+ *
  * @returns txid if duplicate found, null otherwise
  */
-export function checkDedupCache(key: string): string | null {
+export async function checkDedupCache(key: string): Promise<string | null> {
+  await ensureDedupLoaded();
   const cached = dedupCache.get(key);
   if (!cached) {
     return null;
   }
   const now = Date.now();
-  if (now - cached.timestamp > 60000) {
+  if (!isFresh(cached, now)) {
     dedupCache.delete(key);
     return null;
   }
@@ -661,10 +1427,15 @@ export function checkDedupCache(key: string): string | null {
 }
 
 /**
- * Record a transaction in the dedup cache
+ * Record a transaction in the dedup cache and persist it.
+ *
+ * Awaits the write so the entry survives a crash immediately after a payment —
+ * the window where losing it costs a duplicate payment.
  */
-export function recordTransaction(key: string, txid: string): void {
+export async function recordTransaction(key: string, txid: string): Promise<void> {
+  await ensureDedupLoaded();
   dedupCache.set(key, { txid, timestamp: Date.now() });
+  await persistDedupCache();
 }
 
 /**
@@ -679,6 +1450,14 @@ export async function checkSufficientBalance(
 ): Promise<void> {
   const tokenType = detectTokenType(asset);
   const requiredAmount = BigInt(amount);
+
+  if (tokenType === 'unsupported') {
+    // No balance rail for third-party tokens. Refuse rather than falling
+    // through to the STX check, which would validate the wrong asset (#613).
+    throw new Error(
+      `Cannot validate balance for asset ${asset}: this client only supports STX and sBTC payments.`
+    );
+  }
 
   if (tokenType === 'sBTC') {
     const sbtcService = getSbtcService(account.network);
@@ -703,8 +1482,9 @@ export async function checkSufficientBalance(
       const hiroApiForSbtc = getHiroApi(account.network);
       const stxInfoForSbtc = await hiroApiForSbtc.getStxBalance(account.address);
       const stxBalanceForSbtc = BigInt(stxInfoForSbtc.balance);
-      const sbtcFees = await hiroApiForSbtc.getMempoolFees();
-      const estimatedSbtcFee = BigInt(sbtcFees.contract_call.high_priority);
+      // Same clamped fee the interceptor actually sets on the sBTC contract
+      // call — so this check is exact, not a high-priority over-estimate.
+      const estimatedSbtcFee = await resolveDefaultFee(account.network, "sbtc_transfer");
 
       if (stxBalanceForSbtc < estimatedSbtcFee) {
         const stxShortfall = estimatedSbtcFee - stxBalanceForSbtc;
@@ -730,8 +1510,8 @@ export async function checkSufficientBalance(
 
   let totalRequired = requiredAmount;
   if (!sponsored) {
-    const mempoolFees = await hiroApi.getMempoolFees();
-    const estimatedFee = BigInt(mempoolFees.contract_call.high_priority);
+    // Same clamped fee the interceptor sets on the STX transfer.
+    const estimatedFee = await resolveDefaultFee(account.network, "token_transfer");
     totalRequired = requiredAmount + estimatedFee;
   }
 

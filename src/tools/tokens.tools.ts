@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { getAccount, getWalletAddress, NETWORK } from "../services/x402.service.js";
 import { getTokensService } from "../services/tokens.service.js";
@@ -14,13 +14,13 @@ export function registerTokenTools(server: McpServer): void {
 
 Supports well-known tokens by symbol: sBTC, USDCx, ALEX, DIKO
 Or use the full contract ID: address.contract-name`,
-      inputSchema: {
+      inputSchema: z.object({
         token: z.string().describe("Token symbol (e.g., 'USDCx', 'sBTC') or contract ID"),
         address: z
           .string()
           .optional()
           .describe("Wallet address to check. Uses configured wallet if not provided."),
-      },
+      }),
     },
     async ({ token, address }) => {
       try {
@@ -56,7 +56,7 @@ Or use the full contract ID: address.contract-name`,
 
 Supports well-known tokens by symbol: sBTC, USDCx, ALEX, DIKO
 Or use the full contract ID.`,
-      inputSchema: {
+      inputSchema: z.object({
         token: z.string().describe("Token symbol (e.g., 'USDCx') or contract ID"),
         recipient: z.string().describe("The recipient's Stacks address"),
         amount: z.string().describe("Amount in smallest unit (depends on token decimals)"),
@@ -65,7 +65,7 @@ Or use the full contract ID.`,
           .string()
           .optional()
           .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount. If omitted, auto-estimated."),
-      },
+      }),
     },
     async ({ token, recipient, amount, memo, fee }) => {
       try {
@@ -96,9 +96,9 @@ Or use the full contract ID.`,
     "get_token_info",
     {
       description: "Get metadata for a SIP-010 token (name, symbol, decimals, supply).",
-      inputSchema: {
+      inputSchema: z.object({
         token: z.string().describe("Token symbol or contract ID"),
-      },
+      }),
     },
     async ({ token }) => {
       try {
@@ -127,12 +127,12 @@ Or use the full contract ID.`,
     "list_user_tokens",
     {
       description: "List all fungible tokens owned by an address.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
           .describe("Wallet address to check. Uses configured wallet if not provided."),
-      },
+      }),
     },
     async ({ address }) => {
       try {
@@ -160,11 +160,11 @@ Or use the full contract ID.`,
     "get_token_holders",
     {
       description: "Get the top holders of a SIP-010 token.",
-      inputSchema: {
+      inputSchema: z.object({
         token: z.string().describe("Token symbol or contract ID"),
         limit: z.number().optional().default(20).describe("Maximum number of holders to return"),
         offset: z.number().optional().default(0).describe("Offset for pagination"),
-      },
+      }),
     },
     async ({ token, limit, offset }) => {
       try {

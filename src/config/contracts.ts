@@ -17,16 +17,16 @@ export const MAINNET_CONTRACTS = {
   BNS: "SP000000000000000000002Q6VF78.bns",
 
   // Stacking
-  POX_4: "SP000000000000000000002Q6VF78.pox-4",
+  POX_5: "SP000000000000000000002Q6VF78.pox-5",
 
   // ALEX DEX (SDK handles most operations, but we need pool contract for queries)
   ALEX_AMM_POOL: "SP3K8BC0PPEVCV7NZ6QSRWPQ2JE9E5B6N3PA0KBR9.amm-swap-pool-v1-1",
   ALEX_TOKEN: "SP102V8P0F7JX67ARQ77WEA3D3CFB5XW39REDT0AM.token-alex",
-  ALEX_WSTX: "SP3K8BC0PPEVCV7NZ6QSRWPQ2JE9E5B6N3PA0KBR9.token-wstx-v2",
+  ALEX_WSTX: "SP102V8P0F7JX67ARQ77WEA3D3CFB5XW39REDT0AM.token-wstx-v2",
 
   // Zest Protocol v2
   ZEST_MARKET: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-4-market",
-  ZEST_DATA: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-1-data",
+  ZEST_DATA: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.protocol-data", // read-only helper for v0-4-market positions
   ZEST_MARKET_VAULT: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-market-vault",
   ZEST_VAULT_STX: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-vault-stx",
   ZEST_VAULT_SBTC: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-vault-sbtc",
@@ -51,7 +51,7 @@ export interface ZestAssetConfig {
   /** FT asset name for the underlying (e.g. "sbtc-token" from sbtc-token::sbtc-token). null for wSTX which uses native STX transfers. */
   tokenAssetName: string | null;
   vault: string;
-  assetId: number; // v2 asset index from v0-1-data: STX=0, zSTX=1, sBTC=2, zsBTC=3, stSTX=4, etc. Evens=underlying, odds=zTokens
+  assetId: number; // asset index from protocol-data: STX=0, zSTX=1, sBTC=2, zsBTC=3, stSTX=4, etc. Evens=underlying, odds=zTokens
   decimals: number;
   symbol: string;
   name: string;
@@ -143,7 +143,7 @@ export const TESTNET_CONTRACTS = {
   BNS: "ST000000000000000000002AMW42H.bns",
 
   // Stacking
-  POX_4: "ST000000000000000000002AMW42H.pox-4",
+  POX_5: "ST000000000000000000002AMW42H.pox-5",
 
   // ERC-8004 Identity & Reputation
   IDENTITY_REGISTRY: "ST3YT0XW92E6T2FE59B2G5N2WNNFSBZ6MZKQS5D18.identity-registry-v2",
@@ -242,35 +242,53 @@ export const BITFLOW_CONTRACTS = {
  */
 export interface BitflowConfig {
   apiHost: string;
-  apiKey: string | undefined;
   readOnlyCallApiHost: string;
-  keeperApiHost?: string;
-  keeperApiKey?: string;
+  keeperApiHost: string;
+  providerAddress: string;
 }
 
 /**
- * Get Bitflow configuration from environment.
- *
- * As of @bitflowlabs/core-sdk v2.4.2, API keys are fully optional.
- * All public endpoints (tokens, quotes, routes, swaps) are accessible
- * without a key at 500 req/min per IP. Keys only needed for higher limits.
- *
- * Optional env vars:
- * - BITFLOW_API_KEY: Core API key (higher rate limits)
- * - BITFLOW_API_HOST: Override default API host
- * - BITFLOW_KEEPER_API_KEY: Keeper automation features
- * - BITFLOW_KEEPER_API_HOST: Override Keeper API host
- * - BITFLOW_READONLY_API_HOST: Override Stacks read-only node (default: api.hiro.so)
+ * Bitflow public API base URL (also used for SDK calls — same gateway).
+ * All endpoints are publicly accessible; no API key required.
+ * Per docs: https://docs.bitflow.finance/bitflow-documentation/developers/bitflow-sdk
  */
-export function getBitflowConfig(): BitflowConfig {
-  const readOnlyCallApiHost = process.env.BITFLOW_READONLY_API_HOST || "https://api.hiro.so";
+export const BITFLOW_PUBLIC_API = "https://bitflow-sdk-api-gateway-7owjsmt8.uc.gateway.dev";
 
+/**
+ * Stacks read-only node used by the SDK to compute quotes (reads pool reserves).
+ * Bitflow's own `node.bitflowapis.finance` was hanging on `POST /v2/contracts/call-read`,
+ * causing every quote to silently return null. Hiro's public node serves the same
+ * standard Stacks API and is reliable.
+ */
+export const BITFLOW_READONLY_HOST = "https://api.hiro.so";
+
+/**
+ * Keeper API host for automated swap orders. The SDK's documented default
+ * (bitflow-keeper-test-7owjsmt8.uc.gateway.dev) 404s on every keeper path;
+ * the production keeper is keeper.bitflowapis.finance.
+ * Override with BITFLOW_KEEPER_API_HOST.
+ */
+export const BITFLOW_KEEPER_HOST =
+  process.env.BITFLOW_KEEPER_API_HOST || "https://keeper.bitflowapis.finance";
+
+/**
+ * AIBTC provider address tagged onto every Bitflow swap. The SDK injects this
+ * as the `provider` Clarity arg when the swap function signature accepts one,
+ * so on-chain attribution can distinguish AIBTC-routed trades for campaign
+ * scoring.
+ *
+ * Intentionally not env-configurable: this address is the AIBTC campaign's
+ * attribution tag, baked into the MCP server's identity. Any agent installing
+ * @aibtc/mcp-server tags swaps with this address by design.
+ */
+export const BITFLOW_PROVIDER_ADDRESS = "SP1M8KHCJXB3SBRQRDBCG3J3859AA1CN0AWDHN17B";
+
+export function getBitflowConfig(): BitflowConfig {
   return {
-    apiHost: process.env.BITFLOW_API_HOST || "https://bitflowsdk-api-test-7owjsmt8.uk.gateway.dev",
-    apiKey: process.env.BITFLOW_API_KEY,
-    readOnlyCallApiHost,
-    keeperApiHost: process.env.BITFLOW_KEEPER_API_HOST || "https://bitflow-keeper-test-7owjsmt8.uc.gateway.dev",
-    keeperApiKey: process.env.BITFLOW_KEEPER_API_KEY,
+    apiHost: BITFLOW_PUBLIC_API,
+    readOnlyCallApiHost: BITFLOW_READONLY_HOST,
+    keeperApiHost: BITFLOW_KEEPER_HOST,
+    providerAddress: BITFLOW_PROVIDER_ADDRESS,
   };
 }
 
@@ -280,11 +298,6 @@ export function getBitflowConfig(): BitflowConfig {
 export function getBitflowContracts(network: Network) {
   return BITFLOW_CONTRACTS[network];
 }
-
-/**
- * Bitflow public API base URL (no API key required)
- */
-export const BITFLOW_PUBLIC_API = "https://bitflow-sdk-api-gateway-7owjsmt8.uc.gateway.dev";
 
 /**
  * Get ERC-8004 contract addresses for the network

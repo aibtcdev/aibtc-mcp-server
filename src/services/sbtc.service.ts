@@ -14,6 +14,7 @@ import { getContracts, parseContractId, type Network } from "../config/index.js"
 import { callContract, type Account, type TransferResult } from "../transactions/builder.js";
 import { sponsoredContractCall } from "../transactions/sponsor-builder.js";
 import { createFungiblePostCondition } from "../transactions/post-conditions.js";
+import { resolveDefaultFee } from "../utils/fee.js";
 
 // ============================================================================
 // Types
@@ -87,7 +88,8 @@ export class SbtcService {
 
   /**
    * Transfer sBTC to a recipient
-   * @param fee Optional fee in micro-STX. If omitted, fee is auto-estimated.
+   * @param fee Optional fee in micro-STX. If omitted, the sbtc_transfer clamp
+   *            is used rather than callContract's contract_call default.
    */
   async transfer(
     account: Account,
@@ -129,7 +131,10 @@ export class SbtcService {
       return sponsoredContractCall(account, contractCallOptions, this.network);
     }
 
-    return callContract(account, contractCallOptions);
+    return callContract(account, {
+      ...contractCallOptions,
+      fee: fee ?? (await resolveDefaultFee(this.network, "sbtc_transfer")),
+    });
   }
 
   /**

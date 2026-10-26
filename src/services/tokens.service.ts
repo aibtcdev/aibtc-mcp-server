@@ -1,8 +1,9 @@
 import { ClarityValue, uintCV, principalCV, noneCV, someCV, bufferCV } from "@stacks/transactions";
 import { HiroApiService, getHiroApi, FungibleTokenHolding } from "./hiro-api.js";
-import { parseContractId, getWellKnownTokens, type Network } from "../config/index.js";
+import { parseContractId, getWellKnownTokens, getContracts, type Network } from "../config/index.js";
 import { callContract, type Account, type TransferResult } from "../transactions/builder.js";
 import { createFungiblePostCondition } from "../transactions/post-conditions.js";
+import { resolveDefaultFee } from "../utils/fee.js";
 
 // ============================================================================
 // Types
@@ -157,7 +158,13 @@ export class TokensService {
       functionName: "transfer",
       functionArgs,
       postConditions: [postCondition],
-      ...(fee !== undefined && { fee }),
+      // A plain sBTC transfer gets the sbtc_transfer clamp, not the
+      // contract_call default that callContract would apply.
+      ...(fee !== undefined
+        ? { fee }
+        : contractId === getContracts(this.network).SBTC_TOKEN && {
+            fee: await resolveDefaultFee(this.network, "sbtc_transfer"),
+          }),
     });
   }
 
