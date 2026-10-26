@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.77.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.76.2...mcp-server-v1.77.0) (2026-10-26)
+
+
+### Features
+
+* add TaskMarket read tools (search/get/submissions/stats) ([#655](https://github.com/aibtcdev/aibtc-mcp-server/issues/655)) ([a48affa](https://github.com/aibtcdev/aibtc-mcp-server/commit/a48affaed29cb91e8b2923cff71ed7358de49def))
+
+
+### Bug Fixes
+
+* **clarity-values:** strip 0x prefix from buffer args in parseArgToClarityValue ([#584](https://github.com/aibtcdev/aibtc-mcp-server/issues/584)) ([d8a53b9](https://github.com/aibtcdev/aibtc-mcp-server/commit/d8a53b90309ed9f087c22b2cb21b3171e2e0a506))
+* **deps:** patch axios, zod, vitest and protobufjs advisories ([#736](https://github.com/aibtcdev/aibtc-mcp-server/issues/736)) ([cd279bf](https://github.com/aibtcdev/aibtc-mcp-server/commit/cd279bfa8e3f48cd9c4a9789a7457dc6ec9537e0))
+
 ## [1.76.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.76.1...mcp-server-v1.76.2) (2026-10-26)
 
 
