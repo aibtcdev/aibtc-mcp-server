@@ -262,3 +262,24 @@ describe("extractPaymentIdFromPaymentSignature", () => {
     expect(extractPaymentIdFromPaymentSignature(encoded)).toBe("pay_test_123");
   });
 });
+
+describe("HttpPaymentStatusResponse parsing", () => {
+  const noFetch = vi.fn() as unknown as typeof fetch;
+  const resolve = (payload: unknown) => resolveCanonicalPaymentStatus({ payload, fetchImpl: noFetch });
+
+  it("strips unknown keys instead of rejecting the body", async () => {
+    const status = await resolve({ paymentId: "pay_extra", status: "mempool", lastOccupant: "x", extra: 1 });
+    expect(status).toEqual({ paymentId: "pay_extra", status: "mempool" });
+  });
+
+  it("rejects an unknown status", async () => {
+    expect(await resolve({ paymentId: "pay_bogus", status: "bogus" })).toBeNull();
+  });
+
+  it("drops a null terminalReason through the hint fallback", async () => {
+    expect(await resolve({ paymentId: "pay_null", status: "failed", terminalReason: null })).toEqual({
+      paymentId: "pay_null",
+      status: "failed",
+    });
+  });
+});
