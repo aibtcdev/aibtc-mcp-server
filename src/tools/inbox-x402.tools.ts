@@ -223,8 +223,10 @@ export function registerInboxX402Tools(server: McpServer): void {
             privateKey: account.privateKey,
             network: NETWORK,
           };
+          // x402-stacks is CJS, so its AxiosInstance comes from axios' .d.cts
+          // types; ours comes from .d.ts. Same runtime object, different type.
           const api = wrapAxiosWithPayment(
-            axios.create({ timeout: 120_000 }),
+            axios.create({ timeout: 120_000 }) as unknown as Parameters<typeof wrapAxiosWithPayment>[0],
             stacksAccount
           );
           try {
