@@ -14,10 +14,11 @@
 
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { uintCV, bufferCV, contractPrincipalCV, PostConditionMode, Pc } from "@stacks/transactions";
+import { uintCV, bufferCV, contractPrincipalCV, hexToCV, cvToValue, PostConditionMode, Pc } from "@stacks/transactions";
 import { getAccount, NETWORK } from "../services/x402.service.js";
 import { callContract } from "../transactions/builder.js";
 import { getExplorerTxUrl } from "../config/networks.js";
+import { getHiroApi } from "../services/hiro-api.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import {
   jingswapGet,
@@ -96,6 +97,25 @@ export function defaultLimitSatsPerStx(oracleSatsPerStx: number, side: "stx" | "
   return side === "stx" ? oracleSatsPerStx * 0.8 : oracleSatsPerStx * 1.2;
 }
 
+/** The V2 contracts exist on mainnet only; a signed call elsewhere would target a missing contract. */
+function assertMainnet(): void {
+  if (NETWORK !== "mainnet") {
+    throw new Error(`Jingswap V2 contracts are deployed on mainnet only (NETWORK=${NETWORK})`);
+  }
+}
+
+/** Deposits and settlement abort with ERR_PAUSED (u1010) while the owner has paused the market. */
+async function isPaused(m: MarketConfigV2): Promise<boolean> {
+  const { data } = await getHiroApi("mainnet").getDataVar(contractId(m), "paused");
+  return cvToValue(hexToCV(data)) === true;
+}
+
+async function assertNotPaused(m: MarketConfigV2): Promise<void> {
+  if (await isPaused(m)) {
+    throw new Error(`Jingswap V2 market ${contractId(m)} is paused by its owner: deposits and settlement abort (u1010)`);
+  }
+}
+
 async function getCycleState(m: MarketConfigV2): Promise<any> {
   return jingswapGet(`/api/auction/cycle-state${apiContractParam(m)}`);
 }
@@ -157,7 +177,7 @@ export function registerJingswapV2Tools(server: McpServer): void {
     "jingswap_v2_get_cycle_state",
     {
       description:
-        "Get the current Jingswap V2 (limit-price) auction cycle state: phase (0=deposit, 2=settle; " +
+        "Get the current Jingswap V2 (limit-price) auction cycle state: paused flag, phase (0=deposit, 2=settle; " +
         "no buffer phase), blocks elapsed, cycle totals and minimum deposits. " +
         "The deposit phase stays open until someone closes it, which needs 10+ blocks elapsed.",
       inputSchema: z.object({ market: marketArg }),
@@ -165,9 +185,10 @@ export function registerJingswapV2Tools(server: McpServer): void {
     async ({ market }) => {
       try {
         const m = getV2Market(market);
-        const data = await getCycleState(m);
+        const [data, paused] = await Promise.all([getCycleState(m), isPaused(m)]);
         return createJsonResponse({
           ...data,
+          paused,
           market: market || DEFAULT_V2_MARKET,
           contract: contractId(m),
           premium: m.premiumLabel,
@@ -255,7 +276,7 @@ export function registerJingswapV2Tools(server: McpServer): void {
         "Deposit STX into the current V2 auction cycle with a limit price in sats/STX: the fewest sats per STX " +
         "you accept. If the clearing price is below it, your deposit rolls to the next cycle instead of filling. " +
         "If omitted, the limit is set 20% below the current oracle, which in practice is no price protection. " +
-        "Only works during the deposit phase.",
+        "Only works during the deposit phase and while the market is not paused.",
       inputSchema: z.object({
         amount: z.number().positive().describe("Amount of STX to deposit (human units, e.g. 10 for 10 STX)"),
         limitSatsPerStx: z.number().positive().optional().describe(
@@ -267,6 +288,8 @@ export function registerJingswapV2Tools(server: McpServer): void {
     async ({ amount, limitSatsPerStx, market }) => {
       try {
         const m = getV2Market(market);
+        assertMainnet();
+        await assertNotPaused(m);
         await assertV2DepositPhase(m);
         const { limitSats, defaulted } = await resolveLimit(m, limitSatsPerStx, "stx");
         const limitRaw = satsPerStxToRaw(limitSats);
@@ -316,7 +339,7 @@ export function registerJingswapV2Tools(server: McpServer): void {
         "Deposit sBTC (in sats) into the current V2 auction cycle with a limit price in sats/STX: the most sats " +
         "per STX you pay. If the clearing price is above it, your deposit rolls to the next cycle instead of filling. " +
         "If omitted, the limit is set 20% above the current oracle, which in practice is no price protection. " +
-        "Only works during the deposit phase.",
+        "Only works during the deposit phase and while the market is not paused.",
       inputSchema: z.object({
         amount: z.number().int().positive().describe("Amount of sBTC in satoshis (e.g. 1000 for 1000 sats)"),
         limitSatsPerStx: z.number().positive().optional().describe(
@@ -328,6 +351,8 @@ export function registerJingswapV2Tools(server: McpServer): void {
     async ({ amount, limitSatsPerStx, market }) => {
       try {
         const m = getV2Market(market);
+        assertMainnet();
+        await assertNotPaused(m);
         await assertV2DepositPhase(m);
         const { limitSats, defaulted } = await resolveLimit(m, limitSatsPerStx, "sbtc");
         const limitRaw = satsPerStxToRaw(limitSats);
@@ -391,6 +416,7 @@ export function registerJingswapV2Tools(server: McpServer): void {
       async ({ limitSatsPerStx, market }) => {
         try {
           const m = getV2Market(market);
+          assertMainnet();
           await assertV2DepositPhase(m);
           const limitRaw = satsPerStxToRaw(limitSatsPerStx);
           const account = await getAccount();
@@ -436,6 +462,7 @@ export function registerJingswapV2Tools(server: McpServer): void {
       async ({ market }) => {
         try {
           const m = getV2Market(market);
+          assertMainnet();
           await assertV2DepositPhase(m);
           const account = await getAccount();
 
@@ -482,6 +509,8 @@ export function registerJingswapV2Tools(server: McpServer): void {
     async ({ market }) => {
       try {
         const m = getV2Market(market);
+        assertMainnet();
+        await assertNotPaused(m);
         const data = await getCycleState(m);
 
         let functionName: "close-and-settle-with-refresh" | "settle-with-refresh";
@@ -563,6 +592,7 @@ export function registerJingswapV2Tools(server: McpServer): void {
     async ({ market }) => {
       try {
         const m = getV2Market(market);
+        assertMainnet();
         const data = await getCycleState(m);
         if (data.phase === 0) {
           throw new Error("Cannot cancel cycle: auction is still in the deposit phase");

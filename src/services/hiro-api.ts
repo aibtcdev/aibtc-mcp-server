@@ -551,6 +551,12 @@ export class HiroApiService {
     return this.fetch(`/v2/contracts/source/${address}/${name}`);
   }
 
+  /** Read a contract data-var; `data` is the hex-serialized Clarity value. */
+  async getDataVar(contractId: string, varName: string): Promise<{ data: string }> {
+    const { address, name } = parseContractId(contractId);
+    return this.fetch(`/v2/data_var/${address}/${name}/${varName}?proof=0`);
+  }
+
   async callReadOnlyFunction(
     contractId: string,
     functionName: string,

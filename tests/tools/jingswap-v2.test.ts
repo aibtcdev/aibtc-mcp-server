@@ -3,9 +3,11 @@ import { PostConditionMode, cvToValue } from "@stacks/transactions";
 import { planContractCallSpends } from "../../src/services/spend-limiter.js";
 
 const callContract = vi.hoisted(() => vi.fn());
+const getDataVar = vi.hoisted(() => vi.fn());
 const ME = "SP20GPDS5RYB2DV03KG4W08EG6HD11KYPK6FQJE1";
 
 vi.mock("../../src/transactions/builder.js", () => ({ callContract }));
+vi.mock("../../src/services/hiro-api.js", () => ({ getHiroApi: () => ({ getDataVar }) }));
 vi.mock("../../src/services/x402.service.js", () => ({
   NETWORK: "mainnet",
   getAccount: vi.fn(async () => ({ address: ME, network: "mainnet" })),
@@ -72,6 +74,8 @@ function plan(options: any) {
 beforeEach(() => {
   callContract.mockReset();
   callContract.mockResolvedValue({ txid: "0xabc" });
+  getDataVar.mockReset();
+  getDataVar.mockResolvedValue({ data: "0x04" }); // false
   requested.length = 0;
   cycleState = {
     currentCycle: 15,
@@ -190,6 +194,19 @@ describe("jingswap_v2 write tools build the right calls", () => {
     const opts = lastCall();
     expect(opts.functionName).toBe("cancel-cycle");
     expect(opts.postConditionMode).toBe(PostConditionMode.Deny);
+  });
+
+  it("deposits and settlement refuse while the market is paused; cancel still works", async () => {
+    getDataVar.mockResolvedValue({ data: "0x03" }); // true
+    const t = tools();
+    const dep = await t.get("jingswap_v2_deposit_stx")!({ amount: 1, limitSatsPerStx: 400 });
+    expect(dep.isError).toBe(true);
+    expect(dep.content[0].text).toContain("paused");
+    expect((await t.get("jingswap_v2_close_and_settle_with_refresh")!({})).isError).toBe(true);
+    expect(callContract).not.toHaveBeenCalled();
+    await t.get("jingswap_v2_cancel_stx")!({});
+    expect(lastCall().functionName).toBe("cancel-stx-deposit");
+    expect(getDataVar).toHaveBeenCalledWith(V2, "paused");
   });
 
   it("unknown market is an error", async () => {
