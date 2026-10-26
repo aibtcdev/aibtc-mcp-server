@@ -12,7 +12,7 @@
  * tx through a wallet (EVM tools or our internal bitcoin-builder).
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createJsonResponse, createErrorResponse } from "../../utils/index.js";
 import {

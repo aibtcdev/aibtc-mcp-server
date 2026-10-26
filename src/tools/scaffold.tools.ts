@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import fs from "fs/promises";
 import path from "path";
@@ -15,21 +15,17 @@ import { getWalletAddress } from "../services/x402.service.js";
  * Check if a directory contains an existing x402 project
  */
 async function isExistingX402Project(dir: string): Promise<boolean> {
-  try {
-    const indexPath = path.join(dir, "src", "index.ts");
-    const middlewarePath = path.join(dir, "src", "x402-middleware.ts");
-    const packagePath = path.join(dir, "package.json");
+  const indexPath = path.join(dir, "src", "index.ts");
+  const middlewarePath = path.join(dir, "src", "x402-middleware.ts");
+  const packagePath = path.join(dir, "package.json");
 
-    const [hasIndex, hasMiddleware, hasPackage] = await Promise.all([
-      fs.access(indexPath).then(() => true).catch(() => false),
-      fs.access(middlewarePath).then(() => true).catch(() => false),
-      fs.access(packagePath).then(() => true).catch(() => false),
-    ]);
+  const [hasIndex, hasMiddleware, hasPackage] = await Promise.all([
+    fs.access(indexPath).then(() => true).catch(() => false),
+    fs.access(middlewarePath).then(() => true).catch(() => false),
+    fs.access(packagePath).then(() => true).catch(() => false),
+  ]);
 
-    return hasIndex && hasMiddleware && hasPackage;
-  } catch {
-    return false;
-  }
+  return hasIndex && hasMiddleware && hasPackage;
 }
 
 /**
@@ -111,7 +107,7 @@ cd {projectName}
 npm install
 npm run dev
 \`\`\``,
-      inputSchema: {
+      inputSchema: z.object({
         outputDir: z
           .string()
           .describe("Directory where the project folder will be created (e.g., '/Users/me/projects' or '.')"),
@@ -159,7 +155,7 @@ npm run dev
           .describe(
             "Custom relay URL (default: https://x402-relay.aibtc.com)"
           ),
-      },
+      }),
     },
     async ({ outputDir, projectName, endpoints, recipientAddress, network, relayUrl }) => {
       try {
@@ -242,7 +238,7 @@ npm install
 # Edit .dev.vars with RECIPIENT_ADDRESS and OPENROUTER_API_KEY
 npm run dev
 \`\`\``,
-      inputSchema: {
+      inputSchema: z.object({
         outputDir: z
           .string()
           .describe("Directory where the project folder will be created (e.g., '/Users/me/projects' or '.')"),
@@ -298,7 +294,7 @@ npm run dev
           .optional()
           .default("anthropic/claude-3-haiku")
           .describe("Default OpenRouter model for all endpoints (default: anthropic/claude-3-haiku)"),
-      },
+      }),
     },
     async ({
       outputDir,

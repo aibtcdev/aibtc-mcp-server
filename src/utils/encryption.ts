@@ -68,6 +68,7 @@ export async function encrypt(
 
   // Encrypt with AES-256-GCM
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  key.fill(0); // cipher holds its own copy
   const encrypted = Buffer.concat([
     cipher.update(plaintext, "utf8"),
     cipher.final(),
@@ -102,6 +103,7 @@ export async function decrypt(
 
   // Decrypt with AES-256-GCM
   const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+  key.fill(0); // decipher holds its own copy
   decipher.setAuthTag(authTag);
 
   try {

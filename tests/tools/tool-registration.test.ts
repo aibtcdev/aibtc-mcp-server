@@ -8,6 +8,7 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { registerAllTools } from "../../src/tools/index.js";
+import { ALL_TOOLS } from "../../src/tools/profiles.js";
 
 interface ToolRegistration {
   name: string;
@@ -34,20 +35,20 @@ describe("tool registration smoke test", () => {
   it("registerAllTools does not throw", () => {
     const { server } = createTrackingServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => registerAllTools(server as any)).not.toThrow();
+    expect(() => registerAllTools(server as any, ALL_TOOLS)).not.toThrow();
   });
 
   it("registers at least 30 tools", () => {
     const { server, tools } = createTrackingServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerAllTools(server as any);
+    registerAllTools(server as any, ALL_TOOLS);
     expect(tools.size).toBeGreaterThanOrEqual(30);
   });
 
   it("every registered tool has a non-empty description", () => {
     const { server, tools } = createTrackingServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerAllTools(server as any);
+    registerAllTools(server as any, ALL_TOOLS);
 
     for (const [name, tool] of tools) {
       expect(tool.description, `tool '${name}' missing description`).toBeTruthy();
@@ -61,7 +62,7 @@ describe("tool registration smoke test", () => {
   it("every tool with an inputSchema has it as an object", () => {
     const { server, tools } = createTrackingServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerAllTools(server as any);
+    registerAllTools(server as any, ALL_TOOLS);
 
     for (const [name, tool] of tools) {
       if (tool.inputSchema !== undefined) {
@@ -76,7 +77,7 @@ describe("tool registration smoke test", () => {
   it("registers core wallet tools", () => {
     const { server, tools } = createTrackingServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerAllTools(server as any);
+    registerAllTools(server as any, ALL_TOOLS);
 
     const coreTools = ["get_wallet_info", "get_stx_balance"];
     for (const name of coreTools) {
@@ -87,7 +88,7 @@ describe("tool registration smoke test", () => {
   it("registers core wallet management tools", () => {
     const { server, tools } = createTrackingServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerAllTools(server as any);
+    registerAllTools(server as any, ALL_TOOLS);
 
     const mgmtTools = [
       "wallet_create",
@@ -106,7 +107,7 @@ describe("tool registration smoke test", () => {
   it("registers sBTC tools", () => {
     const { server, tools } = createTrackingServer();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerAllTools(server as any);
+    registerAllTools(server as any, ALL_TOOLS);
 
     const sbtcTools = ["sbtc_get_balance"];
     for (const name of sbtcTools) {
@@ -123,7 +124,7 @@ describe("tool registration smoke test", () => {
       }),
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    registerAllTools(server as any);
+    registerAllTools(server as any, ALL_TOOLS);
 
     const unique = new Set(names);
     expect(names.length).toBe(unique.size);

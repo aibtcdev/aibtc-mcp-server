@@ -11,7 +11,7 @@
  * Transfer operations require an unlocked wallet.
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { NETWORK } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
@@ -24,6 +24,7 @@ import {
 } from "../services/mempool-api.js";
 import { buildAndSignBtcTransaction } from "../transactions/bitcoin-builder.js";
 import { UnisatIndexer } from "../services/unisat-indexer.js";
+import { meteredBtcBroadcast } from "../services/btc-spend.js";
 
 /**
  * Get the Bitcoin address to use for queries.
@@ -45,6 +46,23 @@ async function getBtcAddress(providedAddress?: string): Promise<string> {
     "No Bitcoin address provided and wallet is not unlocked. " +
       "Either provide an address or unlock your wallet first."
   );
+}
+
+/**
+ * Reject recipient addresses that belong to the other Bitcoin network before
+ * any UTXO fetching. The tx builder (@scure/btc-signer) rejects these too, but
+ * late and with a cryptic bech32/version-byte error.
+ */
+function validateRecipientNetwork(address: string): void {
+  const prefixes =
+    NETWORK === "mainnet" ? ["bc1", "1", "3"] : ["tb1", "m", "n", "2"];
+  if (!prefixes.some((p) => address.startsWith(p))) {
+    throw new Error(
+      `Recipient "${address}" is not a ${NETWORK} address. ` +
+        `Expected a prefix of ${prefixes.join(", ")} — check that the address ` +
+        `matches the configured NETWORK.`
+    );
+  }
 }
 
 /**
@@ -98,7 +116,7 @@ export function registerBitcoinTools(server: McpServer): void {
       description:
         "Get the BTC balance for a Bitcoin address. " +
         "Returns both total balance (including unconfirmed) and confirmed balance.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
@@ -106,7 +124,7 @@ export function registerBitcoinTools(server: McpServer): void {
             "Bitcoin address to check (bc1... for mainnet, tb1... for testnet). " +
               "Uses wallet's Bitcoin address if not provided."
           ),
-      },
+      }),
     },
     async ({ address }) => {
       try {
@@ -204,7 +222,7 @@ export function registerBitcoinTools(server: McpServer): void {
       description:
         "List all UTXOs (Unspent Transaction Outputs) for a Bitcoin address. " +
         "Useful for debugging, transparency, and understanding transaction inputs.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
@@ -216,7 +234,7 @@ export function registerBitcoinTools(server: McpServer): void {
           .optional()
           .default(false)
           .describe("Only return confirmed UTXOs (default: false)"),
-      },
+      }),
     },
     async ({ address, confirmedOnly }) => {
       try {
@@ -251,7 +269,7 @@ export function registerBitcoinTools(server: McpServer): void {
         "Requires an unlocked wallet with BTC balance. " +
         "By default, only uses cardinal UTXOs (safe to spend - no inscriptions). " +
         "Set includeOrdinals=true to allow spending ordinal UTXOs (advanced users only).",
-      inputSchema: {
+      inputSchema: z.object({
         recipient: z
           .string()
           .describe(
@@ -280,10 +298,12 @@ export function registerBitcoinTools(server: McpServer): void {
             "Include ordinal UTXOs (contains inscriptions). Default: false (cardinal only). " +
             "WARNING: Setting this to true may destroy valuable inscriptions!"
           ),
-      },
+      }),
     },
     async ({ recipient, amount, feeRate, includeOrdinals }) => {
       try {
+        validateRecipientNetwork(recipient);
+
         // Get wallet account (requires unlocked wallet)
         const walletManager = getWalletManager();
         const account = walletManager.getActiveAccount();
@@ -360,7 +380,7 @@ export function registerBitcoinTools(server: McpServer): void {
         );
 
         // Broadcast the transaction
-        const txid = await api.broadcastTransaction(txResult.txHex);
+        const txid = await meteredBtcBroadcast(api, txResult.txHex, account, NETWORK);
 
         const response: Record<string, unknown> = {
           success: true,
@@ -404,7 +424,7 @@ export function registerBitcoinTools(server: McpServer): void {
         "Cardinal UTXOs are regular Bitcoin outputs that do not contain ordinal inscriptions or rune balances. " +
         "These UTXOs can be safely used for regular Bitcoin transfers and fees. " +
         "Backed by the Unisat indexer; set UNISAT_API_KEY to lift free-tier rate limits.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
@@ -416,7 +436,7 @@ export function registerBitcoinTools(server: McpServer): void {
           .optional()
           .default(false)
           .describe("Only return confirmed UTXOs (default: false)"),
-      },
+      }),
     },
     async ({ address, confirmedOnly }) => {
       try {
@@ -452,7 +472,7 @@ export function registerBitcoinTools(server: McpServer): void {
         "Get ordinal UTXOs (contain inscriptions or runes - do not spend). " +
         "Ordinal UTXOs carry inscriptions or rune balances and should not be spent in regular transfers. " +
         "Backed by the Unisat indexer; set UNISAT_API_KEY to lift free-tier rate limits.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
@@ -464,7 +484,7 @@ export function registerBitcoinTools(server: McpServer): void {
           .optional()
           .default(false)
           .describe("Only return confirmed UTXOs (default: false)"),
-      },
+      }),
     },
     async ({ address, confirmedOnly }) => {
       try {
@@ -500,14 +520,14 @@ export function registerBitcoinTools(server: McpServer): void {
         "Get all inscriptions owned by a Bitcoin address. " +
         "Returns inscription IDs, content types, and metadata. " +
         "Backed by the Unisat indexer; set UNISAT_API_KEY to lift free-tier rate limits.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
           .describe(
             "Bitcoin address to check. Uses wallet's Bitcoin address if not provided."
           ),
-      },
+      }),
     },
     async ({ address }) => {
       try {

@@ -75,6 +75,10 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   get_stacking_status: "stacking",
   stack_stx: "stacking",
   extend_stacking: "stacking",
+  list_stacking_signers: "stacking",
+  unstake_stx: "stacking",
+  get_stacking_rewards: "stacking",
+  claim_stacking_rewards: "stacking",
 
   // dual-stacking skill — sBTC Dual Stacking yield protocol
   dual_stacking_status: "dual-stacking",
@@ -113,6 +117,7 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   openrouter_integration_guide: "x402",
   openrouter_models: "x402",
   send_inbox_message: "x402",
+  send_inbox_message_direct: "x402",
 
   // defi skill — ALEX DEX and Zest Protocol
   alex_list_pools: "defi",
@@ -246,8 +251,6 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   taproot_multisig_guide: "ordinals-p2p",
 
   // identity skill — ERC-8004 on-chain agent identity
-  register_identity: "identity",
-  get_identity: "identity",
   identity_get_last_id: "identity",
   identity_get: "identity",
   identity_get_metadata: "identity",
@@ -260,13 +263,8 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   identity_transfer: "identity",
 
   // reputation skill — ERC-8004 on-chain agent reputation
-  give_feedback: "reputation",
-  get_reputation: "reputation",
 
   // validation skill — ERC-8004 on-chain agent validation
-  request_validation: "validation",
-  get_validation_status: "validation",
-  get_validation_summary: "validation",
 
   // stackspot skill — stacking lottery pots
   stackspot_list_pots: "stackspot",
@@ -320,15 +318,17 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   souldinals_load_soul: "souldinals",
   souldinals_display_soul: "souldinals",
 
-  // bounty-scanner skill — sBTC bounty board (bounty.drx4.xyz)
+  // bounty-scanner skill — native sBTC bounty board (aibtc.com/api/bounties)
   bounty_list: "bounty-scanner",
   bounty_get: "bounty-scanner",
-  bounty_match: "bounty-scanner",
-  bounty_claim: "bounty-scanner",
-  bounty_status: "bounty-scanner",
-  bounty_my_claims: "bounty-scanner",
-  bounty_stats: "bounty-scanner",
+  bounty_submissions: "bounty-scanner",
   bounty_create: "bounty-scanner",
+  bounty_submit: "bounty-scanner",
+  bounty_accept: "bounty-scanner",
+  bounty_paid: "bounty-scanner",
+  bounty_cancel: "bounty-scanner",
+  bounty_my_posted: "bounty-scanner",
+  bounty_my_submissions: "bounty-scanner",
 
   // runes skill — Bitcoin-native fungible token protocol
   runes_list_etchings: "runes",

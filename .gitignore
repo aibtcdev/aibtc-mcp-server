@@ -1,6 +1,12 @@
 node_modules/
 dist/
+# Secrets — never commit. .env.example (placeholders) is the only allowed match.
 .env
+.env.*
+!.env.example
+*.mnemonic
+*.seed
+*keystore*
 *.log
 .claude
 deprecation/

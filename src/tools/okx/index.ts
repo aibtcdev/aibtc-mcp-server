@@ -8,7 +8,7 @@
  * calls to make.
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { registerOkxMarketTools } from "./market.tools.js";
 import { registerOkxDexTools } from "./dex.tools.js";
 import { registerOkxWalletTools } from "./wallet.tools.js";

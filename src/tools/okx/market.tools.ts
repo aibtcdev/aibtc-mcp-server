@@ -6,7 +6,7 @@
  * the OKX_BASE_URL env var.
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createJsonResponse, createErrorResponse } from "../../utils/index.js";
 import {

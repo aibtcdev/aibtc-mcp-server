@@ -1,9 +1,9 @@
+import { McpServer } from "@modelcontextprotocol/server";
+
 // Jingswap Auction MCP Tools
 // Query + deposit/cancel tools for sBTC blind auctions on Stacks.
 // Markets: sbtc-stx (SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22.sbtc-stx-jing)
 //          sbtc-usdcx (SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22.sbtc-usdcx-jing)
-
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { uintCV, bufferCV, contractPrincipalCV, PostConditionMode, Pc } from "@stacks/transactions";
 import { getAccount, NETWORK } from "../services/x402.service.js";
@@ -85,9 +85,9 @@ export function registerJingswapTools(server: McpServer): void {
         "Get the current Jingswap auction cycle state including phase (deposit/buffer/settle), " +
         "blocks elapsed, cycle totals (token B + sBTC deposited), and minimum deposit requirements. " +
         "Use this to understand where the auction currently stands.",
-      inputSchema: {
+      inputSchema: z.object({
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
-      },
+      }),
     },
     async ({ market }) => {
       try {
@@ -119,10 +119,10 @@ export function registerJingswapTools(server: McpServer): void {
       description:
         "Get the list of token B and sBTC depositors for a specific auction cycle. " +
         "Returns arrays of Stacks addresses on each side. Max 50 depositors per side.",
-      inputSchema: {
+      inputSchema: z.object({
         cycle: z.number().describe("Cycle number to query"),
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
-      },
+      }),
     },
     async ({ cycle, market }) => {
       try {
@@ -142,11 +142,11 @@ export function registerJingswapTools(server: McpServer): void {
     {
       description:
         "Get a specific user's deposit amounts (token B and sBTC) for a given auction cycle.",
-      inputSchema: {
+      inputSchema: z.object({
         cycle: z.number().describe("Cycle number"),
         address: z.string().describe("Stacks address of the depositor"),
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
-      },
+      }),
     },
     async ({ cycle, address, market }) => {
       try {
@@ -168,10 +168,10 @@ export function registerJingswapTools(server: McpServer): void {
         "Get settlement details for a completed auction cycle. Returns clearing price, " +
         "amounts cleared, fees, and the block height at which settlement occurred. " +
         "Returns null settlement if the cycle hasn't been settled yet.",
-      inputSchema: {
+      inputSchema: z.object({
         cycle: z.number().describe("Cycle number to query"),
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
-      },
+      }),
     },
     async ({ cycle, market }) => {
       try {
@@ -193,9 +193,9 @@ export function registerJingswapTools(server: McpServer): void {
         "Get the full history of all auction cycles from cycle 0 to the current cycle. " +
         "Each entry includes settlement data (if settled) and cycle totals. " +
         "Useful for analyzing historical auction performance and volume.",
-      inputSchema: {
+      inputSchema: z.object({
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
-      },
+      }),
     },
     async ({ market }) => {
       try {
@@ -216,10 +216,10 @@ export function registerJingswapTools(server: McpServer): void {
       description:
         "Get a user's auction activity history — deposits, cancellations, fills, and settlements. " +
         "Indexed from on-chain contract events.",
-      inputSchema: {
+      inputSchema: z.object({
         address: z.string().describe("Stacks address to query"),
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
-      },
+      }),
     },
     async ({ address, market }) => {
       try {
@@ -262,10 +262,10 @@ export function registerJingswapTools(server: McpServer): void {
       description:
         "Deposit the token-B side (STX or USDCx depending on market) into the current Jingswap auction cycle. " +
         "Only works during the deposit phase. Amount is in human units (e.g. 10 for 10 STX, or 10 for 10 USDCx).",
-      inputSchema: {
+      inputSchema: z.object({
         amount: z.number().positive().describe("Amount of token B to deposit (human units)"),
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
-      },
+      }),
     },
     async ({ amount, market }) => {
       try {
@@ -320,10 +320,10 @@ export function registerJingswapTools(server: McpServer): void {
         "Deposit sBTC into the current Jingswap auction cycle. " +
         "Only works during the deposit phase. Amount is in satoshis (e.g. 1000 for 1000 sats). " +
         "Works the same for both sbtc-stx and sbtc-usdcx markets.",
-      inputSchema: {
+      inputSchema: z.object({
         amount: z.number().int().positive().describe("Amount of sBTC in satoshis"),
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
-      },
+      }),
     },
     async ({ amount, market }) => {
       try {
@@ -368,9 +368,9 @@ export function registerJingswapTools(server: McpServer): void {
       description:
         "Cancel your token-B deposit (STX or USDCx depending on market) from the current Jingswap auction cycle " +
         "and get a full refund. Only works during the deposit phase.",
-      inputSchema: {
+      inputSchema: z.object({
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
-      },
+      }),
     },
     async ({ market }) => {
       try {
@@ -384,6 +384,8 @@ export function registerJingswapTools(server: McpServer): void {
           functionName: m.cancelFn,
           functionArgs: [],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (refund).
+          callerSpendCaps: { ustx: 0n, sats: 0n },
           postConditions: [],
         });
 
@@ -409,9 +411,9 @@ export function registerJingswapTools(server: McpServer): void {
       description:
         "Cancel your sBTC deposit from the current Jingswap auction cycle and get a full refund. " +
         "Only works during the deposit phase. Works the same for both markets.",
-      inputSchema: {
+      inputSchema: z.object({
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
-      },
+      }),
     },
     async ({ market }) => {
       try {
@@ -425,6 +427,8 @@ export function registerJingswapTools(server: McpServer): void {
           functionName: "cancel-sbtc-deposit",
           functionArgs: [],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (refund).
+          callerSpendCaps: { ustx: 0n, sats: 0n },
           postConditions: [],
         });
 
@@ -452,9 +456,9 @@ export function registerJingswapTools(server: McpServer): void {
         "Before calling, check jingswap_get_cycle_state to verify: phase is 0 (deposit), " +
         "blocksElapsed >= 150 (DEPOSIT_MIN_BLOCKS), and both sides meet minimums. " +
         "Anyone can call this. Transitions to buffer phase.",
-      inputSchema: {
+      inputSchema: z.object({
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
-      },
+      }),
     },
     async ({ market }) => {
       try {
@@ -499,9 +503,9 @@ export function registerJingswapTools(server: McpServer): void {
         "WARNING: This will almost always fail because stored prices go stale quickly. " +
         "Prefer jingswap_settle_with_refresh instead — it fetches fresh prices and is much more reliable. " +
         "Only works after deposits have been closed (buffer/settle phase).",
-      inputSchema: {
+      inputSchema: z.object({
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
-      },
+      }),
     },
     async ({ market }) => {
       try {
@@ -526,6 +530,8 @@ export function registerJingswapTools(server: McpServer): void {
           functionName: "settle",
           functionArgs: [],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (distributes to depositors).
+          callerSpendCaps: { ustx: 0n, sats: 0n },
           postConditions: [],
         });
 
@@ -562,9 +568,9 @@ export function registerJingswapTools(server: McpServer): void {
         "Settlement distributes funds to all depositors so post conditions are in Allow mode. " +
         "There is no guarantee settlement succeeds (e.g. if oracle update fails), but this is " +
         "the most reliable path. Only works after deposits have been closed (buffer/settle phase).",
-      inputSchema: {
+      inputSchema: z.object({
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
-      },
+      }),
     },
     async ({ market }) => {
       try {
@@ -601,6 +607,8 @@ export function registerJingswapTools(server: McpServer): void {
             contractPrincipalCV(PYTH_CONTRACTS.wormhole.address, PYTH_CONTRACTS.wormhole.name),
           ],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (the Pyth update fee is ~2 uSTX; 0.001 STX bounds it).
+          callerSpendCaps: { ustx: 1_000n, sats: 0n },
           postConditions: [],
         });
 
@@ -630,9 +638,9 @@ export function registerJingswapTools(server: McpServer): void {
         "(BUFFER_BLOCKS 30 + CANCEL_THRESHOLD 500). " +
         "Rolls all deposits into the next cycle — no refunds, users can withdraw " +
         "individually during the next deposit phase. This is the safety valve.",
-      inputSchema: {
+      inputSchema: z.object({
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
-      },
+      }),
     },
     async ({ market }) => {
       try {
@@ -649,6 +657,8 @@ export function registerJingswapTools(server: McpServer): void {
           functionName: "cancel-cycle",
           functionArgs: [],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (refunds depositors).
+          callerSpendCaps: { ustx: 0n, sats: 0n },
           postConditions: [],
         });
 
@@ -676,9 +686,9 @@ export function registerJingswapTools(server: McpServer): void {
         "Get current oracle and DEX prices used by the Jingswap auction. " +
         "Returns Pyth oracle prices (BTC/USD, STX/USD with confidence and freshness), " +
         "on-chain DEX prices (XYK pool with TVL, DLMM), and the derived price ratio.",
-      inputSchema: {
+      inputSchema: z.object({
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
-      },
+      }),
     },
     async ({ market }) => {
       try {

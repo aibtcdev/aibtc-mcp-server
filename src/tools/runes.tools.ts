@@ -21,7 +21,7 @@
  * Set UNISAT_API_KEY for Unisat indexer access (5 req/s free tier).
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { NETWORK, getApiBaseUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
@@ -30,6 +30,7 @@ import { getWalletManager } from "../services/wallet-manager.js";
 import { MempoolApi, getMempoolAddressUrl, getMempoolTxUrl } from "../services/mempool-api.js";
 import { UnisatIndexer } from "../services/unisat-indexer.js";
 import { buildRuneTransfer, signRuneTransfer } from "../transactions/rune-transfer-builder.js";
+import { meteredBtcBroadcast } from "../services/btc-spend.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -85,7 +86,7 @@ export function registerRunesTools(server: McpServer): void {
         "Returns rune names, IDs, supply, divisibility, symbol, etching transaction, " +
         "and other metadata for each rune.\n\n" +
         "Use runes_get_etching to get full details on a specific rune.",
-      inputSchema: {
+      inputSchema: z.object({
         limit: z
           .number()
           .int()
@@ -99,7 +100,7 @@ export function registerRunesTools(server: McpServer): void {
           .min(0)
           .optional()
           .describe("Number of results to skip for pagination (default: 0)"),
-      },
+      }),
     },
     async ({ limit = 20, offset = 0 }) => {
       try {
@@ -124,13 +125,13 @@ export function registerRunesTools(server: McpServer): void {
         "Returns name, ID, supply info, divisibility, symbol, etching transaction, " +
         "cenotaph status, terms (mint conditions), and turbo flag.\n\n" +
         "Rune names use spacers (e.g., 'UNCOMMONGOODS' or 'UNCOMMON•GOODS').",
-      inputSchema: {
+      inputSchema: z.object({
         rune: z
           .string()
           .describe(
             "Rune name (e.g., 'UNCOMMONGOODS' or 'UNCOMMON•GOODS') or numeric rune ID"
           ),
-      },
+      }),
     },
     async ({ rune }) => {
       try {
@@ -153,7 +154,7 @@ export function registerRunesTools(server: McpServer): void {
         "Get the list of holders for a specific Bitcoin Rune.\n\n" +
         "Returns Bitcoin addresses and their rune balances, sorted by balance descending.\n\n" +
         "Supports pagination for runes with many holders.",
-      inputSchema: {
+      inputSchema: z.object({
         rune: z
           .string()
           .describe(
@@ -172,7 +173,7 @@ export function registerRunesTools(server: McpServer): void {
           .min(0)
           .optional()
           .describe("Number of results to skip for pagination (default: 0)"),
-      },
+      }),
     },
     async ({ rune, limit = 20, offset = 0 }) => {
       try {
@@ -197,7 +198,7 @@ export function registerRunesTools(server: McpServer): void {
         "Get recent on-chain activity (mints, transfers, burns) for a specific Bitcoin Rune.\n\n" +
         "Returns transaction events with amounts, addresses, block heights, and timestamps.\n\n" +
         "Useful for monitoring rune distribution and trading activity.",
-      inputSchema: {
+      inputSchema: z.object({
         rune: z
           .string()
           .describe(
@@ -216,7 +217,7 @@ export function registerRunesTools(server: McpServer): void {
           .min(0)
           .optional()
           .describe("Number of results to skip for pagination (default: 0)"),
-      },
+      }),
     },
     async ({ rune, limit = 20, offset = 0 }) => {
       try {
@@ -242,11 +243,11 @@ export function registerRunesTools(server: McpServer): void {
         "Returns each rune the address holds along with its balance, divisibility, " +
         "and symbol. Useful for checking which runes a wallet owns.\n\n" +
         "Address can be any Bitcoin address format (P2WPKH bc1q..., P2TR bc1p..., legacy 1..., etc.)",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .describe("Bitcoin address to check rune balances for"),
-      },
+      }),
     },
     async ({ address }) => {
       try {
@@ -272,7 +273,7 @@ export function registerRunesTools(server: McpServer): void {
         "Returns mints received, transfers sent/received, and burns associated with " +
         "this address across all runes.\n\n" +
         "Address can be any Bitcoin address format (P2WPKH bc1q..., P2TR bc1p..., legacy 1..., etc.)",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .describe("Bitcoin address to query rune activity for"),
@@ -289,7 +290,7 @@ export function registerRunesTools(server: McpServer): void {
           .min(0)
           .optional()
           .describe("Number of results to skip for pagination (default: 0)"),
-      },
+      }),
     },
     async ({ address, limit = 20, offset = 0 }) => {
       try {
@@ -315,14 +316,14 @@ export function registerRunesTools(server: McpServer): void {
         "Returns rune IDs, amounts, symbols, and divisibility for all runes at the address.\n\n" +
         "If no address is provided, uses the active wallet's Taproot address.\n" +
         "Set UNISAT_API_KEY for higher rate limits (5 req/s on free tier).",
-      inputSchema: {
+      inputSchema: z.object({
         address: z
           .string()
           .optional()
           .describe(
             "Bitcoin address to check (uses active wallet's Taproot address if omitted)"
           ),
-      },
+      }),
     },
     async ({ address }) => {
       try {
@@ -378,7 +379,7 @@ export function registerRunesTools(server: McpServer): void {
         "List UTXOs containing a specific rune at a Bitcoin address via the Unisat indexer.\n\n" +
         "Rune ID format: 'block:tx' (e.g., '840000:1' for UNCOMMONGOODS).\n\n" +
         "If no address is provided, uses the active wallet's Taproot address.",
-      inputSchema: {
+      inputSchema: z.object({
         runeId: z
           .string()
           .describe("Rune ID in 'block:tx' format (e.g., '840000:1')"),
@@ -388,7 +389,7 @@ export function registerRunesTools(server: McpServer): void {
           .describe(
             "Bitcoin address to check (uses active wallet's Taproot address if omitted)"
           ),
-      },
+      }),
     },
     async ({ runeId, address }) => {
       try {
@@ -455,7 +456,7 @@ export function registerRunesTools(server: McpServer): void {
         "and returns remaining runes to the sender Taproot address.\n\n" +
         "Requires wallet to be unlocked. Amount is in smallest rune units (raw integer).\n" +
         "Uses Unisat indexer to fetch rune UTXOs (UNISAT_API_KEY recommended).",
-      inputSchema: {
+      inputSchema: z.object({
         runeId: z
           .string()
           .describe("Rune ID in 'block:tx' format (e.g., '840000:1')"),
@@ -471,7 +472,7 @@ export function registerRunesTools(server: McpServer): void {
           .describe(
             "Fee rate: 'fast' (~10 min), 'medium' (~30 min), 'slow' (~1 hr), or sat/vB number (default: medium)"
           ),
-      },
+      }),
     },
     async ({ runeId, amount, toAddress, feeRate }) => {
       try {
@@ -566,7 +567,7 @@ export function registerRunesTools(server: McpServer): void {
           transferResult.feeInputIndices
         );
 
-        const txid = await mempoolApi.broadcastTransaction(signed.txHex);
+        const txid = await meteredBtcBroadcast(mempoolApi, signed.txHex, account, NETWORK);
 
         return createJsonResponse({
           success: true,

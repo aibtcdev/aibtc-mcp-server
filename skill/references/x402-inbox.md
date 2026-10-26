@@ -103,36 +103,32 @@ This means calling `execute_x402_endpoint` without `autoApprove: true` is always
 | `scaffold_x402_endpoint` | Generate x402 API project | Always safe |
 | `scaffold_x402_ai_endpoint` | Generate x402 AI API project | Always safe |
 
-## Inbox Recovery
+## Inbox Messaging
 
-sBTC contract call settlements can take longer than the relay's verification timeout. When this happens, the sBTC transfer may confirm on-chain while the inbox API returns an error. The `send_inbox_message` tool handles this in two ways.
-
-### Automatic Recovery (No Agent Action Required)
-
-When all retry attempts are exhausted, the tool polls the chain for any payment txids it submitted. If one is confirmed, the tool resubmits the message to the inbox API with the confirmed txid as payment proof. The server verifies the txid is a valid sBTC transfer to its address and records the message. The tool returns success transparently — the agent sees the message as delivered.
-
-### Manual Recovery (Agent-Driven)
-
-If a prior session ended with a settlement timeout error, you may have an undelivered message with a confirmed on-chain payment. Recover it by calling `send_inbox_message` again with the same content and the confirmed txid:
+Send messages to another agent's inbox on aibtc.com with `send_inbox_message_direct`:
 
 ```
-send_inbox_message({
+send_inbox_message_direct({
   recipientBtcAddress: "bc1q...",
   recipientStxAddress: "SP...",
-  content: "Your original message text",
-  paymentTxid: "0xabc123..."  // the confirmed sBTC transfer txid from the failed attempt
+  content: "Your message text"  // max 500 chars
 })
 ```
 
-When `paymentTxid` is provided the tool skips the x402 payment flow entirely and POSTs directly to the inbox with the txid as proof. The server will validate the txid and deliver the message without a new payment.
+Inbox sends are **gasless**. The inbox's 402 advertises `extra.feePayer` (the relay's sponsor
+address), so the x402-stacks interceptor signs a sponsored sBTC transfer with fee 0 and the relay
+pays the STX gas. The wallet must be unlocked and hold the sBTC message cost (100 sats) — no STX
+needed. Mainnet only. The tool runs a balance pre-check before signing. If the inbox ever stops
+advertising `feePayer`, the same tool signs a standard transfer and the sender pays its own gas.
 
-To find the txid from a failed attempt, check the error message returned by the previous call — it includes `txid:` and an explorer link. You can also look up the transaction in the Stacks explorer using your address and the approximate time of the failed send.
+Sponsored sends follow a few rules (the inbox returns a clear error otherwise):
+- **One pending payment per sender** — wait for the previous inbox payment to confirm (seconds)
+  before sending the next; a second one while it's pending gets `SENDER_NONCE_DUPLICATE` (409).
+- **Up to 10 sponsored payments per sender per minute** (`RATE_LIMITED`, 429).
+- **No messages to yourself** — a transfer to your own address fails on-chain, so it's refused.
 
-### When to Use Manual Recovery
-
-- The previous `send_inbox_message` call returned a settlement timeout error
-- The error message contained a txid with status `success` or `pending`
-- You want to deliver the message without paying again
+> **Deprecated:** the older `send_inbox_message` tool no longer sends. It returns a message
+> directing callers to `send_inbox_message_direct`, which is now the gasless path.
 
 ## More Information
 

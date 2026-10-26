@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import {
   uintCV,
@@ -9,7 +9,7 @@ import {
   cvToJSON,
 } from "@stacks/transactions";
 import { getAccount, NETWORK } from "../services/x402.service.js";
-import { getHiroApi } from "../services/hiro-api.js";
+import { getHiroApi, isNotFoundError } from "../services/hiro-api.js";
 import { callContract } from "../transactions/builder.js";
 import { getExplorerTxUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
@@ -126,7 +126,7 @@ all participants recover their original STX contribution.
 Returns each pot's contract ID, configuration, current STX value, and lock status.
 
 Note: Stackspot is only available on mainnet.`,
-      inputSchema: {},
+      inputSchema: z.object({}),
     },
     async () => {
       try {
@@ -147,13 +147,14 @@ Note: Stackspot is only available on mainnet.`,
                 "get-pot-value",
                 []
               );
-            } catch {
-              // pot may not be deployed or reachable — skip gracefully
+            } catch (error) {
+              // 404 = pot contract not deployed; other failures surface
+              if (!isNotFoundError(error)) throw error;
             }
             try {
               isLocked = await callPotReadOnly(pot.contractName, "is-locked", []);
-            } catch {
-              // same
+            } catch (error) {
+              if (!isNotFoundError(error)) throw error;
             }
             return {
               name: pot.name,
@@ -191,13 +192,13 @@ Use a bare contract name (e.g., "STXLFG") or a fully-qualified identifier
 (e.g., "SPT4SQP5RC1BFAJEQKBHZMXQ8NQ7G118F335BD85.STXLFG").
 
 Note: Stackspot is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         contractName: z
           .string()
           .describe(
             'Pot contract name or full identifier (e.g., "STXLFG" or "SPT4SQP5RC1BFAJEQKBHZMXQ8NQ7G118F335BD85.STXLFG")'
           ),
-      },
+      }),
     },
     async ({ contractName }) => {
       try {
@@ -257,7 +258,7 @@ Amount must be in micro-STX (1 STX = 1,000,000 micro-STX).
 Requires an unlocked wallet with sufficient STX balance.
 
 Note: Stackspot is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         contractName: z
           .string()
           .describe(
@@ -268,7 +269,7 @@ Note: Stackspot is only available on mainnet.`,
           .describe(
             "Amount to contribute in micro-STX (1 STX = 1,000,000 micro-STX)"
           ),
-      },
+      }),
     },
     async ({ contractName, amount }) => {
       try {
@@ -318,6 +319,8 @@ Note: Stackspot is only available on mainnet.`,
           functionName: "join-pot",
           functionArgs: [uintCV(amountBigInt)],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (the pot entry).
+          callerSpendCaps: { ustx: amountBigInt, sats: 0n },
         });
 
         return createJsonResponse({
@@ -354,13 +357,13 @@ Use a bare contract name (e.g., "STXLFG") or a fully-qualified identifier.
 Requires an unlocked wallet.
 
 Note: Stackspot is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         contractName: z
           .string()
           .describe(
             'Pot contract name or full identifier (e.g., "STXLFG" or "SPT4SQP5RC1BFAJEQKBHZMXQ8NQ7G118F335BD85.STXLFG")'
           ),
-      },
+      }),
     },
     async ({ contractName }) => {
       try {
@@ -382,6 +385,8 @@ Note: Stackspot is only available on mainnet.`,
             contractPrincipalCV(parsed.deployer, parsed.contractName),
           ],
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (stacks the pot's own STX).
+          callerSpendCaps: { ustx: 0n, sats: 0n },
         });
 
         return createJsonResponse({
@@ -417,13 +422,13 @@ Use a bare contract name (e.g., "STXLFG") or a fully-qualified identifier.
 Requires an unlocked wallet.
 
 Note: Stackspot is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         contractName: z
           .string()
           .describe(
             'Pot contract name or full identifier (e.g., "STXLFG" or "SPT4SQP5RC1BFAJEQKBHZMXQ8NQ7G118F335BD85.STXLFG")'
           ),
-      },
+      }),
     },
     async ({ contractName }) => {
       try {
@@ -447,6 +452,8 @@ Note: Stackspot is only available on mainnet.`,
           // are not known client-side until the contract executes, so strict
           // post-conditions cannot be set without an additional read-only query.
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (pays out to participants).
+          callerSpendCaps: { ustx: 0n, sats: 0n },
         });
 
         return createJsonResponse({
@@ -481,13 +488,13 @@ Use a bare contract name (e.g., "STXLFG") or a fully-qualified identifier.
 Requires an unlocked wallet.
 
 Note: Stackspot is only available on mainnet.`,
-      inputSchema: {
+      inputSchema: z.object({
         contractName: z
           .string()
           .describe(
             'Pot contract name or full identifier (e.g., "STXLFG" or "SPT4SQP5RC1BFAJEQKBHZMXQ8NQ7G118F335BD85.STXLFG")'
           ),
-      },
+      }),
     },
     async ({ contractName }) => {
       try {
@@ -510,6 +517,8 @@ Note: Stackspot is only available on mainnet.`,
           // to contributors on cancel. The amount is not known client-side without
           // an additional read-only query, so strict post-conditions are deferred.
           postConditionMode: PostConditionMode.Allow,
+          // Caller spend caps (returns STX to participants).
+          callerSpendCaps: { ustx: 0n, sats: 0n },
         });
 
         return createJsonResponse({
