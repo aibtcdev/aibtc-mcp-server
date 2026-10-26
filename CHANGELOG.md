@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.76.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.76.1...mcp-server-v1.76.2) (2026-10-26)
+
+
+### Bug Fixes
+
+* **bitflow:** default the keeper host to keeper.bitflowapis.finance ([#729](https://github.com/aibtcdev/aibtc-mcp-server/issues/729)) ([e9fe0bc](https://github.com/aibtcdev/aibtc-mcp-server/commit/e9fe0bc3b24c4aa4be5ef26129ee29fb68c6e8c1)), closes [#726](https://github.com/aibtcdev/aibtc-mcp-server/issues/726)
+
 ## [1.76.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.76.0...mcp-server-v1.76.1) (2026-10-23)
 
 
