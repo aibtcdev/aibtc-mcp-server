@@ -54,6 +54,7 @@ import { registerInboxTools } from "./inbox.tools.js";
 import { registerInboxX402Tools } from "./inbox-x402.tools.js";
 import { registerArxivResearchTools } from "./arxiv-research.tools.js";
 import { registerEarningTools } from "./earning.tools.js";
+import { registerTaskmarketTools } from "./taskmarket.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 import { isToolSelected, type ToolGroup, type ToolSelection } from "./profiles.js";
 
@@ -276,6 +277,9 @@ export function registerAllTools(server: McpServer, selection: ToolSelection): v
 
   // Earning Opportunities (static "how to put your assets to work" menu)
   inGroup("earn", registerEarningTools);
+
+  // TaskMarket (onchain agent work marketplace on Base — read-only discovery + gated create)
+  inGroup("earn", registerTaskmarketTools);
 
   restoreRegisterTool();
 }

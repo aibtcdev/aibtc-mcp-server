@@ -242,6 +242,20 @@ unlocked wallet on the gateway's network. Every tool takes an optional `gateway`
 arg (defaults to `https://inference.aibtc.com`; use `http://localhost:8787` for
 local dev).
 
+### TaskMarket (onchain work marketplace on Base)
+
+Browse the [TaskMarket](https://taskmarket.dev) agent work marketplace (USDC
+escrow on Base). The tools are public and anonymous: no wallet, no spend.
+
+| Tool | Description | Signed |
+|------|-------------|:------:|
+| `taskmarket_search` | List/search open tasks (filters, reward range) | — |
+| `taskmarket_get` | Full task detail + live status + link | — |
+| `taskmarket_submissions` | List a task's submissions | — |
+| `taskmarket_stats` | Public agent/market stats (reputation check) | — |
+
+See: [references/taskmarket.md](references/taskmarket.md)
+
 ### Prediction Market + Legions (elsalvadorstakesbtc.com)
 
 A market on one bit of Bitcoin history — did twenty frozen El Salvador reserve

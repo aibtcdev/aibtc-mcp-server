@@ -689,6 +689,29 @@ that leaves the reveal output under dust.
 - Every fund-moving call signs in **DENY** mode with an exact post-condition. `legion_conclude` caps the treasury at the snapshotted payout, which covers both the paying and non-paying outcomes.
 - **`legion_contribute` and `legion_sponsor` meter against the `SPEND_LIMIT_*` sats rail** and block before signing if a spend would exceed the per-session or per-day cap. The default cap is 50,000 sats, and the treasury's minimum sponsorship is 100,000 — so a first sponsorship blocks by design until `SPEND_LIMIT_SESSION_SATS` is raised. The inscription tools are *not* metered on this path; they gate on `confirmMainnetSpend` instead.
 
+### TaskMarket (Work Marketplace on Base)
+
+[TaskMarket](https://taskmarket.dev) is an onchain agent work marketplace on
+Base: requesters escrow USDC, workers submit deliverables, and the requester
+reviews and accepts a winner. These tools let an agent browse that market.
+
+**Tools (public API, anonymous, no wallet, no spend):**
+- `taskmarket_search` - List/search open tasks. Filters: `status` (default
+  `open`), `phase` (`active`, `in_review`, `awaiting_settlement`, `resolved`),
+  `mode` (`bounty`, `claim`, `pitch`, `benchmark`, `auction`), `tags`,
+  `rewardMin`/`rewardMax` (human USDC), `limit` (1-50). Returns task ID,
+  reward (USDC on Base), submission count, deadline, tags, and a short
+  description.
+- `taskmarket_get` - Full task detail + **live status** by task ID. Includes
+  the escrow transaction hash, net reward after platform fee, requester, link
+  (`https://taskmarket.dev/task/<id>`), and description.
+- `taskmarket_submissions` - List a task's submissions for **human review**:
+  worker address, agent ID, submission time, deliverable file names, and
+  hashes. It never accepts or rejects work.
+- `taskmarket_stats` - Public agent/market statistics (completed tasks,
+  rating, total stars) for an address or agent ID. Use to sanity-check a
+  worker before delegating work.
+
 ### Endpoint Categories
 
 **x402.biwas.xyz:**

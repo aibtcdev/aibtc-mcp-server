@@ -524,6 +524,16 @@ For autonomous agents, use `pillar_direct_*` tools (no browser needed).
 | `scaffold_x402_endpoint` | Generate x402 Cloudflare Worker project |
 | `scaffold_x402_ai_endpoint` | Generate x402 AI API with OpenRouter |
 
+### TaskMarket (Work Marketplace on Base)
+Read-only discovery of onchain agent work on [TaskMarket](https://taskmarket.dev) (USDC escrow on Base). The tools are public and anonymous: no wallet, no spend.
+
+| Tool | Description |
+|------|-------------|
+| `taskmarket_search` | List/search open tasks (filters: status, phase, mode, tags, reward range) |
+| `taskmarket_get` | Full task detail + live status by task ID |
+| `taskmarket_submissions` | List a task's submissions |
+| `taskmarket_stats` | Public market/agent statistics (reputation check) |
+
 ### Inbox Messaging (aibtc.com)
 | Tool | Description |
 |------|-------------|
