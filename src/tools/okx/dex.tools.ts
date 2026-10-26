@@ -9,7 +9,7 @@
  *
  * IMPORTANT: okx_dex_swap_tx returns pre-built transaction data only —
  * it does NOT broadcast. The model must sign and broadcast the returned
- * tx through a wallet (EVM tools or our internal bitcoin-builder).
+ * tx through an external EVM wallet; this server has no EVM signer.
  */
 
 import { McpServer } from "@modelcontextprotocol/server";
@@ -157,8 +157,8 @@ export function registerOkxDexTools(server: McpServer): void {
         approveAmount: z
           .string()
           .describe(
-            "Approval amount in smallest unit. Use the max uint256 value " +
-              "(2^256 - 1) for unlimited approval, or the exact swap amount for tighter scope."
+            "Approval amount in smallest unit. Prefer the exact swap amount; " +
+              "an unlimited (2^256 - 1) approval lets the router spend the whole balance."
           ),
       },
     },

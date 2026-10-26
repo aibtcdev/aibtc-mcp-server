@@ -5,9 +5,8 @@
  * Auth: OK-ACCESS-{KEY,SIGN,PASSPHRASE,TIMESTAMP,PROJECT} (signed)
  *
  * IMPORTANT: /swap does NOT broadcast. The response contains a `tx` object
- * the caller must sign and broadcast through the user's own wallet
- * (web3.js, ethers, or our internal bitcoin-builder for BTC routes once
- * those are added). Do not claim a swap executed after calling /swap.
+ * the caller must sign and broadcast through their own EVM wallet; this
+ * server has no EVM signer. Do not claim a swap executed after calling /swap.
  *
  * Phase 2 covers single-chain swaps only. Cross-chain bridge endpoints
  * exist on /api/v5/dex/cross-chain/* but their exact param shapes were

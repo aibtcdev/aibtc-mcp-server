@@ -112,6 +112,7 @@ aibtc-mcp-server MCP Server (src/index.ts)
 - `src/tools/pillar.tools.ts` - Pillar smart wallet tools (handoff model)
 - `src/services/pillar-api.service.ts` - Pillar API client
 - `src/config/pillar.ts` - Pillar configuration (API URL, API key)
+- `src/services/okx/` / `src/tools/okx/` - OKX public market data (www.okx.com) and the signed OKX Web3 DEX aggregator + Wallet API (web3.okx.com, credentials in the `okx` credential-store service)
 
 ### BNS V1 vs V2
 
@@ -239,6 +240,7 @@ The allowlist is re-enforced at `tools/call` time, so the model can't reach a to
 | AIBTC News | `news_*` (17 tools) | **Deprecated** — the aibtc.news API is retired (410). Tools stay registered but only return a pointer to `legion_*` |
 | News Legion | `legion_status/list_stories/get_story/my_position` (read) + `legion_contribute/sponsor/propose_story/vote/conclude` + `legion_inscribe_story/inscribe_reveal` | **Stacks mainnet, real sBTC**, pinned by contract address — never follows global `NETWORK`. No veto, no quorum, no faucet. Proposals blocked until 21 members join (`u441`); a story also needs yes weight ≥ 20× its payout. `contribute`/`sponsor` meter the `SPEND_LIMIT_*` sats rail. Inscription is the exception: native L1 BTC on whatever `NETWORK` names, gated by `confirmMainnetSpend` |
 | At Stake | `atstake_market_status/position/subject/get_bid` (read) + `atstake_mint_complete_set/merge_complete_set/place_bid/cancel_bid/transfer_shares/redeem/resolve_idle` + `atstake_legion_status/list_proposals/get_proposal/propose/vote/conclude/redeem_vault/claim_credit` | **Stacks mainnet, real sBTC**, pinned by contract address. Minting is a hedge, not a bet; legion weight is the live share balance (min 1,000) |
+| OKX | `okx_market_ticker/tickers/orderbook/candles` (public) + `okx_dex_supported_chains/tokens/quote/swap_tx/approve_tx` + `okx_wallet_supported_chains/token_balances/utxos` | `okx` group. DEX/Wallet tools need `credentials_set` service `okx` (`api_key`, `secret`, `passphrase`, `project_id`). `okx_dex_swap_tx`/`approve_tx` return unsigned EVM calldata; nothing is signed or broadcast. `OKX_BASE_URL` / `OKX_WEB3_BASE_URL` override the hosts |
 | Settings | `set/get/delete_hiro_api_key`, `set/get/delete_stacks_api_url`, `get_server_version` | Stored in `~/.aibtc/config.json` |
 | PSBT | `psbt_create_ordinal_buy`, `psbt_sign`, `psbt_broadcast`, `psbt_decode` | Signing step for ordinals marketplace / P2P / taproot multisig flows |
 | Inbox | `send_inbox_message_direct` | Mainnet only; **gasless** — the inbox 402 advertises `extra.feePayer`, so x402-stacks signs a sponsored sBTC transfer (fee 0) and the relay pays STX gas (relay `sponsorPayment`, one pending payment per sender). Without `feePayer` it falls back to a self-paid transfer signed by `createApiClient` (fee capped at the `sbtc_transfer` clamp, 0.003 STX). Meters the sBTC cost against the spend limit. `send_inbox_message` is **deprecated** — it no longer sends and just redirects here |
