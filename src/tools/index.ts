@@ -52,6 +52,7 @@ import { registerBountyScannerTools } from "./bounty-scanner.tools.js";
 import { registerRunesTools } from "./runes.tools.js";
 import { registerInboxTools } from "./inbox.tools.js";
 import { registerInboxX402Tools } from "./inbox-x402.tools.js";
+import { registerInboxAutoReplyTools } from "./inbox-auto-reply.tools.js";
 import { registerArxivResearchTools } from "./arxiv-research.tools.js";
 import { registerEarningTools } from "./earning.tools.js";
 import { registerTaskmarketTools } from "./taskmarket.tools.js";
@@ -271,6 +272,9 @@ export function registerAllTools(server: McpServer, selection: ToolSelection): v
 
   // Inbox direct x402 (non-sponsored — sender pays own STX gas, no relay)
   inGroup("social", registerInboxX402Tools);
+
+  // Inbox auto-reply (answer paid inbox messages with an inference marketplace model)
+  inGroup("social", registerInboxAutoReplyTools);
 
   // arXiv Research (public arXiv Atom API — paper search and digest compilation)
   inGroup("dev", registerArxivResearchTools);
