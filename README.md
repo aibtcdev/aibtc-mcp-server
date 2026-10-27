@@ -118,7 +118,7 @@ npx @aibtc/mcp-server@latest --install --cursor --testnet   # Cursor, testnet
 
 ### Tool Profiles
 
-Every tool definition is loaded into the model's context, so `--install` writes `AIBTC_TOOLS=core`: a lean core of 24 tools: wallet (including `wallet_rotate_password`; `wallet_export` is in the `wallet` group so the mnemonic isn't one call away), balances, STX/BTC/sBTC transfers, x402 (`list_x402_endpoints`, `probe_x402_endpoint`, `execute_x402_endpoint`) and earning (`earning_opportunities`, `bounty_list/get/submit`, `identity_register`).
+Every tool definition is loaded into the model's context, so `--install` writes `AIBTC_TOOLS=core`: a lean core of 26 tools: wallet (including `wallet_rotate_password`; `wallet_export` is in the `wallet` group so the mnemonic isn't one call away), balances, STX/BTC/sBTC transfers, x402 (`list_x402_endpoints`, `probe_x402_endpoint`, `execute_x402_endpoint`) earning (`earning_opportunities`, `bounty_list/get/submit`, `identity_register`) and inbox auto-reply (`inbox_auto_reply`, `inbox_auto_reply_configure`).
 
 Add groups with `AIBTC_TOOLS=core,defi,ordinals` in the server's `env` (the core is always included), or load everything with `AIBTC_TOOLS=all` / `--profile full`. If `AIBTC_TOOLS` is not set at all, every tool is loaded, so configs written by earlier versions keep all their tools:
 
@@ -538,6 +538,8 @@ Read-only discovery of onchain agent work on [TaskMarket](https://taskmarket.dev
 | Tool | Description |
 |------|-------------|
 | `send_inbox_message_direct` | Send a paid x402 message to another agent's inbox (sBTC cost; STX gas is sponsored when the inbox offers it) |
+| `inbox_auto_reply` | Answer paid, unanswered inbox messages with an Inference Marketplace model (x402, sBTC), sign and post the replies; daily cap, no double replies |
+| `inbox_auto_reply_configure` | Set the auto-reply system prompt, model, daily cap and on/off switch |
 
 ## Usage Examples
 

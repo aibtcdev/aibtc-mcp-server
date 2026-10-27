@@ -1,15 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import axios, { AxiosError } from "axios";
-import {
-  wrapAxiosWithPayment,
-  decodePaymentRequired,
-  decodePaymentResponse,
-  X402_HEADERS,
-  type StacksAccount,
-} from "x402-stacks";
-import { createApiClient, getAccount, NETWORK } from "../services/x402.service.js";
-import { getSpendLimiter } from "../services/spend-limiter.js";
+import { AxiosError } from "axios";
+import { getAccount, NETWORK } from "../services/x402.service.js";
+import { postWithX402Payment } from "../services/x402-post.js";
 import { getSbtcService } from "../services/sbtc.service.js";
 import { getHiroApi } from "../services/hiro-api.js";
 import { getExplorerTxUrl } from "../config/networks.js";
@@ -88,34 +81,11 @@ export async function checkDirectInboxBalance(
 }
 
 /**
- * True when a failed x402-stacks request had already carried the signed
- * payment: the retried request's config holds the payment-signature header,
- * either on the error itself (the retry failed outright) or on its `cause`
- * (the interceptor's "402 after payment was sent").
- */
-function paymentWasSent(error: unknown): boolean {
-  const carried = (e: unknown): boolean => {
-    const headers = (e as { config?: { headers?: unknown } } | undefined)?.config?.headers;
-    if (!headers || typeof headers !== "object") return false;
-    const wanted = X402_HEADERS.PAYMENT_SIGNATURE.toLowerCase();
-    return Object.entries(headers).some(
-      ([name, value]) => name.toLowerCase() === wanted && value != null
-    );
-  };
-  return carried(error) || carried((error as { cause?: unknown } | undefined)?.cause);
-}
-
-/**
  * x402 inbox messaging. The transaction is signed but not broadcast; the
  * inbox endpoint settles it through its x402 facilitator.
  *
- * The inbox decides who pays gas. When its 402 advertises `extra.feePayer`,
- * the `x402-stacks` interceptor (`wrapAxiosWithPayment`, >=2.1.0) signs a
- * sponsored sBTC transfer with fee 0 and the facilitator co-signs and pays the
- * STX gas. Without it, the payment goes through `createApiClient`, which signs
- * a standard transfer at the `sbtc_transfer` fee clamp (max 0.003 STX) with an
- * exact-amount post-condition. The SDK's standard path leaves the fee to
- * stacks.js auto-estimation, which has no ceiling (#700).
+ * The inbox decides who pays gas (402 `extra.feePayer`); the sponsored and
+ * self-paid paths live in `postWithX402Payment` (`services/x402-post.ts`).
  *
  * Server side: `lib/inbox/x402-verify.ts` deserializes the payment tx and
  * branches on `tx.auth.authType` (sponsored → relay sponsors; standard →
@@ -167,95 +137,27 @@ export function registerInboxX402Tools(server: McpServer): void {
           content,
         };
 
-        // Step 1: Probe for the 402 challenge (no payment) so we can pre-check
-        // balance before signing. A bare POST never charges — it just returns
-        // the payment requirements. We use plain fetch here so the x402-stacks
-        // interceptor does not auto-pay this probe.
-        const probe = await fetch(inboxUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(30_000),
+        // Probe for the 402, pre-flight the balance (sBTC for the message, plus
+        // a realistic STX gas budget when the sender pays its own fee), then pay.
+        const result = await postWithX402Payment({
+          baseUrl: INBOX_BASE,
+          url: inboxUrl,
+          body,
+          toolName: "send_inbox_message_direct",
+          beforePay: (accept, sponsored) =>
+            checkDirectInboxBalance(account.address, accept.amount, sponsored),
+          timeoutMs: 120_000,
         });
 
-        if (probe.status !== 402) {
-          const text = await probe.text();
-          if (probe.ok) {
-            return createJsonResponse({
-              success: true,
-              message: "Message sent (no payment required)",
-              response: text,
-            });
-          }
-          throw new Error(
-            `Expected 402 payment challenge, got ${probe.status}: ${text}`
-          );
-        }
-
-        const paymentRequired = decodePaymentRequired(
-          probe.headers.get(X402_HEADERS.PAYMENT_REQUIRED)
-        );
-        if (!paymentRequired?.accepts?.length) {
-          throw new Error("402 response missing or empty payment-required header");
-        }
-        const accept = paymentRequired.accepts[0];
-
-        // The SDK signs a sponsored (fee 0) transfer exactly when the
-        // requirement names a fee payer — mirror its check.
-        const sponsored = typeof accept.extra?.feePayer === "string";
-
-        // Step 2: Pre-flight balance check — sBTC for the message, plus a
-        // realistic STX gas budget when the sender pays its own fee.
-        await checkDirectInboxBalance(account.address, accept.amount, sponsored);
-
-        // Step 3: Send. Either interceptor handles 402 -> sign -> retry.
-        let response;
-        if (sponsored) {
-          // The message cost is a signed sBTC spend: book it before signing.
-          const spendLimiter = getSpendLimiter();
-          const reservation = await spendLimiter.reserve(
-            [{ unit: "sats", amount: BigInt(accept.amount) }],
-            account.address
-          );
-
-          const stacksAccount: StacksAccount = {
-            address: account.address,
-            privateKey: account.privateKey,
-            network: NETWORK,
-          };
-          // x402-stacks is CJS, so its AxiosInstance comes from axios' .d.cts
-          // types; ours comes from .d.ts. Same runtime object, different type.
-          const api = wrapAxiosWithPayment(
-            axios.create({ timeout: 120_000 }) as unknown as Parameters<typeof wrapAxiosWithPayment>[0],
-            stacksAccount
-          );
-          try {
-            response = await api.post(inboxUrl, body, {
-              headers: { "Content-Type": "application/json" },
-            });
-          } catch (error) {
-            // Once the signed payment rode the retried request, the inbox may
-            // have settled it, so the booking stands.
-            if (!paymentWasSent(error)) await spendLimiter.release(reservation);
-            throw error;
-          }
-        } else {
-          // Self-paid: createApiClient clamps the fee and meters the spend.
-          const api = await createApiClient(INBOX_BASE, {
-            toolName: "send_inbox_message_direct",
-            asset: accept.asset,
-          });
-          response = await api.post(inboxUrl, body, {
-            headers: { "Content-Type": "application/json" },
+        if (!result.paid) {
+          return createJsonResponse({
+            success: true,
+            message: "Message sent (no payment required)",
+            response: result.text,
           });
         }
 
-        // Step 4: Decode the settlement (txid + payer) from the response header.
-        const settlement = decodePaymentResponse(
-          response.headers[X402_HEADERS.PAYMENT_RESPONSE]
-        );
-        const txid = settlement?.transaction;
-        const payer = settlement?.payer;
+        const { response, accept, sponsored, txid, payer } = result;
 
         return createJsonResponse({
           success: true,

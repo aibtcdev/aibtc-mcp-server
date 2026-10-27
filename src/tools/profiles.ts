@@ -45,6 +45,9 @@ export const CORE_TOOLS: ReadonlySet<string> = new Set([
   "bounty_get",
   "bounty_submit",
   "identity_register",
+  // Inbox auto-reply (off until the agent sets a system prompt and enables it)
+  "inbox_auto_reply",
+  "inbox_auto_reply_configure",
 ]);
 
 export const TOOL_GROUPS = {
