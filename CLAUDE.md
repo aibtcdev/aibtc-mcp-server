@@ -90,6 +90,8 @@ aibtc-mcp-server MCP Server (src/index.ts)
 - `src/services/mempool-api.ts` - mempool.space API client for Bitcoin UTXO, fee, and broadcast
 - `src/transactions/bitcoin-builder.ts` - Bitcoin transaction building and signing (P2WPKH)
 - `src/endpoints/registry.ts` - Static x402 endpoint entries for hosts without an OpenAPI spec (x402.biwas.xyz, aibtc.com inbox)
+- `src/services/x402-post.ts` - `postWithX402Payment`: probe → sponsored (`feePayer`) or self-paid x402 POST, spend-metered; used by the inbox send and auto-reply
+- `src/services/inbox-auto-reply.service.ts` / `src/tools/inbox-auto-reply.tools.ts` - Inbox auto-reply: eligibility, swappable `ReplyGenerator` (marketplace today), daily-cap ledger, outbox signing
 - `src/services/x402-discovery.service.ts` - Live endpoint discovery from x402.aibtc.com / stx402.com `openapi.json` and the stx402.com directory
 - `src/services/bns.service.ts` - BNS name resolution (supports both V1 and V2)
 - `src/services/hiro-api.ts` - Hiro API client + BNS V2 API client
@@ -243,6 +245,7 @@ The allowlist is re-enforced at `tools/call` time, so the model can't reach a to
 | Settings | `set/get/delete_hiro_api_key`, `set/get/delete_stacks_api_url`, `get_server_version` | Stored in `~/.aibtc/config.json` |
 | PSBT | `psbt_create_ordinal_buy`, `psbt_sign`, `psbt_broadcast`, `psbt_decode` | Signing step for ordinals marketplace / P2P / taproot multisig flows |
 | Inbox | `send_inbox_message_direct` | Mainnet only; **gasless** — the inbox 402 advertises `extra.feePayer`, so x402-stacks signs a sponsored sBTC transfer (fee 0) and the relay pays STX gas (relay `sponsorPayment`, one pending payment per sender). Without `feePayer` it falls back to a self-paid transfer signed by `createApiClient` (fee capped at the `sbtc_transfer` clamp, 0.003 STX). Meters the sBTC cost against the spend limit. `send_inbox_message` is **deprecated** — it no longer sends and just redirects here |
+| Inbox auto-reply | `inbox_auto_reply`, `inbox_auto_reply_configure` | Mainnet only. Answers paid, settled, unanswered inbox messages with an Inference Marketplace model (x402, ~1 sat sBTC each), BIP-322 signs and posts to `/api/outbox`. Daily cap ledger in `~/.aibtc/inbox-auto-reply.json` (booked before signing) on top of the spend limiter; handled ids + outbox 409 prevent double replies; a paid reply whose post failed is reused next run. Loops are impossible (replies never enter an inbox) |
 
 ## Agent Behavior Guidelines
 
