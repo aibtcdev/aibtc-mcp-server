@@ -118,6 +118,8 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   openrouter_models: "x402",
   send_inbox_message: "x402",
   send_inbox_message_direct: "x402",
+  inbox_auto_reply: "x402",
+  inbox_auto_reply_configure: "x402",
 
   // defi skill — ALEX DEX and Zest Protocol
   alex_list_pools: "defi",
