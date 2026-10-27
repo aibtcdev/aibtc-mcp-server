@@ -72,6 +72,13 @@ export interface AppConfig {
   autoLockTimeout: number; // Minutes, 0 = never
   hiroApiKey?: string;
   stacksApiUrl?: string;
+  /** Set by inbox_auto_reply_configure; unset means auto-reply was never configured. */
+  inboxAutoReply?: {
+    enabled: boolean;
+    model: string;
+    systemPrompt: string;
+    dailyCapSats: number;
+  };
 }
 
 /**
