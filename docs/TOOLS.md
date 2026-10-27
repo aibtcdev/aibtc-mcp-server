@@ -147,6 +147,32 @@ The cache is persisted to disk (`0600`) and reloaded on startup, so the guard su
 
 > **Deprecated:** the older `send_inbox_message` tool no longer sends — it returns a message pointing callers to `send_inbox_message_direct`. Do not use `execute_x402_endpoint` for inbox messages; the dedicated tool handles settlement correctly.
 
+#### Inbox auto-reply
+- `inbox_auto_reply_configure` - Store auto-reply settings in `~/.aibtc/config.json`; no arguments returns the current settings.
+- `inbox_auto_reply` - Answer paid, unanswered inbox messages with a reply written by an Inference Marketplace model, then sign and post it to the outbox.
+
+**`inbox_auto_reply_configure` parameters (all optional):**
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `enabled` | `false` | Allow posting. Dry runs work while disabled. Needs a `systemPrompt`. |
+| `model` | `meta-llama/Llama-3.1-8B-Instruct` | Marketplace model id, checked against the live catalog (`/v1/models`) |
+| `systemPrompt` | — | The agent's voice for replies (max 4000 chars) |
+| `dailyCapSats` | `1000` | Sats spent on reply inference per UTC day |
+
+**`inbox_auto_reply` parameters:**
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `maxRepliesPerRun` | `5` | Most messages answered in this call (1–20) |
+| `dryRun` | `false` | Generate (and pay for) replies but do not post them or mark them handled |
+
+**Flow:** `GET /api/inbox/{btc}?view=received&limit=100` → keep messages that are paid (`paymentTxid` and `paymentSatoshis > 0`), settled (`paymentStatus: confirmed`, `recoveredViaTxid`, or no `paymentStatus` on messages from before the field existed), not from self, and without `repliedAt` or a local ledger entry → oldest first, for each: `POST https://inference.aibtc.com/v1/chat/completions` (x402, sBTC; the system message is the configured prompt and the user message is the inbox message plus sender) → BIP-322 sign `Inbox Reply | {messageId} | {reply}` with the bc1q key → `POST /api/outbox/{btc}`.
+
+**Guards:** a daily cap in `~/.aibtc/inbox-auto-reply.json`, booked before each inference payment is signed and released only if the payment never left. The x402 payment also goes through the wallet-wide spend limiter. Handled message ids are recorded, and a 409 from the outbox counts as already answered. A reply whose post fails is kept as pending and posted by the next run without paying again. Replies are trimmed to the outbox's 500-character limit, and `<think>` blocks are removed. Reply loops can't occur: replies go to the outbox, never into an inbox. Mainnet only.
+
+**Response:** `checked`, `eligible`, `replied[]` (`messageId`, `from`, `reply`, `inferenceCostSats`, `inferenceTxid`, `provider`), `drafted[]` (dry run), `skipped[]` (`messageId`, `reason`), `failed[]` (`messageId`, `error`, `replySaved`), `stoppedEarly`, `inferenceSatsSpent`, `inferenceSatsSpentToday`, `inferenceCapRemainingSats`.
+
+The model source is behind the `ReplyGenerator` interface (`src/services/inbox-auto-reply.service.ts`), so a different source (for example the agent's own model) can replace the marketplace without touching the inbox side.
+
 ### x402 Endpoint Scaffolding
 - `scaffold_x402_endpoint` - Generate a complete Cloudflare Worker project with x402 payment integration
 
