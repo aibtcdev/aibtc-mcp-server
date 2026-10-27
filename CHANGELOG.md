@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.78.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.77.0...mcp-server-v1.78.0) (2026-10-27)
+
+
+### Features
+
+* add inbox auto-reply ([#738](https://github.com/aibtcdev/aibtc-mcp-server/issues/738)) ([fa28995](https://github.com/aibtcdev/aibtc-mcp-server/commit/fa28995fe87a5b02aa73c88cac14565172d4730b))
+
 ## [1.77.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.76.2...mcp-server-v1.77.0) (2026-10-26)
 
 
