@@ -212,7 +212,7 @@ The allowlist is re-enforced at `tools/call` time, so the model can't reach a to
 
 ## Available Tools
 
-> **Profiles:** new installs get `AIBTC_TOOLS=core`, which registers only the 24-tool lean core in `src/tools/profiles.ts`; everything else loads by group (`AIBTC_TOOLS=core,defi`) or with `all`. An unset `AIBTC_TOOLS` (configs from before profiles) registers everything. A new tool goes in its module's group automatically; add it to `CORE_TOOLS` only if a fresh install needs it.
+> **Profiles:** new installs get `AIBTC_TOOLS=core`, which registers only the 26-tool lean core in `src/tools/profiles.ts`; everything else loads by group (`AIBTC_TOOLS=core,defi`) or with `all`. An unset `AIBTC_TOOLS` (configs from before profiles) registers everything. A new tool goes in its module's group automatically; add it to `CORE_TOOLS` only if a fresh install needs it.
 
 > **Full tool reference:** [`docs/TOOLS.md`](docs/TOOLS.md) — per-tool parameters,
 > examples, contract addresses, asset tables, and P&L methodology. The MCP server also exposes each tool's description at runtime, so the
