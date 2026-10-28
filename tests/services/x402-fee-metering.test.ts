@@ -110,4 +110,19 @@ describe("x402 auto-payment metering (#713)", () => {
       "SP000000000000000000002Q6VF78"
     );
   });
+
+  it("books no STX fee when the endpoint names a fee payer without `sponsored`", async () => {
+    const client = await createApiClient("https://x402.test.com");
+    client.defaults.adapter = respond402(
+      "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token",
+      "100",
+      { feePayer: "SP3F6ZPHAR5D0YT0CTPJST7H3NBZ43A5FW226FMYP" }
+    ) as never;
+
+    await expect(client.get("/paid")).rejects.toThrow("stop at the rail");
+    expect(reserve).toHaveBeenCalledWith(
+      [{ unit: "sats", amount: 100n }],
+      "SP000000000000000000002Q6VF78"
+    );
+  });
 });
