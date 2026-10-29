@@ -8,7 +8,7 @@
  * when canonical paymentId polling is unavailable or inconclusive.
  */
 
-import { deserializeTransaction } from "@stacks/transactions";
+import { AuthType, deserializeTransaction } from "@stacks/transactions";
 import { getHiroApi } from "../services/hiro-api.js";
 import { type Network, getExplorerTxUrl } from "../config/networks.js";
 import { decodePaymentPayload } from "./x402-protocol.js";
@@ -41,6 +41,34 @@ export function extractTxidFromPaymentSignature(
 
     const tx = deserializeTransaction(txBytes);
     return tx.txid();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read who pays gas for the signed payment in a payment-signature header.
+ *
+ * A sponsored payment is signed with fee 0 and the relay pays the STX fee at
+ * settlement; a self-paid one carries its own fee. Returns null when the
+ * header doesn't decode to a Stacks transaction.
+ */
+export function extractFeeFromPaymentSignature(
+  paymentSignatureHeader: string
+): { sponsored: boolean; feeUstx: string } | null {
+  try {
+    const payload = decodePaymentPayload(paymentSignatureHeader);
+    if (!payload?.payload?.transaction) {
+      return null;
+    }
+
+    const txHex = payload.payload.transaction;
+    const hexWithout0x = txHex.startsWith("0x") ? txHex.slice(2) : txHex;
+    const tx = deserializeTransaction(Buffer.from(hexWithout0x, "hex"));
+    return {
+      sponsored: tx.auth.authType === AuthType.Sponsored,
+      feeUstx: tx.auth.spendingCondition.fee.toString(),
+    };
   } catch {
     return null;
   }
