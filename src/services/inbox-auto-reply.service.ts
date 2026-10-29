@@ -12,6 +12,7 @@
  * the wallet-wide spend limiter that books every x402 payment.
  */
 
+import { createHash } from "crypto";
 import os from "os";
 import path from "path";
 import { promises as fs } from "fs";
@@ -19,6 +20,7 @@ import { p2wpkh, NETWORK as BTC_MAINNET } from "@scure/btc-signer";
 import type { Account } from "../transactions/builder.js";
 import { bip322Sign } from "../utils/bip322.js";
 import { withSharedStateLock } from "./state-lock.js";
+import { SpendLimitError } from "./spend-limiter.js";
 import { postWithX402Payment, paymentWasSent, type X402Accept } from "./x402-post.js";
 
 export const INBOX_API = "https://aibtc.com/api";
@@ -27,7 +29,17 @@ export const INFERENCE_GATEWAY = "https://inference.aibtc.com";
 /** The largest model on the marketplace at the flat 1-sat price when this shipped. */
 export const DEFAULT_AUTO_REPLY_MODEL = "meta-llama/Llama-3.1-8B-Instruct";
 export const DEFAULT_DAILY_CAP_SATS = 1000;
+/** Most sats paid for one reply. The marketplace charges 1 sat today. */
+export const DEFAULT_MAX_SATS_PER_REPLY = 10;
 export const DEFAULT_MAX_REPLIES_PER_RUN = 5;
+/** Paid inference failures on one message before runs stop paying for it. */
+export const MAX_PAID_ATTEMPTS = 2;
+/**
+ * How long a run's claim on a message blocks other runs (this server or the
+ * skills CLI, which share the ledger). Longer than one message takes, so only
+ * a claim left by a crashed run expires.
+ */
+const CLAIM_TTL_MS = 10 * 60_000;
 
 /** The outbox rejects longer replies (validation_failed). */
 export const MAX_REPLY_CHARS = 500;
@@ -59,14 +71,20 @@ export type SkipReason =
   | "payment_not_settled"
   | "from_self"
   | "run_limit"
+  | "in_progress"
+  | "gave_up"
   | "daily_cap"
+  | "price_ceiling"
+  | "spend_limit"
   | "rate_limited";
+
+type StopReason = "daily_cap" | "price_ceiling" | "spend_limit" | "rate_limited";
 
 // ============================================================================
 // Ledger: handled message ids, generated-but-unposted replies, daily spend
 // ============================================================================
 
-interface AddressLedger {
+export interface AddressLedger {
   /** messageId -> ISO time the reply was posted (or found already posted). */
   handled: Record<string, string>;
   /**
@@ -76,6 +94,15 @@ interface AddressLedger {
   pending: Record<string, string>;
   /** UTC day -> sats spent on auto-reply inference that day. */
   spentSats: Record<string, number>;
+  /** messageId -> ISO time a run claimed it. Stops two runs paying for one message. */
+  claimed: Record<string, string>;
+  /** messageId -> paid inference attempts that failed. At MAX_PAID_ATTEMPTS it is given up. */
+  paidFailures: Record<string, number>;
+  /**
+   * messageId -> a dry-run draft and the prompt/model key it was written with.
+   * Later runs with the same key reuse it instead of paying again.
+   */
+  drafts: Record<string, { text: string; key: string }>;
 }
 
 type LedgerFile = Record<string, AddressLedger>;
@@ -110,7 +137,14 @@ async function writeLedger(state: LedgerFile): Promise<void> {
 }
 
 function ledgerFor(state: LedgerFile, btcAddress: string): AddressLedger {
-  const entry = (state[btcAddress] ??= { handled: {}, pending: {}, spentSats: {} });
+  const entry = (state[btcAddress] ??= {} as AddressLedger);
+  // Fields added later (and by the skills CLI, which shares this file) may be missing.
+  entry.handled ??= {};
+  entry.pending ??= {};
+  entry.spentSats ??= {};
+  entry.claimed ??= {};
+  entry.paidFailures ??= {};
+  entry.drafts ??= {};
   // Keep only today's spend: the cap is per UTC day.
   const today = todayKey();
   for (const day of Object.keys(entry.spentSats)) {
@@ -164,6 +198,44 @@ async function releaseDailySats(btcAddress: string, sats: number): Promise<void>
   });
 }
 
+export class PriceCeilingError extends Error {
+  constructor(public readonly price: number, public readonly max: number) {
+    super(`Reply inference costs ${price} sats, above the ${max}-sat per-reply ceiling.`);
+    this.name = "PriceCeilingError";
+  }
+}
+
+type SavedReply = { text: string; from: "pending" | "draft" };
+type Claim = { skip: SkipReason } | { skip?: undefined; saved?: SavedReply };
+
+/**
+ * Claim a message for this run under the ledger lock, re-reading the ledger
+ * so a run that started earlier and answered (or claimed) it in the meantime
+ * wins. Returns a reply already paid for, if there is one.
+ */
+async function claimMessage(btcAddress: string, messageId: string, draftKey: string): Promise<Claim> {
+  return updateLedger(btcAddress, (ledger): Claim => {
+    if (ledger.handled[messageId]) return { skip: "already_handled" };
+    if ((ledger.paidFailures[messageId] ?? 0) >= MAX_PAID_ATTEMPTS) return { skip: "gave_up" };
+    const claimedAt = Date.parse(ledger.claimed[messageId] ?? "");
+    if (Date.now() - claimedAt < CLAIM_TTL_MS) return { skip: "in_progress" };
+    ledger.claimed[messageId] = new Date().toISOString();
+    const pending = ledger.pending[messageId];
+    if (pending) return { saved: { text: pending, from: "pending" } };
+    const draft = ledger.drafts[messageId];
+    if (draft?.key === draftKey) return { saved: { text: draft.text, from: "draft" } };
+    return {};
+  });
+}
+
+/**
+ * Identifies the prompt and model a draft was written with. Same key as the
+ * skills CLI, so a draft written by one is reused by the other.
+ */
+function draftKeyFor(systemPrompt: string, generatorId: string | undefined): string {
+  return createHash("sha256").update(`${generatorId ?? ""}\n${systemPrompt}`).digest("hex").slice(0, 16);
+}
+
 // ============================================================================
 // Inbox read + eligibility
 // ============================================================================
@@ -196,6 +268,7 @@ export function skipReason(
 ): SkipReason | null {
   if (message.repliedAt) return "already_replied";
   if (ledger.handled[message.messageId]) return "already_handled";
+  if ((ledger.paidFailures[message.messageId] ?? 0) >= MAX_PAID_ATTEMPTS) return "gave_up";
   if (message.fromAddress === self.stxAddress || message.peerBtcAddress === self.btcAddress) {
     return "from_self";
   }
@@ -230,6 +303,8 @@ export interface GeneratedReply {
  * agent's own model, plugs in here without touching the inbox side.
  */
 export interface ReplyGenerator {
+  /** The model behind it, so a dry-run draft is reused only by the same source. */
+  readonly id?: string;
   generate(input: {
     systemPrompt: string;
     message: InboxMessage;
@@ -255,13 +330,34 @@ function userPrompt(message: InboxMessage): string {
 
 /** Strip reasoning blocks some models emit, collapse whitespace, fit the outbox limit. */
 export function cleanReply(raw: string): string {
-  const text = raw.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/\s+/g, " ").trim();
+  const text = raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<think>[\s\S]*$/i, "") // unterminated block: the model ran out of tokens mid-thought
+    .replace(/\s+/g, " ")
+    .trim();
   if (text.length <= MAX_REPLY_CHARS) return text;
   return text.slice(0, MAX_REPLY_CHARS - 1).trimEnd() + "…";
 }
 
+/**
+ * The inference was paid for but its response is not a usable reply. The run
+ * keeps the cap booking and counts it as a paid failure.
+ */
+export class PaidInferenceError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PaidInferenceError";
+  }
+}
+
+/** Whether a failed generation had already paid for the inference. */
+function inferencePaid(error: unknown): boolean {
+  return error instanceof PaidInferenceError || paymentWasSent(error);
+}
+
 export function marketplaceReplyGenerator(model: string): ReplyGenerator {
   return {
+    id: model,
     async generate({ systemPrompt, message, beforePay }) {
       let price = 0;
       const result = await postWithX402Payment({
@@ -286,15 +382,23 @@ export function marketplaceReplyGenerator(model: string): ReplyGenerator {
         const detail = typeof res.data === "string" ? res.data : JSON.stringify(res.data);
         throw new Error(`Inference request failed (${res.status}): ${detail?.slice(0, 300)}`, { cause: error });
       });
-      const data = (result.paid ? result.response.data : JSON.parse(result.text)) as {
-        choices?: Array<{ message?: { content?: string } }>;
-      };
-      const content = data.choices?.[0]?.message?.content;
+      // A bad body after payment was still paid for: say so, so the run keeps the booking.
+      const fail = (reason: string) => (result.paid ? new PaidInferenceError(reason) : new Error(reason));
+      let data: unknown = result.paid ? result.response.data : result.text;
+      if (typeof data === "string") {
+        try {
+          data = JSON.parse(data);
+        } catch {
+          throw fail(`Inference response is not JSON: ${(data as string).slice(0, 300)}`);
+        }
+      }
+      const content = (data as { choices?: Array<{ message?: { content?: unknown } }> } | null)?.choices?.[0]?.message
+        ?.content;
       if (typeof content !== "string") {
-        throw new Error(`Inference response has no choices[0].message.content: ${JSON.stringify(data).slice(0, 300)}`);
+        throw fail(`Inference response has no choices[0].message.content: ${JSON.stringify(data)?.slice(0, 300)}`);
       }
       const text = cleanReply(content);
-      if (!text) throw new Error("Model returned an empty reply");
+      if (!text) throw fail("Model returned an empty reply");
       const pricing = result.paid
         ? (result.accept.extra?.pricing as { provider?: string } | undefined)
         : undefined;
@@ -371,34 +475,60 @@ export interface AutoReplyRunOptions {
   account: Account;
   systemPrompt: string;
   dailyCapSats: number;
+  /** Most sats paid for one reply. A higher quote stops the run before anything is signed. */
+  maxSatsPerReply: number;
   maxRepliesPerRun: number;
   dryRun: boolean;
   generator: ReplyGenerator;
 }
 
+interface ReplyRecord {
+  messageId: string;
+  from: string;
+  reply: string;
+  inferenceCostSats: number;
+  inferenceTxid?: string;
+  provider?: string;
+  /** The reply was paid for in an earlier run whose post failed. */
+  reusedPending?: boolean;
+  /** The reply is a dry-run draft written with the same prompt and model. */
+  reusedDraft?: boolean;
+}
+
 export interface AutoReplyRunSummary {
   checked: number;
   eligible: number;
-  replied: Array<{ messageId: string; from: string; reply: string; inferenceCostSats: number; inferenceTxid?: string; provider?: string; reusedPending?: boolean }>;
-  drafted: Array<{ messageId: string; from: string; reply: string; inferenceCostSats: number; inferenceTxid?: string; provider?: string }>;
+  replied: ReplyRecord[];
+  drafted: ReplyRecord[];
   skipped: Array<{ messageId: string; reason: SkipReason }>;
-  failed: Array<{ messageId: string; error: string; replySaved: boolean }>;
+  /** `gaveUp`: the message failed after payment MAX_PAID_ATTEMPTS times and is no longer retried. */
+  failed: Array<{ messageId: string; error: string; replySaved: boolean; gaveUp?: boolean }>;
   /** Why the run stopped before working through every eligible message. */
-  stoppedEarly?: "daily_cap" | "rate_limited";
+  stoppedEarly?: StopReason;
   inferenceSatsSpent: number;
   inferenceSatsSpentToday: number;
   inferenceCapRemainingSats: number;
 }
 
+function requireSats(name: string, value: number): void {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative integer number of sats, got ${value}`);
+  }
+}
+
 export async function runAutoReply(opts: AutoReplyRunOptions): Promise<AutoReplyRunSummary> {
-  const { account, systemPrompt, dailyCapSats, maxRepliesPerRun, dryRun, generator } = opts;
-  const btcAddress = account.btcAddress;
-  if (!btcAddress?.startsWith("bc1q")) {
+  const { account, systemPrompt, dailyCapSats, maxSatsPerReply, maxRepliesPerRun, dryRun, generator } = opts;
+  // Without a number here `spent + price > cap` is always false: no cap at all.
+  requireSats("dailyCapSats", dailyCapSats);
+  requireSats("maxSatsPerReply", maxSatsPerReply);
+  if (!account.btcAddress?.startsWith("bc1q")) {
     throw new Error(
-      `Auto-reply signs with the wallet's native SegWit (bc1q) key; this wallet's BTC address is ${btcAddress ?? "missing"}.`
+      `Auto-reply signs with the wallet's native SegWit (bc1q) key; this wallet's BTC address is ${account.btcAddress ?? "missing"}.`
     );
   }
+  const btcAddress: string = account.btcAddress;
   const self = { btcAddress, stxAddress: account.address };
+  const draftKey = draftKeyFor(systemPrompt, generator.id);
 
   const messages = await fetchInbox(btcAddress);
   const ledger = await readAddressLedger(btcAddress);
@@ -424,6 +554,106 @@ export async function runAutoReply(opts: AutoReplyRunOptions): Promise<AutoReply
   }
   summary.eligible = eligible.length;
 
+  async function answer(message: InboxMessage, saved: SavedReply | undefined): Promise<void> {
+    const id = message.messageId;
+    const from = message.peerBtcAddress ?? message.fromAddress;
+
+    let generated: GeneratedReply;
+    if (saved) {
+      // Paid for already (a failed post, or a dry-run draft): use it, don't pay again.
+      generated = { text: saved.text, inferenceCostSats: 0 };
+    } else {
+      let booked = 0;
+      try {
+        generated = await generator.generate({
+          systemPrompt,
+          message,
+          beforePay: async (price) => {
+            if (!Number.isInteger(price) || price < 0) throw new Error(`Refusing an invalid inference price: ${price}`);
+            if (price > maxSatsPerReply) throw new PriceCeilingError(price, maxSatsPerReply);
+            await reserveDailySats(btcAddress, price, dailyCapSats);
+            booked = price;
+          },
+        });
+      } catch (error) {
+        const paid = inferencePaid(error);
+        if (booked && !paid) await releaseDailySats(btcAddress, booked);
+        if (error instanceof DailyCapError || error instanceof PriceCeilingError || error instanceof SpendLimitError) {
+          summary.stoppedEarly =
+            error instanceof DailyCapError ? "daily_cap" : error instanceof PriceCeilingError ? "price_ceiling" : "spend_limit";
+          summary.skipped.push({ messageId: id, reason: summary.stoppedEarly });
+          return;
+        }
+        let gaveUp = false;
+        if (paid) {
+          summary.inferenceSatsSpent += booked;
+          const attempts = await updateLedger(btcAddress, (l) => {
+            l.paidFailures[id] = (l.paidFailures[id] ?? 0) + 1;
+            return l.paidFailures[id];
+          });
+          gaveUp = attempts >= MAX_PAID_ATTEMPTS;
+        }
+        summary.failed.push({ messageId: id, error: errorText(error), replySaved: false, ...(gaveUp && { gaveUp }) });
+        return;
+      }
+      summary.inferenceSatsSpent += generated.inferenceCostSats;
+    }
+
+    const record: ReplyRecord = {
+      messageId: id,
+      from,
+      reply: generated.text,
+      inferenceCostSats: generated.inferenceCostSats,
+      ...(generated.txid && { inferenceTxid: generated.txid }),
+      ...(generated.provider && { provider: generated.provider }),
+      ...(saved?.from === "pending" && { reusedPending: true }),
+      ...(saved?.from === "draft" && { reusedDraft: true }),
+    };
+
+    if (dryRun) {
+      if (!saved) {
+        await updateLedger(btcAddress, (l) => {
+          l.drafts[id] = { text: generated.text, key: draftKey };
+        });
+      }
+      summary.drafted.push(record);
+      return;
+    }
+
+    const savePending = () =>
+      updateLedger(btcAddress, (l) => {
+        l.pending[id] = generated.text;
+        delete l.drafts[id];
+      });
+    try {
+      const posted = await postReply(account, btcAddress, id, generated.text);
+      if (posted.status === "rate_limited") {
+        await savePending();
+        summary.failed.push({
+          messageId: id,
+          error: `Outbox rate limited${posted.retryAfter ? `; retry after ${posted.retryAfter}s` : ""}`,
+          replySaved: true,
+        });
+        summary.stoppedEarly = "rate_limited";
+        return;
+      }
+      await updateLedger(btcAddress, (l) => {
+        l.handled[id] = posted.status === "posted" ? (posted.repliedAt ?? new Date().toISOString()) : "already_replied";
+        delete l.pending[id];
+        delete l.drafts[id];
+        delete l.paidFailures[id];
+      });
+      if (posted.status === "already_replied") {
+        summary.skipped.push({ messageId: id, reason: "already_replied" });
+      } else {
+        summary.replied.push(record);
+      }
+    } catch (error) {
+      await savePending();
+      summary.failed.push({ messageId: id, error: errorText(error), replySaved: true });
+    }
+  }
+
   let processed = 0;
   for (const message of eligible) {
     if (summary.stoppedEarly) {
@@ -434,80 +664,20 @@ export async function runAutoReply(opts: AutoReplyRunOptions): Promise<AutoReply
       summary.skipped.push({ messageId: message.messageId, reason: "run_limit" });
       continue;
     }
-    processed++;
-    const from = message.peerBtcAddress ?? message.fromAddress;
-
-    // A reply paid for in an earlier run whose post failed: post it, don't pay again.
-    const saved = dryRun ? undefined : ledger.pending[message.messageId];
-    let generated: GeneratedReply;
-    if (saved) {
-      generated = { text: saved, inferenceCostSats: 0 };
-    } else {
-      let booked = 0;
-      try {
-        generated = await generator.generate({
-          systemPrompt,
-          message,
-          beforePay: async (price) => {
-            await reserveDailySats(btcAddress, price, dailyCapSats);
-            booked = price;
-          },
-        });
-      } catch (error) {
-        if (booked && !paymentWasSent(error)) await releaseDailySats(btcAddress, booked);
-        if (error instanceof DailyCapError) {
-          summary.stoppedEarly = "daily_cap";
-          summary.skipped.push({ messageId: message.messageId, reason: "daily_cap" });
-          continue;
-        }
-        summary.failed.push({ messageId: message.messageId, error: errorText(error), replySaved: false });
-        continue;
-      }
-      summary.inferenceSatsSpent += generated.inferenceCostSats;
-    }
-
-    const record = {
-      messageId: message.messageId,
-      from,
-      reply: generated.text,
-      inferenceCostSats: generated.inferenceCostSats,
-      ...(generated.txid && { inferenceTxid: generated.txid }),
-      ...(generated.provider && { provider: generated.provider }),
-    };
-
-    if (dryRun) {
-      summary.drafted.push(record);
+    // Claim before paying: another run (this server or the skills CLI) may have
+    // answered or claimed it since the snapshot above.
+    const claim = await claimMessage(btcAddress, message.messageId, draftKey);
+    if (claim.skip) {
+      summary.skipped.push({ messageId: message.messageId, reason: claim.skip });
       continue;
     }
-
+    processed++;
     try {
-      const posted = await postReply(account, btcAddress, message.messageId, generated.text);
-      if (posted.status === "rate_limited") {
-        await updateLedger(btcAddress, (l) => {
-          l.pending[message.messageId] = generated.text;
-        });
-        summary.failed.push({
-          messageId: message.messageId,
-          error: `Outbox rate limited${posted.retryAfter ? `; retry after ${posted.retryAfter}s` : ""}`,
-          replySaved: true,
-        });
-        summary.stoppedEarly = "rate_limited";
-        continue;
-      }
+      await answer(message, claim.saved);
+    } finally {
       await updateLedger(btcAddress, (l) => {
-        l.handled[message.messageId] = posted.status === "posted" ? (posted.repliedAt ?? new Date().toISOString()) : "already_replied";
-        delete l.pending[message.messageId];
+        delete l.claimed[message.messageId];
       });
-      if (posted.status === "already_replied") {
-        summary.skipped.push({ messageId: message.messageId, reason: "already_replied" });
-      } else {
-        summary.replied.push({ ...record, ...(saved && { reusedPending: true }) });
-      }
-    } catch (error) {
-      await updateLedger(btcAddress, (l) => {
-        l.pending[message.messageId] = generated.text;
-      });
-      summary.failed.push({ messageId: message.messageId, error: errorText(error), replySaved: true });
     }
   }
 

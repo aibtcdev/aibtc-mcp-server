@@ -1,8 +1,8 @@
 /**
  * Inbox auto-reply tools.
  *
- * - inbox_auto_reply_configure: store enabled / model / systemPrompt / dailyCapSats
- *   in ~/.aibtc/config.json (no args = show the current settings)
+ * - inbox_auto_reply_configure: store enabled / model / systemPrompt / dailyCapSats /
+ *   maxSatsPerReply in ~/.aibtc/config.json (no args = show the current settings)
  * - inbox_auto_reply: answer paid, unanswered inbox messages with a reply
  *   written by an AIBTC Inference Marketplace model (x402, sBTC), then sign and
  *   post it to the outbox. Built to be called from an agent's autonomy loop.
@@ -17,6 +17,7 @@ import {
   DEFAULT_AUTO_REPLY_MODEL,
   DEFAULT_DAILY_CAP_SATS,
   DEFAULT_MAX_REPLIES_PER_RUN,
+  DEFAULT_MAX_SATS_PER_REPLY,
   listLiveModels,
   marketplaceReplyGenerator,
   runAutoReply,
@@ -25,6 +26,28 @@ import { readAppConfig, writeAppConfig, type AppConfig } from "../utils/storage.
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 
 type StoredConfig = NonNullable<AppConfig["inboxAutoReply"]>;
+
+/**
+ * The stored sat limits, defaulted and checked. The config file is plain JSON
+ * (shared with the skills CLI), so a missing or hand-edited value must not
+ * turn into "no limit" at run time.
+ */
+function autoReplyLimits(config: StoredConfig): { dailyCapSats: number; maxSatsPerReply: number } {
+  const limit = (name: string, value: unknown, fallback: number): number => {
+    if (value === undefined || value === null) return fallback;
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+      throw new Error(
+        `inboxAutoReply.${name} in ~/.aibtc/config.json must be a non-negative integer, got ${JSON.stringify(value)}. ` +
+          `Fix it with inbox_auto_reply_configure { ${name}: <sats> }.`
+      );
+    }
+    return value;
+  };
+  return {
+    dailyCapSats: limit("dailyCapSats", config.dailyCapSats, DEFAULT_DAILY_CAP_SATS),
+    maxSatsPerReply: limit("maxSatsPerReply", config.maxSatsPerReply, DEFAULT_MAX_SATS_PER_REPLY),
+  };
+}
 
 function requireMainnet(): void {
   if (NETWORK !== "mainnet") {
@@ -43,7 +66,7 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
         "settings. A systemPrompt (the agent's voice / personality / what it can help with) is required before " +
         "auto-reply can be enabled. The model must be live on inference.aibtc.com; it is checked against the " +
         "catalog when set. dailyCapSats caps sats spent on reply inference per UTC day, on top of the wallet-wide " +
-        "spending limit.",
+        "spending limit. maxSatsPerReply is the most one reply may cost; a higher quote stops the run unpaid.",
       inputSchema: z.object({
         enabled: z.boolean().optional().describe("Allow inbox_auto_reply to post replies. Dry runs work while disabled."),
         model: z
@@ -62,13 +85,25 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
           .min(0)
           .optional()
           .describe(`Most sats spent on reply inference per UTC day. Default ${DEFAULT_DAILY_CAP_SATS}.`),
+        maxSatsPerReply: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe(`Most sats paid for one reply. Default ${DEFAULT_MAX_SATS_PER_REPLY}.`),
       }),
     },
-    async ({ enabled, model, systemPrompt, dailyCapSats }) => {
+    async ({ enabled, model, systemPrompt, dailyCapSats, maxSatsPerReply }) => {
       try {
         const config = await readAppConfig();
         const current = config.inboxAutoReply;
-        if (enabled === undefined && model === undefined && systemPrompt === undefined && dailyCapSats === undefined) {
+        if (
+          enabled === undefined &&
+          model === undefined &&
+          systemPrompt === undefined &&
+          dailyCapSats === undefined &&
+          maxSatsPerReply === undefined
+        ) {
           return createJsonResponse({
             configured: Boolean(current),
             settings: current ?? null,
@@ -90,6 +125,7 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
           model: model ?? current?.model ?? DEFAULT_AUTO_REPLY_MODEL,
           systemPrompt: systemPrompt ?? current?.systemPrompt ?? "",
           dailyCapSats: dailyCapSats ?? current?.dailyCapSats ?? DEFAULT_DAILY_CAP_SATS,
+          maxSatsPerReply: maxSatsPerReply ?? current?.maxSatsPerReply ?? DEFAULT_MAX_SATS_PER_REPLY,
         };
         if (next.enabled && !next.systemPrompt) {
           throw new Error("Set a systemPrompt before enabling auto-reply.");
@@ -110,12 +146,14 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
         "Answer this agent's paid aibtc.com inbox messages automatically. In one call: reads the inbox, picks paid, " +
         "settled, unanswered messages (oldest first), writes each reply with an AIBTC Inference Marketplace model " +
         "(paid per request in sBTC via x402, ~1 sat), signs it (BIP-322) and posts it to the outbox (free). " +
-        "Never answers a message twice, stops at the daily cap, and returns a summary: checked, replied, " +
+        "Never answers a message twice (overlapping runs skip a message another run is answering), stops at the " +
+        "daily cap or on a quote above maxSatsPerReply, gives up on a message after 2 paid failures, and returns a summary: checked, replied, " +
         "skipped (with reason), failed, inference sats spent and inference cap remaining.\n\n" +
         "Posting a reply is free; the only cost is the inference call that writes it. " +
         "Call it from the autonomy loop when the heartbeat or inbox shows unread messages. Configure first with " +
         "inbox_auto_reply_configure. dryRun writes (and pays for) replies without posting them, so the operator " +
-        "can review the voice. Requires an unlocked wallet with a bc1q address and a little sBTC. Mainnet only.",
+        "can review the voice; each draft is saved and reused by later dry runs and the real run while the " +
+        "systemPrompt and model are unchanged. Requires an unlocked wallet with a bc1q address and a little sBTC. Mainnet only.",
       inputSchema: z.object({
         maxRepliesPerRun: z
           .number()
@@ -127,7 +165,10 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
         dryRun: z
           .boolean()
           .optional()
-          .describe("Generate replies (inference is still paid) but do not post them or mark messages handled."),
+          .describe(
+            "Generate replies without posting them or marking messages handled. A new draft is paid for once; " +
+              "a saved draft with the same systemPrompt and model is reused free, here and by the real run."
+          ),
       }),
     },
     async ({ maxRepliesPerRun, dryRun }) => {
@@ -144,11 +185,12 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
           );
         }
 
+        const limits = autoReplyLimits(config);
         const account = await getAccount();
         const summary = await runAutoReply({
           account,
           systemPrompt: config.systemPrompt,
-          dailyCapSats: config.dailyCapSats,
+          ...limits,
           maxRepliesPerRun: maxRepliesPerRun ?? DEFAULT_MAX_REPLIES_PER_RUN,
           dryRun: isDryRun,
           generator: marketplaceReplyGenerator(config.model),
@@ -162,7 +204,7 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
           repliedCount: summary.replied.length,
           skippedCount: summary.skipped.length,
           failedCount: summary.failed.length,
-          dailyCapSats: config.dailyCapSats,
+          ...limits,
         });
       } catch (error) {
         return createErrorResponse(error);
