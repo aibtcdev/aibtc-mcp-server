@@ -483,7 +483,7 @@ export interface PaymentRequirements {
   recipient: string;
   network: string;
   account: Account;
-  /** True when the endpoint advertised `extra.sponsored` — the relay pays the STX fee. */
+  /** True when the endpoint advertised `extra.feePayer` or `extra.sponsored` — the relay pays the STX fee. */
   sponsored: boolean;
 }
 
@@ -896,7 +896,7 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
 
         // The endpoint offers gas sponsorship: sign with `sponsored: true, fee: 0`
         // and its relay co-signs and pays the STX fee at settlement.
-        const sponsored = selectedOption.extra?.sponsored === true;
+        const sponsored = isSponsoredRequirement(selectedOption.extra);
 
         // Invoke pre-payment callback (e.g. balance check) before signing/broadcasting.
         // If the callback throws, the payment is aborted and the error propagates to the caller.
@@ -1124,6 +1124,18 @@ export function detectTokenType(asset: string): PaymentTokenType {
     return 'STX';
   }
   return 'unsupported';
+}
+
+/**
+ * Whether an x402 payment requirement offers gas sponsorship (sign with fee 0,
+ * the relay co-signs and pays the STX fee). x402-stacks documents a non-empty
+ * `extra.feePayer` as the signal; `extra.sponsored === true` is also honored
+ * for endpoints that send only that, and an explicit `sponsored: false` wins.
+ * Shared by createApiClient and x402-post so both paths use one rule.
+ */
+export function isSponsoredRequirement(extra?: Record<string, unknown>): boolean {
+  if (extra?.sponsored === false) return false;
+  return (typeof extra?.feePayer === "string" && extra.feePayer !== "") || extra?.sponsored === true;
 }
 
 const STACKS_MEMO_MAX_BYTES = 34;

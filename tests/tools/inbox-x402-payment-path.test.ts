@@ -6,7 +6,9 @@ const mockCreateApiClient = vi.fn();
 const mockWrapAxiosWithPayment = vi.fn();
 const mockPost = vi.fn();
 
-vi.mock("../../src/services/x402.service.js", () => ({
+vi.mock("../../src/services/x402.service.js", async (importOriginal) => ({
+  isSponsoredRequirement: (await importOriginal<typeof import("../../src/services/x402.service.js")>())
+    .isSponsoredRequirement,
   getAccount: vi.fn(async () => ({
     address: "SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7",
     privateKey: "0".repeat(64),
