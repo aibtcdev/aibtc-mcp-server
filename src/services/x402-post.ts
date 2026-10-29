@@ -6,7 +6,7 @@ import {
   X402_HEADERS,
   type StacksAccount,
 } from "x402-stacks";
-import { createApiClient, getAccount, NETWORK } from "./x402.service.js";
+import { createApiClient, getAccount, isSponsoredRequirement, NETWORK } from "./x402.service.js";
 import { getSpendLimiter } from "./spend-limiter.js";
 
 /** One `accepts` entry of an x402 v2 `payment-required` header. */
@@ -91,14 +91,14 @@ export async function postWithX402Payment(options: {
   }
   const accept = paymentRequired.accepts[0];
 
-  // The SDK signs a sponsored (fee 0) transfer exactly when the requirement
-  // names a fee payer — mirror its check.
-  const sponsored = typeof accept.extra?.feePayer === "string";
+  const sponsored = isSponsoredRequirement(accept.extra);
 
   if (beforePay) await beforePay(accept, sponsored);
 
   let response: AxiosResponse;
-  if (sponsored) {
+  // The SDK signs a sponsored (fee 0) transfer only when the requirement names
+  // a fee payer; `sponsored: true` without one is signed by createApiClient.
+  if (sponsored && typeof accept.extra?.feePayer === "string") {
     const account = await getAccount();
     // The amount is a signed sBTC spend: book it before signing.
     const spendLimiter = getSpendLimiter();
@@ -129,7 +129,8 @@ export async function postWithX402Payment(options: {
       throw error;
     }
   } else {
-    // Self-paid: createApiClient clamps the fee and meters the spend.
+    // createApiClient signs (self-paid with a clamped fee, or sponsored on
+    // `sponsored: true`) and meters the spend.
     const api = await createApiClient(baseUrl, { toolName, asset: accept.asset });
     response = await api.post(url, body, {
       headers: { "Content-Type": "application/json" },
