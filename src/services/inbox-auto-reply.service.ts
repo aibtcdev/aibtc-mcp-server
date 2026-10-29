@@ -260,6 +260,17 @@ export function cleanReply(raw: string): string {
   return text.slice(0, MAX_REPLY_CHARS - 1).trimEnd() + "…";
 }
 
+/**
+ * The inference was paid for but its response can't be used as a reply. The
+ * sats are spent, so the daily-cap booking must stand (skills#455 item 1).
+ */
+export class PaidInferenceError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PaidInferenceError";
+  }
+}
+
 export function marketplaceReplyGenerator(model: string): ReplyGenerator {
   return {
     async generate({ systemPrompt, message, beforePay }) {
@@ -286,15 +297,16 @@ export function marketplaceReplyGenerator(model: string): ReplyGenerator {
         const detail = typeof res.data === "string" ? res.data : JSON.stringify(res.data);
         throw new Error(`Inference request failed (${res.status}): ${detail?.slice(0, 300)}`, { cause: error });
       });
-      const data = (result.paid ? result.response.data : JSON.parse(result.text)) as {
-        choices?: Array<{ message?: { content?: string } }>;
-      };
-      const content = data.choices?.[0]?.message?.content;
+      const fail = (text: string): Error => (result.paid ? new PaidInferenceError(text) : new Error(text));
+      const data = (result.paid ? result.response.data : JSON.parse(result.text)) as
+        | { choices?: Array<{ message?: { content?: string } }> }
+        | null;
+      const content = data?.choices?.[0]?.message?.content;
       if (typeof content !== "string") {
-        throw new Error(`Inference response has no choices[0].message.content: ${JSON.stringify(data).slice(0, 300)}`);
+        throw fail(`Inference response has no choices[0].message.content: ${JSON.stringify(data)?.slice(0, 300)}`);
       }
       const text = cleanReply(content);
-      if (!text) throw new Error("Model returned an empty reply");
+      if (!text) throw fail("Model returned an empty reply");
       const pricing = result.paid
         ? (result.accept.extra?.pricing as { provider?: string } | undefined)
         : undefined;
@@ -390,8 +402,18 @@ export interface AutoReplyRunSummary {
   inferenceCapRemainingSats: number;
 }
 
+/**
+ * The cap to enforce for a stored config value. The config file is read without
+ * validation, so a missing or malformed `dailyCapSats` falls back to the default
+ * instead of comparing against `undefined`, which never trips the cap (skills#455 item 5).
+ */
+export function resolveDailyCapSats(value: unknown): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : DEFAULT_DAILY_CAP_SATS;
+}
+
 export async function runAutoReply(opts: AutoReplyRunOptions): Promise<AutoReplyRunSummary> {
-  const { account, systemPrompt, dailyCapSats, maxRepliesPerRun, dryRun, generator } = opts;
+  const { account, systemPrompt, maxRepliesPerRun, dryRun, generator } = opts;
+  const dailyCapSats = resolveDailyCapSats(opts.dailyCapSats);
   const btcAddress = account.btcAddress;
   if (!btcAddress?.startsWith("bc1q")) {
     throw new Error(
@@ -454,7 +476,8 @@ export async function runAutoReply(opts: AutoReplyRunOptions): Promise<AutoReply
           },
         });
       } catch (error) {
-        if (booked && !paymentWasSent(error)) await releaseDailySats(btcAddress, booked);
+        const spent = paymentWasSent(error) || error instanceof PaidInferenceError;
+        if (booked && !spent) await releaseDailySats(btcAddress, booked);
         if (error instanceof DailyCapError) {
           summary.stoppedEarly = "daily_cap";
           summary.skipped.push({ messageId: message.messageId, reason: "daily_cap" });

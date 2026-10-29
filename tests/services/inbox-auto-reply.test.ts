@@ -16,6 +16,8 @@ vi.mock("../../src/services/x402-post.js", () => ({
 const {
   cleanReply,
   marketplaceReplyGenerator,
+  PaidInferenceError,
+  resolveDailyCapSats,
   runAutoReply,
   setAutoReplyLedgerFile,
   skipReason,
@@ -23,6 +25,7 @@ const {
   replySigningMessage,
   readAddressLedger,
   MAX_REPLY_CHARS,
+  DEFAULT_DAILY_CAP_SATS,
 } = await import("../../src/services/inbox-auto-reply.service.js");
 type ReplyGenerator = import("../../src/services/inbox-auto-reply.service.js").ReplyGenerator;
 type InboxMessage = import("../../src/services/inbox-auto-reply.service.js").InboxMessage;
@@ -131,6 +134,19 @@ describe("skipReason", () => {
   });
 });
 
+describe("resolveDailyCapSats", () => {
+  it("keeps a valid stored cap, including 0", () => {
+    expect(resolveDailyCapSats(250)).toBe(250);
+    expect(resolveDailyCapSats(0)).toBe(0);
+  });
+
+  it("falls back to the default for a missing or malformed stored cap", () => {
+    for (const value of [undefined, null, "500", -1, 1.5, Number.NaN]) {
+      expect(resolveDailyCapSats(value)).toBe(DEFAULT_DAILY_CAP_SATS);
+    }
+  });
+});
+
 describe("cleanReply", () => {
   it("drops reasoning blocks and collapses whitespace", () => {
     expect(cleanReply("<think>plan</think>\n Hello   there \n")).toBe("Hello there");
@@ -230,6 +246,19 @@ describe("runAutoReply", () => {
     expect(summary.inferenceSatsSpentToday).toBe(0);
   });
 
+  it("keeps the cap booking when a paid inference returns an unusable reply", async () => {
+    stubFetch([msg("a")]);
+    const generator: ReplyGenerator = {
+      async generate({ beforePay }) {
+        await beforePay(1);
+        throw new PaidInferenceError("Model returned an empty reply");
+      },
+    };
+    const summary = await runAutoReply({ ...base, generator });
+    expect(summary.failed).toEqual([{ messageId: "a", error: "Model returned an empty reply", replySaved: false }]);
+    expect(summary.inferenceSatsSpentToday).toBe(1);
+  });
+
   it("refuses a wallet without a bc1q address", async () => {
     await expect(
       runAutoReply({ ...base, account: { ...(account as object), btcAddress: "bc1pxyz" } as never, generator: fakeGenerator() })
@@ -251,6 +280,16 @@ describe("marketplaceReplyGenerator", () => {
 
     expect((failure as Error).message).toBe('Inference request failed (503): {"error":"Provider unavailable"}');
     expect((failure as Error).cause).toBe(httpError);
+  });
+
+  it("a paid response without a usable reply fails as a paid inference", async () => {
+    for (const data of [null, "not json", { choices: [] }, { choices: [{ message: { content: "  " } }] }]) {
+      mockPostWithX402Payment.mockResolvedValueOnce({ paid: true, response: { data }, accept: { amount: "1" }, sponsored: true });
+      const failure = await marketplaceReplyGenerator("m")
+        .generate({ systemPrompt: "s", message: msg("a"), beforePay: async () => {} })
+        .catch((e: Error) => e);
+      expect(failure).toBeInstanceOf(PaidInferenceError);
+    }
   });
 
   it("sends the system prompt and the message to the gateway and reports the x402 cost", async () => {
