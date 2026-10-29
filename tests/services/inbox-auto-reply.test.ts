@@ -22,10 +22,13 @@ const {
   signReply,
   replySigningMessage,
   readAddressLedger,
+  PaidInferenceError,
   MAX_REPLY_CHARS,
 } = await import("../../src/services/inbox-auto-reply.service.js");
 type ReplyGenerator = import("../../src/services/inbox-auto-reply.service.js").ReplyGenerator;
 type InboxMessage = import("../../src/services/inbox-auto-reply.service.js").InboxMessage;
+type AddressLedger = import("../../src/services/inbox-auto-reply.service.js").AddressLedger;
+const { SpendLimitError } = await import("../../src/services/spend-limiter.js");
 
 const BTC = "bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5";
 const STX = "SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY";
@@ -75,19 +78,21 @@ function stubFetch(messages: InboxMessage[], outbox: () => Response = () => new 
 }
 
 /** A generator that charges `price` sats through beforePay, like the marketplace does. */
-function fakeGenerator(price = 1): ReplyGenerator & { calls: string[] } {
+function fakeGenerator(price = 1, gate?: Promise<void>): ReplyGenerator & { calls: string[] } {
   const calls: string[] = [];
   return {
+    id: "test-model",
     calls,
     async generate({ message, beforePay }) {
       await beforePay(price);
       calls.push(message.messageId);
+      await gate;
       return { text: `answer to ${message.messageId}`, inferenceCostSats: price, txid: `tx-${message.messageId}` };
     },
   };
 }
 
-const base = { account, systemPrompt: "You are a test agent.", dailyCapSats: 1000, maxRepliesPerRun: 5, dryRun: false };
+const base = { account, systemPrompt: "You are a test agent.", dailyCapSats: 1000, maxSatsPerReply: 10, maxRepliesPerRun: 5, dryRun: false };
 
 let dir: string;
 
@@ -104,7 +109,7 @@ afterEach(() => {
 
 describe("skipReason", () => {
   const self = { btcAddress: BTC, stxAddress: STX };
-  const empty = { handled: {}, pending: {}, spentSats: {} };
+  const empty: AddressLedger = { handled: {}, pending: {}, spentSats: {}, claimed: {}, paidFailures: {}, drafts: {} };
 
   it("accepts a paid, confirmed, unanswered message", () => {
     expect(skipReason(msg("a"), self, empty)).toBeNull();
@@ -129,11 +134,20 @@ describe("skipReason", () => {
     );
     expect(skipReason(msg("a", { fromAddress: STX }), self, empty)).toBe("from_self");
   });
+
+  it("skips a message given up after repeated paid failures", () => {
+    expect(skipReason(msg("a"), self, { ...empty, paidFailures: { a: 2 } })).toBe("gave_up");
+    expect(skipReason(msg("a"), self, { ...empty, paidFailures: { a: 1 } })).toBeNull();
+  });
 });
 
 describe("cleanReply", () => {
   it("drops reasoning blocks and collapses whitespace", () => {
     expect(cleanReply("<think>plan</think>\n Hello   there \n")).toBe("Hello there");
+  });
+
+  it("drops an unterminated reasoning block", () => {
+    expect(cleanReply("Hello <think>still thinking when tokens ran out")).toBe("Hello");
   });
 
   it("fits the outbox limit", () => {
@@ -230,6 +244,110 @@ describe("runAutoReply", () => {
     expect(summary.inferenceSatsSpentToday).toBe(0);
   });
 
+  it("a dry-run draft is paid once and reused by later dry runs and the real run", async () => {
+    const posts = stubFetch([msg("a")]);
+    const generator = fakeGenerator();
+
+    await runAutoReply({ ...base, dryRun: true, generator });
+    const again = await runAutoReply({ ...base, dryRun: true, generator });
+    expect(again.drafted).toEqual([expect.objectContaining({ messageId: "a", reusedDraft: true, inferenceCostSats: 0 })]);
+    expect(again.inferenceSatsSpent).toBe(0);
+
+    const real = await runAutoReply({ ...base, generator });
+    expect(real.replied).toEqual([expect.objectContaining({ messageId: "a", reusedDraft: true, reply: "answer to a" })]);
+    expect(posts.map((p) => p.body.reply)).toEqual(["answer to a"]);
+    expect(generator.calls).toEqual(["a"]);
+    expect((await readAddressLedger(BTC)).drafts).toEqual({});
+  });
+
+  it("does not reuse a draft written with another system prompt", async () => {
+    stubFetch([msg("a")]);
+    const generator = fakeGenerator();
+    await runAutoReply({ ...base, dryRun: true, generator });
+    const changed = await runAutoReply({ ...base, systemPrompt: "Be formal.", dryRun: true, generator });
+    expect(changed.drafted[0].reusedDraft).toBeUndefined();
+    expect(generator.calls).toEqual(["a", "a"]);
+  });
+
+  it("pays once for a message when two runs overlap", async () => {
+    const posts = stubFetch([msg("a")]);
+    let open!: () => void;
+    const generator = fakeGenerator(1, new Promise<void>((resolve) => (open = resolve)));
+
+    const first = runAutoReply({ ...base, generator });
+    // Let the first run claim "a" and pay before the second one starts.
+    while (generator.calls.length === 0) await new Promise((r) => setTimeout(r, 5));
+    const second = await runAutoReply({ ...base, generator });
+    open();
+    const done = await first;
+
+    expect(second.skipped).toEqual([{ messageId: "a", reason: "in_progress" }]);
+    expect(done.replied.map((r) => r.messageId)).toEqual(["a"]);
+    expect(generator.calls).toEqual(["a"]);
+    expect(posts).toHaveLength(1);
+    expect((await readAddressLedger(BTC)).claimed).toEqual({});
+  });
+
+  it("gives up on a message that keeps failing after payment", async () => {
+    stubFetch([msg("a")]);
+    let attempts = 0;
+    const generator: ReplyGenerator = {
+      async generate({ beforePay }) {
+        await beforePay(1);
+        attempts++;
+        throw new PaidInferenceError("Inference response is not JSON: <html>");
+      },
+    };
+
+    const first = await runAutoReply({ ...base, generator });
+    expect(first.failed).toEqual([{ messageId: "a", error: "Inference response is not JSON: <html>", replySaved: false }]);
+    const second = await runAutoReply({ ...base, generator });
+    expect(second.failed).toEqual([expect.objectContaining({ messageId: "a", gaveUp: true })]);
+    const third = await runAutoReply({ ...base, generator });
+    expect(third.skipped).toEqual([{ messageId: "a", reason: "gave_up" }]);
+    expect(attempts).toBe(2);
+    // Paid failures keep their cap booking.
+    expect(third.inferenceSatsSpentToday).toBe(2);
+  });
+
+  it("stops before booking anything when the quote is above maxSatsPerReply", async () => {
+    stubFetch([msg("b"), msg("a")]);
+    const generator = fakeGenerator(11);
+    const summary = await runAutoReply({ ...base, generator });
+    expect(summary.stoppedEarly).toBe("price_ceiling");
+    expect(summary.skipped).toEqual([
+      { messageId: "a", reason: "price_ceiling" },
+      { messageId: "b", reason: "price_ceiling" },
+    ]);
+    expect(generator.calls).toEqual([]);
+    expect(summary.inferenceSatsSpentToday).toBe(0);
+  });
+
+  it("stops at the wallet-wide spend limit instead of failing the message", async () => {
+    stubFetch([msg("b"), msg("a")]);
+    const generator: ReplyGenerator = {
+      async generate({ beforePay }) {
+        await beforePay(1);
+        throw new SpendLimitError("over the limit", "sats", 1, 0, "day");
+      },
+    };
+    const summary = await runAutoReply({ ...base, generator });
+    expect(summary.stoppedEarly).toBe("spend_limit");
+    expect(summary.failed).toEqual([]);
+    expect(summary.skipped).toEqual([
+      { messageId: "a", reason: "spend_limit" },
+      { messageId: "b", reason: "spend_limit" },
+    ]);
+    expect(summary.inferenceSatsSpentToday).toBe(0);
+  });
+
+  it("refuses to run without a numeric daily cap", async () => {
+    stubFetch([msg("a")]);
+    await expect(
+      runAutoReply({ ...base, dailyCapSats: undefined as unknown as number, generator: fakeGenerator() })
+    ).rejects.toThrow(/dailyCapSats/);
+  });
+
   it("refuses a wallet without a bc1q address", async () => {
     await expect(
       runAutoReply({ ...base, account: { ...(account as object), btcAddress: "bc1pxyz" } as never, generator: fakeGenerator() })
@@ -251,6 +369,31 @@ describe("marketplaceReplyGenerator", () => {
 
     expect((failure as Error).message).toBe('Inference request failed (503): {"error":"Provider unavailable"}');
     expect((failure as Error).cause).toBe(httpError);
+  });
+
+  it("throws PaidInferenceError when a paid response is not a usable reply", async () => {
+    for (const data of ["<html>bad gateway</html>", { choices: [] }, null, { choices: [{ message: { content: "<think>x" } }] }]) {
+      mockPostWithX402Payment.mockResolvedValueOnce({
+        paid: true,
+        response: { data },
+        accept: { amount: "1", extra: {} },
+        sponsored: true,
+      });
+      const failure = await marketplaceReplyGenerator("m")
+        .generate({ systemPrompt: "s", message: msg("a"), beforePay: async () => {} })
+        .catch((e: Error) => e);
+      expect(failure).toBeInstanceOf(PaidInferenceError);
+    }
+  });
+
+  it("throws a plain error for an unusable response that was not paid for", async () => {
+    mockPostWithX402Payment.mockResolvedValueOnce({ paid: false, status: 200, text: "not json" });
+    const failure = await marketplaceReplyGenerator("m")
+      .generate({ systemPrompt: "s", message: msg("a"), beforePay: async () => {} })
+      .catch((e: Error) => e);
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure).not.toBeInstanceOf(PaidInferenceError);
+    expect((failure as Error).message).toMatch(/not JSON/);
   });
 
   it("sends the system prompt and the message to the gateway and reports the x402 cost", async () => {
