@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.78.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.78.0...mcp-server-v1.78.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* **inbox:** stop auto-reply paying twice for one message ([#744](https://github.com/aibtcdev/aibtc-mcp-server/issues/744)) ([81c0bab](https://github.com/aibtcdev/aibtc-mcp-server/commit/81c0babcad6a01b539467a02aad2140272b498f0))
+* **x402:** sponsor when the 402 names extra.feePayer, not only extra.sponsored ([#740](https://github.com/aibtcdev/aibtc-mcp-server/issues/740)) ([929867c](https://github.com/aibtcdev/aibtc-mcp-server/commit/929867c3ed157ad8ef92a399a07919f9c5fae198))
+
 ## [1.78.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.77.0...mcp-server-v1.78.0) (2026-10-27)
 
 
