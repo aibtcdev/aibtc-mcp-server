@@ -140,6 +140,32 @@ describe("execute_x402_endpoint canonical error handling", () => {
     expect(result.content[0].text).toContain("txid: txid_123");
     expect(mockPollTransactionConfirmation).toHaveBeenCalledWith("txid_123", "mainnet");
   });
+
+  it("gives the paymentId, not a txid, when a signed payment's txid is unknown", async () => {
+    // A sponsored payment: the header carries no usable txid.
+    mockExtractTxidFromPaymentSignature.mockReturnValue(null);
+    mockCreateApiClient.mockResolvedValue({
+      request: vi.fn().mockRejectedValue({
+        message: "socket hang up",
+        config: { headers: { "payment-signature": "encoded-payment" } },
+      }),
+    });
+
+    const { server, tools } = createTrackingServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerEndpointTools(server as any);
+    const result = (await tools.get("execute_x402_endpoint")!.handler({
+      method: "GET",
+      url: "https://aibtc.com/api/inbox/bc1example",
+      autoApprove: true,
+    })) as { content: Array<{ type: string; text: string }>; isError?: boolean };
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("paymentId: pay_endpoint_123");
+    expect(result.content[0].text).toContain("get_account_transactions");
+    expect(result.content[0].text).not.toContain("txid:");
+    expect(mockPollTransactionConfirmation).not.toHaveBeenCalled();
+  });
 });
 
 describe("execute_x402_endpoint dedup recording on failed settlement (#630)", () => {

@@ -596,6 +596,23 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
               ],
             };
           }
+
+          // No txid from the header: a sponsored payment (the relay assigns its
+          // txid when it sponsors) or one that didn't decode. It may still have
+          // settled, so point at where the real txid can be found.
+          const baseError = formatEndpointError(error, label);
+          return {
+            ...baseError,
+            content: [
+              {
+                type: "text" as const,
+                text: baseError.content[0].text +
+                  `\n\nA payment was signed, but its txid is not known here` +
+                  (fallbackPaymentId ? ` (paymentId: ${fallbackPaymentId})` : "") +
+                  `. It may have settled: query get_account_transactions for this wallet before paying again.`,
+              },
+            ],
+          };
         }
 
         return formatEndpointError(error, label);
