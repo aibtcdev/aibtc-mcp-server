@@ -490,6 +490,26 @@ export interface PaymentRequirements {
 /**
  * Options for createApiClient
  */
+/**
+ * Who pays STX gas for the payment the interceptor signed. Sponsored: fee 0,
+ * the endpoint's relay pays at settlement. Self-paid: the sender's own fee.
+ */
+export interface X402PaymentGas {
+  sponsored: boolean;
+  feeUstx: string;
+}
+
+const PAYMENT_GAS_KEY = "x402PaymentGas";
+
+/**
+ * Read the gas decision the interceptor attached to a paid request's config
+ * (`response.config` on success, `error.config` on failure). Undefined when
+ * no payment was signed.
+ */
+export function getPaymentGas(config: unknown): X402PaymentGas | undefined {
+  return (config as { [PAYMENT_GAS_KEY]?: X402PaymentGas } | undefined)?.[PAYMENT_GAS_KEY];
+}
+
 export interface CreateApiClientOptions {
   /**
    * Optional callback invoked after a 402 is received and payment requirements are
@@ -1008,6 +1028,8 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
         const originalRequest = error.config;
         originalRequest.headers = originalRequest.headers || {};
         originalRequest.headers[X402_HEADERS.PAYMENT_SIGNATURE] = encodedPayload;
+        const gas: X402PaymentGas = { sponsored, feeUstx: fee.toString() };
+        Object.assign(originalRequest, { [PAYMENT_GAS_KEY]: gas });
 
         return axiosInstance.request(originalRequest);
       } catch (paymentError) {
