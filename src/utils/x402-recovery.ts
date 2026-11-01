@@ -23,7 +23,10 @@ import { decodePaymentPayload } from "./x402-protocol.js";
  * The payment-signature header is a base64-encoded JSON PaymentPayloadV2 object
  * whose payload.transaction field contains the signed transaction hex.
  *
- * Returns the txid string (64-char hex, no 0x prefix), or null if extraction fails.
+ * Returns the txid string (64-char hex, no 0x prefix), or null if extraction
+ * fails or the payment is sponsored. A sponsored transaction gets its txid only
+ * when the relay adds its sponsor signature and fee, so the txid of the signed
+ * payment in the header never appears on chain.
  */
 export function extractTxidFromPaymentSignature(
   paymentSignatureHeader: string
@@ -40,6 +43,9 @@ export function extractTxidFromPaymentSignature(
     const txBytes = Buffer.from(hexWithout0x, "hex");
 
     const tx = deserializeTransaction(txBytes);
+    if (tx.auth.authType === AuthType.Sponsored) {
+      return null;
+    }
     return tx.txid();
   } catch {
     return null;
