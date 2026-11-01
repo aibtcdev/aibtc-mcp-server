@@ -170,12 +170,16 @@ function formatProbeResponse(
   });
 }
 
-/** One line saying who paid STX gas for a signed payment, or "" when none was signed. */
+/**
+ * One line saying who pays STX gas for a payment that was signed but whose
+ * call failed, or "" when none was signed. The fee is only charged if the
+ * payment settles on chain, which a failed call does not tell us.
+ */
 function formatGasLine(gas: X402PaymentGas | undefined): string {
   if (!gas) return "";
   return gas.sponsored
-    ? "\n\nGas: sponsored (the endpoint's relay pays the STX fee)."
-    : `\n\nGas: self-paid, ${gas.feeUstx} uSTX fee.`;
+    ? "\n\nGas: sponsored (the endpoint's relay pays the STX fee if the payment settles)."
+    : `\n\nGas: self-paid; the payment was signed with a ${gas.feeUstx} uSTX fee, charged only if it settles on chain.`;
 }
 
 export function registerEndpointTools(server: McpServer): void {
@@ -533,8 +537,8 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
         // Mirrors the success path, including the synthetic pending marker
         // used when the txid is not yet observable.
         const paymentSigHeader = axiosError.config?.headers?.[X402_HEADERS.PAYMENT_SIGNATURE];
-        // A broadcast self-paid payment has spent its STX fee even though the
-        // call failed, so say who paid gas on every error path too.
+        // A signed payment may still settle after the call failed, so say who
+        // pays gas on every error path too.
         const gasLine = formatGasLine(getPaymentGas(axiosError.config));
         if (paymentSigHeader && dedupKey) {
           const broadcastTxid = extractTxidFromPaymentSignature(paymentSigHeader);

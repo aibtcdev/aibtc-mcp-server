@@ -120,8 +120,8 @@ Embedded, self-custodial Lightning wallet backed by the [Spark SDK](https://www.
 
 ### x402 API Endpoints
 - `execute_x402_endpoint` - Execute ANY x402 endpoint URL with automatic payment handling. Can use full URL or path+apiUrl.
-  - A paid result carries `txid` and `gas: { sponsored, feeUstx }`. When the 402 offers sponsorship (`extra.feePayer` or `extra.sponsored`) the payment is signed with fee 0 and the endpoint's relay pays the STX fee; otherwise the wallet pays `feeUstx` (booked against the spend limit). The error text says the same when a payment was signed but the call failed.
-  - A sponsored payment's txid is assigned when the relay sponsors it, so on a failed settlement the tool returns the paymentId instead of a txid; find the settled tx with `get_account_transactions`.
+  - A paid result carries `txid` and `gas: { sponsored, feeUstx }`. When the 402 offers sponsorship (`extra.feePayer` or `extra.sponsored`) the payment is signed with fee 0 and the endpoint's relay pays the STX fee; otherwise the wallet pays `feeUstx` (booked against the spend limit). When a payment was signed but the call failed, the error text says who pays gas and the fee it was signed with; that fee is charged only if the payment settles.
+  - A sponsored payment's txid is assigned when the relay sponsors it, so on a failed settlement the tool reports no txid for it (the paymentId, when it can be read, is shown instead); find the settled tx with `get_account_transactions`.
 
 **Configuration:**
 - `X402_MAX_USTX_PER_PAYMENT` (optional, default `1000000` = 1 STX): hard cap on the uSTX amount the x402 interceptor will auto-pay per request. Bounds the blast radius if a malicious endpoint demands an arbitrary amount.

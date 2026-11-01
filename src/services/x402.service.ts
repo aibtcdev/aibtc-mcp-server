@@ -1,4 +1,4 @@
-import axios, { type AxiosInstance } from "axios";
+import axios, { type AxiosInstance, type AxiosRequestConfig } from "axios";
 import {
   makeSTXTokenTransfer,
   makeContractCall,
@@ -488,9 +488,6 @@ export interface PaymentRequirements {
 }
 
 /**
- * Options for createApiClient
- */
-/**
  * Who pays STX gas for the payment the interceptor signed. Sponsored: fee 0,
  * the endpoint's relay pays at settlement. Self-paid: the sender's own fee.
  */
@@ -499,17 +496,25 @@ export interface X402PaymentGas {
   feeUstx: string;
 }
 
-const PAYMENT_GAS_KEY = "x402PaymentGas";
+declare module "axios" {
+  interface AxiosRequestConfig {
+    /** Set by the x402 interceptor on the paid retry; read with getPaymentGas. */
+    x402PaymentGas?: X402PaymentGas;
+  }
+}
 
 /**
  * Read the gas decision the interceptor attached to a paid request's config
  * (`response.config` on success, `error.config` on failure). Undefined when
  * no payment was signed.
  */
-export function getPaymentGas(config: unknown): X402PaymentGas | undefined {
-  return (config as { [PAYMENT_GAS_KEY]?: X402PaymentGas } | undefined)?.[PAYMENT_GAS_KEY];
+export function getPaymentGas(config: AxiosRequestConfig | undefined): X402PaymentGas | undefined {
+  return config?.x402PaymentGas;
 }
 
+/**
+ * Options for createApiClient
+ */
 export interface CreateApiClientOptions {
   /**
    * Optional callback invoked after a 402 is received and payment requirements are
@@ -1028,8 +1033,7 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
         const originalRequest = error.config;
         originalRequest.headers = originalRequest.headers || {};
         originalRequest.headers[X402_HEADERS.PAYMENT_SIGNATURE] = encodedPayload;
-        const gas: X402PaymentGas = { sponsored, feeUstx: fee.toString() };
-        Object.assign(originalRequest, { [PAYMENT_GAS_KEY]: gas });
+        originalRequest.x402PaymentGas = { sponsored, feeUstx: fee.toString() };
 
         return axiosInstance.request(originalRequest);
       } catch (paymentError) {
