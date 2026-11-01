@@ -89,10 +89,12 @@ const ALLOWED_GROUPS: Record<string, string[]> = {
     // from the wallet at signing.
     "stack_stx.maxWithdrawalFeeSats",
     "extend_stacking.maxWithdrawalFeeSats",
-    // A secondary, model-settable daily cap on reply inference. It sits on top
-    // of the wallet-wide limiter, which still books every x402 payment, so it
-    // can only tighten.
+    // Secondary, model-settable caps on reply inference (per UTC day, and per
+    // reply: a quote above it stops the run unpaid). Both sit on top of the
+    // wallet-wide limiter, which still books every x402 payment, so they can
+    // only tighten.
     "inbox_auto_reply_configure.dailyCapSats",
+    "inbox_auto_reply_configure.maxSatsPerReply",
   ],
 
   // Caller-set consent flag, fine as an accident guard: both broadcasts go
