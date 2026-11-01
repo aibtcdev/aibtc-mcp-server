@@ -53,34 +53,6 @@ export function extractTxidFromPaymentSignature(
 }
 
 /**
- * Read who pays gas for the signed payment in a payment-signature header.
- *
- * A sponsored payment is signed with fee 0 and the relay pays the STX fee at
- * settlement; a self-paid one carries its own fee. Returns null when the
- * header doesn't decode to a Stacks transaction.
- */
-export function extractFeeFromPaymentSignature(
-  paymentSignatureHeader: string
-): { sponsored: boolean; feeUstx: string } | null {
-  try {
-    const payload = decodePaymentPayload(paymentSignatureHeader);
-    if (!payload?.payload?.transaction) {
-      return null;
-    }
-
-    const txHex = payload.payload.transaction;
-    const hexWithout0x = txHex.startsWith("0x") ? txHex.slice(2) : txHex;
-    const tx = deserializeTransaction(Buffer.from(hexWithout0x, "hex"));
-    return {
-      sponsored: tx.auth.authType === AuthType.Sponsored,
-      feeUstx: tx.auth.spendingCondition.fee.toString(),
-    };
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Extract the relay-owned paymentId from a base64-encoded payment-signature header.
  *
  * This is useful when the caller needs to recover the stable payment identity

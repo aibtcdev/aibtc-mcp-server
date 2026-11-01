@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { createApiClient, API_URL, probeEndpoint, formatPaymentAmount, type ProbeResult, checkSufficientBalance, generateDedupKey, checkDedupCache, recordTransaction, X402_DEDUP_TTL_MS, NETWORK } from "../services/x402.service.js";
+import { createApiClient, API_URL, probeEndpoint, formatPaymentAmount, type ProbeResult, checkSufficientBalance, generateDedupKey, checkDedupCache, recordTransaction, X402_DEDUP_TTL_MS, NETWORK, getPaymentGas, type X402PaymentGas } from "../services/x402.service.js";
 import { STATIC_ENDPOINTS, formatEndpointsTable, type X402Endpoint } from "../endpoints/registry.js";
 import {
   discoverOpenApiEndpoints,
@@ -12,7 +12,6 @@ import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { X402_HEADERS, decodePaymentResponse } from "../utils/x402-protocol.js";
 import type { HttpPaymentStatusResponse } from "@aibtc/tx-schemas/http";
 import {
-  extractFeeFromPaymentSignature,
   extractPaymentIdFromPaymentSignature,
   extractTxidFromPaymentSignature,
   pollTransactionConfirmation,
@@ -169,6 +168,18 @@ function formatProbeResponse(
     ...(result.accepts && result.accepts.length > 0 && { accepts: result.accepts }),
     callWith: buildCallWith(callWithOptions),
   });
+}
+
+/**
+ * One line saying who pays STX gas for a payment that was signed but whose
+ * call failed, or "" when none was signed. The fee is only charged if the
+ * payment settles on chain, which a failed call does not tell us.
+ */
+function formatGasLine(gas: X402PaymentGas | undefined): string {
+  if (!gas) return "";
+  return gas.sponsored
+    ? "\n\nGas: sponsored (the endpoint's relay pays the STX fee if the payment settles)."
+    : `\n\nGas: self-paid; the payment was signed with a ${gas.feeUstx} uSTX fee, charged only if it settles on chain.`;
 }
 
 export function registerEndpointTools(server: McpServer): void {
@@ -346,6 +357,8 @@ Supported sources:
 
 Use list_x402_endpoints to discover available endpoints.
 
+A paid result includes txid and gas: {sponsored, feeUstx}. Sponsored means the endpoint's relay pays the STX fee (feeUstx "0"); otherwise this wallet paid feeUstx on top of the price.
+
 For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs a standard sBTC transfer and settles directly through the x402 facilitator.`,
       inputSchema: z.object({
         method: z
@@ -491,16 +504,14 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
             ? { txid }
             : {};
 
-        // Say who paid gas, read from the signed payment itself: a 402 that
-        // offers sponsorship can still end in a self-paid signature, and the
-        // caller should see that rather than find an unexpected fee later.
-        const gas = paymentSigHeader ? extractFeeFromPaymentSignature(paymentSigHeader) : null;
+        // Who paid STX gas for the payment, as decided when it was signed.
+        const gas = getPaymentGas(response.config);
 
         return createJsonResponse({
           endpoint: `${method} ${fullUrl}`,
           response: response.data,
           ...txidFields,
-          ...(gas && { payment: gas }),
+          ...(gas && { gas }),
         });
       } catch (error) {
         const label = fullUrl || url || path || "unknown";
@@ -526,6 +537,9 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
         // Mirrors the success path, including the synthetic pending marker
         // used when the txid is not yet observable.
         const paymentSigHeader = axiosError.config?.headers?.[X402_HEADERS.PAYMENT_SIGNATURE];
+        // A signed payment may still settle after the call failed, so say who
+        // pays gas on every error path too.
+        const gasLine = formatGasLine(getPaymentGas(axiosError.config));
         if (paymentSigHeader && dedupKey) {
           const broadcastTxid = extractTxidFromPaymentSignature(paymentSigHeader);
           await recordTransaction(dedupKey, broadcastTxid ?? `pending:${dedupKey}`);
@@ -563,7 +577,7 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
 
           return {
             ...baseError,
-            content: [{ type: "text" as const, text }],
+            content: [{ type: "text" as const, text: text + gasLine }],
           };
         }
 
@@ -591,7 +605,8 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
                     `Transaction recovery info:\n` +
                     `  txid: ${confirmation.txid}\n` +
                     `  status: ${confirmation.status}\n` +
-                    `  explorer: ${confirmation.explorer}`,
+                    `  explorer: ${confirmation.explorer}` +
+                    gasLine,
                 },
               ],
             };
@@ -609,7 +624,8 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
                 text: baseError.content[0].text +
                   `\n\nA payment was signed, but its txid is not known here` +
                   (fallbackPaymentId ? ` (paymentId: ${fallbackPaymentId})` : "") +
-                  `. It may have settled: query get_account_transactions for this wallet before paying again.`,
+                  `. It may have settled: query get_account_transactions for this wallet before paying again.` +
+                  gasLine,
               },
             ],
           };

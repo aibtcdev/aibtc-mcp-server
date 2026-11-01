@@ -5,7 +5,6 @@ const mockCheckSufficientBalance = vi.fn();
 const mockGenerateDedupKey = vi.fn(() => "dedup-key-success");
 const mockCheckDedupCache = vi.fn(() => null);
 const mockRecordTransaction = vi.fn();
-const mockExtractFee = vi.fn((): { sponsored: boolean; feeUstx: string } | null => null);
 
 vi.mock("../../src/services/x402.service.js", () => ({
   createApiClient: mockCreateApiClient,
@@ -16,13 +15,13 @@ vi.mock("../../src/services/x402.service.js", () => ({
   generateDedupKey: mockGenerateDedupKey,
   checkDedupCache: mockCheckDedupCache,
   recordTransaction: mockRecordTransaction,
+  getPaymentGas: (config: { x402PaymentGas?: unknown } | undefined) => config?.x402PaymentGas,
   NETWORK: "mainnet",
 }));
 
 vi.mock("../../src/utils/x402-recovery.js", () => ({
   extractPaymentIdFromPaymentSignature: vi.fn(() => null),
   extractTxidFromPaymentSignature: vi.fn(() => null),
-  extractFeeFromPaymentSignature: mockExtractFee,
   pollTransactionConfirmation: vi.fn(),
 }));
 
@@ -52,6 +51,7 @@ function buildOkResponse(opts: {
   data: unknown;
   paymentAttempted: boolean;
   headers?: Record<string, string>;
+  gas?: { sponsored: boolean; feeUstx: string };
 }) {
   const headers: Record<string, string> = {
     ...(opts.headers ?? {}),
@@ -62,7 +62,7 @@ function buildOkResponse(opts: {
   return {
     data: opts.data,
     headers,
-    config: { headers },
+    config: { headers, ...(opts.gas && { x402PaymentGas: opts.gas }) },
   };
 }
 
@@ -194,10 +194,9 @@ describe("execute_x402_endpoint success-path txid handling (#487 Gap 1)", () => 
     );
   });
 
-  it("reports who paid gas, read from the signed payment", async () => {
-    mockExtractFee.mockReturnValueOnce({ sponsored: false, feeUstx: "3000" });
+  it("reports who paid gas, as decided when the payment was signed", async () => {
     const request = vi.fn().mockResolvedValue(
-      buildOkResponse({ data: { ok: true }, paymentAttempted: true })
+      buildOkResponse({ data: { ok: true }, paymentAttempted: true, gas: { sponsored: false, feeUstx: "3000" } })
     );
     mockCreateApiClient.mockResolvedValue({ request });
 
@@ -210,13 +209,12 @@ describe("execute_x402_endpoint success-path txid handling (#487 Gap 1)", () => 
       autoApprove: true,
     })) as { content: Array<{ type: string; text: string }> };
 
-    expect(mockExtractFee).toHaveBeenCalledWith("encoded-payment-sig");
-    expect(JSON.parse(result.content[0].text).payment).toEqual({ sponsored: false, feeUstx: "3000" });
+    expect(JSON.parse(result.content[0].text).gas).toEqual({ sponsored: false, feeUstx: "3000" });
   });
 
-  it("omits the payment block when the signed payment can't be decoded", async () => {
+  it("omits gas when no payment was signed", async () => {
     const request = vi.fn().mockResolvedValue(
-      buildOkResponse({ data: { ok: true }, paymentAttempted: true })
+      buildOkResponse({ data: { ok: true }, paymentAttempted: false })
     );
     mockCreateApiClient.mockResolvedValue({ request });
 
@@ -229,7 +227,7 @@ describe("execute_x402_endpoint success-path txid handling (#487 Gap 1)", () => 
       autoApprove: true,
     })) as { content: Array<{ type: string; text: string }> };
 
-    expect(JSON.parse(result.content[0].text).payment).toBeUndefined();
+    expect(JSON.parse(result.content[0].text).gas).toBeUndefined();
   });
 
   it("omits the txid field entirely when no payment was attempted and no txid is present", async () => {

@@ -19,12 +19,12 @@ vi.mock("../../src/services/x402.service.js", () => ({
   checkDedupCache: mockCheckDedupCache,
   recordTransaction: mockRecordTransaction,
   NETWORK: "mainnet",
+  getPaymentGas: (config: { x402PaymentGas?: unknown } | undefined) => config?.x402PaymentGas,
 }));
 
 vi.mock("../../src/utils/x402-recovery.js", () => ({
   extractPaymentIdFromPaymentSignature: mockExtractPaymentIdFromPaymentSignature,
   extractTxidFromPaymentSignature: mockExtractTxidFromPaymentSignature,
-  extractFeeFromPaymentSignature: vi.fn(() => null),
   pollTransactionConfirmation: mockPollTransactionConfirmation,
 }));
 
@@ -165,6 +165,75 @@ describe("execute_x402_endpoint canonical error handling", () => {
     expect(result.content[0].text).toContain("get_account_transactions");
     expect(result.content[0].text).not.toContain("txid:");
     expect(mockPollTransactionConfirmation).not.toHaveBeenCalled();
+  });
+
+  it("says who paid gas when a self-paid payment was broadcast and settlement failed", async () => {
+    mockExtractTxidFromPaymentSignature.mockReturnValue("txid_123");
+    mockPollTransactionConfirmation.mockResolvedValue({
+      txid: "txid_123",
+      status: "pending",
+      explorer: "https://explorer.example/txid_123",
+    });
+    mockCreateApiClient.mockResolvedValue({
+      request: vi.fn().mockRejectedValue({
+        message: "Payment retry limit exceeded",
+        config: {
+          headers: { "payment-signature": "encoded-payment" },
+          x402PaymentGas: { sponsored: false, feeUstx: "3000" },
+        },
+        response: { status: 502, data: { error: "settle failed" } },
+      }),
+    });
+
+    const { server, tools } = createTrackingServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerEndpointTools(server as any);
+    const result = (await tools.get("execute_x402_endpoint")!.handler({
+      method: "GET",
+      url: "https://aibtc.com/api/inbox/bc1example",
+      autoApprove: true,
+    })) as { content: Array<{ type: string; text: string }> };
+
+    expect(result.content[0].text).toContain(
+      "Gas: self-paid; the payment was signed with a 3000 uSTX fee, charged only if it settles on chain."
+    );
+  });
+
+  async function runSponsoredFailure(rejection: Record<string, unknown>) {
+    mockExtractTxidFromPaymentSignature.mockReturnValue(null);
+    mockCreateApiClient.mockResolvedValue({
+      request: vi.fn().mockRejectedValue({
+        message: "Payment retry limit exceeded",
+        config: {
+          headers: { "payment-signature": "encoded-payment" },
+          x402PaymentGas: { sponsored: true, feeUstx: "0" },
+        },
+        ...rejection,
+      }),
+    });
+    const { server, tools } = createTrackingServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerEndpointTools(server as any);
+    return (await tools.get("execute_x402_endpoint")!.handler({
+      method: "GET",
+      url: "https://aibtc.com/api/inbox/bc1example",
+      autoApprove: true,
+    })) as { content: Array<{ type: string; text: string }> };
+  }
+
+  it("says gas is sponsored on the canonical-status path", async () => {
+    const result = await runSponsoredFailure({
+      response: { status: 402, data: { error: "still processing" } },
+      x402PaymentStatus: { paymentId: "pay_endpoint_123", status: "queued" },
+    });
+    expect(result.content[0].text).toContain("Canonical payment status:");
+    expect(result.content[0].text).toContain("Gas: sponsored");
+  });
+
+  it("says gas is sponsored when the signed payment's txid is unknown", async () => {
+    const result = await runSponsoredFailure({});
+    expect(result.content[0].text).toContain("paymentId: pay_endpoint_123");
+    expect(result.content[0].text).toContain("Gas: sponsored");
   });
 });
 
