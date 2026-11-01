@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.79.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.78.0...mcp-server-v1.79.0) (2026-11-01)
+
+
+### Features
+
+* **x402:** report who paid gas in execute_x402_endpoint's paid result ([#745](https://github.com/aibtcdev/aibtc-mcp-server/issues/745)) ([505236a](https://github.com/aibtcdev/aibtc-mcp-server/commit/505236afc65a972020acf3b4a7b0dcdd15465d67))
+
+
+### Bug Fixes
+
+* **inbox:** stop auto-reply paying twice for one message ([#744](https://github.com/aibtcdev/aibtc-mcp-server/issues/744)) ([81c0bab](https://github.com/aibtcdev/aibtc-mcp-server/commit/81c0babcad6a01b539467a02aad2140272b498f0))
+* **x402:** don't report the pre-sponsor txid of a sponsored payment ([#749](https://github.com/aibtcdev/aibtc-mcp-server/issues/749)) ([d0c5cd5](https://github.com/aibtcdev/aibtc-mcp-server/commit/d0c5cd5845a21beaf8ecff22b419212058bb5acd))
+* **x402:** report gas from the signing decision, on success and failure ([#750](https://github.com/aibtcdev/aibtc-mcp-server/issues/750)) ([0ec7b23](https://github.com/aibtcdev/aibtc-mcp-server/commit/0ec7b23d693de101f6293ae0ce7bf7032efe5142))
+* **x402:** sponsor when the 402 names extra.feePayer, not only extra.sponsored ([#740](https://github.com/aibtcdev/aibtc-mcp-server/issues/740)) ([929867c](https://github.com/aibtcdev/aibtc-mcp-server/commit/929867c3ed157ad8ef92a399a07919f9c5fae198))
+
 ## [1.78.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.77.0...mcp-server-v1.78.0) (2026-10-27)
 
 
