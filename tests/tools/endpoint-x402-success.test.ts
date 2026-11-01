@@ -5,6 +5,7 @@ const mockCheckSufficientBalance = vi.fn();
 const mockGenerateDedupKey = vi.fn(() => "dedup-key-success");
 const mockCheckDedupCache = vi.fn(() => null);
 const mockRecordTransaction = vi.fn();
+const mockExtractFee = vi.fn((): { sponsored: boolean; feeUstx: string } | null => null);
 
 vi.mock("../../src/services/x402.service.js", () => ({
   createApiClient: mockCreateApiClient,
@@ -21,6 +22,7 @@ vi.mock("../../src/services/x402.service.js", () => ({
 vi.mock("../../src/utils/x402-recovery.js", () => ({
   extractPaymentIdFromPaymentSignature: vi.fn(() => null),
   extractTxidFromPaymentSignature: vi.fn(() => null),
+  extractFeeFromPaymentSignature: mockExtractFee,
   pollTransactionConfirmation: vi.fn(),
 }));
 
@@ -190,6 +192,44 @@ describe("execute_x402_endpoint success-path txid handling (#487 Gap 1)", () => 
       "dedup-key-success",
       "pending:dedup-key-success"
     );
+  });
+
+  it("reports who paid gas, read from the signed payment", async () => {
+    mockExtractFee.mockReturnValueOnce({ sponsored: false, feeUstx: "3000" });
+    const request = vi.fn().mockResolvedValue(
+      buildOkResponse({ data: { ok: true }, paymentAttempted: true })
+    );
+    mockCreateApiClient.mockResolvedValue({ request });
+
+    const { server, tools } = createTrackingServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerEndpointTools(server as any);
+    const result = (await tools.get("execute_x402_endpoint")!.handler({
+      method: "POST",
+      url: "https://inference.aibtc.com/v1/chat/completions",
+      autoApprove: true,
+    })) as { content: Array<{ type: string; text: string }> };
+
+    expect(mockExtractFee).toHaveBeenCalledWith("encoded-payment-sig");
+    expect(JSON.parse(result.content[0].text).payment).toEqual({ sponsored: false, feeUstx: "3000" });
+  });
+
+  it("omits the payment block when the signed payment can't be decoded", async () => {
+    const request = vi.fn().mockResolvedValue(
+      buildOkResponse({ data: { ok: true }, paymentAttempted: true })
+    );
+    mockCreateApiClient.mockResolvedValue({ request });
+
+    const { server, tools } = createTrackingServer();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    registerEndpointTools(server as any);
+    const result = (await tools.get("execute_x402_endpoint")!.handler({
+      method: "POST",
+      url: "https://inference.aibtc.com/v1/chat/completions",
+      autoApprove: true,
+    })) as { content: Array<{ type: string; text: string }> };
+
+    expect(JSON.parse(result.content[0].text).payment).toBeUndefined();
   });
 
   it("omits the txid field entirely when no payment was attempted and no txid is present", async () => {

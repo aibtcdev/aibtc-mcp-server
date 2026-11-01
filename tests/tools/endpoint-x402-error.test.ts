@@ -24,6 +24,7 @@ vi.mock("../../src/services/x402.service.js", () => ({
 vi.mock("../../src/utils/x402-recovery.js", () => ({
   extractPaymentIdFromPaymentSignature: mockExtractPaymentIdFromPaymentSignature,
   extractTxidFromPaymentSignature: mockExtractTxidFromPaymentSignature,
+  extractFeeFromPaymentSignature: vi.fn(() => null),
   pollTransactionConfirmation: mockPollTransactionConfirmation,
 }));
 

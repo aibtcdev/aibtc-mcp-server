@@ -12,6 +12,7 @@ import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { X402_HEADERS, decodePaymentResponse } from "../utils/x402-protocol.js";
 import type { HttpPaymentStatusResponse } from "@aibtc/tx-schemas/http";
 import {
+  extractFeeFromPaymentSignature,
   extractPaymentIdFromPaymentSignature,
   extractTxidFromPaymentSignature,
   pollTransactionConfirmation,
@@ -490,10 +491,16 @@ For aibtc.com inbox messages, use send_inbox_message_direct instead — it signs
             ? { txid }
             : {};
 
+        // Say who paid gas, read from the signed payment itself: a 402 that
+        // offers sponsorship can still end in a self-paid signature, and the
+        // caller should see that rather than find an unexpected fee later.
+        const gas = paymentSigHeader ? extractFeeFromPaymentSignature(paymentSigHeader) : null;
+
         return createJsonResponse({
           endpoint: `${method} ${fullUrl}`,
           response: response.data,
           ...txidFields,
+          ...(gas && { payment: gas }),
         });
       } catch (error) {
         const label = fullUrl || url || path || "unknown";
