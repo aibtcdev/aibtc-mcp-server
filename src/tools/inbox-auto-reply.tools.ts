@@ -1,8 +1,10 @@
 /**
  * Inbox auto-reply tools.
  *
- * - inbox_auto_reply_configure: store enabled / model / systemPrompt / dailyCapSats /
- *   maxSatsPerReply in ~/.aibtc/config.json (no args = show the current settings)
+ * - inbox_auto_reply_configure: store enabled / model / systemPrompt in
+ *   ~/.aibtc/config.json (no args = show the current settings). The sat limits
+ *   (dailyCapSats, maxSatsPerReply) are not tool inputs: the operator sets them
+ *   in the config file, so the model cannot raise its own spending bound.
  * - inbox_auto_reply: answer paid, unanswered inbox messages with a reply
  *   written by an AIBTC Inference Marketplace model (x402, sBTC), then sign and
  *   post it to the outbox. Built to be called from an agent's autonomy loop.
@@ -38,7 +40,7 @@ function autoReplyLimits(config: StoredConfig): { dailyCapSats: number; maxSatsP
     if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
       throw new Error(
         `inboxAutoReply.${name} in ~/.aibtc/config.json must be a non-negative integer, got ${JSON.stringify(value)}. ` +
-          `Fix it with inbox_auto_reply_configure { ${name}: <sats> }.`
+          `Edit inboxAutoReply.${name} in that file (the model cannot set it).`
       );
     }
     return value;
@@ -65,8 +67,9 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
         "Configure inbox auto-reply (stored in ~/.aibtc/config.json). Call with no arguments to see the current " +
         "settings. A systemPrompt (the agent's voice / personality / what it can help with) is required before " +
         "auto-reply can be enabled. The model must be live on inference.aibtc.com; it is checked against the " +
-        "catalog when set. dailyCapSats caps sats spent on reply inference per UTC day, on top of the wallet-wide " +
-        "spending limit. maxSatsPerReply is the most one reply may cost; a higher quote stops the run unpaid.",
+        "catalog when set. The sat limits (dailyCapSats, default " + DEFAULT_DAILY_CAP_SATS + ", and maxSatsPerReply, " +
+        "default " + DEFAULT_MAX_SATS_PER_REPLY + ") are shown here but set only by the operator, by editing " +
+        "inboxAutoReply in ~/.aibtc/config.json; they apply on top of the wallet-wide spending limit.",
       inputSchema: z.object({
         enabled: z.boolean().optional().describe("Allow inbox_auto_reply to post replies. Dry runs work while disabled."),
         model: z
@@ -79,31 +82,13 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
           .max(4000)
           .optional()
           .describe("System prompt for reply generation: who the agent is, its tone, what it offers, what it won't do."),
-        dailyCapSats: z
-          .number()
-          .int()
-          .min(0)
-          .optional()
-          .describe(`Most sats spent on reply inference per UTC day. Default ${DEFAULT_DAILY_CAP_SATS}.`),
-        maxSatsPerReply: z
-          .number()
-          .int()
-          .min(0)
-          .optional()
-          .describe(`Most sats paid for one reply. Default ${DEFAULT_MAX_SATS_PER_REPLY}.`),
       }),
     },
-    async ({ enabled, model, systemPrompt, dailyCapSats, maxSatsPerReply }) => {
+    async ({ enabled, model, systemPrompt }) => {
       try {
         const config = await readAppConfig();
         const current = config.inboxAutoReply;
-        if (
-          enabled === undefined &&
-          model === undefined &&
-          systemPrompt === undefined &&
-          dailyCapSats === undefined &&
-          maxSatsPerReply === undefined
-        ) {
+        if (enabled === undefined && model === undefined && systemPrompt === undefined) {
           return createJsonResponse({
             configured: Boolean(current),
             settings: current ?? null,
@@ -124,8 +109,9 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
           enabled: enabled ?? current?.enabled ?? false,
           model: model ?? current?.model ?? DEFAULT_AUTO_REPLY_MODEL,
           systemPrompt: systemPrompt ?? current?.systemPrompt ?? "",
-          dailyCapSats: dailyCapSats ?? current?.dailyCapSats ?? DEFAULT_DAILY_CAP_SATS,
-          maxSatsPerReply: maxSatsPerReply ?? current?.maxSatsPerReply ?? DEFAULT_MAX_SATS_PER_REPLY,
+          // Kept as the operator left them in the file; never taken from the model.
+          dailyCapSats: current?.dailyCapSats ?? DEFAULT_DAILY_CAP_SATS,
+          maxSatsPerReply: current?.maxSatsPerReply ?? DEFAULT_MAX_SATS_PER_REPLY,
         };
         if (next.enabled && !next.systemPrompt) {
           throw new Error("Set a systemPrompt before enabling auto-reply.");

@@ -159,6 +159,10 @@ The cache is persisted to disk (`0600`) and reloaded on startup, so the guard su
 | `enabled` | `false` | Allow posting. Dry runs work while disabled. Needs a `systemPrompt`. |
 | `model` | `meta-llama/Llama-3.1-8B-Instruct` | Marketplace model id, checked against the live catalog (`/v1/models`) |
 | `systemPrompt` | — | The agent's voice for replies (max 4000 chars) |
+
+**Sat limits (operator-only):** these are not tool inputs, so the model cannot raise its own bound. Set them by editing `inboxAutoReply` in `~/.aibtc/config.json`; `inbox_auto_reply_configure` keeps whatever is there.
+| Key | Default | Description |
+|-----|---------|-------------|
 | `dailyCapSats` | `1000` | Sats spent on reply inference per UTC day |
 | `maxSatsPerReply` | `10` | Most sats paid for one reply; a higher quote stops the run before anything is signed |
 
