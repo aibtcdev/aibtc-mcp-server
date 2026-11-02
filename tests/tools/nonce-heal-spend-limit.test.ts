@@ -15,7 +15,8 @@ vi.mock("@stacks/transactions", async (orig) => ({
 
 const mockReserve = vi.fn();
 const mockRelease = vi.fn();
-vi.mock("../../src/services/spend-limiter.js", () => ({
+vi.mock("../../src/services/spend-limiter.js", async (orig) => ({
+  ...(await orig<typeof import("../../src/services/spend-limiter.js")>()),
   getSpendLimiter: () => ({ reserve: mockReserve, release: mockRelease }),
 }));
 
@@ -44,6 +45,7 @@ vi.mock("../../src/utils/fee.js", () => ({
 }));
 
 const { registerNonceTools } = await import("../../src/tools/nonce.tools.js");
+const { SpendLimitError } = await import("../../src/services/spend-limiter.js");
 
 type Handler = (args: Record<string, unknown>) => Promise<{
   content: Array<{ type: string; text: string }>;
@@ -59,6 +61,16 @@ function setup() {
   };
   registerNonceTools(server as never);
   return tools.get("nonce_heal")!;
+}
+
+function fillGapTool() {
+  let handler: Handler | undefined;
+  registerNonceTools({
+    registerTool: (name: string, _config: never, h: Handler) => {
+      if (name === "nonce_fill_gap") handler = h;
+    },
+  } as never);
+  return handler!;
 }
 
 const parse = (r: { content: Array<{ text: string }> }) => JSON.parse(r.content[0].text);
@@ -127,5 +139,127 @@ describe("nonce_heal spend limit (#746)", () => {
 
     expect(mockReserve).toHaveBeenCalledTimes(2);
     expect(mockRelease).not.toHaveBeenCalled();
+  });
+
+  it("releases the booking when signing throws", async () => {
+    mockMake.mockRejectedValue(new Error("bad key"));
+    const { handler } = setup();
+    await handler({ address: ADDRESS, dryRun: false, bumpHead: true, feeMultiplier: 2 });
+
+    expect(mockReserve).toHaveBeenCalledTimes(2);
+    expect(mockRelease).toHaveBeenCalledTimes(2);
+    expect(mockBroadcast).not.toHaveBeenCalled();
+  });
+});
+
+describe("nonce_heal review fixes (#747)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockMake.mockResolvedValue({ tx: "signed" });
+    mockBroadcast.mockResolvedValue({ txid: "ab".repeat(32) });
+    mockReserve.mockResolvedValue({ id: "r1" });
+    hiro.getNonceInfo.mockResolvedValue({
+      last_executed_tx_nonce: 4,
+      detected_missing_nonces: [5, 7],
+      detected_mempool_nonces: [6],
+    });
+    hiro.getMempoolTransactions.mockResolvedValue({
+      results: [{ nonce: 6, tx_id: "0x" + "cd".repeat(32), fee_rate: "3000", sponsored: false }],
+    });
+    hiro.getTransaction.mockResolvedValue({ tx_type: "token_transfer" });
+  });
+
+  it("refuses to execute for an address that is not the unlocked wallet", async () => {
+    const { handler } = setup();
+    const out = parse(await handler({ address: "SP2B40X3CHTFFR4KY0Q4WNYDZGJSTCJ8150PXC9HR", dryRun: false, bumpHead: true }));
+
+    expect(out.error).toMatch(/only heals the unlocked wallet/);
+    expect(hiro.getNonceInfo).not.toHaveBeenCalled();
+    expect(mockReserve).not.toHaveBeenCalled();
+    expect(mockMake).not.toHaveBeenCalled();
+  });
+
+  it("still previews another address in dry run", async () => {
+    const { handler } = setup();
+    const out = parse(await handler({ address: "SP2B40X3CHTFFR4KY0Q4WNYDZGJSTCJ8150PXC9HR", dryRun: true, bumpHead: true }));
+
+    expect(out.dryRun).toBe(true);
+    expect(out.gapsFound).toEqual([5, 7]);
+    expect(mockMake).not.toHaveBeenCalled();
+  });
+
+  it.each([["0"], ["abc"], [undefined], ["1e3"]])("refuses to bump a head with fee_rate %s", async (feeRate) => {
+    hiro.getNonceInfo.mockResolvedValue({ last_executed_tx_nonce: 5, detected_missing_nonces: [], detected_mempool_nonces: [6] });
+    hiro.getMempoolTransactions.mockResolvedValue({
+      results: [{ nonce: 6, tx_id: "0x" + "cd".repeat(32), fee_rate: feeRate, sponsored: false }],
+    });
+    const { handler } = setup();
+
+    const preview = parse(await handler({ address: ADDRESS, dryRun: true, bumpHead: true }));
+    expect(preview.actions).toEqual([expect.objectContaining({ type: "bump_head", status: "skipped", reason: expect.stringMatching(/not a positive integer/) })]);
+
+    const out = parse(await handler({ address: ADDRESS, dryRun: false, bumpHead: true }));
+    expect(out.actions).toEqual([expect.objectContaining({ type: "bump_head", status: "failed", error: expect.stringMatching(/not a positive integer/) })]);
+    expect(mockReserve).not.toHaveBeenCalled();
+    expect(mockMake).not.toHaveBeenCalled();
+  });
+
+  it("refuses a replacement fee above the absolute ceiling", async () => {
+    hiro.getNonceInfo.mockResolvedValue({ last_executed_tx_nonce: 5, detected_missing_nonces: [], detected_mempool_nonces: [6] });
+    hiro.getMempoolTransactions.mockResolvedValue({
+      results: [{ nonce: 6, tx_id: "0x" + "cd".repeat(32), fee_rate: "400000", sponsored: false }],
+    });
+    const { handler } = setup();
+    const out = parse(await handler({ address: ADDRESS, dryRun: false, bumpHead: true, feeMultiplier: 5 }));
+
+    expect(out.actions[0]).toMatchObject({ type: "bump_head", status: "failed" });
+    expect(out.actions[0].error).toMatch(/2000000 uSTX is above the 1000000 uSTX ceiling/);
+    expect(mockMake).not.toHaveBeenCalled();
+  });
+
+  it("stops at the first spend-limit refusal and reports it", async () => {
+    mockReserve.mockRejectedValue(new SpendLimitError("Daily uSTX limit reached.", "ustx", 1001, 0, "day"));
+    const { handler } = setup();
+    const out = parse(await handler({ address: ADDRESS, dryRun: false, bumpHead: true }));
+
+    expect(mockReserve).toHaveBeenCalledTimes(1);
+    expect(hiro.getMempoolTransactions).not.toHaveBeenCalled();
+    expect(out.actions).toEqual([expect.objectContaining({ type: "fill_gap", nonce: 5, status: "failed" })]);
+    expect(out.spendLimitStop).toBe("Daily uSTX limit reached.");
+    expect(out.summary).toMatch(/Stopped at the spend limit/);
+  });
+});
+
+describe("nonce_fill_gap spend limit", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockMake.mockResolvedValue({ tx: "signed" });
+    mockBroadcast.mockResolvedValue({ txid: "ab".repeat(32) });
+    mockReserve.mockResolvedValue({ id: "r1" });
+  });
+
+  it("books 1 uSTX plus the fee before signing", async () => {
+    const out = parse(await fillGapTool()({ nonce: 9 }));
+
+    expect(out.success).toBe(true);
+    expect(mockReserve).toHaveBeenCalledWith([{ unit: "ustx", amount: 1001n }], ADDRESS);
+    expect(mockReserve.mock.invocationCallOrder[0]).toBeLessThan(mockMake.mock.invocationCallOrder[0]);
+  });
+
+  it("does not sign when the limiter refuses", async () => {
+    mockReserve.mockRejectedValue(new SpendLimitError("Daily uSTX limit reached.", "ustx", 1001, 0, "day"));
+    const res = await fillGapTool()({ nonce: 9 });
+
+    expect(res.content[0].text).toMatch(/Daily uSTX limit reached/);
+    expect(mockMake).not.toHaveBeenCalled();
+  });
+
+  it("releases the booking on an explicit rejection or a signing error", async () => {
+    mockBroadcast.mockResolvedValueOnce({ error: "rejected", reason: "BadNonce" });
+    await fillGapTool()({ nonce: 9 });
+    mockMake.mockRejectedValueOnce(new Error("bad key"));
+    await fillGapTool()({ nonce: 9 });
+
+    expect(mockRelease).toHaveBeenCalledTimes(2);
   });
 });

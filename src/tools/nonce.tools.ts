@@ -26,7 +26,7 @@ import {
 } from "@stacks/transactions";
 import { getStacksNetwork, getExplorerTxUrl } from "../config/networks.js";
 import { resolveDefaultFee } from "../utils/fee.js";
-import { getSpendLimiter } from "../services/spend-limiter.js";
+import { getSpendLimiter, SpendLimitError } from "../services/spend-limiter.js";
 import { SPONSOR_ADDRESSES } from "../utils/relay-health.js";
 
 /** PoX burn address used as the recipient for gap-fill/RBF self-transfers. */
@@ -47,6 +47,34 @@ interface GapFillResult {
  * realistic replace-by-fee bump; the spend limit bounds the absolute amount.
  */
 const MAX_RBF_FEE_MULTIPLIER = 5;
+
+/**
+ * Absolute ceiling on one RBF replacement fee, in uSTX (1 STX). The multiplier
+ * cap bounds the ratio, not the amount, and with SPEND_LIMIT_ENABLED=false the
+ * limiter books nothing, so a pending tx with a large fee could still be bumped
+ * to 5x that fee. Typical token-transfer fees are a few thousand uSTX.
+ */
+const MAX_RBF_FEE_USTX = 1_000_000;
+
+/**
+ * Parse a mempool fee_rate into a positive integer fee, or explain why not.
+ * A replacement has to pay more than the tx it replaces (same nonce, higher
+ * fee), so a missing, non-numeric or zero original fee can't be bumped.
+ */
+function rbfFee(
+  feeRate: string | undefined,
+  multiplier: number
+): { fee: number } | { error: string } {
+  const original = /^\d+$/.test(feeRate ?? "") ? Number(feeRate) : NaN;
+  if (!Number.isSafeInteger(original) || original <= 0) {
+    return { error: `Chain head fee_rate ${JSON.stringify(feeRate ?? null)} is not a positive integer; cannot compute a replacement fee.` };
+  }
+  const fee = Math.ceil(original * multiplier);
+  if (fee > MAX_RBF_FEE_USTX) {
+    return { error: `Replacement fee ${fee} uSTX is above the ${MAX_RBF_FEE_USTX} uSTX ceiling for nonce_heal; bump this tx manually if it is really needed.` };
+  }
+  return { fee };
+}
 
 /**
  * Broadcast a 1 uSTX gap-fill transaction at the given nonce.
@@ -560,7 +588,10 @@ RBF bump behavior:
 - Contract-call txs: skipped with manual RBF instructions
 
 Always run nonce_health first to understand the current state.
-Requires wallet to be unlocked for execute mode (dryRun=false).
+Requires wallet to be unlocked for execute mode (dryRun=false), and execute mode only heals
+that wallet's own address (any address can be previewed with dryRun=true). Every gap fill
+and bump is booked on the spend limit; the run stops at the first spend-limit refusal.
+A bump fee above 1,000,000 uSTX, or a head with a missing or zero fee, is refused.
 
 Returns:
 - address, dryRun flag, confirmedNonce
@@ -573,7 +604,7 @@ Returns:
           .string()
           .optional()
           .describe(
-            "STX address to heal. Defaults to the active wallet address."
+            "STX address to heal. Defaults to the active wallet address. Execute mode only accepts the unlocked wallet's address."
           ),
         dryRun: z
           .boolean()
@@ -613,6 +644,14 @@ Returns:
           return createJsonResponse({
             error:
               "Wallet must be unlocked to execute heal actions. Use wallet_unlock first, or set dryRun=true to preview.",
+          });
+        }
+
+        // Every fill and bump is signed with the unlocked wallet's key, so in
+        // execute mode the gaps and head must be that wallet's own nonces.
+        if (!dryRun && address !== walletAccount!.address) {
+          return createJsonResponse({
+            error: `Execute mode only heals the unlocked wallet (${walletAccount!.address}); ${address} is a different address. Use dryRun=true to inspect it.`,
           });
         }
 
@@ -691,16 +730,26 @@ Returns:
                 .getTransaction(headTx.tx_id)
                 .catch(() => null);
               if (fullTx?.tx_type === "token_transfer") {
-                const originalFee = parseInt(headTx.fee_rate ?? "0", 10);
-                const newFee = Math.ceil(originalFee * (feeMultiplier ?? 1.5));
-                actions.push({
-                  type: "bump_head",
-                  nonce: chainHeadNonce,
-                  originalTxid: headTx.tx_id,
-                  newTxid: null,
-                  newFee: String(newFee),
-                  status: "proposed",
-                });
+                const bump = rbfFee(headTx.fee_rate, feeMultiplier ?? 1.5);
+                if ("error" in bump) {
+                  actions.push({
+                    type: "bump_head",
+                    nonce: chainHeadNonce,
+                    originalTxid: headTx.tx_id,
+                    newTxid: null,
+                    status: "skipped",
+                    reason: bump.error,
+                  });
+                } else {
+                  actions.push({
+                    type: "bump_head",
+                    nonce: chainHeadNonce,
+                    originalTxid: headTx.tx_id,
+                    newTxid: null,
+                    newFee: String(bump.fee),
+                    status: "proposed",
+                  });
+                }
               } else {
                 actions.push({
                   type: "bump_head",
@@ -737,6 +786,10 @@ Returns:
         // ----------------------------------------------------------------
         const fee = await resolveDefaultFee(NETWORK, "token_transfer");
 
+        // A spend-limit refusal needs the user, not more attempts: stop at the
+        // first one (remaining gaps and the bump are not tried) and report it.
+        let spendLimitStop: string | undefined;
+
         // Fill each gap
         for (const n of gapsFound) {
           try {
@@ -754,11 +807,15 @@ Returns:
             const msg = err instanceof Error ? err.message : String(err);
             actions.push({ type: "fill_gap", nonce: n, txid: null, status: "failed", error: msg });
             warnings.push(`Gap fill at nonce ${n} threw: ${msg}`);
+            if (err instanceof SpendLimitError) {
+              spendLimitStop = msg;
+              break;
+            }
           }
         }
 
         // RBF bump chain head
-        if (bumpHead && chainHeadNonce !== undefined) {
+        if (bumpHead && chainHeadNonce !== undefined && !spendLimitStop) {
           const mempoolResult = await getHiroApi(NETWORK)
             .getMempoolTransactions({ sender_address: address, limit: 50 })
             .catch(() => null);
@@ -788,10 +845,9 @@ Returns:
 
             if (fullTx?.tx_type === "token_transfer") {
               try {
-                const originalFee = parseInt(headTx.fee_rate ?? "0", 10);
-                const newFee = Math.ceil(
-                  originalFee * (feeMultiplier ?? 1.5)
-                );
+                const bump = rbfFee(headTx.fee_rate, feeMultiplier ?? 1.5);
+                if ("error" in bump) throw new Error(bump.error);
+                const newFee = bump.fee;
 
                 // Safety rail: the replacement's 1 uSTX plus its whole fee is
                 // what leaves the wallet if it lands, so book it before signing.
@@ -863,6 +919,7 @@ Returns:
                   error: msg,
                 });
                 warnings.push(`RBF bump at nonce ${chainHeadNonce} threw: ${msg}`);
+                if (err instanceof SpendLimitError) spendLimitStop = msg;
               }
             } else {
               actions.push({
@@ -902,6 +959,9 @@ Returns:
             summary += `Chain head bump at nonce ${bumpAction.nonce} failed (see warnings).`;
           }
         }
+        if (spendLimitStop) {
+          summary += `Stopped at the spend limit; later gaps and the head bump were not tried. ${spendLimitStop} `;
+        }
         if (!summary) {
           summary =
             gapsFound.length === 0
@@ -916,6 +976,7 @@ Returns:
           gapsFound,
           actions,
           warnings,
+          ...(spendLimitStop ? { spendLimitStop } : {}),
           summary: summary.trim(),
         });
       } catch (error) {
