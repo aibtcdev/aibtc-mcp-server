@@ -16,6 +16,7 @@ import {
   generatePaymentId,
   buildPaymentIdentifierExtension,
   X402_HEADERS,
+  X402_SENSITIVE_HEADERS,
   type PaymentRequirementsV2,
 } from "../utils/x402-protocol.js";
 import { generateWallet, getStxAddress } from "@stacks/wallet-sdk";
@@ -372,6 +373,7 @@ function createBaseAxiosInstance(baseURL?: string): AxiosInstance {
     baseURL,
     timeout: 120000,
     transformResponse: [safeJsonTransform],
+    sensitiveHeaders: X402_SENSITIVE_HEADERS,
   });
 
   // Ensure error response bodies (especially 402 payloads) are also parsed as JSON
