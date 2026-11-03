@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.79.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.79.0...mcp-server-v1.79.1) (2026-11-03)
+
+
+### Bug Fixes
+
+* **inbox:** make auto-reply sat limits operator-only ([#752](https://github.com/aibtcdev/aibtc-mcp-server/issues/752)) ([3143fc9](https://github.com/aibtcdev/aibtc-mcp-server/commit/3143fc9223ba372d9e727dad59e0a206b88fef39))
+* **x402:** strip payment headers on cross-origin redirects ([#755](https://github.com/aibtcdev/aibtc-mcp-server/issues/755)) ([b56168a](https://github.com/aibtcdev/aibtc-mcp-server/commit/b56168a0803604e36b4133d2028708b6f4a44210))
+
 ## [1.79.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.78.0...mcp-server-v1.79.0) (2026-11-01)
 
 
