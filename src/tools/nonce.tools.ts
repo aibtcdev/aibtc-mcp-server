@@ -13,6 +13,7 @@ import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { NETWORK } from "../services/x402.service.js";
 import { getWalletManager } from "../services/wallet-manager.js";
 import { getHiroApi } from "../services/hiro-api.js";
+import { getSpendLimiter } from "../services/spend-limiter.js";
 import {
   getAddressState,
   reloadFromDisk,
@@ -564,9 +565,15 @@ Returns:
         feeMultiplier: z
           .number()
           .min(1.1)
+          // A multiplier is a fee, and a fee is an STX outflow. Without an upper
+          // bound a model can pass 100000 and sign a 300 STX fee on a 3000 uSTX
+          // transfer, which is 6x the default daily cap and never booked (#746).
+          // 10x is generous for a legitimate RBF bump and leaves the spend
+          // limiter as the binding constraint, not this number.
+          .max(10)
           .default(1.5)
           .describe(
-            "Fee multiplier for RBF bump (e.g. 1.5 = 50% higher fee). Minimum 1.1. Default 1.5."
+            "Fee multiplier for RBF bump (e.g. 1.5 = 50% higher fee). Between 1.1 and 10. Default 1.5."
           ),
       }),
     },
@@ -766,6 +773,16 @@ Returns:
                   originalFee * (feeMultiplier ?? 1.5)
                 );
 
+                // The RBF bump is a real STX outflow (amount 1 uSTX + the new
+                // fee) and it used to reach broadcastTransaction without passing
+                // the limiter, so it was invisible to the daily cap (#746).
+                // Book it before signing; a refusal here means no signature.
+                const limiter = getSpendLimiter();
+                const reservation = await limiter.reserve(
+                  [{ unit: "ustx", amount: BigInt(newFee) + 1n }],
+                  walletAccount!.address
+                );
+
                 const rbfTx = await makeSTXTokenTransfer({
                   recipient: POX_BURN_ADDRESS,
                   amount: 1n,
@@ -782,6 +799,13 @@ Returns:
                 });
 
                 if ("error" in rbfBroadcast) {
+                  // Nothing left the wallet, so give the budget back rather than
+                  // charging the day for a fee that was never paid.
+                  try {
+                    await limiter.release(reservation);
+                  } catch {
+                    // Leaving it booked only makes the limiter stricter.
+                  }
                   actions.push({
                     type: "bump_head",
                     nonce: chainHeadNonce,

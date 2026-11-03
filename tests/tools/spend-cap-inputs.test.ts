@@ -102,6 +102,11 @@ const ALLOWED_GROUPS: Record<string, string[]> = {
   // through meteredBtcBroadcast, which books against the sats cap.
   "consent flag": ["legion_inscribe_story.confirmMainnetSpend"],
 
+  // Fixed: feeMultiplier is a fee, so it is a bounded, metered outflow now.
+  // The schema caps it at 10 (was unbounded) and the RBF bump reserves
+  // newFee + 1 uSTX against the wallet-wide limiter before signing (#746).
+  "bounded and metered fee multiplier": ["nonce_heal.feeMultiplier"],
+
   // KNOWN GAP, allowlisted so the test can land; do not copy this pattern.
   // lightning_pay_invoice reserves only the invoice face value, so the routing
   // fee up to the caller's maxFeeSats is spent without touching the sats
