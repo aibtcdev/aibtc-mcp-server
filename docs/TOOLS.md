@@ -160,11 +160,11 @@ The cache is persisted to disk (`0600`) and reloaded on startup, so the guard su
 | `model` | `meta-llama/Llama-3.1-8B-Instruct` | Marketplace model id, checked against the live catalog (`/v1/models`) |
 | `systemPrompt` | — | The agent's voice for replies (max 4000 chars) |
 
-**Sat limits (operator-only):** these are not tool inputs, so the model cannot raise its own bound. Set them by editing `inboxAutoReply` in `~/.aibtc/config.json`; `inbox_auto_reply_configure` keeps whatever is there.
-| Key | Default | Description |
-|-----|---------|-------------|
-| `dailyCapSats` | `1000` | Sats spent on reply inference per UTC day |
-| `maxSatsPerReply` | `10` | Most sats paid for one reply; a higher quote stops the run before anything is signed |
+**Sat limits (operator-only):** not tool inputs and not read from `~/.aibtc/config.json`. The operator sets them as env vars in the MCP client config; `inbox_auto_reply_configure` reports them under `limits`. Unknown arguments (such as the old `dailyCapSats`) are rejected.
+| Env var | Default | Description |
+|---------|---------|-------------|
+| `INBOX_AUTO_REPLY_DAILY_CAP_SATS` | `1000` | Sats spent on reply inference per UTC day |
+| `INBOX_AUTO_REPLY_MAX_SATS_PER_REPLY` | `10` | Most sats paid for one reply; a higher quote stops the run before anything is signed |
 
 **`inbox_auto_reply` parameters:**
 | Parameter | Default | Description |

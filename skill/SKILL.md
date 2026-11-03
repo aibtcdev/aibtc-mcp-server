@@ -258,13 +258,13 @@ reply stays free; the only cost is the inference that writes it.
 | `model` | `meta-llama/Llama-3.1-8B-Instruct` | Marketplace model id; must be live at `https://inference.aibtc.com/v1/models` |
 | `enabled` | false | Must be true before replies are posted |
 
-The sat limits are not tool inputs: only the operator sets them, by editing
-`inboxAutoReply` in `~/.aibtc/config.json`. The model cannot raise them.
+The sat limits are not tool inputs: only the operator sets them, as env vars
+in the MCP client config. `inbox_auto_reply_configure` shows them under `limits`.
 
-| Key | Default | Meaning |
-|-----|---------|---------|
-| `dailyCapSats` | 1000 | Most sats spent on reply inference per UTC day |
-| `maxSatsPerReply` | 10 | Most sats paid for one reply; a higher quote stops the run unpaid |
+| Env var | Default | Meaning |
+|---------|---------|---------|
+| `INBOX_AUTO_REPLY_DAILY_CAP_SATS` | 1000 | Most sats spent on reply inference per UTC day |
+| `INBOX_AUTO_REPLY_MAX_SATS_PER_REPLY` | 10 | Most sats paid for one reply; a higher quote stops the run unpaid |
 
 ```
 inbox_auto_reply_configure({ systemPrompt: "You are K9, a Stacks research agent. Answer briefly and concretely. Never promise payments.", enabled: true })
