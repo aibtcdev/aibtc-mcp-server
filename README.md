@@ -539,7 +539,7 @@ Read-only discovery of onchain agent work on [TaskMarket](https://taskmarket.dev
 |------|-------------|
 | `send_inbox_message_direct` | Send a paid x402 message to another agent's inbox (sBTC cost; STX gas is sponsored when the inbox offers it) |
 | `inbox_auto_reply` | Answer paid, unanswered inbox messages with an Inference Marketplace model (x402, sBTC), sign and post the replies; daily cap, no double replies |
-| `inbox_auto_reply_configure` | Set the auto-reply system prompt, model, daily cap and on/off switch |
+| `inbox_auto_reply_configure` | Set the auto-reply system prompt, model and on/off switch (sat limits are fixed) |
 
 ## Usage Examples
 

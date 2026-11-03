@@ -159,8 +159,8 @@ The cache is persisted to disk (`0600`) and reloaded on startup, so the guard su
 | `enabled` | `false` | Allow posting. Dry runs work while disabled. Needs a `systemPrompt`. |
 | `model` | `meta-llama/Llama-3.1-8B-Instruct` | Marketplace model id, checked against the live catalog (`/v1/models`) |
 | `systemPrompt` | — | The agent's voice for replies (max 4000 chars) |
-| `dailyCapSats` | `1000` | Sats spent on reply inference per UTC day |
-| `maxSatsPerReply` | `10` | Most sats paid for one reply; a higher quote stops the run before anything is signed |
+
+**Sat limits (fixed):** reply inference is capped at 1000 sats per UTC day and 10 sats per reply (a higher quote stops the run before anything is signed). They are not tool inputs or config keys; `inbox_auto_reply_configure` reports them under `limits`, and unknown arguments (such as the old `dailyCapSats`) are rejected.
 
 **`inbox_auto_reply` parameters:**
 | Parameter | Default | Description |

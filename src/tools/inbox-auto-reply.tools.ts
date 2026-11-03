@@ -1,8 +1,9 @@
 /**
  * Inbox auto-reply tools.
  *
- * - inbox_auto_reply_configure: store enabled / model / systemPrompt / dailyCapSats /
- *   maxSatsPerReply in ~/.aibtc/config.json (no args = show the current settings)
+ * - inbox_auto_reply_configure: store enabled / model / systemPrompt in
+ *   ~/.aibtc/config.json (no args = show the current settings). The sat limits
+ *   are fixed constants, so nothing the model can reach raises them.
  * - inbox_auto_reply: answer paid, unanswered inbox messages with a reply
  *   written by an AIBTC Inference Marketplace model (x402, sBTC), then sign and
  *   post it to the outbox. Built to be called from an agent's autonomy loop.
@@ -27,27 +28,7 @@ import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 
 type StoredConfig = NonNullable<AppConfig["inboxAutoReply"]>;
 
-/**
- * The stored sat limits, defaulted and checked. The config file is plain JSON
- * (shared with the skills CLI), so a missing or hand-edited value must not
- * turn into "no limit" at run time.
- */
-function autoReplyLimits(config: StoredConfig): { dailyCapSats: number; maxSatsPerReply: number } {
-  const limit = (name: string, value: unknown, fallback: number): number => {
-    if (value === undefined || value === null) return fallback;
-    if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-      throw new Error(
-        `inboxAutoReply.${name} in ~/.aibtc/config.json must be a non-negative integer, got ${JSON.stringify(value)}. ` +
-          `Fix it with inbox_auto_reply_configure { ${name}: <sats> }.`
-      );
-    }
-    return value;
-  };
-  return {
-    dailyCapSats: limit("dailyCapSats", config.dailyCapSats, DEFAULT_DAILY_CAP_SATS),
-    maxSatsPerReply: limit("maxSatsPerReply", config.maxSatsPerReply, DEFAULT_MAX_SATS_PER_REPLY),
-  };
-}
+const LIMITS = { dailyCapSats: DEFAULT_DAILY_CAP_SATS, maxSatsPerReply: DEFAULT_MAX_SATS_PER_REPLY };
 
 function requireMainnet(): void {
   if (NETWORK !== "mainnet") {
@@ -65,8 +46,8 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
         "Configure inbox auto-reply (stored in ~/.aibtc/config.json). Call with no arguments to see the current " +
         "settings. A systemPrompt (the agent's voice / personality / what it can help with) is required before " +
         "auto-reply can be enabled. The model must be live on inference.aibtc.com; it is checked against the " +
-        "catalog when set. dailyCapSats caps sats spent on reply inference per UTC day, on top of the wallet-wide " +
-        "spending limit. maxSatsPerReply is the most one reply may cost; a higher quote stops the run unpaid.",
+        "catalog when set. Inference spend is capped at " + DEFAULT_DAILY_CAP_SATS + " sats per UTC day and " +
+        DEFAULT_MAX_SATS_PER_REPLY + " sats per reply (fixed, not settable), on top of the wallet-wide spending limit.",
       inputSchema: z.object({
         enabled: z.boolean().optional().describe("Allow inbox_auto_reply to post replies. Dry runs work while disabled."),
         model: z
@@ -79,34 +60,17 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
           .max(4000)
           .optional()
           .describe("System prompt for reply generation: who the agent is, its tone, what it offers, what it won't do."),
-        dailyCapSats: z
-          .number()
-          .int()
-          .min(0)
-          .optional()
-          .describe(`Most sats spent on reply inference per UTC day. Default ${DEFAULT_DAILY_CAP_SATS}.`),
-        maxSatsPerReply: z
-          .number()
-          .int()
-          .min(0)
-          .optional()
-          .describe(`Most sats paid for one reply. Default ${DEFAULT_MAX_SATS_PER_REPLY}.`),
-      }),
+      }).strict(),
     },
-    async ({ enabled, model, systemPrompt, dailyCapSats, maxSatsPerReply }) => {
+    async ({ enabled, model, systemPrompt }) => {
       try {
         const config = await readAppConfig();
         const current = config.inboxAutoReply;
-        if (
-          enabled === undefined &&
-          model === undefined &&
-          systemPrompt === undefined &&
-          dailyCapSats === undefined &&
-          maxSatsPerReply === undefined
-        ) {
+        if (enabled === undefined && model === undefined && systemPrompt === undefined) {
           return createJsonResponse({
             configured: Boolean(current),
             settings: current ?? null,
+            limits: LIMITS,
             ...(!current && {
               note: "Not configured. Set at least systemPrompt, then enabled: true.",
             }),
@@ -124,15 +88,13 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
           enabled: enabled ?? current?.enabled ?? false,
           model: model ?? current?.model ?? DEFAULT_AUTO_REPLY_MODEL,
           systemPrompt: systemPrompt ?? current?.systemPrompt ?? "",
-          dailyCapSats: dailyCapSats ?? current?.dailyCapSats ?? DEFAULT_DAILY_CAP_SATS,
-          maxSatsPerReply: maxSatsPerReply ?? current?.maxSatsPerReply ?? DEFAULT_MAX_SATS_PER_REPLY,
         };
         if (next.enabled && !next.systemPrompt) {
           throw new Error("Set a systemPrompt before enabling auto-reply.");
         }
 
         await writeAppConfig({ ...config, inboxAutoReply: next });
-        return createJsonResponse({ success: true, settings: next });
+        return createJsonResponse({ success: true, settings: next, limits: LIMITS });
       } catch (error) {
         return createErrorResponse(error);
       }
@@ -185,7 +147,7 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
           );
         }
 
-        const limits = autoReplyLimits(config);
+        const limits = LIMITS;
         const account = await getAccount();
         const summary = await runAutoReply({
           account,
