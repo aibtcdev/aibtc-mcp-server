@@ -3,9 +3,7 @@
  *
  * - inbox_auto_reply_configure: store enabled / model / systemPrompt in
  *   ~/.aibtc/config.json (no args = show the current settings). The sat limits
- *   come only from env vars (INBOX_AUTO_REPLY_DAILY_CAP_SATS,
- *   INBOX_AUTO_REPLY_MAX_SATS_PER_REPLY) set in the MCP client config, so no
- *   tool of this server can raise them.
+ *   are fixed constants, so nothing the model can reach raises them.
  * - inbox_auto_reply: answer paid, unanswered inbox messages with a reply
  *   written by an AIBTC Inference Marketplace model (x402, sBTC), then sign and
  *   post it to the outbox. Built to be called from an agent's autonomy loop.
@@ -30,24 +28,7 @@ import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 
 type StoredConfig = NonNullable<AppConfig["inboxAutoReply"]>;
 
-/** Read a sat limit from the env, or the default when unset. A bad value throws. */
-function satsLimitFromEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined || raw === "") return fallback;
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value < 0) {
-    throw new Error(`${name} must be a non-negative integer, got "${raw}".`);
-  }
-  return value;
-}
-
-/** The auto-reply sat limits. Set by the operator in the MCP client env, never by a tool. */
-function autoReplyLimits(): { dailyCapSats: number; maxSatsPerReply: number } {
-  return {
-    dailyCapSats: satsLimitFromEnv("INBOX_AUTO_REPLY_DAILY_CAP_SATS", DEFAULT_DAILY_CAP_SATS),
-    maxSatsPerReply: satsLimitFromEnv("INBOX_AUTO_REPLY_MAX_SATS_PER_REPLY", DEFAULT_MAX_SATS_PER_REPLY),
-  };
-}
+const LIMITS = { dailyCapSats: DEFAULT_DAILY_CAP_SATS, maxSatsPerReply: DEFAULT_MAX_SATS_PER_REPLY };
 
 function requireMainnet(): void {
   if (NETWORK !== "mainnet") {
@@ -65,10 +46,8 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
         "Configure inbox auto-reply (stored in ~/.aibtc/config.json). Call with no arguments to see the current " +
         "settings. A systemPrompt (the agent's voice / personality / what it can help with) is required before " +
         "auto-reply can be enabled. The model must be live on inference.aibtc.com; it is checked against the " +
-        "catalog when set. The sat limits (dailyCapSats, default " + DEFAULT_DAILY_CAP_SATS + ", and maxSatsPerReply, " +
-        "default " + DEFAULT_MAX_SATS_PER_REPLY + ") are shown here but are not inputs: the operator sets them with the " +
-        "INBOX_AUTO_REPLY_DAILY_CAP_SATS and INBOX_AUTO_REPLY_MAX_SATS_PER_REPLY env vars in the MCP client config. " +
-        "They apply on top of the wallet-wide spending limit.",
+        "catalog when set. Inference spend is capped at " + DEFAULT_DAILY_CAP_SATS + " sats per UTC day and " +
+        DEFAULT_MAX_SATS_PER_REPLY + " sats per reply (fixed, not settable), on top of the wallet-wide spending limit.",
       inputSchema: z.object({
         enabled: z.boolean().optional().describe("Allow inbox_auto_reply to post replies. Dry runs work while disabled."),
         model: z
@@ -91,7 +70,7 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
           return createJsonResponse({
             configured: Boolean(current),
             settings: current ?? null,
-            limits: autoReplyLimits(),
+            limits: LIMITS,
             ...(!current && {
               note: "Not configured. Set at least systemPrompt, then enabled: true.",
             }),
@@ -115,7 +94,7 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
         }
 
         await writeAppConfig({ ...config, inboxAutoReply: next });
-        return createJsonResponse({ success: true, settings: next, limits: autoReplyLimits() });
+        return createJsonResponse({ success: true, settings: next, limits: LIMITS });
       } catch (error) {
         return createErrorResponse(error);
       }
@@ -168,7 +147,7 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
           );
         }
 
-        const limits = autoReplyLimits();
+        const limits = LIMITS;
         const account = await getAccount();
         const summary = await runAutoReply({
           account,

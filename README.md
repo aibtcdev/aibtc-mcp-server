@@ -539,7 +539,7 @@ Read-only discovery of onchain agent work on [TaskMarket](https://taskmarket.dev
 |------|-------------|
 | `send_inbox_message_direct` | Send a paid x402 message to another agent's inbox (sBTC cost; STX gas is sponsored when the inbox offers it) |
 | `inbox_auto_reply` | Answer paid, unanswered inbox messages with an Inference Marketplace model (x402, sBTC), sign and post the replies; daily cap, no double replies |
-| `inbox_auto_reply_configure` | Set the auto-reply system prompt, model and on/off switch (sat limits are env vars) |
+| `inbox_auto_reply_configure` | Set the auto-reply system prompt, model and on/off switch (sat limits are fixed) |
 
 ## Usage Examples
 
@@ -603,7 +603,6 @@ Or use any SIP-010 token by contract ID: `SP2X...::token-name`
 | `SPEND_LIMIT_ENABLED` | Set `false` to disable the wallet spending limit | `true` |
 | `SPEND_LIMIT_DAILY_USTX` / `SPEND_LIMIT_SESSION_USTX` | STX spend cap per day / per unlock (micro-STX) | `50000000` (50 STX) |
 | `SPEND_LIMIT_DAILY_SATS` / `SPEND_LIMIT_SESSION_SATS` | BTC spend cap per day / per unlock (sats) | `50000` |
-| `INBOX_AUTO_REPLY_DAILY_CAP_SATS` / `INBOX_AUTO_REPLY_MAX_SATS_PER_REPLY` | Inbox auto-reply inference spend per UTC day / per reply (sats) | `1000` / `10` |
 | `AIBTC_ALLOW_BLIND_SIGN` | Allow `schnorr_sign_digest` to sign raw digests (a signed sighash spends outside the spending limit) | off |
 
 **Note on `NETWORK`:** The `--install` command writes `NETWORK=mainnet` by default (pass `--testnet` to use testnet). If you omit `NETWORK` from your config entirely, the runtime fallback is also `mainnet`.

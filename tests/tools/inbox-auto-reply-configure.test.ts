@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let stored: Record<string, unknown> = {};
 const writeAppConfig = vi.fn(async (config: Record<string, unknown>) => {
@@ -36,10 +36,6 @@ describe("inbox_auto_reply_configure", () => {
     writeAppConfig.mockClear();
   });
 
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
   it("takes no sat limit from the model", () => {
     const { schema } = configureTool();
     expect(Object.keys(schema.shape).sort()).toEqual(["enabled", "model", "systemPrompt"]);
@@ -53,16 +49,8 @@ describe("inbox_auto_reply_configure", () => {
     expect(stored.inboxAutoReply).not.toHaveProperty("dailyCapSats");
   });
 
-  it("takes the limits from the env, not the config file", async () => {
-    vi.stubEnv("INBOX_AUTO_REPLY_DAILY_CAP_SATS", "50");
-    vi.stubEnv("INBOX_AUTO_REPLY_MAX_SATS_PER_REPLY", "2");
+  it("ignores sat limits left in the config file", async () => {
     stored.inboxAutoReply = { enabled: false, model: "m", systemPrompt: "old", dailyCapSats: 1e9, maxSatsPerReply: 1e9 };
-    expect(json(await configureTool().handler({})).limits).toEqual({ dailyCapSats: 50, maxSatsPerReply: 2 });
-  });
-
-  it("rejects a bad env value", async () => {
-    vi.stubEnv("INBOX_AUTO_REPLY_DAILY_CAP_SATS", "-1");
-    const result = await configureTool().handler({});
-    expect(result.content[0].text).toMatch(/INBOX_AUTO_REPLY_DAILY_CAP_SATS must be a non-negative integer/);
+    expect(json(await configureTool().handler({})).limits).toEqual({ dailyCapSats: 1000, maxSatsPerReply: 10 });
   });
 });

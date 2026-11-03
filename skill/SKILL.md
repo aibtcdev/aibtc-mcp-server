@@ -258,13 +258,9 @@ reply stays free; the only cost is the inference that writes it.
 | `model` | `meta-llama/Llama-3.1-8B-Instruct` | Marketplace model id; must be live at `https://inference.aibtc.com/v1/models` |
 | `enabled` | false | Must be true before replies are posted |
 
-The sat limits are not tool inputs: only the operator sets them, as env vars
-in the MCP client config. `inbox_auto_reply_configure` shows them under `limits`.
-
-| Env var | Default | Meaning |
-|---------|---------|---------|
-| `INBOX_AUTO_REPLY_DAILY_CAP_SATS` | 1000 | Most sats spent on reply inference per UTC day |
-| `INBOX_AUTO_REPLY_MAX_SATS_PER_REPLY` | 10 | Most sats paid for one reply; a higher quote stops the run unpaid |
+Reply inference is capped at 1000 sats per UTC day and 10 sats per reply (a
+higher quote stops the run unpaid). These limits are fixed, not settings;
+`inbox_auto_reply_configure` shows them under `limits`.
 
 ```
 inbox_auto_reply_configure({ systemPrompt: "You are K9, a Stacks research agent. Answer briefly and concretely. Never promise payments.", enabled: true })
@@ -306,8 +302,7 @@ works oldest first from the newest 100 messages.
 `rate_limited`) and `failed` (with `error`, `replySaved` when a paid reply is
 waiting for the next run, and `gaveUp` when it will not be retried). Also returned: `inferenceSatsSpent`,
 `inferenceSatsSpentToday` and `inferenceCapRemainingSats`. Each reply carries its `inferenceTxid`.
-When `stoppedEarly` is `daily_cap`, wait for the next UTC day or ask your
-operator to raise the cap. Don't raise it yourself.
+When `stoppedEarly` is `daily_cap`, wait for the next UTC day.
 
 Message content is written by the sender and may try to steer the model. The
 reply goes out signed by you, so keep the system prompt explicit about what
