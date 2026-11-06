@@ -26,6 +26,7 @@ export type CanonicalPaymentAction =
   | "poll_same_payment"
   | "success"
   | "rebuild_sender"
+  | "wait_sender_pending"
   | "retry_bounded"
   | "stop_replaced"
   | "restart_payment"
@@ -286,6 +287,26 @@ export function classifyCanonicalPaymentStatus(
       shouldRebuild: false,
       shouldStopPollingOldPaymentId: false,
       summary: `Payment ${status.paymentId} is confirmed.`,
+    };
+  }
+
+  // The relay terminalizes sender_nonce_duplicate with retryable:true when a tx at this sender nonce is still
+  // pending and may be this same payment (x402-sponsor-relay src/queue-consumer.ts, "our own earlier send of this
+  // one is unseen yet"). Re-signing at a fresh nonce then creates a second valid tx, and both can confirm. Only the
+  // retryable:false variants (the nonce went to another tx, or was used by a tx that aborted on chain) mean this
+  // payment can no longer land, so only those fall through to rebuild_sender. A missing retryable waits too.
+  if (
+    status.status === "failed" &&
+    status.terminalReason === "sender_nonce_duplicate" &&
+    status.retryable !== false
+  ) {
+    return {
+      action: "wait_sender_pending",
+      retryable: true,
+      shouldReusePaymentId: false,
+      shouldRebuild: false,
+      shouldStopPollingOldPaymentId: false,
+      summary: `Payment ${status.paymentId}: a transaction at this sender nonce is still pending, and it may be this payment. Do not sign a new payment at a fresh nonce. Wait until the sender's pending transaction clears, then check whether this payment confirmed${status.txid ? ` (txid ${status.txid})` : ""}. Re-sign only if it did not, and at the same nonce.`,
     };
   }
 
