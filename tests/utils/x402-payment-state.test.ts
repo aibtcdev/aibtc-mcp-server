@@ -283,3 +283,38 @@ describe("HttpPaymentStatusResponse parsing", () => {
     });
   });
 });
+
+// #757: `sender_nonce_duplicate` means a tx at that nonce may still be in
+// flight, possibly our own earlier send of this payment. Rebuilding at a fresh
+// nonce is the one action that can produce two valid transactions, so the
+// decision must not set `shouldRebuild`.
+describe("sender_nonce_duplicate is in-flight, not rebuildable (#757)", () => {
+  it("does not ask for a rebuild", () => {
+    const decision = classifyCanonicalPaymentStatus({
+      paymentId: "pay_dup",
+      status: "failed",
+      terminalReason: "sender_nonce_duplicate",
+      retryable: true,
+    });
+
+    expect(decision.action).toBe("poll_same_payment");
+    expect(decision.shouldRebuild).toBe(false);
+    expect(decision.shouldReusePaymentId).toBe(true);
+    expect(decision.retryable).toBe(true);
+    expect(decision.summary).toMatch(/fresh nonce/);
+    expect(decision.summary).toMatch(/pay twice|twice/i);
+  });
+
+  it("still rebuilds for stale and gap", () => {
+    for (const reason of ["sender_nonce_stale", "sender_nonce_gap"] as const) {
+      const decision = classifyCanonicalPaymentStatus({
+        paymentId: `pay_${reason}`,
+        status: "failed",
+        terminalReason: reason,
+        retryable: true,
+      });
+      expect(decision.action).toBe("rebuild_sender");
+      expect(decision.shouldRebuild).toBe(true);
+    }
+  });
+});

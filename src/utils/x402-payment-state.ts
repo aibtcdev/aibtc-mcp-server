@@ -5,11 +5,25 @@ import {
 import type { TerminalReason } from "@aibtc/tx-schemas/core";
 
 const IN_FLIGHT_STATUSES = new Set(["queued", "broadcasting", "mempool"]);
+// #757: `sender_nonce_duplicate` is NOT the same shape as `stale`/`gap`.
+//
+//   stale  — the nonce is already consumed on chain; this tx can never land, so
+//            rebuilding at a fresh nonce is the only way forward.
+//   gap    — our nonce is behind the account's next nonce; same conclusion.
+//   duplicate — a tx at exactly this nonce exists and may be OUR OWN earlier
+//            send of this same payment (sponsor-wallet-do.ts:295-297 emits it
+//            when `last_mempool_tx_nonce != null`; queue-consumer.ts:374-383
+//            says "still pending (or our own earlier send of this one is unseen
+//            yet)" and keeps `retryable: true`). Rebuilding at a FRESH nonce is
+//            the one action that can produce two valid transactions — if the
+//            first lands, the agent pays twice for one request.
+//
+// So duplicate gets its own bucket: wait, do not rebuild.
 const SENDER_NONCE_REASONS = new Set([
   "sender_nonce_stale",
   "sender_nonce_gap",
-  "sender_nonce_duplicate",
 ]);
+const SENDER_NONCE_IN_FLIGHT_REASONS = new Set(["sender_nonce_duplicate"]);
 const BOUNDED_RETRY_REASONS = new Set([
   "queue_unavailable",
   "sponsor_failure",
@@ -286,6 +300,21 @@ export function classifyCanonicalPaymentStatus(
       shouldRebuild: false,
       shouldStopPollingOldPaymentId: false,
       summary: `Payment ${status.paymentId} is confirmed.`,
+    };
+  }
+
+  if (
+    status.status === "failed" &&
+    status.terminalReason &&
+    SENDER_NONCE_IN_FLIGHT_REASONS.has(status.terminalReason)
+  ) {
+    return {
+      action: "poll_same_payment",
+      retryable: true,
+      shouldReusePaymentId: true,
+      shouldRebuild: false,
+      shouldStopPollingOldPaymentId: false,
+      summary: `Payment ${status.paymentId} is still in flight at its sender nonce (${status.terminalReason}). Wait for it to clear; do not re-sign at a fresh nonce — that can pay twice.`,
     };
   }
 
