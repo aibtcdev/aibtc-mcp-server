@@ -100,6 +100,47 @@ describe("detectTokenType", () => {
     );
   });
 
+  // #760: classification used to accept ANY asset id ending in `.sbtc-token`,
+  // but the payment builder then pays in the canonical contract. A lookalike on
+  // another deployer therefore made the agent send real sats for an asset the
+  // server never quoted. With a canonical id supplied, sBTC is decided by
+  // CONTRACT, not by suffix.
+  describe("with a canonical sBTC id (#760)", () => {
+    const CANONICAL = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
+
+    it("accepts the canonical id in both spellings", () => {
+      expect(detectTokenType(CANONICAL, CANONICAL)).toBe("sBTC");
+      expect(detectTokenType(`${CANONICAL}::sbtc-token`, CANONICAL)).toBe("sBTC");
+      expect(detectTokenType(CANONICAL.toUpperCase(), CANONICAL)).toBe("sBTC");
+    });
+
+    it("refuses a same-suffix lookalike on another deployer", () => {
+      expect(detectTokenType("SP000000000000000000002Q6VF78.sbtc-token", CANONICAL)).toBe(
+        "unsupported"
+      );
+      expect(detectTokenType("ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT.sbtc-token", CANONICAL)).toBe(
+        "unsupported"
+      );
+    });
+
+    it("refuses a ::token-sbtc suffix on another deployer", () => {
+      expect(
+        detectTokenType("SP000000000000000000002Q6VF78.other-token::token-sbtc", CANONICAL)
+      ).toBe("unsupported");
+    });
+
+    it("keeps bare sbtc, which names no contract and cannot be a lookalike", () => {
+      expect(detectTokenType("sbtc", CANONICAL)).toBe("sBTC");
+    });
+
+    it("still classifies stx and unknown assets", () => {
+      expect(detectTokenType("STX", CANONICAL)).toBe("STX");
+      expect(detectTokenType("SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx", CANONICAL)).toBe(
+        "unsupported"
+      );
+    });
+  });
+
   it("recognizes CAIP-19-style native STX references", () => {
     expect(detectTokenType("stacks:1/native")).toBe("STX");
     expect(detectTokenType("stacks:1/slip44:5773")).toBe("STX");
