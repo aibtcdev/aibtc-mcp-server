@@ -1697,7 +1697,49 @@ export function registerLegionTools(server: McpServer): void {
         };
 
         const mempoolApi = new MempoolApi(NETWORK);
-        const actualFeeRate = await resolveFeeRate(mempoolApi, feeRate);
+        const resolvedFeeRate = await resolveFeeRate(mempoolApi, feeRate);
+
+        // #759: the commit reported `probes.maxRevealFeeRate` (comment: "Say the
+        // ceiling here so it is never hit") but the reveal re-read the LIVE
+        // "medium" tier and never compared against it. When mempool fees rose
+        // between commit and reveal, the reveal output fell under dust and the
+        // builder refused with a bare "Output amount -N is below dust threshold"
+        // — naming neither the ceiling nor the fact that the commit output is
+        // still spendable.
+        //
+        // The commit's ceiling formula, verbatim:
+        //   revealVbytes     = max(1, round(revealAmount / feeRateAtCommit))
+        //   maxRevealFeeRate = max(1, floor((revealAmount - DUST) / revealVbytes))
+        // The commit's rate is not carried into the reveal call, so re-derive the
+        // vbyte count at the rate about to be used. That is the same estimate the
+        // commit made, so the ceiling it reports and the ceiling enforced here
+        // agree by construction — which is the invariant that was missing.
+        const revealVbytes = Math.max(1, Math.round(revealAmount / Math.max(resolvedFeeRate, 1)));
+        const maxRevealFeeRate = Math.max(
+          1,
+          Math.floor((revealAmount - DUST_THRESHOLD) / revealVbytes)
+        );
+
+        // An explicit rate above the ceiling can never produce a spendable
+        // reveal, so refuse before building or signing and say what would work.
+        if (feeRate !== undefined && resolvedFeeRate > maxRevealFeeRate) {
+          return createErrorResponse(
+            new Error(
+              `feeRate ${resolvedFeeRate} sat/vB is above the reveal ceiling of ` +
+                `${maxRevealFeeRate} sat/vB for revealAmount ${revealAmount} sats — the ` +
+                `reveal output would fall below the ${DUST_THRESHOLD}-sat dust threshold ` +
+                `and the transaction cannot be built. Nothing was broadcast and the commit ` +
+                `output is still spendable. Retry with feeRate ${maxRevealFeeRate} or lower ` +
+                `(an explicit small number: "medium" tracks live mempool fees, which is what ` +
+                `moved past the ceiling here).`
+            )
+          );
+        }
+
+        // An omitted rate falls back to the live "medium" tier — exactly what
+        // rose out from under the reported ceiling. Clamp so the default path
+        // cannot fail the way the reported inscription did.
+        const actualFeeRate = Math.min(resolvedFeeRate, maxRevealFeeRate);
 
         let revealResult;
         let revealTxid: string;
