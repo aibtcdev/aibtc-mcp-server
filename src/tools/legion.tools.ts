@@ -93,6 +93,7 @@ import {
   buildChildCommitTransaction,
   buildChildRevealTransaction,
   deriveChildRevealScript,
+  computeMaxRevealFeeRate,
   lookupParentInscription,
 } from "../transactions/child-inscription-builder.js";
 import { signBtcTransaction } from "../transactions/bitcoin-builder.js";
@@ -1498,13 +1499,10 @@ export function registerLegionTools(server: McpServer): void {
         // takes its own feeRate, and a rate above this leaves the reveal output
         // under dust — the builder refuses and the sats sit in the commit until
         // it is retried lower. Say the ceiling here so it is never hit.
-        const revealVbytes = Math.max(
-          1,
-          Math.round(commitResult.revealAmount / Math.max(actualFeeRate, 1))
-        );
-        const maxRevealFeeRate = Math.max(
-          1,
-          Math.floor((commitResult.revealAmount - DUST_THRESHOLD) / revealVbytes)
+        const maxRevealFeeRate = computeMaxRevealFeeRate(
+          commitResult.revealAmount,
+          commitResult.revealScript,
+          parentInfo?.value
         );
 
         const probes = {
@@ -1644,7 +1642,10 @@ export function registerLegionTools(server: McpServer): void {
         feeRate: z
           .union([z.enum(["fast", "medium", "slow"]), z.number().positive()])
           .optional()
-          .describe("Fee rate for the reveal tx (default: medium)"),
+          .describe(
+            "Fee rate for the reveal tx (default: medium). A number above the commit's " +
+              "maxRevealFeeRate is refused; a named tier is capped at it."
+          ),
       }),
     },
     async ({ commitTxid, revealAmount, title, body, parentInscriptionId, feeRate }) => {
@@ -1699,58 +1700,65 @@ export function registerLegionTools(server: McpServer): void {
         const mempoolApi = new MempoolApi(NETWORK);
         const resolvedFeeRate = await resolveFeeRate(mempoolApi, feeRate);
 
-        // #759: the commit reported `probes.maxRevealFeeRate` (comment: "Say the
-        // ceiling here so it is never hit") but the reveal re-read the LIVE
-        // "medium" tier and never compared against it. When mempool fees rose
-        // between commit and reveal, the reveal output fell under dust and the
-        // builder refused with a bare "Output amount -N is below dust threshold"
-        // — naming neither the ceiling nor the fact that the commit output is
-        // still spendable.
-        //
-        // The commit's ceiling formula, verbatim:
-        //   revealVbytes     = max(1, round(revealAmount / feeRateAtCommit))
-        //   maxRevealFeeRate = max(1, floor((revealAmount - DUST) / revealVbytes))
-        // The commit's rate is not carried into the reveal call, so re-derive the
-        // vbyte count at the rate about to be used. That is the same estimate the
-        // commit made, so the ceiling it reports and the ceiling enforced here
-        // agree by construction — which is the invariant that was missing.
-        const revealVbytes = Math.max(1, Math.round(revealAmount / Math.max(resolvedFeeRate, 1)));
-        const maxRevealFeeRate = Math.max(
-          1,
-          Math.floor((revealAmount - DUST_THRESHOLD) / revealVbytes)
+        // #759: honour the ceiling the commit reported. Both sides compute it
+        // from the reveal script, which the same content always derives, so
+        // they agree regardless of the fee rate each was called with.
+        const isChild = parentInscriptionId !== undefined && parentInfo !== null;
+        const childRevealScript = isChild
+          ? deriveChildRevealScript({
+              inscription,
+              parentInscriptionId: parentInscriptionId!,
+              senderPubKey: account.btcPublicKey,
+              network: NETWORK,
+            })
+          : undefined;
+        const plainRevealScript = isChild
+          ? undefined
+          : deriveRevealScript({
+              inscription,
+              senderPubKey: account.btcPublicKey,
+              network: NETWORK,
+            });
+        const maxRevealFeeRate = computeMaxRevealFeeRate(
+          revealAmount,
+          (childRevealScript ?? plainRevealScript)!,
+          parentInfo?.value
         );
-
-        // An explicit rate above the ceiling can never produce a spendable
-        // reveal, so refuse before building or signing and say what would work.
-        if (feeRate !== undefined && resolvedFeeRate > maxRevealFeeRate) {
+        if (maxRevealFeeRate < 1) {
           return createErrorResponse(
             new Error(
-              `feeRate ${resolvedFeeRate} sat/vB is above the reveal ceiling of ` +
-                `${maxRevealFeeRate} sat/vB for revealAmount ${revealAmount} sats — the ` +
-                `reveal output would fall below the ${DUST_THRESHOLD}-sat dust threshold ` +
-                `and the transaction cannot be built. Nothing was broadcast and the commit ` +
-                `output is still spendable. Retry with feeRate ${maxRevealFeeRate} or lower ` +
-                `(an explicit small number: "medium" tracks live mempool fees, which is what ` +
-                `moved past the ceiling here).`
+              `revealAmount ${revealAmount} sats cannot pay a reveal even at 1 sat/vB and ` +
+                `leave the ${DUST_THRESHOLD}-sat dust output. Check that revealAmount matches ` +
+                `the commit response. Nothing was broadcast.`
             )
           );
         }
 
-        // An omitted rate falls back to the live "medium" tier — exactly what
-        // rose out from under the reported ceiling. Clamp so the default path
-        // cannot fail the way the reported inscription did.
+        // An explicit number above the ceiling can never produce a spendable
+        // reveal, so refuse before signing and say what would work.
+        if (typeof feeRate === "number" && resolvedFeeRate > maxRevealFeeRate) {
+          return createErrorResponse(
+            new Error(
+              `feeRate ${resolvedFeeRate} sat/vB is above the reveal ceiling of ` +
+                `${maxRevealFeeRate} sat/vB for revealAmount ${revealAmount} sats: the ` +
+                `reveal output would fall below the ${DUST_THRESHOLD}-sat dust threshold. ` +
+                `Nothing was broadcast and the commit output is still spendable. Retry with ` +
+                `feeRate ${maxRevealFeeRate} or lower.`
+            )
+          );
+        }
+
+        // A named tier ("medium" by default) tracks live mempool fees, which can
+        // rise past the ceiling between commit and reveal. Pay the most the
+        // commit output allows instead, and report it in the response.
         const actualFeeRate = Math.min(resolvedFeeRate, maxRevealFeeRate);
+        const feeRateClamped = actualFeeRate < resolvedFeeRate;
 
         let revealResult;
         let revealTxid: string;
         let derivedRevealAddress: string | undefined;
-        if (parentInscriptionId !== undefined && parentInfo) {
-          const revealScript = deriveChildRevealScript({
-            inscription,
-            parentInscriptionId,
-            senderPubKey: account.btcPublicKey,
-            network: NETWORK,
-          });
+        if (childRevealScript && parentInfo) {
+          const revealScript = childRevealScript;
           derivedRevealAddress = revealScript.address;
           await assertCommitMatches(mempoolApi, commitTxid, derivedRevealAddress, revealAmount);
           revealResult = buildChildRevealTransaction({
@@ -1775,11 +1783,7 @@ export function registerLegionTools(server: McpServer): void {
           revealResult.tx.finalize();
           revealTxid = await meteredBtcBroadcast(mempoolApi, revealResult.tx.hex, account, NETWORK);
         } else {
-          const revealScript = deriveRevealScript({
-            inscription,
-            senderPubKey: account.btcPublicKey,
-            network: NETWORK,
-          });
+          const revealScript = plainRevealScript!;
           derivedRevealAddress = revealScript.address;
           await assertCommitMatches(mempoolApi, commitTxid, derivedRevealAddress, revealAmount);
           revealResult = buildRevealTransaction({
@@ -1817,8 +1821,15 @@ export function registerLegionTools(server: McpServer): void {
           reveal: {
             txid: revealTxid,
             fee: revealResult.fee,
+            feeRate: actualFeeRate,
+            maxRevealFeeRate,
             explorerUrl: getMempoolTxUrl(revealTxid, NETWORK),
           },
+          feeRateNote: feeRateClamped
+            ? `The live "${feeRate ?? "medium"}" rate was ${resolvedFeeRate} sat/vB, above the ` +
+              `${maxRevealFeeRate} sat/vB the commit output can pay, so the reveal was sent at ` +
+              `${actualFeeRate} sat/vB. It may confirm slowly; it is RBF-enabled.`
+            : undefined,
           recipientAddress: sessionInfo.taprootAddress,
           contentHash: `sha256:${contentHash}`,
           parentInscriptionId: parentInscriptionId ?? null,
