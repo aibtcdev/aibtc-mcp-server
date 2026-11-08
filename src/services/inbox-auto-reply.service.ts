@@ -28,9 +28,12 @@ export const INFERENCE_GATEWAY = "https://inference.aibtc.com";
 
 /** The largest model on the marketplace at the flat 1-sat price when this shipped. */
 export const DEFAULT_AUTO_REPLY_MODEL = "meta-llama/Llama-3.1-8B-Instruct";
-export const DEFAULT_DAILY_CAP_SATS = 1000;
-/** Most sats paid for one reply. The marketplace charges 1 sat today. */
-export const DEFAULT_MAX_SATS_PER_REPLY = 10;
+/**
+ * Ceilings on reply inference spend: sats per UTC day, and the most one reply
+ * may cost (the marketplace charges 1 sat today). runAutoReply() clamps to
+ * these, so a caller can lower a limit but never raise it.
+ */
+export const AUTO_REPLY_LIMITS = Object.freeze({ dailyCapSats: 1000, maxSatsPerReply: 10 });
 export const DEFAULT_MAX_REPLIES_PER_RUN = 5;
 /** Paid inference failures on one message before runs stop paying for it. */
 export const MAX_PAID_ATTEMPTS = 2;
@@ -474,9 +477,13 @@ export async function postReply(
 export interface AutoReplyRunOptions {
   account: Account;
   systemPrompt: string;
-  dailyCapSats: number;
-  /** Most sats paid for one reply. A higher quote stops the run before anything is signed. */
-  maxSatsPerReply: number;
+  /** Lowers the daily cap; clamped to AUTO_REPLY_LIMITS.dailyCapSats. Missing = the ceiling. */
+  dailyCapSats?: number;
+  /**
+   * Lowers the most sats paid for one reply; clamped to AUTO_REPLY_LIMITS.maxSatsPerReply.
+   * Missing = the ceiling. A higher quote stops the run before anything is signed.
+   */
+  maxSatsPerReply?: number;
   maxRepliesPerRun: number;
   dryRun: boolean;
   generator: ReplyGenerator;
@@ -510,17 +517,20 @@ export interface AutoReplyRunSummary {
   inferenceCapRemainingSats: number;
 }
 
-function requireSats(name: string, value: number): void {
+/** A caller's limit clamped to its ceiling. NaN or a negative must not turn into "no cap". */
+function clampSats(name: keyof typeof AUTO_REPLY_LIMITS, value: number | undefined): number {
+  const ceiling = AUTO_REPLY_LIMITS[name];
+  if (value === undefined) return ceiling;
   if (!Number.isInteger(value) || value < 0) {
     throw new Error(`${name} must be a non-negative integer number of sats, got ${value}`);
   }
+  return Math.min(value, ceiling);
 }
 
 export async function runAutoReply(opts: AutoReplyRunOptions): Promise<AutoReplyRunSummary> {
-  const { account, systemPrompt, dailyCapSats, maxSatsPerReply, maxRepliesPerRun, dryRun, generator } = opts;
-  // Without a number here `spent + price > cap` is always false: no cap at all.
-  requireSats("dailyCapSats", dailyCapSats);
-  requireSats("maxSatsPerReply", maxSatsPerReply);
+  const { account, systemPrompt, maxRepliesPerRun, dryRun, generator } = opts;
+  const dailyCapSats = clampSats("dailyCapSats", opts.dailyCapSats);
+  const maxSatsPerReply = clampSats("maxSatsPerReply", opts.maxSatsPerReply);
   if (!account.btcAddress?.startsWith("bc1q")) {
     throw new Error(
       `Auto-reply signs with the wallet's native SegWit (bc1q) key; this wallet's BTC address is ${account.btcAddress ?? "missing"}.`
