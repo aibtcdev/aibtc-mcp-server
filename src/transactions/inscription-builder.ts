@@ -369,6 +369,32 @@ export function buildCommitTransaction(
 }
 
 /**
+ * Witness vbytes of a reveal script's tapLeafScript (inscription data plus
+ * control block). Shared by the plain and child reveal size estimates.
+ */
+export function revealWitnessVsize(revealScript: ReturnType<typeof btc.p2tr>): number {
+  const tapLeafScriptSize = revealScript.tapLeafScript
+    ? revealScript.tapLeafScript.reduce((sum, [_, s]) => sum + s.length + 33, 0)
+    : 0;
+  return Math.ceil(tapLeafScriptSize / 4) + WITNESS_OVERHEAD_VBYTES;
+}
+
+/**
+ * Estimated vsize of the reveal transaction buildRevealTransaction builds:
+ * 1 input (Taproot script path with the inscription witness) + 1 P2TR output.
+ * It depends only on the script, not the fee rate, so a commit and its reveal
+ * can agree on the fee ceiling.
+ */
+export function estimateRevealVsize(revealScript: ReturnType<typeof btc.p2tr>): number {
+  return (
+    TX_OVERHEAD_VBYTES +
+    P2TR_INPUT_BASE_VBYTES +
+    revealWitnessVsize(revealScript) +
+    P2TR_OUTPUT_VBYTES
+  );
+}
+
+/**
  * Build a reveal transaction for an inscription
  *
  * The reveal transaction spends the commit output and includes the inscription
@@ -418,17 +444,7 @@ export function buildRevealTransaction(
     throw new Error("Fee rate must be positive");
   }
 
-  // Estimate reveal transaction size
-  // 1 input (Taproot with inscription witness) + 1 output (recipient)
-  // The witness includes the full tapLeafScript (inscription data + control block)
-  const revealInputSize = P2TR_INPUT_BASE_VBYTES;
-  const tapLeafScriptSize = revealScript.tapLeafScript
-    ? revealScript.tapLeafScript.reduce((sum, [_, s]) => sum + s.length + 33, 0)
-    : 0;
-  const revealWitnessSize = Math.ceil(tapLeafScriptSize / 4) + WITNESS_OVERHEAD_VBYTES;
-  const revealTxSize =
-    TX_OVERHEAD_VBYTES + revealInputSize + revealWitnessSize + P2TR_OUTPUT_VBYTES;
-  const revealFee = Math.ceil(revealTxSize * feeRate);
+  const revealFee = Math.ceil(estimateRevealVsize(revealScript) * feeRate);
 
   // Calculate output amount
   const outputAmount = commitAmount - revealFee;

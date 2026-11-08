@@ -23,7 +23,11 @@ import {
 } from "../config/bitcoin-constants.js";
 import type { UTXO } from "../services/mempool-api.js";
 import { getBtcNetwork } from "./bitcoin-builder.js";
-import type { InscriptionData } from "./inscription-builder.js";
+import {
+  estimateRevealVsize,
+  revealWitnessVsize,
+  type InscriptionData,
+} from "./inscription-builder.js";
 
 /**
  * Parent inscription info from Xverse API lookup
@@ -292,6 +296,20 @@ export function buildChildCommitTransaction(
 }
 
 /**
+ * Estimated vsize of the reveal transaction buildChildRevealTransaction builds:
+ * the commit input (script path, inscription witness) + the parent input (key
+ * path) + 2 P2TR outputs (parent return, child). Independent of the fee rate.
+ */
+export function estimateChildRevealVsize(revealScript: ReturnType<typeof btc.p2tr>): number {
+  return (
+    TX_OVERHEAD_VBYTES +
+    P2TR_INPUT_BASE_VBYTES * 2 +
+    revealWitnessVsize(revealScript) +
+    P2TR_OUTPUT_VBYTES * 2
+  );
+}
+
+/**
  * Build a child reveal transaction.
  *
  * 2 inputs, 2 outputs:
@@ -328,21 +346,7 @@ export function buildChildRevealTransaction(
     throw new Error("Fee rate must be positive");
   }
 
-  // Estimate reveal transaction size
-  const revealInputSize = P2TR_INPUT_BASE_VBYTES; // commit input
-  const parentInputSize = P2TR_INPUT_BASE_VBYTES; // parent key-path input
-  // The witness includes the full tapLeafScript (inscription data + control block)
-  const tapLeafScriptSize = revealScript.tapLeafScript
-    ? revealScript.tapLeafScript.reduce((sum, [_, s]) => sum + s.length + 33, 0)
-    : 0;
-  const revealWitnessSize = Math.ceil(tapLeafScriptSize / 4) + WITNESS_OVERHEAD_VBYTES;
-  const revealTxSize =
-    TX_OVERHEAD_VBYTES +
-    revealInputSize +
-    parentInputSize +
-    revealWitnessSize +
-    P2TR_OUTPUT_VBYTES * 2; // parent return + child output
-  const revealFee = Math.ceil(revealTxSize * feeRate);
+  const revealFee = Math.ceil(estimateChildRevealVsize(revealScript) * feeRate);
 
   // Total available from commit output + parent UTXO value
   const totalInput = commitAmount + parentUtxo.value;
@@ -450,4 +454,23 @@ export async function lookupParentInscription(
     address: data.address,
     output: data.output,
   };
+}
+
+/**
+ * The highest whole fee rate (sat/vB) a reveal can pay from revealAmount and
+ * still leave its outputs at dust or above. For a child reveal the parent
+ * UTXO also funds the transaction, and the parent return output takes its own
+ * dust. Computed from the reveal script's size, not from a fee rate, so the
+ * commit and the reveal always agree on it. Can be 0 when nothing is payable.
+ */
+export function computeMaxRevealFeeRate(
+  revealAmount: number,
+  revealScript: ReturnType<typeof btc.p2tr>,
+  parentValue?: number
+): number {
+  if (parentValue === undefined) {
+    return Math.floor((revealAmount - DUST_THRESHOLD) / estimateRevealVsize(revealScript));
+  }
+  const spendable = revealAmount + parentValue - DUST_THRESHOLD * 2;
+  return Math.floor(spendable / estimateChildRevealVsize(revealScript));
 }
