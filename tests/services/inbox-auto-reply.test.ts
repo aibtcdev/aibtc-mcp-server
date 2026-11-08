@@ -16,6 +16,7 @@ vi.mock("../../src/services/x402-post.js", () => ({
 const {
   cleanReply,
   marketplaceReplyGenerator,
+  AUTO_REPLY_LIMITS,
   runAutoReply,
   setAutoReplyLedgerFile,
   skipReason,
@@ -341,11 +342,28 @@ describe("runAutoReply", () => {
     expect(summary.inferenceSatsSpentToday).toBe(0);
   });
 
-  it("refuses to run without a numeric daily cap", async () => {
+  it("clamps a caller's oversized limits to the ceilings", async () => {
     stubFetch([msg("a")]);
-    await expect(
-      runAutoReply({ ...base, dailyCapSats: undefined as unknown as number, generator: fakeGenerator() })
-    ).rejects.toThrow(/dailyCapSats/);
+    const generator = fakeGenerator(11);
+    const summary = await runAutoReply({ ...base, dailyCapSats: 1e9, maxSatsPerReply: 1e9, generator });
+    expect(summary.stoppedEarly).toBe("price_ceiling");
+    expect(generator.calls).toEqual([]);
+    expect(summary.inferenceCapRemainingSats).toBe(AUTO_REPLY_LIMITS.dailyCapSats);
+  });
+
+  it("uses the ceilings when no limits are passed", async () => {
+    stubFetch([msg("a")]);
+    const { dailyCapSats: _d, maxSatsPerReply: _m, ...noLimits } = base;
+    const generator = fakeGenerator(11);
+    const summary = await runAutoReply({ ...noLimits, generator });
+    expect(summary.stoppedEarly).toBe("price_ceiling");
+    expect(summary.inferenceCapRemainingSats).toBe(AUTO_REPLY_LIMITS.dailyCapSats);
+  });
+
+  it("refuses a NaN or negative limit", async () => {
+    stubFetch([msg("a")]);
+    await expect(runAutoReply({ ...base, dailyCapSats: NaN, generator: fakeGenerator() })).rejects.toThrow(/dailyCapSats/);
+    await expect(runAutoReply({ ...base, maxSatsPerReply: -1, generator: fakeGenerator() })).rejects.toThrow(/maxSatsPerReply/);
   });
 
   it("refuses a wallet without a bc1q address", async () => {
