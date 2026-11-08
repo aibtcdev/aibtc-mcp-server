@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.79.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.79.0...mcp-server-v1.79.1) (2026-11-08)
+
+
+### Bug Fixes
+
+* **inbox:** make auto-reply sat limits operator-only ([#752](https://github.com/aibtcdev/aibtc-mcp-server/issues/752)) ([3143fc9](https://github.com/aibtcdev/aibtc-mcp-server/commit/3143fc9223ba372d9e727dad59e0a206b88fef39))
+* **legion:** enforce the reveal fee ceiling the commit reports ([#759](https://github.com/aibtcdev/aibtc-mcp-server/issues/759)) ([#763](https://github.com/aibtcdev/aibtc-mcp-server/issues/763)) ([16c9ece](https://github.com/aibtcdev/aibtc-mcp-server/commit/16c9eceaeda8d08808d5e2e468ccd7da3180e7ce))
+* **x402:** strip payment headers on cross-origin redirects ([#755](https://github.com/aibtcdev/aibtc-mcp-server/issues/755)) ([b56168a](https://github.com/aibtcdev/aibtc-mcp-server/commit/b56168a0803604e36b4133d2028708b6f4a44210))
+* **x402:** wait instead of rebuild on retryable sender_nonce_duplicate ([#757](https://github.com/aibtcdev/aibtc-mcp-server/issues/757)) ([#758](https://github.com/aibtcdev/aibtc-mcp-server/issues/758)) ([96a27fb](https://github.com/aibtcdev/aibtc-mcp-server/commit/96a27fb19edf091610c32737b9c83a6f4be9f10b))
+
 ## [1.79.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.78.0...mcp-server-v1.79.0) (2026-11-01)
 
 
