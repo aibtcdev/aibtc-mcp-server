@@ -5,10 +5,11 @@ import {
 import type { TerminalReason } from "@aibtc/tx-schemas/core";
 
 const IN_FLIGHT_STATUSES = new Set(["queued", "broadcasting", "mempool"]);
+// sender_nonce_duplicate is not here: it rebuilds only when the relay marks it
+// retryable:false, and waits otherwise (see classifyCanonicalPaymentStatus).
 const SENDER_NONCE_REASONS = new Set([
   "sender_nonce_stale",
   "sender_nonce_gap",
-  "sender_nonce_duplicate",
 ]);
 const BOUNDED_RETRY_REASONS = new Set([
   "queue_unavailable",
@@ -26,6 +27,7 @@ export type CanonicalPaymentAction =
   | "poll_same_payment"
   | "success"
   | "rebuild_sender"
+  | "wait_sender_pending"
   | "retry_bounded"
   | "stop_replaced"
   | "restart_payment"
@@ -286,6 +288,36 @@ export function classifyCanonicalPaymentStatus(
       shouldRebuild: false,
       shouldStopPollingOldPaymentId: false,
       summary: `Payment ${status.paymentId} is confirmed.`,
+    };
+  }
+
+  // The relay terminalizes sender_nonce_duplicate with retryable:true when a tx at this sender nonce is still
+  // pending and may be this same payment (x402-sponsor-relay src/queue-consumer.ts, "our own earlier send of this
+  // one is unseen yet"). Signing a new payment then uses the next nonce, and both txs can confirm. Only the
+  // retryable:false variants (the nonce went to another tx, or was used by a tx that aborted on chain) mean this
+  // payment can no longer land. A missing retryable waits: the interceptor's sender hold
+  // (x402-sender-hold.ts) releases as soon as the sender has nothing pending, so a wrong wait costs one check.
+  if (status.status === "failed" && status.terminalReason === "sender_nonce_duplicate") {
+    if (status.retryable === false) {
+      return {
+        action: "rebuild_sender",
+        retryable: true,
+        shouldReusePaymentId: false,
+        shouldRebuild: true,
+        shouldStopPollingOldPaymentId: false,
+        summary: `Payment ${status.paymentId} failed with sender_nonce_duplicate and cannot land: its nonce was used by another transaction. Retry the request to sign a new payment.`,
+      };
+    }
+    const howToCheck = status.txid
+      ? `check whether txid ${status.txid} confirmed`
+      : `check your account's recent transactions for this payment`;
+    return {
+      action: "wait_sender_pending",
+      retryable: true,
+      shouldReusePaymentId: false,
+      shouldRebuild: false,
+      shouldStopPollingOldPaymentId: false,
+      summary: `Payment ${status.paymentId}: your account has a pending transaction at the same nonce, and it may be this payment. Do not retry yet: a new payment would be signed at the next nonce and both could confirm, paying twice. New x402 payments from this account are held until nothing is pending. Then ${howToCheck}; retry the request only if it did not.`,
     };
   }
 

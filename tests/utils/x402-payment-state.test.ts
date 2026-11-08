@@ -36,6 +36,44 @@ describe("classifyCanonicalPaymentStatus", () => {
     expect(decision.retryable).toBe(true);
   });
 
+  it("waits instead of rebuilding when sender_nonce_duplicate is retryable (#757)", () => {
+    const decision = classifyCanonicalPaymentStatus({
+      paymentId: "pay_dup",
+      status: "failed",
+      terminalReason: "sender_nonce_duplicate",
+      retryable: true,
+    });
+
+    expect(decision.action).toBe("wait_sender_pending");
+    expect(decision.shouldRebuild).toBe(false);
+    expect(decision.retryable).toBe(true);
+    expect(decision.summary).toContain("Do not retry yet");
+    expect(decision.summary).not.toContain("same nonce, then");
+  });
+
+  it("waits when sender_nonce_duplicate carries no retryable flag (#757)", () => {
+    const decision = classifyCanonicalPaymentStatus({
+      paymentId: "pay_dup_unknown",
+      status: "failed",
+      terminalReason: "sender_nonce_duplicate",
+    });
+
+    expect(decision.action).toBe("wait_sender_pending");
+    expect(decision.shouldRebuild).toBe(false);
+  });
+
+  it("still rebuilds when sender_nonce_duplicate is not retryable (nonce taken or aborted on chain)", () => {
+    const decision = classifyCanonicalPaymentStatus({
+      paymentId: "pay_dup_taken",
+      status: "failed",
+      terminalReason: "sender_nonce_duplicate",
+      retryable: false,
+    });
+
+    expect(decision.action).toBe("rebuild_sender");
+    expect(decision.shouldRebuild).toBe(true);
+  });
+
   it("keeps relay and sponsor failures in bounded retry or stop buckets", () => {
     const decision = classifyCanonicalPaymentStatus({
       paymentId: "pay_relay",
