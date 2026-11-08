@@ -47,7 +47,8 @@ describe("classifyCanonicalPaymentStatus", () => {
     expect(decision.action).toBe("wait_sender_pending");
     expect(decision.shouldRebuild).toBe(false);
     expect(decision.retryable).toBe(true);
-    expect(decision.summary).toContain("Do not sign a new payment at a fresh nonce");
+    expect(decision.summary).toContain("Do not retry yet");
+    expect(decision.summary).not.toContain("same nonce, then");
   });
 
   it("waits when sender_nonce_duplicate carries no retryable flag (#757)", () => {

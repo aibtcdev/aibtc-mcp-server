@@ -98,7 +98,11 @@ export function emitCanonicalPaymentDecisionLogs(details: {
     compatShimUsed: details.compatShimUsed,
   });
 
-  if (details.decision.action !== "poll_same_payment") {
+  // A wait is not final: the payment may still confirm.
+  if (
+    details.decision.action !== "poll_same_payment" &&
+    details.decision.action !== "wait_sender_pending"
+  ) {
     emitPaymentLog("payment.finalized", {
       tool: details.tool,
       paymentId: details.status.paymentId,
