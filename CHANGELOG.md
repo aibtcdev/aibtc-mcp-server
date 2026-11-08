@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.79.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.79.1...mcp-server-v1.79.2) (2026-11-08)
+
+
+### Bug Fixes
+
+* **inbox:** enforce auto-reply sat ceilings in runAutoReply ([#772](https://github.com/aibtcdev/aibtc-mcp-server/issues/772)) ([6914dd9](https://github.com/aibtcdev/aibtc-mcp-server/commit/6914dd94d258d8e1e8fb92e96842437051313e39))
+
 ## [1.79.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.79.0...mcp-server-v1.79.1) (2026-11-08)
 
 
