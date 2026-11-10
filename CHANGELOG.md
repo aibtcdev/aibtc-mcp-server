@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.79.3](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.79.2...mcp-server-v1.79.3) (2026-11-10)
+
+
+### Bug Fixes
+
+* **pillar:** stop encrypting signing keys under a public default password ([#776](https://github.com/aibtcdev/aibtc-mcp-server/issues/776)) ([4ca9c48](https://github.com/aibtcdev/aibtc-mcp-server/commit/4ca9c48d2f468fb5d1e01010a0dfbe6e19c6bb2d))
+
 ## [1.79.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.79.1...mcp-server-v1.79.2) (2026-11-08)
 
 
