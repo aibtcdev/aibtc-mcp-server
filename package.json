@@ -83,7 +83,7 @@
     "dotenv": "^17.4.2",
     "postcss": "^8.5.18",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vitest": "^4.1.12"
   },
   "overrides": {
