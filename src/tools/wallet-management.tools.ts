@@ -7,6 +7,7 @@ import {
   type LightningUnifiedSetupResult,
 } from "../services/lightning-manager.js";
 import { NETWORK, API_URL } from "../config/networks.js";
+import { resolveWalletPassword } from "../utils/wallet-password.js";
 import type { Network } from "../config/networks.js";
 
 /**
@@ -203,13 +204,19 @@ The wallet is encrypted locally and stored in ~/.aibtc/.`,
     "wallet_unlock",
     {
       description: `Unlock the agent's wallet to enable transactions.
-If no wallet ID is provided, unlocks the active wallet.`,
+If no wallet ID is provided, unlocks the active wallet.
+Omit password when the server has AIBTC_WALLET_PASSWORD_FILE or AIBTC_WALLET_PASSWORD set: the server reads it, so it never enters the conversation.`,
       inputSchema: z.object({
         walletId: z
           .string()
           .optional()
           .describe("Wallet ID to unlock (uses active wallet if not specified)"),
-        password: z.string().describe("Wallet password - WARNING: sensitive value"),
+        password: z
+          .string()
+          .optional()
+          .describe(
+            "Wallet password - WARNING: sensitive value. Omit it to use AIBTC_WALLET_PASSWORD_FILE / AIBTC_WALLET_PASSWORD from the server's environment."
+          ),
       }),
     },
     async ({ walletId, password }) => {
@@ -230,7 +237,10 @@ If no wallet ID is provided, unlocks the active wallet.`,
           targetWalletId = activeId;
         }
 
-        const account = await walletManager.unlock(targetWalletId, password);
+        const account = await walletManager.unlock(
+          targetWalletId,
+          await resolveWalletPassword(password)
+        );
 
         return createJsonResponse({
           success: true,

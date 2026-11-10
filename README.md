@@ -259,6 +259,19 @@ Claude: Done! I've sent 10 STX to ST2DEF...
 - Use `wallet_lock` to manually lock the wallet
 - Use `wallet_unlock` when you need Claude to transact again
 
+### Unlocking without putting the password in the conversation
+
+A password passed to `wallet_unlock` is a tool argument, so it ends up in the agent's transcript. Autonomous agents unlock often, so set the password in the MCP server's environment instead and call `wallet_unlock` without `password`:
+
+- `AIBTC_WALLET_PASSWORD_FILE`: path to a file holding the password (one trailing newline is ignored). Preferred, because the secret stays out of the process environment. Keep it `chmod 600`.
+- `AIBTC_WALLET_PASSWORD`: the password itself.
+
+The argument wins when given, then the file, then the variable. A configured file that can't be read is an error. Add the variable to the `env` block that `--install` wrote next to `NETWORK` (for Claude Code, in `~/.claude.json`), then restart the client:
+
+```json
+"env": { "NETWORK": "mainnet", "AIBTC_TOOLS": "core", "AIBTC_WALLET_PASSWORD_FILE": "/home/you/.aibtc/wallet-password" }
+```
+
 ## Wallet Storage
 
 Claude's wallets are stored locally on your machine:

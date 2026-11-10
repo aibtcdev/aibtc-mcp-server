@@ -1,0 +1,112 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm, writeFile } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
+
+const unlock = vi.fn(async (_id: string, _pw: string) => ({
+  address: "SP000000000000000000002Q6VF78",
+  btcAddress: "bc1qtest",
+  taprootAddress: "bc1ptest",
+  network: "mainnet",
+}));
+
+vi.mock("../../src/services/wallet-manager.js", () => ({
+  getWalletManager: () => ({ getActiveWalletId: async () => "w1", unlock }),
+}));
+
+const { resolveWalletPassword } = await import("../../src/utils/wallet-password.js");
+const { registerWalletManagementTools } = await import("../../src/tools/wallet-management.tools.js");
+
+type Handler = (args: Record<string, unknown>) => Promise<{ isError?: boolean; content: Array<{ text: string }> }>;
+
+function unlockTool() {
+  let tool: { schema: { safeParse: (v: unknown) => { success: boolean } }; handler: Handler } | undefined;
+  const server = {
+    registerTool(name: string, config: { inputSchema: { safeParse: (v: unknown) => { success: boolean } } }, handler: Handler) {
+      if (name === "wallet_unlock") tool = { schema: config.inputSchema, handler };
+    },
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  registerWalletManagementTools(server as any);
+  return tool!;
+}
+
+let dir: string;
+
+beforeEach(async () => {
+  dir = await mkdtemp(join(tmpdir(), "wallet-pw-"));
+  vi.stubEnv("AIBTC_WALLET_PASSWORD_FILE", "");
+  vi.stubEnv("AIBTC_WALLET_PASSWORD", "");
+  unlock.mockClear();
+});
+
+afterEach(async () => {
+  vi.unstubAllEnvs();
+  await rm(dir, { recursive: true, force: true });
+});
+
+describe("resolveWalletPassword", () => {
+  it("uses the argument when given, ignoring the environment", async () => {
+    vi.stubEnv("AIBTC_WALLET_PASSWORD", "from-env");
+    expect(await resolveWalletPassword("from-arg")).toBe("from-arg");
+  });
+
+  it("reads the file and strips one trailing newline only", async () => {
+    const file = join(dir, "pw");
+    await writeFile(file, " pass word \n");
+    vi.stubEnv("AIBTC_WALLET_PASSWORD_FILE", file);
+    vi.stubEnv("AIBTC_WALLET_PASSWORD", "from-env");
+    expect(await resolveWalletPassword(undefined)).toBe(" pass word ");
+  });
+
+  it("strips a CRLF ending", async () => {
+    const file = join(dir, "pw");
+    await writeFile(file, "secret\r\n");
+    vi.stubEnv("AIBTC_WALLET_PASSWORD_FILE", file);
+    expect(await resolveWalletPassword(undefined)).toBe("secret");
+  });
+
+  it("fails on an unreadable file instead of falling back to the env var", async () => {
+    vi.stubEnv("AIBTC_WALLET_PASSWORD_FILE", join(dir, "missing"));
+    vi.stubEnv("AIBTC_WALLET_PASSWORD", "from-env");
+    await expect(resolveWalletPassword(undefined)).rejects.toThrow(/ENOENT/);
+  });
+
+  it("fails on an empty file", async () => {
+    const file = join(dir, "pw");
+    await writeFile(file, "\n");
+    vi.stubEnv("AIBTC_WALLET_PASSWORD_FILE", file);
+    await expect(resolveWalletPassword(undefined)).rejects.toThrow(/is empty/);
+  });
+
+  it("uses AIBTC_WALLET_PASSWORD when no file is set", async () => {
+    vi.stubEnv("AIBTC_WALLET_PASSWORD", "from-env");
+    expect(await resolveWalletPassword(undefined)).toBe("from-env");
+  });
+
+  it("asks for a password when nothing is configured", async () => {
+    await expect(resolveWalletPassword(undefined)).rejects.toThrow(/Password required/);
+  });
+});
+
+describe("wallet_unlock", () => {
+  it("accepts a call without a password", () => {
+    expect(unlockTool().schema.safeParse({}).success).toBe(true);
+  });
+
+  it("unlocks with the password file when password is omitted", async () => {
+    const file = join(dir, "pw");
+    await writeFile(file, "file-secret\n");
+    vi.stubEnv("AIBTC_WALLET_PASSWORD_FILE", file);
+    const result = await unlockTool().handler({});
+    expect(result.isError).toBeFalsy();
+    expect(unlock).toHaveBeenCalledWith("w1", "file-secret");
+  });
+
+  it("returns an error and does not unlock when no password source exists", async () => {
+    const result = await unlockTool().handler({});
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/Password required/);
+    expect(unlock).not.toHaveBeenCalled();
+  });
+});
