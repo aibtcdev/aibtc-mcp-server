@@ -145,6 +145,7 @@ The server never reads a `.env` file: it would load the `.env` of whatever proje
 - `SPEND_LIMIT_ENABLED` - Wallet spending limit on/off (default: true)
 - `SPEND_LIMIT_DAILY_USTX` / `SPEND_LIMIT_SESSION_USTX` - STX spend cap per day / per unlock in micro-STX (default: 50000000 = 50 STX)
 - `SPEND_LIMIT_DAILY_SATS` / `SPEND_LIMIT_SESSION_SATS` - BTC spend cap per day / per unlock in sats (default: 50000)
+- `AIBTC_WALLET_PASSWORD_FILE` / `AIBTC_WALLET_PASSWORD` - Let `wallet_unlock` run without a `password` argument (file preferred; the inline variable is moved out of `process.env` at startup so child processes don't inherit it). The argument wins when non-empty; one password applies to every wallet. The `bridge` strips both unless `--allow-env-unlock`
 - `AIBTC_ALLOW_BLIND_SIGN` - `true` lets `schnorr_sign_digest` sign raw digests (off by default: a signed sighash spends outside the limit)
 
 ### Spending Limit
@@ -205,6 +206,7 @@ Safety flags (default exposes all tools; constrain with these):
 - `--read-only` — heuristic allowlist; never includes a transfer/swap/deploy/spend tool
 - `--allow a,b` / `--block a,b` — explicit overrides (`--block` wins)
 - `--max-spend-ustx <n>` / `--max-spend-sats <n>` — forwarded to the spawned server's `SPEND_LIMIT_SESSION_*` rail
+- `--allow-env-unlock` — pass `AIBTC_WALLET_PASSWORD(_FILE)` through to the spawned server (stripped by default, otherwise the model could unlock without the password)
 - `--list-tools` — preview exposed set, no API key needed
 - `--model` / `--network` / `--max-turns`
 

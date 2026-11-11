@@ -4,6 +4,7 @@ import { getWalletAddress, NETWORK, API_URL } from "../services/x402.service.js"
 import { getStxBalance } from "../services/hiro-api.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { getWalletManager } from "../services/wallet-manager.js";
+import { walletUnlockHint } from "../utils/wallet-password.js";
 
 export function registerWalletTools(server: McpServer): void {
   // Get wallet info
@@ -69,7 +70,7 @@ export function registerWalletTools(server: McpServer): void {
                 network: w.network,
               })),
               network: NETWORK,
-              hint: "Use wallet_unlock with the wallet password to unlock.",
+              hint: walletUnlockHint(),
             });
           } else {
             // No wallets at all

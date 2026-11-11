@@ -266,7 +266,7 @@ A password passed to `wallet_unlock` is a tool argument, so it ends up in the ag
 - `AIBTC_WALLET_PASSWORD_FILE`: path to a file holding the password (one trailing newline is ignored). Preferred, because the secret stays out of the process environment. Keep it `chmod 600`.
 - `AIBTC_WALLET_PASSWORD`: the password itself.
 
-The argument wins when given, then the file, then the variable. A configured file that can't be read is an error. Add the variable to the `env` block that `--install` wrote next to `NETWORK` (for Claude Code, in `~/.claude.json`), then restart the client:
+The argument wins when given (an empty string counts as omitted), then the file, then the variable. A configured file that can't be read is an error. One password applies to every wallet, so this fits a single-wallet setup. The server moves `AIBTC_WALLET_PASSWORD` out of its process environment at startup so child processes don't inherit it, and the `bridge` subcommand strips both variables unless you pass `--allow-env-unlock`. Add the variable to the `env` block that `--install` wrote next to `NETWORK` (for Claude Code, in `~/.claude.json`), then restart the client:
 
 ```json
 "env": { "NETWORK": "mainnet", "AIBTC_TOOLS": "core", "AIBTC_WALLET_PASSWORD_FILE": "/home/you/.aibtc/wallet-password" }

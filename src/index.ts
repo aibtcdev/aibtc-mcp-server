@@ -13,6 +13,7 @@ import { installBountyHint } from "./tools/bounty-hint.js";
 import { NETWORK, API_URL } from "./config/index.js";
 import { redactSensitive } from "./utils/redact.js";
 import { initializeStorage } from "./utils/storage.js";
+import { scrubWalletPasswordEnv } from "./utils/wallet-password.js";
 import { getWalletManager } from "./services/wallet-manager.js";
 import { getLightningManager } from "./services/lightning-manager.js";
 import type { Network } from "./config/networks.js";
@@ -399,6 +400,7 @@ else if (process.argv.includes("--install") || process.argv.includes("install"))
   }
 
   async function main() {
+    scrubWalletPasswordEnv();
     const toolSelection = resolveToolSelection();
     await initializeStorage();
     serveStdio(() => createServer(toolSelection), { onerror: (error) => console.error("MCP error:", redactSensitive(String(error))) });

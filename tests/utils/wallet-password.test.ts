@@ -3,7 +3,9 @@ import { mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 
-const unlock = vi.fn(async (_id: string, _pw: string) => ({
+const { InvalidPasswordError } = await import("../../src/utils/errors.js");
+
+const unlock = vi.fn(async (_id: string, _pw: string): Promise<Record<string, string>> => ({
   address: "SP000000000000000000002Q6VF78",
   btcAddress: "bc1qtest",
   taprootAddress: "bc1ptest",
@@ -14,7 +16,7 @@ vi.mock("../../src/services/wallet-manager.js", () => ({
   getWalletManager: () => ({ getActiveWalletId: async () => "w1", unlock }),
 }));
 
-const { resolveWalletPassword } = await import("../../src/utils/wallet-password.js");
+const { resolveWalletPassword, walletUnlockHint } = await import("../../src/utils/wallet-password.js");
 const { registerWalletManagementTools } = await import("../../src/tools/wallet-management.tools.js");
 
 type Handler = (args: Record<string, unknown>) => Promise<{ isError?: boolean; content: Array<{ text: string }> }>;
@@ -38,6 +40,12 @@ beforeEach(async () => {
   vi.stubEnv("AIBTC_WALLET_PASSWORD_FILE", "");
   vi.stubEnv("AIBTC_WALLET_PASSWORD", "");
   unlock.mockClear();
+  unlock.mockImplementation(async () => ({
+    address: "SP000000000000000000002Q6VF78",
+    btcAddress: "bc1qtest",
+    taprootAddress: "bc1ptest",
+    network: "mainnet",
+  }));
 });
 
 afterEach(async () => {
@@ -48,7 +56,7 @@ afterEach(async () => {
 describe("resolveWalletPassword", () => {
   it("uses the argument when given, ignoring the environment", async () => {
     vi.stubEnv("AIBTC_WALLET_PASSWORD", "from-env");
-    expect(await resolveWalletPassword("from-arg")).toBe("from-arg");
+    expect(await resolveWalletPassword("from-arg")).toEqual({ password: "from-arg", source: "argument" });
   });
 
   it("reads the file and strips one trailing newline only", async () => {
@@ -56,14 +64,14 @@ describe("resolveWalletPassword", () => {
     await writeFile(file, " pass word \n");
     vi.stubEnv("AIBTC_WALLET_PASSWORD_FILE", file);
     vi.stubEnv("AIBTC_WALLET_PASSWORD", "from-env");
-    expect(await resolveWalletPassword(undefined)).toBe(" pass word ");
+    expect((await resolveWalletPassword(undefined)).password).toBe(" pass word ");
   });
 
   it("strips a CRLF ending", async () => {
     const file = join(dir, "pw");
     await writeFile(file, "secret\r\n");
     vi.stubEnv("AIBTC_WALLET_PASSWORD_FILE", file);
-    expect(await resolveWalletPassword(undefined)).toBe("secret");
+    expect((await resolveWalletPassword(undefined)).password).toBe("secret");
   });
 
   it("fails on an unreadable file instead of falling back to the env var", async () => {
@@ -81,7 +89,22 @@ describe("resolveWalletPassword", () => {
 
   it("uses AIBTC_WALLET_PASSWORD when no file is set", async () => {
     vi.stubEnv("AIBTC_WALLET_PASSWORD", "from-env");
-    expect(await resolveWalletPassword(undefined)).toBe("from-env");
+    expect(await resolveWalletPassword(undefined)).toEqual({ password: "from-env", source: "AIBTC_WALLET_PASSWORD" });
+  });
+
+  it("treats an empty argument as omitted", async () => {
+    vi.stubEnv("AIBTC_WALLET_PASSWORD", "from-env");
+    expect((await resolveWalletPassword("")).password).toBe("from-env");
+  });
+
+  it("still resolves AIBTC_WALLET_PASSWORD after it is scrubbed from process.env", async () => {
+    // Fresh module copy so the captured value doesn't leak into other tests.
+    vi.resetModules();
+    const fresh = await import("../../src/utils/wallet-password.js");
+    vi.stubEnv("AIBTC_WALLET_PASSWORD", "scrubbed");
+    fresh.scrubWalletPasswordEnv();
+    expect(process.env.AIBTC_WALLET_PASSWORD).toBeUndefined();
+    expect((await fresh.resolveWalletPassword(undefined)).password).toBe("scrubbed");
   });
 
   it("asks for a password when nothing is configured", async () => {
@@ -103,10 +126,27 @@ describe("wallet_unlock", () => {
     expect(unlock).toHaveBeenCalledWith("w1", "file-secret");
   });
 
+  it("names the configured source when its password is wrong", async () => {
+    const file = join(dir, "pw");
+    await writeFile(file, "wrong\n");
+    vi.stubEnv("AIBTC_WALLET_PASSWORD_FILE", file);
+    unlock.mockRejectedValueOnce(new InvalidPasswordError());
+    const result = await unlockTool().handler({});
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/AIBTC_WALLET_PASSWORD_FILE/);
+  });
+
   it("returns an error and does not unlock when no password source exists", async () => {
     const result = await unlockTool().handler({});
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toMatch(/Password required/);
     expect(unlock).not.toHaveBeenCalled();
+  });
+});
+
+describe("walletUnlockHint", () => {
+  it("tells the agent not to ask for the password when one is configured", () => {
+    vi.stubEnv("AIBTC_WALLET_PASSWORD_FILE", "/some/path");
+    expect(walletUnlockHint()).toMatch(/without a password/);
   });
 });
