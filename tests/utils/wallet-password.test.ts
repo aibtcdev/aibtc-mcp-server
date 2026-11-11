@@ -171,11 +171,29 @@ describe("wallet_unlock", () => {
     expect(result.content[0].text).toMatch(/AIBTC_WALLET_PASSWORD_FILE/);
   });
 
+  it("reports a wrong configured password as a wallet error, not a generic one", async () => {
+    vi.stubEnv("AIBTC_WALLET_PASSWORD", "wrong");
+    unlock.mockRejectedValueOnce(new InvalidPasswordError());
+    const result = await unlockTool().handler({});
+    expect(result.content[0].text).toMatch(/AIBTC_WALLET_PASSWORD did not decrypt it.*\(WALLET_ERROR\)$/);
+  });
+
   it("returns an error and does not unlock when no password source exists", async () => {
     const result = await unlockTool().handler({});
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toMatch(/Password required/);
     expect(unlock).not.toHaveBeenCalled();
+  });
+});
+
+describe("InvalidPasswordError", () => {
+  it("keeps its type and the original error when given a message", () => {
+    const original = new InvalidPasswordError();
+    const wrapped = new InvalidPasswordError("from env", { cause: original });
+    expect(wrapped).toBeInstanceOf(InvalidPasswordError);
+    expect(wrapped.message).toBe("from env");
+    expect(wrapped.cause).toBe(original);
+    expect(new InvalidPasswordError().message).toBe("Invalid password");
   });
 });
 

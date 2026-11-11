@@ -251,9 +251,10 @@ The configured password only unlocks the wallet that was active when the server 
           account = await walletManager.unlock(targetWalletId, resolved.password, { resetSpendSession: !fromEnv });
         } catch (error) {
           if (error instanceof InvalidPasswordError && fromEnv) {
-            throw new Error(
+            throw new InvalidPasswordError(
               `Invalid password for wallet ${targetWalletId}: the password from ${resolved.source} did not decrypt it. ` +
-                `Check that file/variable (one password applies to every wallet); don't ask the user to paste the password here.`
+                `Check that file/variable; don't ask the user to paste the password here.`,
+              { cause: error }
             );
           }
           throw error;
