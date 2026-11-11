@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm, writeFile } from "fs/promises";
+import { chmod, mkdtemp, rm, writeFile as rawWriteFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -16,7 +16,13 @@ vi.mock("../../src/services/wallet-manager.js", () => ({
   getWalletManager: () => ({ getActiveWalletId: async () => "w1", unlock }),
 }));
 
-const { resolveWalletPassword, walletUnlockHint } = await import("../../src/utils/wallet-password.js");
+const { resolveWalletPassword, walletUnlockHint, pinEnvPasswordWallet } = await import("../../src/utils/wallet-password.js");
+
+/** Password files must be chmod 600; write them that way unless a test says otherwise. */
+async function writeFile(file: string, data: string, mode = 0o600) {
+  await rawWriteFile(file, data);
+  await chmod(file, mode);
+}
 const { registerWalletManagementTools } = await import("../../src/tools/wallet-management.tools.js");
 
 type Handler = (args: Record<string, unknown>) => Promise<{ isError?: boolean; content: Array<{ text: string }> }>;
@@ -39,6 +45,7 @@ beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), "wallet-pw-"));
   vi.stubEnv("AIBTC_WALLET_PASSWORD_FILE", "");
   vi.stubEnv("AIBTC_WALLET_PASSWORD", "");
+  pinEnvPasswordWallet("w1");
   unlock.mockClear();
   unlock.mockImplementation(async () => ({
     address: "SP000000000000000000002Q6VF78",
@@ -87,6 +94,13 @@ describe("resolveWalletPassword", () => {
     await expect(resolveWalletPassword(undefined)).rejects.toThrow(/is empty/);
   });
 
+  it.skipIf(process.platform === "win32")("refuses a file readable by group or others", async () => {
+    const file = join(dir, "pw");
+    await writeFile(file, "secret\n", 0o644);
+    vi.stubEnv("AIBTC_WALLET_PASSWORD_FILE", file);
+    await expect(resolveWalletPassword(undefined)).rejects.toThrow(/chmod 600/);
+  });
+
   it("uses AIBTC_WALLET_PASSWORD when no file is set", async () => {
     vi.stubEnv("AIBTC_WALLET_PASSWORD", "from-env");
     expect(await resolveWalletPassword(undefined)).toEqual({ password: "from-env", source: "AIBTC_WALLET_PASSWORD" });
@@ -123,7 +137,28 @@ describe("wallet_unlock", () => {
     vi.stubEnv("AIBTC_WALLET_PASSWORD_FILE", file);
     const result = await unlockTool().handler({});
     expect(result.isError).toBeFalsy();
-    expect(unlock).toHaveBeenCalledWith("w1", "file-secret");
+    expect(unlock).toHaveBeenCalledWith("w1", "file-secret", { resetSpendSession: false });
+  });
+
+  it("refills the session spend budget only when the password is passed as an argument", async () => {
+    vi.stubEnv("AIBTC_WALLET_PASSWORD", "from-env");
+    await unlockTool().handler({ password: "from-arg" });
+    expect(unlock).toHaveBeenCalledWith("w1", "from-arg", { resetSpendSession: true });
+  });
+
+  it("refuses to unlock a wallet other than the pinned one with the configured password", async () => {
+    vi.stubEnv("AIBTC_WALLET_PASSWORD", "from-env");
+    const result = await unlockTool().handler({ walletId: "w2" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/active when the server started \(w1\)/);
+    expect(unlock).not.toHaveBeenCalled();
+  });
+
+  it("still unlocks another wallet when the password is passed as an argument", async () => {
+    vi.stubEnv("AIBTC_WALLET_PASSWORD", "from-env");
+    const result = await unlockTool().handler({ walletId: "w2", password: "w2-pass" });
+    expect(result.isError).toBeFalsy();
+    expect(unlock).toHaveBeenCalledWith("w2", "w2-pass", { resetSpendSession: true });
   });
 
   it("names the configured source when its password is wrong", async () => {
@@ -146,7 +181,23 @@ describe("wallet_unlock", () => {
 
 describe("walletUnlockHint", () => {
   it("tells the agent not to ask for the password when one is configured", () => {
-    vi.stubEnv("AIBTC_WALLET_PASSWORD_FILE", "/some/path");
-    expect(walletUnlockHint()).toMatch(/without a password/);
+    vi.stubEnv("AIBTC_WALLET_PASSWORD", "from-env");
+    expect(walletUnlockHint("w1")).toMatch(/Do not ask the user/);
+  });
+
+  it("does not steer the agent to a password-less unlock when the file is missing", () => {
+    vi.stubEnv("AIBTC_WALLET_PASSWORD_FILE", join(dir, "missing"));
+    const hint = walletUnlockHint("w1");
+    expect(hint).toMatch(/won't work/);
+    expect(hint).not.toMatch(/Do not ask the user/);
+  });
+
+  it("does not steer the agent to a password-less unlock for a wallet that isn't pinned", () => {
+    vi.stubEnv("AIBTC_WALLET_PASSWORD", "from-env");
+    expect(walletUnlockHint("w2")).toMatch(/won't work/);
+  });
+
+  it("asks for the password when nothing is configured", () => {
+    expect(walletUnlockHint("w1")).toMatch(/with the wallet password/);
   });
 });

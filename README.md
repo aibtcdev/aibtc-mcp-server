@@ -263,10 +263,10 @@ Claude: Done! I've sent 10 STX to ST2DEF...
 
 A password passed to `wallet_unlock` is a tool argument, so it ends up in the agent's transcript. Autonomous agents unlock often, so set the password in the MCP server's environment instead and call `wallet_unlock` without `password`:
 
-- `AIBTC_WALLET_PASSWORD_FILE`: path to a file holding the password (one trailing newline is ignored). Preferred, because the secret stays out of the process environment. Keep it `chmod 600`.
+- `AIBTC_WALLET_PASSWORD_FILE`: path to a file holding the password (one trailing newline is ignored). Preferred, because the secret stays out of the process environment. It must be owned by you and `chmod 600`; the server refuses it otherwise.
 - `AIBTC_WALLET_PASSWORD`: the password itself.
 
-The argument wins when given (an empty string counts as omitted), then the file, then the variable. A configured file that can't be read is an error. One password applies to every wallet, so this fits a single-wallet setup. The server moves `AIBTC_WALLET_PASSWORD` out of its process environment at startup so child processes don't inherit it, and the `bridge` subcommand strips both variables unless you pass `--allow-env-unlock`. Add the variable to the `env` block that `--install` wrote next to `NETWORK` (for Claude Code, in `~/.claude.json`), then restart the client:
+The argument wins when given (an empty string counts as omitted), then the file, then the variable. A configured file that can't be read is an error. The configured password only unlocks the wallet that was active when the server started (`wallet_switch` needs no password, so it can't widen that), and an unlock from it keeps the session's spend budget, so the agent can't lock and unlock to reset `SPEND_LIMIT_SESSION_*`. With it set, auto-lock no longer stops the agent: it can unlock again without you. The server moves `AIBTC_WALLET_PASSWORD` out of its process environment at startup so child processes don't inherit it, and the `bridge` subcommand strips both variables unless you pass `--allow-env-unlock`. Add the variable to the `env` block that `--install` wrote next to `NETWORK` (for Claude Code, in `~/.claude.json`), then restart the client:
 
 ```json
 "env": { "NETWORK": "mainnet", "AIBTC_TOOLS": "core", "AIBTC_WALLET_PASSWORD_FILE": "/home/you/.aibtc/wallet-password" }

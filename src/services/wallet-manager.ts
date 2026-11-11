@@ -184,7 +184,11 @@ class WalletManager {
   /**
    * Unlock a wallet for use
    */
-  async unlock(walletId: string, password: string): Promise<Account> {
+  async unlock(
+    walletId: string,
+    password: string,
+    { resetSpendSession = true }: { resetSpendSession?: boolean } = {}
+  ): Promise<Account> {
     await this.ensureInitialized();
 
     // Get wallet metadata
@@ -284,8 +288,10 @@ class WalletManager {
     // Reset pending nonce counter so the new session re-syncs with the chain
     await resetPendingNonce(account.address);
 
-    // Fresh unlock starts a fresh per-session spend budget.
-    getSpendLimiter().resetSession(account.address);
+    // An unlock the user supplied the password for starts a fresh per-session
+    // spend budget. An unlock from the server's configured password does not:
+    // the agent can do that alone, so it must not be able to refill its budget.
+    if (resetSpendSession) getSpendLimiter().resetSession(account.address);
 
     return account;
   }
@@ -298,8 +304,7 @@ class WalletManager {
     // Reset pending nonce counter before clearing session
     if (this.session?.account) {
       await resetPendingNonce(this.session.account.address);
-      // Clear the per-session spend budget so the next unlock starts fresh.
-      getSpendLimiter().resetSession(this.session.account.address);
+      // The session spend budget is kept: unlock() decides whether to reset it.
     }
     // Zero out sensitive key buffers before dropping references
     if (this.session?.account) {

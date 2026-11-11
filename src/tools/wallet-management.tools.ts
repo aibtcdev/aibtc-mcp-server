@@ -7,7 +7,7 @@ import {
   type LightningUnifiedSetupResult,
 } from "../services/lightning-manager.js";
 import { NETWORK, API_URL } from "../config/networks.js";
-import { resolveWalletPassword, walletUnlockHint } from "../utils/wallet-password.js";
+import { envPasswordUnusableReason, resolveWalletPassword, walletUnlockHint } from "../utils/wallet-password.js";
 import { InvalidPasswordError } from "../utils/errors.js";
 import type { Network } from "../config/networks.js";
 
@@ -206,7 +206,8 @@ The wallet is encrypted locally and stored in ~/.aibtc/.`,
     {
       description: `Unlock the agent's wallet to enable transactions.
 If no wallet ID is provided, unlocks the active wallet.
-Omit password when the server has AIBTC_WALLET_PASSWORD_FILE or AIBTC_WALLET_PASSWORD set: the server reads it, so it never enters the conversation.`,
+Omit password when the server has AIBTC_WALLET_PASSWORD_FILE or AIBTC_WALLET_PASSWORD set: the server reads it, so it never enters the conversation.
+The configured password only unlocks the wallet that was active when the server started, and that unlock keeps the current session's spend budget.`,
       inputSchema: z.object({
         walletId: z
           .string()
@@ -239,11 +240,17 @@ Omit password when the server has AIBTC_WALLET_PASSWORD_FILE or AIBTC_WALLET_PAS
         }
 
         const resolved = await resolveWalletPassword(password);
+        const fromEnv = resolved.source !== "argument";
+        if (fromEnv) {
+          const reason = envPasswordUnusableReason(targetWalletId);
+          if (reason) throw new Error(`Can't unlock ${targetWalletId} without a password: ${reason}.`);
+        }
         let account;
         try {
-          account = await walletManager.unlock(targetWalletId, resolved.password);
+          // Only an unlock the user supplied the password for refills the session spend budget.
+          account = await walletManager.unlock(targetWalletId, resolved.password, { resetSpendSession: !fromEnv });
         } catch (error) {
-          if (error instanceof InvalidPasswordError && resolved.source !== "argument") {
+          if (error instanceof InvalidPasswordError && fromEnv) {
             throw new Error(
               `Invalid password for wallet ${targetWalletId}: the password from ${resolved.source} did not decrypt it. ` +
                 `Check that file/variable (one password applies to every wallet); don't ask the user to paste the password here.`
@@ -607,7 +614,7 @@ If the wallet is currently unlocked, it will be locked after rotation (requires 
           message = "I have a wallet configured and I'm ready to perform transactions.";
         } else if (hasWallets) {
           message = "I have a wallet but it's locked. Please unlock it so I can perform transactions.";
-          nextAction = walletUnlockHint();
+          nextAction = walletUnlockHint(activeWalletId);
         } else {
           message = "I don't have a wallet yet. Please assign me one so I can perform transactions.";
           nextAction = "Use wallet_create to give me a new wallet, or wallet_import to assign an existing one.";

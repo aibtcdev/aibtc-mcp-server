@@ -70,7 +70,7 @@ export function registerWalletTools(server: McpServer): void {
                 network: w.network,
               })),
               network: NETWORK,
-              hint: walletUnlockHint(),
+              hint: walletUnlockHint(await walletManager.getActiveWalletId()),
             });
           } else {
             // No wallets at all

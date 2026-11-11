@@ -23,7 +23,7 @@ deep documentation that was previously inlined in `CLAUDE.md`; it is kept separa
 ### Wallet Management
 - `wallet_create` - Generate a new wallet with BIP39 mnemonic (encrypted locally). Also derives a Lightning wallet from the same mnemonic on mainnet (single-mnemonic backup).
 - `wallet_import` - Import an existing wallet from mnemonic. Also derives a Lightning wallet from the same mnemonic on mainnet.
-- `wallet_unlock` - Unlock a wallet for transactions (password argument, or omit it when the server has `AIBTC_WALLET_PASSWORD_FILE` / `AIBTC_WALLET_PASSWORD` set)
+- `wallet_unlock` - Unlock a wallet for transactions (password argument, or omit it when the server has `AIBTC_WALLET_PASSWORD_FILE` / `AIBTC_WALLET_PASSWORD` set; that unlocks only the wallet active at server start and keeps the session spend budget)
 - `wallet_lock` - Lock the wallet (clear from memory)
 - `wallet_list` - List all available wallets
 - `wallet_switch` - Switch active wallet

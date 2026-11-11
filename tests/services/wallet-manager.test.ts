@@ -103,6 +103,7 @@ vi.mock("../../src/utils/storage.js", () => ({
 
 // Import after mocking
 const { getWalletManager } = await import("../../src/services/wallet-manager.js");
+const { getSpendLimiter } = await import("../../src/services/spend-limiter.js");
 
 describe("WalletManager", () => {
   let walletManager: Awaited<ReturnType<typeof getWalletManager>>;
@@ -260,6 +261,23 @@ describe("WalletManager", () => {
 
       expect(walletManager.isUnlocked()).toBe(false);
       expect(walletManager.getActiveAccount()).toBeNull();
+    });
+
+    it("resets the session spend budget only on an unlock that asks for it", async () => {
+      const created = await walletManager.createWallet("test-wallet", "password123");
+      const resetSession = vi.spyOn(getSpendLimiter(), "resetSession");
+      try {
+        await walletManager.unlock(created.walletId, "password123");
+        expect(resetSession).toHaveBeenCalledTimes(1);
+
+        // Lock keeps the budget; an unlock from the server's configured password
+        // keeps it too, so lock + unlock can't refill it without the user.
+        await walletManager.lock();
+        await walletManager.unlock(created.walletId, "password123", { resetSpendSession: false });
+        expect(resetSession).toHaveBeenCalledTimes(1);
+      } finally {
+        resetSession.mockRestore();
+      }
     });
   });
 
