@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.80.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.79.3...mcp-server-v1.80.0) (2026-11-11)
+
+
+### Features
+
+* **wallet:** let wallet_unlock read the password from the server environment ([#775](https://github.com/aibtcdev/aibtc-mcp-server/issues/775)) ([b4714b0](https://github.com/aibtcdev/aibtc-mcp-server/commit/b4714b00851428688c4e8950e457e5297ad72ba4))
+
 ## [1.79.3](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.79.2...mcp-server-v1.79.3) (2026-11-10)
 
 
