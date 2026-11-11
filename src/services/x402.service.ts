@@ -901,7 +901,10 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
 
         // Guaranteed non-'unsupported' by selectPaymentOption, so the branch
         // below can never route a third-party token into the native-STX path.
-        const tokenType = detectTokenType(selectedOption.asset) as 'STX' | 'sBTC';
+        const tokenType = detectTokenType(
+          selectedOption.asset,
+          canonicalSbtcForConfiguredNetwork(),
+        ) as 'STX' | 'sBTC';
         const amount = BigInt(selectedOption.amount);
         const isSbtc = tokenType === "sBTC";
         const cap = isSbtc ? X402_MAX_SATS_PER_PAYMENT : X402_MAX_USTX_PER_PAYMENT;
@@ -1151,12 +1154,65 @@ export type PaymentTokenType = 'STX' | 'sBTC' | 'unsupported';
  *
  * @param asset - Full contract identifier or token name
  */
-export function detectTokenType(asset: string): PaymentTokenType {
-  const assetLower = asset.trim().toLowerCase();
-  // Treat as sBTC if the asset is exactly "sbtc" (token name),
-  // a full contract identifier ending with "::token-sbtc",
-  // or a contract identifier ending with ".sbtc-token"
-  if (assetLower === 'sbtc' || assetLower.endsWith('::token-sbtc') || assetLower.endsWith('.sbtc-token')) {
+/**
+ * Non-sBTC classification, split out so the canonical-contract branch of
+ * `detectTokenType` can reuse it without re-testing the sBTC rule.
+ */
+function classifyNonSbtc(assetLower: string): PaymentTokenType {
+  if (assetLower === 'stx' || /(^|\/)(native|slip44:5773)$/.test(assetLower)) {
+    return 'STX';
+  }
+  return 'unsupported';
+}
+
+/**
+ * The canonical sBTC contract id for the configured network. Used to decide
+ * sBTC by contract rather than by asset-id suffix (#760).
+ */
+function canonicalSbtcForConfiguredNetwork(): string | undefined {
+  try {
+    return getContracts(NETWORK).SBTC_TOKEN;
+  } catch {
+    return undefined;
+  }
+}
+
+export function detectTokenType(
+  asset: string,
+  /**
+   * The canonical sBTC contract id for the active network
+   * (`contracts.SBTC_TOKEN`). #760: classification used to accept ANY asset id
+   * ending in `.sbtc-token` / `::token-sbtc`, but the payment builder then pays
+   * in the canonical contract (x402.service.ts:971, :992). A 402 quoting
+   * `SP000…Q6VF78.sbtc-token` therefore made the agent send real mainnet sBTC to
+   * `payTo` for an asset the server never asked for — classify loosely, pay
+   * narrowly. Passing the canonical id here keeps the two in step; callers that
+   * cannot resolve a contract fall back to the suffix rule below.
+   */
+  canonicalSbtc?: string,
+): PaymentTokenType {
+  const assetTrimmed = asset.trim();
+  const assetLower = assetTrimmed.toLowerCase();
+
+  // #760: bare symbol names no contract, so it cannot be a lookalike.
+  if (assetLower === 'sbtc') {
+    return 'sBTC';
+  }
+
+  // #760: with a canonical id, sBTC is decided by CONTRACT, not by suffix.
+  if (canonicalSbtc !== undefined && canonicalSbtc.length > 0) {
+    const canonical = canonicalSbtc.trim().toLowerCase().replace(/::.*$/, '');
+    // Accept the bare id and the `::sbtc-token` qualified spelling; anything
+    // else — including the same suffix on another deployer — is unsupported,
+    // which selectPaymentOption already skips or reports as "No payable asset".
+    const candidate = assetLower.replace(/::.*$/, '');
+    return candidate === canonical ? 'sBTC' : classifyNonSbtc(assetLower);
+  }
+
+  // Fallback (no canonical id resolved): the pre-#760 suffix rule. Callers in
+  // the payment path always pass a canonical id, so this only serves direct
+  // `detectTokenType(x)` probes and keeps them behaving as before.
+  if (assetLower.endsWith('::token-sbtc') || assetLower.endsWith('.sbtc-token')) {
     return 'sBTC';
   }
   // Native STX: the bare symbol, or a CAIP-19-style native reference
@@ -1210,7 +1266,7 @@ export function resolveAssetSymbol(asset: string, extra?: Record<string, unknown
   if (typeof advertised === 'string' && advertised.trim()) {
     return advertised.trim();
   }
-  const tokenType = detectTokenType(asset);
+  const tokenType = detectTokenType(asset, canonicalSbtcForConfiguredNetwork());
   if (tokenType !== 'unsupported') {
     return tokenType;
   }
@@ -1239,7 +1295,7 @@ export function formatPaymentAmount(
   asset: string,
   extra?: Record<string, unknown>
 ): string {
-  const tokenType = detectTokenType(asset);
+  const tokenType = detectTokenType(asset, canonicalSbtcForConfiguredNetwork());
   if (tokenType === 'sBTC') {
     return formatSbtc(amount);
   }
@@ -1262,7 +1318,7 @@ function assetMatches(option: PaymentRequirementsV2, requested: string): boolean
   if (resolveAssetSymbol(option.asset, option.extra).toLowerCase() === want) return true;
   // "sbtc" should also match the full sbtc-token contract id, and "stx" the
   // native entry, without the caller needing the exact string.
-  const tokenType = detectTokenType(option.asset);
+  const tokenType = detectTokenType(option.asset, canonicalSbtcForConfiguredNetwork());
   return tokenType !== 'unsupported' && tokenType.toLowerCase() === want;
 }
 
@@ -1286,7 +1342,7 @@ export function summarizePaymentOptions(
     amount: opt.amount,
     formatted: formatPaymentAmount(opt.amount, opt.asset, opt.extra),
     payTo: opt.payTo,
-    payable: detectTokenType(opt.asset) !== 'unsupported',
+    payable: detectTokenType(opt.asset, canonicalSbtcForConfiguredNetwork()) !== 'unsupported',
   }));
 }
 
@@ -1328,7 +1384,7 @@ export function selectPaymentOption(
         `Endpoint does not accept "${preferredAsset}". Accepted assets: ${describe(stacksOptions)}.`
       );
     }
-    if (detectTokenType(match.asset) === 'unsupported') {
+    if (detectTokenType(match.asset, canonicalSbtcForConfiguredNetwork()) === 'unsupported') {
       throw new Error(
         `Payment in ${resolveAssetSymbol(match.asset, match.extra)} (${match.asset}) is not supported — ` +
           `this client can only sign STX and sBTC payments. ` +
