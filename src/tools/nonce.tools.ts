@@ -27,6 +27,14 @@ import {
 import { getStacksNetwork, getExplorerTxUrl } from "../config/networks.js";
 import { resolveDefaultFee } from "../utils/fee.js";
 import { SPONSOR_ADDRESSES } from "../utils/relay-health.js";
+import { getSpendLimiter, type SpendReservation } from "../services/spend-limiter.js";
+
+/**
+ * Upper bound on nonce_heal's RBF fee multiplier (#746). The bump only needs to
+ * beat the pending fee; an unbounded multiplier let one call sign a fee many
+ * times the daily STX spend limit.
+ */
+export const MAX_RBF_FEE_MULTIPLIER = 5;
 
 /** PoX burn address used as the recipient for gap-fill/RBF self-transfers. */
 const POX_BURN_ADDRESS = "SP000000000000000000002Q6VF78";
@@ -564,9 +572,10 @@ Returns:
         feeMultiplier: z
           .number()
           .min(1.1)
+          .max(MAX_RBF_FEE_MULTIPLIER)
           .default(1.5)
           .describe(
-            "Fee multiplier for RBF bump (e.g. 1.5 = 50% higher fee). Minimum 1.1. Default 1.5."
+            `Fee multiplier for RBF bump (e.g. 1.5 = 50% higher fee). Minimum 1.1, maximum ${MAX_RBF_FEE_MULTIPLIER}. Default 1.5. The bumped fee is booked against the wallet spend limit before signing.`
           ),
       }),
     },
@@ -760,10 +769,21 @@ Returns:
               .catch(() => null);
 
             if (fullTx?.tx_type === "token_transfer") {
+              const limiter = getSpendLimiter();
+              let reservation: SpendReservation | null = null;
+              let broadcastAttempted = false;
               try {
                 const originalFee = parseInt(headTx.fee_rate ?? "0", 10);
                 const newFee = Math.ceil(
                   originalFee * (feeMultiplier ?? 1.5)
+                );
+
+                // The bump moves 1 uSTX plus newFee out of the wallet. Book it on the
+                // ustx ledger before signing, like every builder path does (#746);
+                // a SpendLimitError here refuses the bump before anything is signed.
+                reservation = await limiter.reserve(
+                  [{ unit: "ustx", amount: BigInt(newFee) + 1n }],
+                  walletAccount!.address
                 );
 
                 const rbfTx = await makeSTXTokenTransfer({
@@ -776,12 +796,15 @@ Returns:
                   fee: BigInt(newFee),
                 });
 
+                broadcastAttempted = true;
                 const rbfBroadcast = await broadcastTransaction({
                   transaction: rbfTx,
                   network: getStacksNetwork(NETWORK),
                 });
 
                 if ("error" in rbfBroadcast) {
+                  // An explicit rejection means nothing left; give the booking back.
+                  await limiter.release(reservation);
                   actions.push({
                     type: "bump_head",
                     nonce: chainHeadNonce,
@@ -810,6 +833,11 @@ Returns:
                   });
                 }
               } catch (err) {
+                // A throw during broadcast leaves it unknown whether the node took the
+                // tx, so the booking stands (same rule as transferStx). Before that, release.
+                if (reservation && !broadcastAttempted) {
+                  await limiter.release(reservation);
+                }
                 const msg = err instanceof Error ? err.message : String(err);
                 actions.push({
                   type: "bump_head",
