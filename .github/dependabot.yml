@@ -21,6 +21,13 @@ updates:
       modelcontextprotocol:
         patterns:
           - "@modelcontextprotocol/*"
+      # stacks.js publishes every @stacks/* package at the same version on the
+      # same day (7.7.0 on 2026-11-03), and @stacks/transactions/network depend
+      # on @stacks/common. Update them together so they don't drift apart, and
+      # so one bump doesn't use up several of the five open-PR slots.
+      stacks:
+        patterns:
+          - "@stacks/*"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
