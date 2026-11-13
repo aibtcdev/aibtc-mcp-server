@@ -64,8 +64,8 @@ export function estimateBuyPsbtFeeSats(params: {
  * must survive decode -> sign -> encode: marketplaces and co-signers put their
  * own data there, and psbt_sign hands the PSBT back to them. The round-trip is
  * pinned in tests/tools/psbt-helpers.test.ts. @scure/btc-signer >= 2.4.0 strips
- * proprietary fields by default, so an upgrade must pass `proprietary: "ignore"`
- * here (https://github.com/paulmillr/scure-btc-signer/releases/tag/2.4.0).
+ * both by default, hence `proprietary` / `unknown: "ignore"` below
+ * (https://github.com/paulmillr/scure-btc-signer/releases/tag/2.4.0).
  */
 export function decodePsbtBase64(psbtBase64: string): btc.Transaction {
   const bytes = Buffer.from(psbtBase64, "base64");
@@ -76,6 +76,8 @@ export function decodePsbtBase64(psbtBase64: string): btc.Transaction {
     allowUnknownInputs: true,
     allowUnknownOutputs: true,
     disableScriptCheck: true,
+    proprietary: "ignore",
+    unknown: "ignore",
   });
 }
 
