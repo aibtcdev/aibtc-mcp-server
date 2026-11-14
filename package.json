@@ -59,7 +59,7 @@
     "@scure/base": "^2.0.0",
     "@scure/bip32": "^1.4.0",
     "@scure/bip39": "^2.0.1",
-    "@scure/btc-signer": "^2.0.1",
+    "@scure/btc-signer": "^2.4.1",
     "@stacks/common": "^7.6.0",
     "@stacks/encryption": "^7.6.0",
     "@stacks/network": "^7.6.0",
