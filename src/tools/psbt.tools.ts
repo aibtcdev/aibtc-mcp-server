@@ -13,23 +13,12 @@ import { psbtOutflowSats } from "../services/btc-spend.js";
 import { getSpendLimiter } from "../services/spend-limiter.js";
 import { getBtcNetwork } from "../transactions/bitcoin-builder.js";
 import { createErrorResponse, createJsonResponse } from "../utils/index.js";
-import { estimateBuyPsbtFeeSats, parseOutpoint } from "./psbt.helpers.js";
-
-function decodePsbtBase64(psbtBase64: string): btc.Transaction {
-  const bytes = Buffer.from(psbtBase64, "base64");
-  if (bytes.length === 0) {
-    throw new Error("Invalid PSBT: empty base64 payload");
-  }
-  return btc.Transaction.fromPSBT(bytes, {
-    allowUnknownInputs: true,
-    allowUnknownOutputs: true,
-    disableScriptCheck: true,
-  });
-}
-
-function encodePsbtBase64(tx: btc.Transaction): string {
-  return Buffer.from(tx.toPSBT()).toString("base64");
-}
+import {
+  decodePsbtBase64,
+  encodePsbtBase64,
+  estimateBuyPsbtFeeSats,
+  parseOutpoint,
+} from "./psbt.helpers.js";
 
 function decodeScriptType(script: Uint8Array): string {
   try {

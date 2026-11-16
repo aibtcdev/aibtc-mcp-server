@@ -11,6 +11,8 @@ const mockGetBalance = vi.fn();
 const mockGetStxBalance = vi.fn();
 const mockGetMempoolFees = vi.fn();
 const mockGetActiveAccount = vi.fn();
+const mockGetNonceInfo = vi.fn();
+const mockGetTransactionStatus = vi.fn();
 
 vi.mock("../../src/services/sbtc.service.js", () => ({
   getSbtcService: () => ({ getBalance: mockGetBalance }),
@@ -20,6 +22,8 @@ vi.mock("../../src/services/hiro-api.js", () => ({
   getHiroApi: () => ({
     getStxBalance: mockGetStxBalance,
     getMempoolFees: mockGetMempoolFees,
+    getNonceInfo: mockGetNonceInfo,
+    getTransactionStatus: mockGetTransactionStatus,
   }),
 }));
 
@@ -47,6 +51,7 @@ const {
 } = await import("../../src/services/x402.service.js");
 
 const { InsufficientBalanceError } = await import("../../src/utils/errors.js");
+const { clearSenderHolds } = await import("../../src/utils/x402-sender-hold.js");
 
 // ============================================================================
 // Helpers
@@ -98,6 +103,65 @@ describe("detectTokenType", () => {
     expect(detectTokenType("SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx")).toBe(
       "unsupported"
     );
+  });
+
+  // #760: classification used to accept ANY asset id ending in `.sbtc-token`,
+  // but the payment builder pays in the canonical contract. A lookalike on
+  // another deployer therefore made the agent send real sBTC for an asset the
+  // server never quoted. sBTC is now decided by the exact contract.
+  describe("sBTC by canonical contract (#760)", () => {
+    const MAINNET = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
+    const TESTNET = "ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT.sbtc-token";
+
+    it("accepts the active network's contract, bare or asset-qualified, any case", () => {
+      expect(detectTokenType(MAINNET)).toBe("sBTC");
+      expect(detectTokenType(`${MAINNET}::sbtc-token`)).toBe("sBTC");
+      expect(detectTokenType(`${MAINNET}::token-sbtc`)).toBe("sBTC");
+      expect(detectTokenType(MAINNET.toUpperCase())).toBe("sBTC");
+    });
+
+    it("refuses a same-suffix lookalike on another deployer", () => {
+      expect(detectTokenType("SP000000000000000000002Q6VF78.sbtc-token")).toBe("unsupported");
+      expect(detectTokenType("SP000000000000000000002Q6VF78.other::token-sbtc")).toBe(
+        "unsupported"
+      );
+    });
+
+    it("refuses the other network's contract", () => {
+      expect(detectTokenType(TESTNET)).toBe("unsupported");
+      expect(detectTokenType(TESTNET, TESTNET)).toBe("sBTC");
+      expect(detectTokenType(MAINNET, TESTNET)).toBe("unsupported");
+    });
+
+    it("refuses a different asset in the canonical contract", () => {
+      expect(detectTokenType(`${MAINNET}::sbtc-token-locked`)).toBe("unsupported");
+    });
+
+    it("keeps bare sbtc, which names no contract and cannot be a lookalike", () => {
+      expect(detectTokenType("sbtc")).toBe("sBTC");
+    });
+
+    it("skips a lookalike option and refuses when it is the only one", () => {
+      const lookalike = {
+        scheme: "exact",
+        network: "stacks:1",
+        amount: "100",
+        asset: "SP000000000000000000002Q6VF78.sbtc-token",
+        payTo: "SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7",
+        maxTimeoutSeconds: 300,
+      };
+      const stx = { ...lookalike, asset: "STX", amount: "1000" };
+      const accepts = [lookalike, stx] as never as Parameters<typeof selectPaymentOption>[0];
+      expect(selectPaymentOption(accepts).asset).toBe("STX");
+      expect(() => selectPaymentOption([lookalike] as never)).toThrow(/No payable asset/i);
+      expect(summarizePaymentOptions([lookalike] as never)[0].payable).toBe(false);
+    });
+
+    it("refuses to validate a balance for a lookalike", async () => {
+      await expect(
+        checkSufficientBalance(MOCK_ACCOUNT, "100", "SP000000000000000000002Q6VF78.sbtc-token")
+      ).rejects.toThrow(/only supports STX and sBTC/);
+    });
   });
 
   it("recognizes CAIP-19-style native STX references", () => {
@@ -763,6 +827,87 @@ describe("payment attempt guard", () => {
     ]));
     expect(logEvents.find((entry) => entry.event === "payment.fallback_used")).toBeUndefined();
     consoleSpy.mockRestore();
+  });
+
+  it("waits on retryable sender_nonce_duplicate and holds the next payment while the sender has a pending tx (#757)", async () => {
+    clearSenderHolds();
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      json: async () => ({
+        paymentId: "pay_dup_123",
+        status: "failed",
+        terminalReason: "sender_nonce_duplicate",
+        retryable: true,
+        txid: "0x" + "d".repeat(64),
+        checkStatusUrl: "https://aibtc.com/api/payment-status/pay_dup_123",
+      }),
+    }));
+
+    const client = await createApiClient("https://aibtc.com");
+    client.defaults.adapter = async (config) => {
+      throw {
+        response: {
+          status: 402,
+          data: { error: "payment still pending" },
+          headers: {
+            "x-payment-id": "pay_dup_123",
+            "x-payment-status": "pending",
+            "x-payment-check-url": "/api/payment-status/pay_dup_123",
+          },
+          config,
+        },
+        config,
+      };
+    };
+
+    await client.get("/test").catch(() => undefined);
+    await expect(client.get("/test")).rejects.toMatchObject({
+      message: expect.stringContaining("Do not retry yet"),
+      x402PaymentDecision: expect.objectContaining({ action: "wait_sender_pending", shouldRebuild: false }),
+    });
+
+    const logEvents = consoleSpy.mock.calls
+      .map(([entry]) => {
+        try {
+          return JSON.parse(String(entry)) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })
+      .filter((entry): entry is Record<string, unknown> => entry !== null);
+    expect(logEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: "payment.retry_decision", action: "wait_sender_pending" }),
+    ]));
+    expect(logEvents.find((entry) => entry.event === "payment.finalized")).toBeUndefined();
+    consoleSpy.mockRestore();
+
+    // A fresh request that needs payment is refused while the sender has a pending tx.
+    mockGetNonceInfo.mockResolvedValue({
+      last_mempool_tx_nonce: 8,
+      last_executed_tx_nonce: 7,
+      possible_next_nonce: 9,
+      detected_missing_nonces: [],
+      detected_mempool_nonces: [8],
+    });
+    const paymentRequired = {
+      x402Version: 2,
+      resource: { url: "https://aibtc.com/test" },
+      accepts: [{ network: "stacks:1", asset: "STX", amount: "1000", payTo: "SP000000000000000000002Q6VF78" }],
+    };
+    const next = await createApiClient("https://aibtc.com");
+    next.defaults.adapter = async (config) => {
+      throw {
+        response: {
+          status: 402,
+          data: paymentRequired,
+          headers: { "payment-required": Buffer.from(JSON.stringify(paymentRequired)).toString("base64") },
+          config,
+        },
+        config,
+      };
+    };
+    await expect(next.get("/test")).rejects.toThrow(/Not signing a new payment: payment pay_dup_123/);
+    clearSenderHolds();
   });
 });
 
