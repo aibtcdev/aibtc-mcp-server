@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.80.3](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.80.2...mcp-server-v1.80.3) (2026-11-16)
+
+
+### Bug Fixes
+
+* **deps:** bump micro-ordinals from 0.3.0 to 0.4.0 ([#769](https://github.com/aibtcdev/aibtc-mcp-server/issues/769)) ([ab985db](https://github.com/aibtcdev/aibtc-mcp-server/commit/ab985db17293b80ba55bbc3f3f30c8f596567af4))
+* **psbt:** keep proprietary and unknown PSBT fields on btc-signer 2.4 (already what npx installs) ([#781](https://github.com/aibtcdev/aibtc-mcp-server/issues/781)) ([dcf688c](https://github.com/aibtcdev/aibtc-mcp-server/commit/dcf688cec6ce34237db47fcdd2716e7b0388656d))
+
 ## [1.80.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.80.1...mcp-server-v1.80.2) (2026-11-16)
 
 
