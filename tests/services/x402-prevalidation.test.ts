@@ -105,6 +105,65 @@ describe("detectTokenType", () => {
     );
   });
 
+  // #760: classification used to accept ANY asset id ending in `.sbtc-token`,
+  // but the payment builder pays in the canonical contract. A lookalike on
+  // another deployer therefore made the agent send real sBTC for an asset the
+  // server never quoted. sBTC is now decided by the exact contract.
+  describe("sBTC by canonical contract (#760)", () => {
+    const MAINNET = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
+    const TESTNET = "ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT.sbtc-token";
+
+    it("accepts the active network's contract, bare or asset-qualified, any case", () => {
+      expect(detectTokenType(MAINNET)).toBe("sBTC");
+      expect(detectTokenType(`${MAINNET}::sbtc-token`)).toBe("sBTC");
+      expect(detectTokenType(`${MAINNET}::token-sbtc`)).toBe("sBTC");
+      expect(detectTokenType(MAINNET.toUpperCase())).toBe("sBTC");
+    });
+
+    it("refuses a same-suffix lookalike on another deployer", () => {
+      expect(detectTokenType("SP000000000000000000002Q6VF78.sbtc-token")).toBe("unsupported");
+      expect(detectTokenType("SP000000000000000000002Q6VF78.other::token-sbtc")).toBe(
+        "unsupported"
+      );
+    });
+
+    it("refuses the other network's contract", () => {
+      expect(detectTokenType(TESTNET)).toBe("unsupported");
+      expect(detectTokenType(TESTNET, TESTNET)).toBe("sBTC");
+      expect(detectTokenType(MAINNET, TESTNET)).toBe("unsupported");
+    });
+
+    it("refuses a different asset in the canonical contract", () => {
+      expect(detectTokenType(`${MAINNET}::sbtc-token-locked`)).toBe("unsupported");
+    });
+
+    it("keeps bare sbtc, which names no contract and cannot be a lookalike", () => {
+      expect(detectTokenType("sbtc")).toBe("sBTC");
+    });
+
+    it("skips a lookalike option and refuses when it is the only one", () => {
+      const lookalike = {
+        scheme: "exact",
+        network: "stacks:1",
+        amount: "100",
+        asset: "SP000000000000000000002Q6VF78.sbtc-token",
+        payTo: "SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7",
+        maxTimeoutSeconds: 300,
+      };
+      const stx = { ...lookalike, asset: "STX", amount: "1000" };
+      const accepts = [lookalike, stx] as never as Parameters<typeof selectPaymentOption>[0];
+      expect(selectPaymentOption(accepts).asset).toBe("STX");
+      expect(() => selectPaymentOption([lookalike] as never)).toThrow(/No payable asset/i);
+      expect(summarizePaymentOptions([lookalike] as never)[0].payable).toBe(false);
+    });
+
+    it("refuses to validate a balance for a lookalike", async () => {
+      await expect(
+        checkSufficientBalance(MOCK_ACCOUNT, "100", "SP000000000000000000002Q6VF78.sbtc-token")
+      ).rejects.toThrow(/only supports STX and sBTC/);
+    });
+  });
+
   it("recognizes CAIP-19-style native STX references", () => {
     expect(detectTokenType("stacks:1/native")).toBe("STX");
     expect(detectTokenType("stacks:1/slip44:5773")).toBe("STX");

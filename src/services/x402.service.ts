@@ -1151,12 +1151,29 @@ export type PaymentTokenType = 'STX' | 'sBTC' | 'unsupported';
  *
  * @param asset - Full contract identifier or token name
  */
-export function detectTokenType(asset: string): PaymentTokenType {
+export function detectTokenType(
+  asset: string,
+  /**
+   * The sBTC contract the payment builder pays in. #760: classification used
+   * to accept ANY asset id ending in `.sbtc-token` / `::token-sbtc`, but the
+   * builder pays in `contracts.SBTC_TOKEN`, so a 402 quoting a lookalike
+   * (`SP000…Q6VF78.sbtc-token`) made the agent send real sBTC for an asset the
+   * server never asked for. sBTC is now decided by this exact contract.
+   */
+  sbtcContract: string = getContracts(NETWORK).SBTC_TOKEN,
+): PaymentTokenType {
   const assetLower = asset.trim().toLowerCase();
-  // Treat as sBTC if the asset is exactly "sbtc" (token name),
-  // a full contract identifier ending with "::token-sbtc",
-  // or a contract identifier ending with ".sbtc-token"
-  if (assetLower === 'sbtc' || assetLower.endsWith('::token-sbtc') || assetLower.endsWith('.sbtc-token')) {
+  const contract = sbtcContract.toLowerCase();
+  // The bare symbol names no contract, so it cannot be a lookalike. Otherwise
+  // only the canonical contract id counts, bare or qualified with the asset
+  // name; any other deployer's `.sbtc-token` is unsupported, which
+  // selectPaymentOption skips or reports as "No payable asset".
+  if (
+    assetLower === 'sbtc' ||
+    assetLower === contract ||
+    assetLower === `${contract}::sbtc-token` ||
+    assetLower === `${contract}::token-sbtc`
+  ) {
     return 'sBTC';
   }
   // Native STX: the bare symbol, or a CAIP-19-style native reference
