@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.80.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.79.3...mcp-server-v1.80.0) (2026-11-16)
+
+
+### Features
+
+* **wallet:** let wallet_unlock read the password from the server environment ([#775](https://github.com/aibtcdev/aibtc-mcp-server/issues/775)) ([b4714b0](https://github.com/aibtcdev/aibtc-mcp-server/commit/b4714b00851428688c4e8950e457e5297ad72ba4))
+
+
+### Bug Fixes
+
+* **deps:** bump @stacks/common from 7.6.0 to 7.7.0 ([#771](https://github.com/aibtcdev/aibtc-mcp-server/issues/771)) ([4c9504c](https://github.com/aibtcdev/aibtc-mcp-server/commit/4c9504cb87697c0c392dcf2e0963df711897836d))
+
 ## [1.79.3](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.79.2...mcp-server-v1.79.3) (2026-11-10)
 
 
