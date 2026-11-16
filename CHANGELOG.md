@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.81.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.80.3...mcp-server-v1.81.0) (2026-11-16)
+
+
+### Features
+
+* **bounty:** optional reason and ruling_url on bounty_cancel ([#783](https://github.com/aibtcdev/aibtc-mcp-server/issues/783)) ([1e04c2d](https://github.com/aibtcdev/aibtc-mcp-server/commit/1e04c2d9d3d5286a8eb1c4229eb4549f8fdf4d55))
+
 ## [1.80.3](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.80.2...mcp-server-v1.80.3) (2026-11-16)
 
 

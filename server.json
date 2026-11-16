@@ -6,12 +6,12 @@
     "url": "https://github.com/aibtcdev/aibtc-mcp-server",
     "source": "github"
   },
-  "version": "1.80.3",
+  "version": "1.81.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@aibtc/mcp-server",
-      "version": "1.80.3",
+      "version": "1.81.0",
       "transport": {
         "type": "stdio"
       }
