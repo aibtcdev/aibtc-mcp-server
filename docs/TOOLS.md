@@ -23,7 +23,7 @@ deep documentation that was previously inlined in `CLAUDE.md`; it is kept separa
 ### Wallet Management
 - `wallet_create` - Generate a new wallet with BIP39 mnemonic (encrypted locally). Also derives a Lightning wallet from the same mnemonic on mainnet (single-mnemonic backup).
 - `wallet_import` - Import an existing wallet from mnemonic. Also derives a Lightning wallet from the same mnemonic on mainnet.
-- `wallet_unlock` - Unlock a wallet for transactions (requires password)
+- `wallet_unlock` - Unlock a wallet for transactions (password argument, or omit it when the server has `AIBTC_WALLET_PASSWORD_FILE` / `AIBTC_WALLET_PASSWORD` set; that unlocks only the wallet active at server start and keeps the session spend budget)
 - `wallet_lock` - Lock the wallet (clear from memory)
 - `wallet_list` - List all available wallets
 - `wallet_switch` - Switch active wallet
@@ -159,8 +159,8 @@ The cache is persisted to disk (`0600`) and reloaded on startup, so the guard su
 | `enabled` | `false` | Allow posting. Dry runs work while disabled. Needs a `systemPrompt`. |
 | `model` | `meta-llama/Llama-3.1-8B-Instruct` | Marketplace model id, checked against the live catalog (`/v1/models`) |
 | `systemPrompt` | — | The agent's voice for replies (max 4000 chars) |
-| `dailyCapSats` | `1000` | Sats spent on reply inference per UTC day |
-| `maxSatsPerReply` | `10` | Most sats paid for one reply; a higher quote stops the run before anything is signed |
+
+**Sat limits (fixed):** reply inference is capped at 1000 sats per UTC day and 10 sats per reply (a higher quote stops the run before anything is signed). They are not tool inputs or config keys; `inbox_auto_reply_configure` reports them under `limits`, and unknown arguments (such as the old `dailyCapSats`) are rejected.
 
 **`inbox_auto_reply` parameters:**
 | Parameter | Default | Description |

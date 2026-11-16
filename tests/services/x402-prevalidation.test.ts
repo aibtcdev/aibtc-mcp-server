@@ -11,6 +11,8 @@ const mockGetBalance = vi.fn();
 const mockGetStxBalance = vi.fn();
 const mockGetMempoolFees = vi.fn();
 const mockGetActiveAccount = vi.fn();
+const mockGetNonceInfo = vi.fn();
+const mockGetTransactionStatus = vi.fn();
 
 vi.mock("../../src/services/sbtc.service.js", () => ({
   getSbtcService: () => ({ getBalance: mockGetBalance }),
@@ -20,6 +22,8 @@ vi.mock("../../src/services/hiro-api.js", () => ({
   getHiroApi: () => ({
     getStxBalance: mockGetStxBalance,
     getMempoolFees: mockGetMempoolFees,
+    getNonceInfo: mockGetNonceInfo,
+    getTransactionStatus: mockGetTransactionStatus,
   }),
 }));
 
@@ -47,6 +51,7 @@ const {
 } = await import("../../src/services/x402.service.js");
 
 const { InsufficientBalanceError } = await import("../../src/utils/errors.js");
+const { clearSenderHolds } = await import("../../src/utils/x402-sender-hold.js");
 
 // ============================================================================
 // Helpers
@@ -763,6 +768,87 @@ describe("payment attempt guard", () => {
     ]));
     expect(logEvents.find((entry) => entry.event === "payment.fallback_used")).toBeUndefined();
     consoleSpy.mockRestore();
+  });
+
+  it("waits on retryable sender_nonce_duplicate and holds the next payment while the sender has a pending tx (#757)", async () => {
+    clearSenderHolds();
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      json: async () => ({
+        paymentId: "pay_dup_123",
+        status: "failed",
+        terminalReason: "sender_nonce_duplicate",
+        retryable: true,
+        txid: "0x" + "d".repeat(64),
+        checkStatusUrl: "https://aibtc.com/api/payment-status/pay_dup_123",
+      }),
+    }));
+
+    const client = await createApiClient("https://aibtc.com");
+    client.defaults.adapter = async (config) => {
+      throw {
+        response: {
+          status: 402,
+          data: { error: "payment still pending" },
+          headers: {
+            "x-payment-id": "pay_dup_123",
+            "x-payment-status": "pending",
+            "x-payment-check-url": "/api/payment-status/pay_dup_123",
+          },
+          config,
+        },
+        config,
+      };
+    };
+
+    await client.get("/test").catch(() => undefined);
+    await expect(client.get("/test")).rejects.toMatchObject({
+      message: expect.stringContaining("Do not retry yet"),
+      x402PaymentDecision: expect.objectContaining({ action: "wait_sender_pending", shouldRebuild: false }),
+    });
+
+    const logEvents = consoleSpy.mock.calls
+      .map(([entry]) => {
+        try {
+          return JSON.parse(String(entry)) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })
+      .filter((entry): entry is Record<string, unknown> => entry !== null);
+    expect(logEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: "payment.retry_decision", action: "wait_sender_pending" }),
+    ]));
+    expect(logEvents.find((entry) => entry.event === "payment.finalized")).toBeUndefined();
+    consoleSpy.mockRestore();
+
+    // A fresh request that needs payment is refused while the sender has a pending tx.
+    mockGetNonceInfo.mockResolvedValue({
+      last_mempool_tx_nonce: 8,
+      last_executed_tx_nonce: 7,
+      possible_next_nonce: 9,
+      detected_missing_nonces: [],
+      detected_mempool_nonces: [8],
+    });
+    const paymentRequired = {
+      x402Version: 2,
+      resource: { url: "https://aibtc.com/test" },
+      accepts: [{ network: "stacks:1", asset: "STX", amount: "1000", payTo: "SP000000000000000000002Q6VF78" }],
+    };
+    const next = await createApiClient("https://aibtc.com");
+    next.defaults.adapter = async (config) => {
+      throw {
+        response: {
+          status: 402,
+          data: paymentRequired,
+          headers: { "payment-required": Buffer.from(JSON.stringify(paymentRequired)).toString("base64") },
+          config,
+        },
+        config,
+      };
+    };
+    await expect(next.get("/test")).rejects.toThrow(/Not signing a new payment: payment pay_dup_123/);
+    clearSenderHolds();
   });
 });
 

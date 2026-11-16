@@ -16,6 +16,7 @@ import {
   generatePaymentId,
   buildPaymentIdentifierExtension,
   X402_HEADERS,
+  X402_SENSITIVE_HEADERS,
   type PaymentRequirementsV2,
 } from "../utils/x402-protocol.js";
 import { generateWallet, getStxAddress } from "@stacks/wallet-sdk";
@@ -40,6 +41,7 @@ import {
   resolveCanonicalPaymentStatus,
 } from "../utils/x402-payment-state.js";
 import { extractPaymentIdFromPaymentSignature } from "../utils/x402-recovery.js";
+import { assertNoSenderHold, recordSenderHold } from "../utils/x402-sender-hold.js";
 import {
   emitCanonicalPaymentDecisionLogs,
   emitCanonicalPaymentPollLogs,
@@ -372,6 +374,7 @@ function createBaseAxiosInstance(baseURL?: string): AxiosInstance {
     baseURL,
     timeout: 120000,
     transformResponse: [safeJsonTransform],
+    sensitiveHeaders: X402_SENSITIVE_HEADERS,
   });
 
   // Ensure error response bodies (especially 402 payloads) are also parsed as JSON
@@ -822,6 +825,14 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
         let retryError: Error;
         if (canonicalStatus) {
           const decision = classifyCanonicalPaymentStatus(canonicalStatus);
+          if (decision.action === "wait_sender_pending") {
+            // A payment was signed to get here, so the account is loaded.
+            const acct = await ensureAccount();
+            recordSenderHold(acct.address, {
+              paymentId: canonicalStatus.paymentId,
+              txid: canonicalStatus.txid,
+            });
+          }
           emitCanonicalPaymentDecisionLogs({
             tool: toolName,
             status: canonicalStatus,
@@ -918,6 +929,10 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
             )
           );
         }
+
+        // Refuse while an earlier payment from this account may still land
+        // (sender_nonce_duplicate, #757): a new one would take the next nonce.
+        await assertNoSenderHold(acct.address, getHiroApi(acct.network));
 
         // The endpoint offers gas sponsorship: sign with `sponsored: true, fee: 0`
         // and its relay co-signs and pays the STX fee at settlement.

@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.80.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.80.0...mcp-server-v1.80.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* **deps:** bump the modelcontextprotocol group across 1 directory with 2 updates ([#767](https://github.com/aibtcdev/aibtc-mcp-server/issues/767)) ([6f78b73](https://github.com/aibtcdev/aibtc-mcp-server/commit/6f78b73f8286c5a431ffd22e2f1d54d19470e3fb))
+
+## [1.80.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.79.3...mcp-server-v1.80.0) (2026-11-16)
+
+
+### Features
+
+* **wallet:** let wallet_unlock read the password from the server environment ([#775](https://github.com/aibtcdev/aibtc-mcp-server/issues/775)) ([b4714b0](https://github.com/aibtcdev/aibtc-mcp-server/commit/b4714b00851428688c4e8950e457e5297ad72ba4))
+
+
+### Bug Fixes
+
+* **deps:** bump @stacks/common from 7.6.0 to 7.7.0 ([#771](https://github.com/aibtcdev/aibtc-mcp-server/issues/771)) ([4c9504c](https://github.com/aibtcdev/aibtc-mcp-server/commit/4c9504cb87697c0c392dcf2e0963df711897836d))
+
+## [1.79.3](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.79.2...mcp-server-v1.79.3) (2026-11-10)
+
+
+### Bug Fixes
+
+* **pillar:** stop encrypting signing keys under a public default password ([#776](https://github.com/aibtcdev/aibtc-mcp-server/issues/776)) ([4ca9c48](https://github.com/aibtcdev/aibtc-mcp-server/commit/4ca9c48d2f468fb5d1e01010a0dfbe6e19c6bb2d))
+
+## [1.79.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.79.1...mcp-server-v1.79.2) (2026-11-08)
+
+
+### Bug Fixes
+
+* **inbox:** enforce auto-reply sat ceilings in runAutoReply ([#772](https://github.com/aibtcdev/aibtc-mcp-server/issues/772)) ([6914dd9](https://github.com/aibtcdev/aibtc-mcp-server/commit/6914dd94d258d8e1e8fb92e96842437051313e39))
+
+## [1.79.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.79.0...mcp-server-v1.79.1) (2026-11-08)
+
+
+### Bug Fixes
+
+* **inbox:** make auto-reply sat limits operator-only ([#752](https://github.com/aibtcdev/aibtc-mcp-server/issues/752)) ([3143fc9](https://github.com/aibtcdev/aibtc-mcp-server/commit/3143fc9223ba372d9e727dad59e0a206b88fef39))
+* **legion:** enforce the reveal fee ceiling the commit reports ([#759](https://github.com/aibtcdev/aibtc-mcp-server/issues/759)) ([#763](https://github.com/aibtcdev/aibtc-mcp-server/issues/763)) ([16c9ece](https://github.com/aibtcdev/aibtc-mcp-server/commit/16c9eceaeda8d08808d5e2e468ccd7da3180e7ce))
+* **x402:** strip payment headers on cross-origin redirects ([#755](https://github.com/aibtcdev/aibtc-mcp-server/issues/755)) ([b56168a](https://github.com/aibtcdev/aibtc-mcp-server/commit/b56168a0803604e36b4133d2028708b6f4a44210))
+* **x402:** wait instead of rebuild on retryable sender_nonce_duplicate ([#757](https://github.com/aibtcdev/aibtc-mcp-server/issues/757)) ([#758](https://github.com/aibtcdev/aibtc-mcp-server/issues/758)) ([96a27fb](https://github.com/aibtcdev/aibtc-mcp-server/commit/96a27fb19edf091610c32737b9c83a6f4be9f10b))
+
 ## [1.79.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.78.0...mcp-server-v1.79.0) (2026-11-01)
 
 

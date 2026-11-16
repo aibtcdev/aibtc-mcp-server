@@ -77,9 +77,6 @@ export interface AppConfig {
     enabled: boolean;
     model: string;
     systemPrompt: string;
-    dailyCapSats: number;
-    /** Most sats paid for one reply. Missing in configs written before it existed. */
-    maxSatsPerReply?: number;
   };
 }
 
