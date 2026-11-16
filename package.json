@@ -68,7 +68,7 @@
     "alex-sdk": "^3.2.1",
     "axios": "^1.20.0",
     "light-bolt11-decoder": "^3.2.0",
-    "micro-ordinals": "^0.3.0",
+    "micro-ordinals": "^0.4.0",
     "nostr-tools": "^2.23.3",
     "path-to-regexp": "^8.4.0",
     "sbtc": "^0.3.2",
