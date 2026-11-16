@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.80.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.80.1...mcp-server-v1.80.2) (2026-11-16)
+
+
+### Bug Fixes
+
+* **nonce:** cap nonce_heal feeMultiplier, book gap-fill and RBF fees on the spend limit ([#746](https://github.com/aibtcdev/aibtc-mcp-server/issues/746)) ([#747](https://github.com/aibtcdev/aibtc-mcp-server/issues/747)) ([cef5922](https://github.com/aibtcdev/aibtc-mcp-server/commit/cef5922a15c649ca26b704ea634139fccc0817bb))
+* **x402:** classify sBTC by canonical contract, not by asset-id suffix ([#760](https://github.com/aibtcdev/aibtc-mcp-server/issues/760)) ([#762](https://github.com/aibtcdev/aibtc-mcp-server/issues/762)) ([8fe2cb7](https://github.com/aibtcdev/aibtc-mcp-server/commit/8fe2cb79a8254c825cd8a379353900c93ff2e6c1))
+
+## [1.80.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.80.0...mcp-server-v1.80.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* **deps:** bump the modelcontextprotocol group across 1 directory with 2 updates ([#767](https://github.com/aibtcdev/aibtc-mcp-server/issues/767)) ([6f78b73](https://github.com/aibtcdev/aibtc-mcp-server/commit/6f78b73f8286c5a431ffd22e2f1d54d19470e3fb))
+
+## [1.80.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.79.3...mcp-server-v1.80.0) (2026-11-16)
+
+
+### Features
+
+* **wallet:** let wallet_unlock read the password from the server environment ([#775](https://github.com/aibtcdev/aibtc-mcp-server/issues/775)) ([b4714b0](https://github.com/aibtcdev/aibtc-mcp-server/commit/b4714b00851428688c4e8950e457e5297ad72ba4))
+
+
+### Bug Fixes
+
+* **deps:** bump @stacks/common from 7.6.0 to 7.7.0 ([#771](https://github.com/aibtcdev/aibtc-mcp-server/issues/771)) ([4c9504c](https://github.com/aibtcdev/aibtc-mcp-server/commit/4c9504cb87697c0c392dcf2e0963df711897836d))
+
 ## [1.79.3](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.79.2...mcp-server-v1.79.3) (2026-11-10)
 
 
