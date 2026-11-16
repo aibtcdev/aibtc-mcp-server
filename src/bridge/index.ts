@@ -22,6 +22,8 @@
  *   --block a,b,c          force-remove these tool names (applied last, wins)
  *   --max-spend-ustx <n>   forward to the server's SPEND_LIMIT_SESSION_USTX rail
  *   --max-spend-sats <n>   forward to the server's SPEND_LIMIT_SESSION_SATS rail
+ *   --allow-env-unlock     pass AIBTC_WALLET_PASSWORD(_FILE) to the spawned server so the
+ *                          model can unlock the wallet without the password (off by default)
  *   --list-tools           print the exposed tool set and exit (no API key needed)
  *   --model <id>           OpenRouter model (default anthropic/claude-3.5-haiku)
  *   --network <net>        mainnet|testnet for the spawned server (default mainnet)
@@ -46,6 +48,7 @@ interface BridgeOptions {
   maxSpendSats?: string;
   maxTurns: number;
   listTools: boolean;
+  allowEnvUnlock: boolean;
 }
 
 /**
@@ -94,6 +97,7 @@ function parseArgs(argv: string[]): BridgeOptions {
     block: new Set(),
     maxTurns: 10,
     listTools: false,
+    allowEnvUnlock: false,
   };
   const promptWords: string[] = [];
   const csv = (v: string) => v.split(",").map((s) => s.trim()).filter(Boolean);
@@ -114,6 +118,7 @@ function parseArgs(argv: string[]): BridgeOptions {
     switch (a) {
       case "--read-only": opts.readOnly = true; break;
       case "--list-tools": opts.listTools = true; break;
+      case "--allow-env-unlock": opts.allowEnvUnlock = true; break;
       case "--model": opts.model = value(a); break;
       case "--network": opts.network = value(a); break;
       case "--allow": csv(value(a)).forEach((t) => opts.allow.add(t)); break;
@@ -162,6 +167,7 @@ function printSafetyReceipt<T extends { name: string }>(
     `  exposed_tools=${exposed.length}/${totalTools}`,
     `  write_tool_count=${writeToolCount}`,
     `  blocked_tool_count=${opts.block.size}`,
+    `  env_wallet_unlock=${opts.allowEnvUnlock}`,
     `  session_spend_cap=${opts.maxSpendUstx ?? "default"} uSTX / ${opts.maxSpendSats ?? "default"} sats`,
     `  x402_static_endpoints=${STATIC_ENDPOINTS.length}`,
     "  (reports configured execution boundaries only; no value has moved)",
@@ -217,6 +223,13 @@ export async function runBridge(argv: string[]): Promise<void> {
     ...(process.env as Record<string, string>),
     NETWORK: opts.network,
   };
+  // A password in the server's environment lets wallet_unlock succeed with no
+  // argument. Under the bridge that hands the unlock to the remote model, so it
+  // is only passed through on explicit opt-in.
+  if (!opts.allowEnvUnlock) {
+    delete serverEnv.AIBTC_WALLET_PASSWORD;
+    delete serverEnv.AIBTC_WALLET_PASSWORD_FILE;
+  }
   if (opts.maxSpendUstx) serverEnv.SPEND_LIMIT_SESSION_USTX = opts.maxSpendUstx;
   if (opts.maxSpendSats) serverEnv.SPEND_LIMIT_SESSION_SATS = opts.maxSpendSats;
 

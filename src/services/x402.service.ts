@@ -41,6 +41,7 @@ import {
   resolveCanonicalPaymentStatus,
 } from "../utils/x402-payment-state.js";
 import { extractPaymentIdFromPaymentSignature } from "../utils/x402-recovery.js";
+import { assertNoSenderHold, recordSenderHold } from "../utils/x402-sender-hold.js";
 import {
   emitCanonicalPaymentDecisionLogs,
   emitCanonicalPaymentPollLogs,
@@ -824,6 +825,14 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
         let retryError: Error;
         if (canonicalStatus) {
           const decision = classifyCanonicalPaymentStatus(canonicalStatus);
+          if (decision.action === "wait_sender_pending") {
+            // A payment was signed to get here, so the account is loaded.
+            const acct = await ensureAccount();
+            recordSenderHold(acct.address, {
+              paymentId: canonicalStatus.paymentId,
+              txid: canonicalStatus.txid,
+            });
+          }
           emitCanonicalPaymentDecisionLogs({
             tool: toolName,
             status: canonicalStatus,
@@ -920,6 +929,10 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
             )
           );
         }
+
+        // Refuse while an earlier payment from this account may still land
+        // (sender_nonce_duplicate, #757): a new one would take the next nonce.
+        await assertNoSenderHold(acct.address, getHiroApi(acct.network));
 
         // The endpoint offers gas sponsorship: sign with `sponsored: true, fee: 0`
         // and its relay co-signs and pays the STX fee at settlement.
@@ -1138,12 +1151,29 @@ export type PaymentTokenType = 'STX' | 'sBTC' | 'unsupported';
  *
  * @param asset - Full contract identifier or token name
  */
-export function detectTokenType(asset: string): PaymentTokenType {
+export function detectTokenType(
+  asset: string,
+  /**
+   * The sBTC contract the payment builder pays in. #760: classification used
+   * to accept ANY asset id ending in `.sbtc-token` / `::token-sbtc`, but the
+   * builder pays in `contracts.SBTC_TOKEN`, so a 402 quoting a lookalike
+   * (`SP000…Q6VF78.sbtc-token`) made the agent send real sBTC for an asset the
+   * server never asked for. sBTC is now decided by this exact contract.
+   */
+  sbtcContract: string = getContracts(NETWORK).SBTC_TOKEN,
+): PaymentTokenType {
   const assetLower = asset.trim().toLowerCase();
-  // Treat as sBTC if the asset is exactly "sbtc" (token name),
-  // a full contract identifier ending with "::token-sbtc",
-  // or a contract identifier ending with ".sbtc-token"
-  if (assetLower === 'sbtc' || assetLower.endsWith('::token-sbtc') || assetLower.endsWith('.sbtc-token')) {
+  const contract = sbtcContract.toLowerCase();
+  // The bare symbol names no contract, so it cannot be a lookalike. Otherwise
+  // only the canonical contract id counts, bare or qualified with the asset
+  // name; any other deployer's `.sbtc-token` is unsupported, which
+  // selectPaymentOption skips or reports as "No payable asset".
+  if (
+    assetLower === 'sbtc' ||
+    assetLower === contract ||
+    assetLower === `${contract}::sbtc-token` ||
+    assetLower === `${contract}::token-sbtc`
+  ) {
     return 'sBTC';
   }
   // Native STX: the bare symbol, or a CAIP-19-style native reference

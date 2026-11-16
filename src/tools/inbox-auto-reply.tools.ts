@@ -15,10 +15,9 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { getAccount, NETWORK } from "../services/x402.service.js";
 import {
+  AUTO_REPLY_LIMITS,
   DEFAULT_AUTO_REPLY_MODEL,
-  DEFAULT_DAILY_CAP_SATS,
   DEFAULT_MAX_REPLIES_PER_RUN,
-  DEFAULT_MAX_SATS_PER_REPLY,
   listLiveModels,
   marketplaceReplyGenerator,
   runAutoReply,
@@ -27,8 +26,6 @@ import { readAppConfig, writeAppConfig, type AppConfig } from "../utils/storage.
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 
 type StoredConfig = NonNullable<AppConfig["inboxAutoReply"]>;
-
-const LIMITS = { dailyCapSats: DEFAULT_DAILY_CAP_SATS, maxSatsPerReply: DEFAULT_MAX_SATS_PER_REPLY };
 
 function requireMainnet(): void {
   if (NETWORK !== "mainnet") {
@@ -46,8 +43,8 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
         "Configure inbox auto-reply (stored in ~/.aibtc/config.json). Call with no arguments to see the current " +
         "settings. A systemPrompt (the agent's voice / personality / what it can help with) is required before " +
         "auto-reply can be enabled. The model must be live on inference.aibtc.com; it is checked against the " +
-        "catalog when set. Inference spend is capped at " + DEFAULT_DAILY_CAP_SATS + " sats per UTC day and " +
-        DEFAULT_MAX_SATS_PER_REPLY + " sats per reply (fixed, not settable), on top of the wallet-wide spending limit.",
+        "catalog when set. Inference spend is capped at " + AUTO_REPLY_LIMITS.dailyCapSats + " sats per UTC day and " +
+        AUTO_REPLY_LIMITS.maxSatsPerReply + " sats per reply (fixed, not settable), on top of the wallet-wide spending limit.",
       inputSchema: z.object({
         enabled: z.boolean().optional().describe("Allow inbox_auto_reply to post replies. Dry runs work while disabled."),
         model: z
@@ -70,7 +67,7 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
           return createJsonResponse({
             configured: Boolean(current),
             settings: current ?? null,
-            limits: LIMITS,
+            limits: AUTO_REPLY_LIMITS,
             ...(!current && {
               note: "Not configured. Set at least systemPrompt, then enabled: true.",
             }),
@@ -94,7 +91,7 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
         }
 
         await writeAppConfig({ ...config, inboxAutoReply: next });
-        return createJsonResponse({ success: true, settings: next, limits: LIMITS });
+        return createJsonResponse({ success: true, settings: next, limits: AUTO_REPLY_LIMITS });
       } catch (error) {
         return createErrorResponse(error);
       }
@@ -147,12 +144,10 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
           );
         }
 
-        const limits = LIMITS;
         const account = await getAccount();
         const summary = await runAutoReply({
           account,
           systemPrompt: config.systemPrompt,
-          ...limits,
           maxRepliesPerRun: maxRepliesPerRun ?? DEFAULT_MAX_REPLIES_PER_RUN,
           dryRun: isDryRun,
           generator: marketplaceReplyGenerator(config.model),
@@ -166,7 +161,7 @@ export function registerInboxAutoReplyTools(server: McpServer): void {
           repliedCount: summary.replied.length,
           skippedCount: summary.skipped.length,
           failedCount: summary.failed.length,
-          ...limits,
+          ...AUTO_REPLY_LIMITS,
         });
       } catch (error) {
         return createErrorResponse(error);

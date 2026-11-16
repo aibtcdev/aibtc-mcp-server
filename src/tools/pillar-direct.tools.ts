@@ -1,5 +1,4 @@
 import { z } from "zod";
-import crypto from "crypto";
 import { McpServer } from "@modelcontextprotocol/server";
 import {
   tupleCV,
@@ -21,6 +20,7 @@ import { getPillarApi, PillarApiError } from "../services/pillar-api.service.js"
 import { getHiroApi } from "../services/hiro-api.js";
 import { NETWORK } from "../config/networks.js";
 import { PILLAR_API_KEY } from "../config/pillar.js";
+import { currentPillarKeyPassword, unlockPillarKey } from "../services/pillar-key-password.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 
 // ============================================================================
@@ -38,19 +38,6 @@ function explorerTxUrl(txId: string): string {
 // ============================================================================
 // Helpers
 // ============================================================================
-
-/**
- * Derive a deterministic password from the PILLAR_API_KEY.
- * This lets the bot auto-unlock signing keys after restarts
- * without requiring user input. The key is still encrypted at rest.
- */
-function getDerivedPassword(): string {
-  const secret = PILLAR_API_KEY || "pillar-direct-default";
-  return crypto
-    .createHash("sha256")
-    .update(`pillar-agent-signing-key:${secret}`)
-    .digest("hex");
-}
 
 /**
  * Get active signing session, auto-unlocking if needed.
@@ -77,12 +64,11 @@ async function requireActiveKey() {
       return aReady - bReady;
     });
 
-    const password = getDerivedPassword();
     // Try each key until one unlocks
     let unlocked = false;
     for (const key of sortedKeys) {
       try {
-        await keyService.unlock(key.id, password);
+        await unlockPillarKey(key.id, PILLAR_API_KEY);
         unlocked = true;
         break;
       } catch {
@@ -167,7 +153,7 @@ export function registerPillarDirectTools(server: McpServer): void {
     async ({ smartWallet }) => {
       try {
         const keyService = getSigningKeyService();
-        const password = getDerivedPassword();
+        const password = await currentPillarKeyPassword(PILLAR_API_KEY);
         const { keyId, pubkey } = await keyService.generateKey(
           password,
           smartWallet
@@ -202,7 +188,6 @@ export function registerPillarDirectTools(server: McpServer): void {
     async ({ keyId }) => {
       try {
         const keyService = getSigningKeyService();
-        const password = getDerivedPassword();
 
         let targetKeyId = keyId;
         if (!targetKeyId) {
@@ -213,7 +198,7 @@ export function registerPillarDirectTools(server: McpServer): void {
           targetKeyId = keys[0].id;
         }
 
-        await keyService.unlock(targetKeyId, password);
+        await unlockPillarKey(targetKeyId, PILLAR_API_KEY);
         const session = keyService.getActiveKey();
 
         return createJsonResponse({
@@ -895,7 +880,7 @@ export function registerPillarDirectTools(server: McpServer): void {
     async ({ walletName, referredBy }) => {
       try {
         const api = getPillarApi();
-        const password = getDerivedPassword();
+        const password = await currentPillarKeyPassword(PILLAR_API_KEY);
 
         // Step 0: Check name availability before doing anything
         const nameCheck = await api.get<{
