@@ -96,9 +96,10 @@ export class WalletNotFoundError extends WalletError {
  * Error for invalid password
  */
 export class InvalidPasswordError extends WalletError {
-  constructor() {
-    super("Invalid password");
+  constructor(message = "Invalid password", options?: { cause?: unknown }) {
+    super(message);
     this.name = "InvalidPasswordError";
+    if (options && "cause" in options) this.cause = options.cause;
   }
 }
 

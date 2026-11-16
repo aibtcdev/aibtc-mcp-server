@@ -115,6 +115,14 @@ export const X402_HEADERS = {
   PAYMENT_RESPONSE: "payment-response",
 } as const;
 
+/**
+ * Headers that carry a signed payment: the V2 header and the V1 `X-PAYMENT`
+ * that x402-stacks' `wrapAxiosWithPayment` can send. Passed to axios'
+ * `sensitiveHeaders` so a redirect to another origin drops them
+ * (follow-redirects only drops Authorization, Proxy-Authorization and Cookie).
+ */
+export const X402_SENSITIVE_HEADERS = [X402_HEADERS.PAYMENT_SIGNATURE, "x-payment"];
+
 // ===== Functions =====
 
 function decodeBase64Json<T>(encoded: string | null | undefined): T | null {

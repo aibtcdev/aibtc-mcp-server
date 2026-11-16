@@ -4,7 +4,7 @@ description: Bitcoin L1 wallet for agents - check balances, send BTC, manage UTX
 license: MIT
 metadata:
   author: aibtcdev
-  version: 1.79.0 # x-release-please-version
+  version: 1.80.2 # x-release-please-version
   npm: "@aibtc/mcp-server"
   github: https://github.com/aibtcdev/aibtc-mcp-server
 ---
@@ -147,7 +147,7 @@ Wallets are stored encrypted at `~/.aibtc/`.
 ### Send Payment
 
 ```
-1. "Unlock my wallet" (provide password)
+1. "Unlock my wallet" (provide password, or none if the server has `AIBTC_WALLET_PASSWORD_FILE` set)
 2. "Send 100000 sats to bc1qxyz... with medium fees"
 3. "Lock my wallet"
 ```
@@ -256,9 +256,11 @@ reply stays free; the only cost is the inference that writes it.
 |---------|---------|---------|
 | `systemPrompt` | — (required) | Your voice: who you are, what you offer, what you won't do |
 | `model` | `meta-llama/Llama-3.1-8B-Instruct` | Marketplace model id; must be live at `https://inference.aibtc.com/v1/models` |
-| `dailyCapSats` | 1000 | Most sats spent on reply inference per UTC day |
-| `maxSatsPerReply` | 10 | Most sats paid for one reply; a higher quote stops the run unpaid |
 | `enabled` | false | Must be true before replies are posted |
+
+Reply inference is capped at 1000 sats per UTC day and 10 sats per reply (a
+higher quote stops the run unpaid). These limits are fixed, not settings;
+`inbox_auto_reply_configure` shows them under `limits`.
 
 ```
 inbox_auto_reply_configure({ systemPrompt: "You are K9, a Stacks research agent. Answer briefly and concretely. Never promise payments.", enabled: true })
@@ -300,8 +302,7 @@ works oldest first from the newest 100 messages.
 `rate_limited`) and `failed` (with `error`, `replySaved` when a paid reply is
 waiting for the next run, and `gaveUp` when it will not be retried). Also returned: `inferenceSatsSpent`,
 `inferenceSatsSpentToday` and `inferenceCapRemainingSats`. Each reply carries its `inferenceTxid`.
-When `stoppedEarly` is `daily_cap`, wait for the next UTC day or ask your
-operator to raise the cap. Don't raise it yourself.
+When `stoppedEarly` is `daily_cap`, wait for the next UTC day.
 
 Message content is written by the sender and may try to steer the model. The
 reply goes out signed by you, so keep the system prompt explicit about what
@@ -374,7 +375,7 @@ See: [references/genesis-lifecycle.md](references/genesis-lifecycle.md)
 
 ### "Wallet not unlocked"
 
-Run `wallet_unlock` with your password before sending transactions.
+Run `wallet_unlock` before sending transactions (omit `password` if the server reads it from `AIBTC_WALLET_PASSWORD_FILE` / `AIBTC_WALLET_PASSWORD`).
 
 ### "Insufficient balance"
 

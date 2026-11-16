@@ -8,6 +8,7 @@ import {
 } from "x402-stacks";
 import { createApiClient, getAccount, isSponsoredRequirement, NETWORK } from "./x402.service.js";
 import { getSpendLimiter } from "./spend-limiter.js";
+import { X402_SENSITIVE_HEADERS } from "../utils/x402-protocol.js";
 
 /** One `accepts` entry of an x402 v2 `payment-required` header. */
 export type X402Accept = NonNullable<ReturnType<typeof decodePaymentRequired>>["accepts"][number];
@@ -115,7 +116,7 @@ export async function postWithX402Payment(options: {
     // x402-stacks is CJS, so its AxiosInstance comes from axios' .d.cts
     // types; ours comes from .d.ts. Same runtime object, different type.
     const api = wrapAxiosWithPayment(
-      axios.create({ timeout: timeoutMs }) as unknown as Parameters<typeof wrapAxiosWithPayment>[0],
+      axios.create({ timeout: timeoutMs, sensitiveHeaders: X402_SENSITIVE_HEADERS }) as unknown as Parameters<typeof wrapAxiosWithPayment>[0],
       stacksAccount
     );
     try {

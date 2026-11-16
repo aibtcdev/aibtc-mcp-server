@@ -65,10 +65,33 @@ function apiContractParam(market: MarketConfig): string {
   return market.contractName === "sbtc-stx-jing" ? "" : `?contract=${market.contractName}`;
 }
 
+const MAX_JINGSWAP_REDIRECTS = 5;
+
+/**
+ * GET with redirects followed by hand: fetch only drops Authorization, Cookie
+ * and Proxy-Authorization on a cross-origin redirect, so it would forward
+ * x-api-key to whatever host the response names. The key is sent only while
+ * the URL stays on the API's origin.
+ */
+async function jingswapFetch(path: string): Promise<Response> {
+  const apiOrigin = new URL(JINGSWAP_API).origin;
+  let url = new URL(`${JINGSWAP_API}${path}`);
+  for (let hop = 0; ; hop++) {
+    const res = await fetch(url, {
+      headers: url.origin === apiOrigin ? { "x-api-key": JINGSWAP_API_KEY } : {},
+      redirect: "manual",
+    });
+    const location = res.headers.get("location");
+    if (res.status < 300 || res.status >= 400 || !location) return res;
+    if (hop >= MAX_JINGSWAP_REDIRECTS) {
+      throw new Error(`Jingswap API: more than ${MAX_JINGSWAP_REDIRECTS} redirects`);
+    }
+    url = new URL(location, url);
+  }
+}
+
 async function jingswapGet(path: string): Promise<any> {
-  const res = await fetch(`${JINGSWAP_API}${path}`, {
-    headers: { "x-api-key": JINGSWAP_API_KEY },
-  });
+  const res = await jingswapFetch(path);
   if (!res.ok) throw new Error(`Jingswap API ${res.status}: ${await res.text()}`);
   const json = await res.json();
   if (!json.success) throw new Error(json.message || "API returned failure");
