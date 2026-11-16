@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.80.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.80.0...mcp-server-v1.80.1) (2026-11-16)
+
+
+### Bug Fixes
+
+* **deps:** bump the modelcontextprotocol group across 1 directory with 2 updates ([#767](https://github.com/aibtcdev/aibtc-mcp-server/issues/767)) ([6f78b73](https://github.com/aibtcdev/aibtc-mcp-server/commit/6f78b73f8286c5a431ffd22e2f1d54d19470e3fb))
+
 ## [1.80.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.79.3...mcp-server-v1.80.0) (2026-11-16)
 
 
