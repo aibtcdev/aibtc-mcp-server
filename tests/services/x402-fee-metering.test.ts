@@ -82,6 +82,20 @@ describe("x402 auto-payment metering (#713)", () => {
     );
   });
 
+  // #760: a lookalike `.sbtc-token` on another deployer used to classify as
+  // sBTC and be paid in real mainnet sBTC. It must be refused before anything
+  // is booked or signed.
+  it("refuses a lookalike .sbtc-token before booking or signing", async () => {
+    const client = await createApiClient("https://x402.test.com");
+    client.defaults.adapter = respond402(
+      "SP000000000000000000002Q6VF78.sbtc-token",
+      "100"
+    ) as never;
+
+    await expect(client.get("/paid")).rejects.toThrow(/No payable asset/i);
+    expect(reserve).not.toHaveBeenCalled();
+  });
+
   it("books an STX payment's amount and fee in the ustx ledger", async () => {
     const client = await createApiClient("https://x402.test.com");
     client.defaults.adapter = respond402("STX", "1000") as never;

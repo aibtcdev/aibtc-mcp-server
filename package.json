@@ -1,6 +1,6 @@
 {
   "name": "@aibtc/mcp-server",
-  "version": "1.79.3",
+  "version": "1.80.2",
   "description": "Bitcoin-native MCP server for AI agents: BTC/STX wallets, DeFi yield, sBTC peg, NFTs, and x402 payments.",
   "mcpName": "io.github.aibtcdev/mcp-server",
   "type": "module",
@@ -59,7 +59,7 @@
     "@scure/base": "^2.0.0",
     "@scure/bip32": "^1.4.0",
     "@scure/bip39": "^2.0.1",
-    "@scure/btc-signer": "^2.0.1",
+    "@scure/btc-signer": "^2.4.1",
     "@stacks/common": "^7.6.0",
     "@stacks/encryption": "^7.6.0",
     "@stacks/network": "^7.6.0",
