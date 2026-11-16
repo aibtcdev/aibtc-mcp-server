@@ -29,6 +29,7 @@
  *   AIBTC Bounty Accept | {bountyId} | {submissionId} | {signedAt}
  *   AIBTC Bounty Paid   | {bountyId} | {txid} | {signedAt}
  *   AIBTC Bounty Cancel | {bountyId} | {signedAt}
+ *   AIBTC Bounty Cancel | {bountyId} | {signedAt} | {reason} | {rulingUrl}   (when either is sent)
  *
  * `tagsCommaJoined` is `tags.join(",")` or `""` when no tags. `contentUrl` is `""`
  * when omitted. `signedAt` is ISO 8601 within ±5 minutes of server time.
@@ -144,6 +145,37 @@ async function getJson(url: string): Promise<unknown> {
 // ============================================================================
 // Tool Registration
 // ============================================================================
+
+// Optional cancel fields (landing-page#1133). The server signs them exactly as
+// sent and rejects a value that is untrimmed, longer than 500 chars, or holds
+// "|" (the field separator), so the same rules are enforced here before signing.
+const CANCEL_TEXT_MAX = 500;
+const cancelText = (field: string) =>
+  z
+    .string()
+    .min(1, `${field} must not be empty`)
+    .max(CANCEL_TEXT_MAX, `${field} must be at most ${CANCEL_TEXT_MAX} characters`)
+    .refine((v) => v.trim() === v, `${field} must not start or end with whitespace`)
+    .refine((v) => !v.includes("|"), `${field} must not contain "|"`);
+
+/**
+ * Build the message a poster signs to cancel a bounty. Mirrors
+ * landing-page `lib/bounty/signatures.ts` buildCancelMessage: with neither
+ * optional field the message is the original three-field form; with either,
+ * both are appended and a missing one is an empty string.
+ */
+export function buildCancelMessage(params: {
+  bountyId: string;
+  signedAt: string;
+  reason?: string;
+  rulingUrl?: string;
+}): string {
+  const message = `AIBTC Bounty Cancel | ${params.bountyId} | ${params.signedAt}`;
+  if (params.reason !== undefined || params.rulingUrl !== undefined) {
+    return `${message} | ${params.reason ?? ""} | ${params.rulingUrl ?? ""}`;
+  }
+  return message;
+}
 
 export function registerBountyScannerTools(server: McpServer): void {
   // --------------------------------------------------------------------------
@@ -452,22 +484,33 @@ Signs with BIP-322 over: "AIBTC Bounty Paid | {bountyId} | {txid} | {signedAt}"`
     {
       description: `Cancel a bounty. Only the poster can call this, and only while status is 'open' or 'judging' (i.e. before any submission has been accepted).
 
-Signs with BIP-322 over: "AIBTC Bounty Cancel | {bountyId} | {signedAt}"`,
+Closing a bounty because no entry met the terms is also a cancel: pass reason (and ruling_url, an https:// link to the published ruling) so the board shows why it closed instead of looking abandoned. Both are optional and signed exactly as sent.
+
+Signs with BIP-322 over: "AIBTC Bounty Cancel | {bountyId} | {signedAt}", or, when reason or ruling_url is given, "AIBTC Bounty Cancel | {bountyId} | {signedAt} | {reason} | {rulingUrl}" (empty string for the missing one).`,
       inputSchema: z.object({
         bounty_id: z.string().describe("Bounty ID to cancel"),
+        reason: cancelText("reason")
+          .optional()
+          .describe("Optional note on why the bounty closed, e.g. that no entry met the terms (max 500 chars, no '|')."),
+        ruling_url: cancelText("ruling_url")
+          .refine((v) => v.startsWith("https://"), "ruling_url must start with https://")
+          .optional()
+          .describe("Optional https:// link to the published ruling (max 500 chars, no '|')."),
       }),
     },
-    async ({ bounty_id }) => {
+    async ({ bounty_id, reason, ruling_url }) => {
       try {
         const account = await requireBtcAccount();
         const signedAt = new Date().toISOString();
 
-        const message = `AIBTC Bounty Cancel | ${bounty_id} | ${signedAt}`;
+        const message = buildCancelMessage({ bountyId: bounty_id, signedAt, reason, rulingUrl: ruling_url });
         const signature = signBounty(message, account);
 
         const result = await postSigned(`/${encodeURIComponent(bounty_id)}/cancel`, {
           signedAt,
           signature,
+          ...(reason !== undefined ? { reason } : {}),
+          ...(ruling_url !== undefined ? { rulingUrl: ruling_url } : {}),
         });
         return createJsonResponse(result);
       } catch (error) {
