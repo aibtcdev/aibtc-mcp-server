@@ -106,43 +106,61 @@ describe("detectTokenType", () => {
   });
 
   // #760: classification used to accept ANY asset id ending in `.sbtc-token`,
-  // but the payment builder then pays in the canonical contract. A lookalike on
-  // another deployer therefore made the agent send real sats for an asset the
-  // server never quoted. With a canonical id supplied, sBTC is decided by
-  // CONTRACT, not by suffix.
-  describe("with a canonical sBTC id (#760)", () => {
-    const CANONICAL = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
+  // but the payment builder pays in the canonical contract. A lookalike on
+  // another deployer therefore made the agent send real sBTC for an asset the
+  // server never quoted. sBTC is now decided by the exact contract.
+  describe("sBTC by canonical contract (#760)", () => {
+    const MAINNET = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
+    const TESTNET = "ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT.sbtc-token";
 
-    it("accepts the canonical id in both spellings", () => {
-      expect(detectTokenType(CANONICAL, CANONICAL)).toBe("sBTC");
-      expect(detectTokenType(`${CANONICAL}::sbtc-token`, CANONICAL)).toBe("sBTC");
-      expect(detectTokenType(CANONICAL.toUpperCase(), CANONICAL)).toBe("sBTC");
+    it("accepts the active network's contract, bare or asset-qualified, any case", () => {
+      expect(detectTokenType(MAINNET)).toBe("sBTC");
+      expect(detectTokenType(`${MAINNET}::sbtc-token`)).toBe("sBTC");
+      expect(detectTokenType(`${MAINNET}::token-sbtc`)).toBe("sBTC");
+      expect(detectTokenType(MAINNET.toUpperCase())).toBe("sBTC");
     });
 
     it("refuses a same-suffix lookalike on another deployer", () => {
-      expect(detectTokenType("SP000000000000000000002Q6VF78.sbtc-token", CANONICAL)).toBe(
-        "unsupported"
-      );
-      expect(detectTokenType("ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT.sbtc-token", CANONICAL)).toBe(
+      expect(detectTokenType("SP000000000000000000002Q6VF78.sbtc-token")).toBe("unsupported");
+      expect(detectTokenType("SP000000000000000000002Q6VF78.other::token-sbtc")).toBe(
         "unsupported"
       );
     });
 
-    it("refuses a ::token-sbtc suffix on another deployer", () => {
-      expect(
-        detectTokenType("SP000000000000000000002Q6VF78.other-token::token-sbtc", CANONICAL)
-      ).toBe("unsupported");
+    it("refuses the other network's contract", () => {
+      expect(detectTokenType(TESTNET)).toBe("unsupported");
+      expect(detectTokenType(TESTNET, TESTNET)).toBe("sBTC");
+      expect(detectTokenType(MAINNET, TESTNET)).toBe("unsupported");
+    });
+
+    it("refuses a different asset in the canonical contract", () => {
+      expect(detectTokenType(`${MAINNET}::sbtc-token-locked`)).toBe("unsupported");
     });
 
     it("keeps bare sbtc, which names no contract and cannot be a lookalike", () => {
-      expect(detectTokenType("sbtc", CANONICAL)).toBe("sBTC");
+      expect(detectTokenType("sbtc")).toBe("sBTC");
     });
 
-    it("still classifies stx and unknown assets", () => {
-      expect(detectTokenType("STX", CANONICAL)).toBe("STX");
-      expect(detectTokenType("SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx", CANONICAL)).toBe(
-        "unsupported"
-      );
+    it("skips a lookalike option and refuses when it is the only one", () => {
+      const lookalike = {
+        scheme: "exact",
+        network: "stacks:1",
+        amount: "100",
+        asset: "SP000000000000000000002Q6VF78.sbtc-token",
+        payTo: "SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7",
+        maxTimeoutSeconds: 300,
+      };
+      const stx = { ...lookalike, asset: "STX", amount: "1000" };
+      const accepts = [lookalike, stx] as never as Parameters<typeof selectPaymentOption>[0];
+      expect(selectPaymentOption(accepts).asset).toBe("STX");
+      expect(() => selectPaymentOption([lookalike] as never)).toThrow(/No payable asset/i);
+      expect(summarizePaymentOptions([lookalike] as never)[0].payable).toBe(false);
+    });
+
+    it("refuses to validate a balance for a lookalike", async () => {
+      await expect(
+        checkSufficientBalance(MOCK_ACCOUNT, "100", "SP000000000000000000002Q6VF78.sbtc-token")
+      ).rejects.toThrow(/only supports STX and sBTC/);
     });
   });
 
