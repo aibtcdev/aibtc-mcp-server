@@ -4,7 +4,7 @@ description: Bitcoin L1 wallet for agents - check balances, send BTC, manage UTX
 license: MIT
 metadata:
   author: aibtcdev
-  version: 1.79.0 # x-release-please-version
+  version: 1.80.1 # x-release-please-version
   npm: "@aibtc/mcp-server"
   github: https://github.com/aibtcdev/aibtc-mcp-server
 ---
@@ -147,7 +147,7 @@ Wallets are stored encrypted at `~/.aibtc/`.
 ### Send Payment
 
 ```
-1. "Unlock my wallet" (provide password)
+1. "Unlock my wallet" (provide password, or none if the server has `AIBTC_WALLET_PASSWORD_FILE` set)
 2. "Send 100000 sats to bc1qxyz... with medium fees"
 3. "Lock my wallet"
 ```
@@ -375,7 +375,7 @@ See: [references/genesis-lifecycle.md](references/genesis-lifecycle.md)
 
 ### "Wallet not unlocked"
 
-Run `wallet_unlock` with your password before sending transactions.
+Run `wallet_unlock` before sending transactions (omit `password` if the server reads it from `AIBTC_WALLET_PASSWORD_FILE` / `AIBTC_WALLET_PASSWORD`).
 
 ### "Insufficient balance"
 
