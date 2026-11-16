@@ -29,9 +29,15 @@
  *   AIBTC Bounty Accept | {bountyId} | {submissionId} | {signedAt}
  *   AIBTC Bounty Paid   | {bountyId} | {txid} | {signedAt}
  *   AIBTC Bounty Cancel | {bountyId} | {signedAt}
+ *   AIBTC Bounty Cancel | {bountyId} | {signedAt} | {reason} | {rulingUrl}   (when either is sent)
  *
  * `tagsCommaJoined` is `tags.join(",")` or `""` when no tags. `contentUrl` is `""`
  * when omitted. `signedAt` is ISO 8601 within ±5 minutes of server time.
+ *
+ * The second Cancel form is for closing a bounty because no entry met the terms:
+ * `reason` and `rulingUrl` are optional, the missing one is signed as `""`, and
+ * both are signed exactly as sent. The server rejects `|` and surrounding
+ * whitespace in either, so the tool trims before signing and refuses `|`.
  *
  * Reference: https://aibtc.com/docs/bounties.txt, https://aibtc.com/api/openapi.json
  */
@@ -106,6 +112,58 @@ function signBounty(message: string, account: SignedAccount): string {
   const btcNetwork = NETWORK === "testnet" ? BTC_TESTNET : BTC_MAINNET;
   const scriptPubKey = p2wpkh(account.btcPublicKey, btcNetwork).script;
   return bip322Sign(message, account.btcPrivateKey, scriptPubKey);
+}
+
+// ============================================================================
+// Cancel request (optional reason / ruling link)
+// ============================================================================
+
+const CANCEL_TEXT_MAX = 500;
+
+/**
+ * Optional cancel text field. Trimmed before it is checked, because the value
+ * is signed verbatim and the server rejects surrounding whitespace. `|` is
+ * refused so the signed message splits one way only.
+ */
+const cancelText = () =>
+  z
+    .string()
+    .trim()
+    .max(CANCEL_TEXT_MAX)
+    .refine((v) => !v.includes("|"), { message: "must not contain '|'" });
+
+export const bountyCancelInputSchema = z.object({
+  bounty_id: z.string().describe("Bounty ID to cancel"),
+  reason: cancelText()
+    .optional()
+    .describe("Why the bounty closed, e.g. no entry met the terms"),
+  ruling_url: cancelText()
+    .refine((v) => v === "" || v.startsWith("https://"), {
+      message: "must start with https://",
+    })
+    .optional()
+    .describe("https:// link to the published ruling"),
+});
+
+/**
+ * Build the signed message and request body for a cancel. Without a reason or
+ * ruling link the message is the original 3-field form; with either, the
+ * extended form, with "" for the missing one. Empty strings count as omitted.
+ */
+export function buildBountyCancel(
+  bountyId: string,
+  signedAt: string,
+  reason?: string,
+  rulingUrl?: string
+): { message: string; body: { reason?: string; rulingUrl?: string } } {
+  const r = reason || undefined;
+  const u = rulingUrl || undefined;
+  let message = `AIBTC Bounty Cancel | ${bountyId} | ${signedAt}`;
+  if (r || u) message += ` | ${r ?? ""} | ${u ?? ""}`;
+  return {
+    message,
+    body: { ...(r && { reason: r }), ...(u && { rulingUrl: u }) },
+  };
 }
 
 async function postSigned(
@@ -452,22 +510,24 @@ Signs with BIP-322 over: "AIBTC Bounty Paid | {bountyId} | {txid} | {signedAt}"`
     {
       description: `Cancel a bounty. Only the poster can call this, and only while status is 'open' or 'judging' (i.e. before any submission has been accepted).
 
-Signs with BIP-322 over: "AIBTC Bounty Cancel | {bountyId} | {signedAt}"`,
-      inputSchema: z.object({
-        bounty_id: z.string().describe("Bounty ID to cancel"),
-      }),
+Closing a bounty because no entry met the terms is also a cancel. Pass 'reason' (up to 500 characters) and 'ruling_url' (an https:// link to the published ruling) so the board shows why it closed, rather than looking like the poster walked away. Neither may contain '|'.
+
+Signs with BIP-322 over: "AIBTC Bounty Cancel | {bountyId} | {signedAt}"
+With reason or ruling_url: "AIBTC Bounty Cancel | {bountyId} | {signedAt} | {reason} | {rulingUrl}" (empty string for the missing one)`,
+      inputSchema: bountyCancelInputSchema,
     },
-    async ({ bounty_id }) => {
+    async ({ bounty_id, reason, ruling_url }) => {
       try {
         const account = await requireBtcAccount();
         const signedAt = new Date().toISOString();
 
-        const message = `AIBTC Bounty Cancel | ${bounty_id} | ${signedAt}`;
+        const { message, body } = buildBountyCancel(bounty_id, signedAt, reason, ruling_url);
         const signature = signBounty(message, account);
 
         const result = await postSigned(`/${encodeURIComponent(bounty_id)}/cancel`, {
           signedAt,
           signature,
+          ...body,
         });
         return createJsonResponse(result);
       } catch (error) {
