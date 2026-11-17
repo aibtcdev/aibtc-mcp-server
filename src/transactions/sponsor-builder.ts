@@ -7,7 +7,7 @@ import {
 import { getStacksNetwork, type Network } from "../config/networks.js";
 import { getSponsorRelayUrl, getSponsorApiKey, isFallbackEnabled } from "../config/sponsor.js";
 import type { Account, ContractCallOptions, ContractDeployOptions, TransferResult } from "./builder.js";
-import { callContract, transferStx, deployContract, sbtcContract } from "./builder.js";
+import { callContract, transferStx, deployContract, sbtcContract, getNextNonce } from "./builder.js";
 import { getSpendLimiter, planContractCallSpends } from "../services/spend-limiter.js";
 import { recordNonceUsed } from "../services/nonce-tracker.js";
 import { isRelayHealthy } from "../utils/relay-health.js";
@@ -178,6 +178,9 @@ export async function sponsoredContractCall(
       postConditions,
       sponsored: true,
       fee: 0n,
+      // Local tracker + configured API, so back-to-back sponsored calls do not
+      // reuse a nonce the relay already accepted.
+      nonce: await getNextNonce(account.address, network),
     });
   } catch (error) {
     await limiter.release(reservation);
@@ -221,6 +224,9 @@ export async function sponsoredStxTransfer(
       memo: memo || "",
       sponsored: true,
       fee: 0n,
+      // Local tracker + configured API, so back-to-back sponsored calls do not
+      // reuse a nonce the relay already accepted.
+      nonce: await getNextNonce(account.address, network),
     });
   } catch (error) {
     await limiter.release(reservation);
@@ -255,6 +261,7 @@ export async function sponsoredContractDeploy(
     network: getStacksNetwork(network),
     sponsored: true,
     fee: 0n,
+    nonce: await getNextNonce(account.address, network),
   });
 
   return submitSponsoredTransaction(account, transaction, network, () =>
