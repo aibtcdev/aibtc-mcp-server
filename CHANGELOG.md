@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.81.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.81.1...mcp-server-v1.81.2) (2026-11-18)
+
+
+### Bug Fixes
+
+* **nonce:** sponsored and offline-signed txs take their nonce from getNextNonce ([#793](https://github.com/aibtcdev/aibtc-mcp-server/issues/793)) ([75257b4](https://github.com/aibtcdev/aibtc-mcp-server/commit/75257b4b123897dfa594e5321aa3f2bb7f205bec))
+
 ## [1.81.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.81.0...mcp-server-v1.81.1) (2026-11-18)
 
 
