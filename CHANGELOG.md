@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.81.1](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.81.0...mcp-server-v1.81.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* **deps:** require @stacks/* ^7.7.0 ([#796](https://github.com/aibtcdev/aibtc-mcp-server/issues/796)) ([f38a2d9](https://github.com/aibtcdev/aibtc-mcp-server/commit/f38a2d97cd0df6d9e0b3c2ff9fdbf21d38d1b6c8))
+* **spend-limiter:** compare post-condition principals by decoded address ([#794](https://github.com/aibtcdev/aibtc-mcp-server/issues/794)) ([386f619](https://github.com/aibtcdev/aibtc-mcp-server/commit/386f6199708189d7ac9e50f65a12632d20a7d225))
+
 ## [1.81.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.80.3...mcp-server-v1.81.0) (2026-11-16)
 
 
