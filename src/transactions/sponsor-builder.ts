@@ -1,13 +1,12 @@
 import {
   makeSTXTokenTransfer,
   makeContractCall,
-  makeContractDeploy,
   PostConditionMode,
 } from "@stacks/transactions";
 import { getStacksNetwork, type Network } from "../config/networks.js";
 import { getSponsorRelayUrl, getSponsorApiKey, isFallbackEnabled } from "../config/sponsor.js";
 import type { Account, ContractCallOptions, ContractDeployOptions, TransferResult } from "./builder.js";
-import { callContract, transferStx, deployContract, sbtcContract, getNextNonce } from "./builder.js";
+import { callContract, transferStx, deployContract, makeUnversionedContractDeploy, sbtcContract, getNextNonce } from "./builder.js";
 import { getSpendLimiter, planContractCallSpends } from "../services/spend-limiter.js";
 import { recordNonceUsed } from "../services/nonce-tracker.js";
 import { isRelayHealthy } from "../utils/relay-health.js";
@@ -254,7 +253,7 @@ export async function sponsoredContractDeploy(
   options: ContractDeployOptions,
   network: Network
 ): Promise<TransferResult> {
-  const transaction = await makeContractDeploy({
+  const transaction = await makeUnversionedContractDeploy({
     contractName: options.contractName,
     codeBody: options.codeBody,
     senderKey: account.privateKey,
