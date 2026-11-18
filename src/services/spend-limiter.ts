@@ -23,7 +23,13 @@
  * Disable entirely with SPEND_LIMIT_ENABLED=false. Override caps with
  * SPEND_LIMIT_DAILY_USTX / _SESSION_USTX / _DAILY_SATS / _SESSION_SATS.
  */
-import { Pc, PostConditionMode, type PostCondition } from "@stacks/transactions";
+import {
+  addressToString,
+  createAddress,
+  Pc,
+  PostConditionMode,
+  type PostCondition,
+} from "@stacks/transactions";
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
@@ -32,11 +38,44 @@ import { MAINNET_CONTRACTS, TESTNET_CONTRACTS } from "../config/contracts.js";
 
 export type SpendUnit = "ustx" | "sats";
 
-/** Asset ids this rail can meter. Any other FT has no ledger to bill. */
+/**
+ * Canonical c32 spelling of a standard address or contract id.
+ *
+ * c32 decoding is case-insensitive and reads I/L as 1 and O as 0, so several
+ * strings serialize to the same principal. Comparing raw strings would let an
+ * alias of this wallet's address (or of the sBTC contract) slip past the rail
+ * while the chain enforces the condition against the real principal. Throws on
+ * a string that does not decode, as serialization would.
+ */
+function canonicalPrincipal(principal: string): string {
+  const dot = principal.indexOf(".");
+  if (dot === -1) return addressToString(createAddress(principal));
+  return `${addressToString(createAddress(principal.slice(0, dot)))}${principal.slice(dot)}`;
+}
+
+/** `<contract-id>::<token-name>` with the contract id in canonical form. */
+function canonicalAsset(asset: string): string {
+  const sep = asset.indexOf("::");
+  if (sep === -1) return canonicalPrincipal(asset);
+  return `${canonicalPrincipal(asset.slice(0, sep))}${asset.slice(sep)}`;
+}
+
+/**
+ * Asset ids this rail can meter, in canonical form (the config constants are).
+ * Any other FT has no ledger to bill.
+ */
 const SBTC_ASSETS = new Set([
   `${MAINNET_CONTRACTS.SBTC_TOKEN}::sbtc-token`,
   `${TESTNET_CONTRACTS.SBTC_TOKEN}::sbtc-token`,
 ]);
+
+function isSbtcAsset(asset: string | undefined): boolean {
+  return asset !== undefined && SBTC_ASSETS.has(canonicalAsset(asset));
+}
+
+function isCaller(address: string | undefined, canonicalCaller: string): boolean {
+  return address !== undefined && canonicalPrincipal(address) === canonicalCaller;
+}
 
 /**
  * Read spend ceilings out of a contract call's post conditions.
@@ -59,6 +98,7 @@ export function boundedPostConditionSpends(
   accountAddress: string
 ): Array<{ unit: SpendUnit; amount: bigint }> {
   const spends: Array<{ unit: SpendUnit; amount: bigint }> = [];
+  const caller = canonicalPrincipal(accountAddress);
 
   for (const condition of postConditions ?? []) {
     const pc = condition as unknown as {
@@ -69,7 +109,7 @@ export function boundedPostConditionSpends(
       asset?: string;
     };
 
-    if (pc.address !== accountAddress) continue;
+    if (!isCaller(pc.address, caller)) continue;
     if (pc.condition !== "eq" && pc.condition !== "lt" && pc.condition !== "lte") continue;
     if (pc.amount === undefined) continue;
 
@@ -78,11 +118,7 @@ export function boundedPostConditionSpends(
 
     if (pc.type === "stx-postcondition") {
       spends.push({ unit: "ustx", amount });
-    } else if (
-      pc.type === "ft-postcondition" &&
-      pc.asset !== undefined &&
-      SBTC_ASSETS.has(pc.asset)
-    ) {
+    } else if (pc.type === "ft-postcondition" && isSbtcAsset(pc.asset)) {
       spends.push({ unit: "sats", amount });
     }
   }
@@ -135,14 +171,15 @@ export function planContractCallSpends(
   accountAddress: string
 ): { postConditions: PostCondition[]; spends: Array<{ unit: SpendUnit; amount: bigint }> } {
   const postConditions = [...(options.postConditions ?? [])];
+  const caller = canonicalPrincipal(accountAddress);
 
   for (const condition of postConditions) {
     const pc = condition as unknown as { type?: string; address?: string; condition?: string; asset?: string };
-    if (pc.address !== accountAddress) continue;
+    if (!isCaller(pc.address, caller)) continue;
     if (pc.condition !== "gt" && pc.condition !== "gte") continue;
     const metered =
       pc.type === "stx-postcondition" ||
-      (pc.type === "ft-postcondition" && pc.asset !== undefined && SBTC_ASSETS.has(pc.asset));
+      (pc.type === "ft-postcondition" && isSbtcAsset(pc.asset));
     if (metered) {
       throw new Error(
         `A "${pc.condition}" post condition on this wallet's own ${pc.type === "stx-postcondition" ? "STX" : "sBTC"} ` +

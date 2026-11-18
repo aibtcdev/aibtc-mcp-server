@@ -5,11 +5,12 @@ import { promises as fs } from "fs";
 import {
   boundedPostConditionSpends,
   getSpendLimiter,
+  planContractCallSpends,
   SpendLimitError,
   totalBoundedSpends,
   type SpendUnit,
 } from "../../src/services/spend-limiter.js";
-import { Pc } from "@stacks/transactions";
+import { Pc, PostConditionMode, postConditionToHex } from "@stacks/transactions";
 import { MAINNET_CONTRACTS, TESTNET_CONTRACTS } from "../../src/config/contracts.js";
 
 // Unique address per test so the shared singleton's session map and the daily
@@ -365,4 +366,72 @@ describe("bounded post-condition spends", () => {
       { unit: "sats", amount: 7n },
     ]);
   });
+});
+
+describe("c32 aliases of the caller and sBTC", () => {
+  const me = "SP2J6ZY48GV1EZ5V2V5RB9MP66SW86PYKKNRV9EJ7";
+  // c32 decoding is case-insensitive after the leading S and reads I/L as 1, O as 0.
+  const alias = "S" + me.slice(1).toLowerCase().replaceAll("1", "I").replaceAll("0", "O");
+  const sbtc = MAINNET_CONTRACTS.SBTC_TOKEN as `${string}.${string}`;
+  const sbtcAlias = sbtc.replaceAll("1", "L") as `${string}.${string}`;
+
+  it("aliases serialize to the same principal", () => {
+    expect(alias).not.toBe(me);
+    expect(postConditionToHex(Pc.principal(alias).willSendGte(1n).ustx())).toBe(
+      postConditionToHex(Pc.principal(me).willSendGte(1n).ustx())
+    );
+    expect(sbtcAlias).not.toBe(sbtc);
+    expect(postConditionToHex(Pc.principal(me).willSendEq(1n).ft(sbtcAlias, "sbtc-token"))).toBe(
+      postConditionToHex(Pc.principal(me).willSendEq(1n).ft(sbtc, "sbtc-token"))
+    );
+  });
+
+  it("refuses a gte condition on an aliased spelling of the caller", () => {
+    expect(() =>
+      planContractCallSpends(
+        {
+          postConditionMode: PostConditionMode.Deny,
+          postConditions: [Pc.principal(alias).willSendGte(1n).ustx()],
+          sbtcContract: sbtc,
+        },
+        me
+      )
+    ).toThrow(/sets no upper bound/);
+  });
+
+  it("refuses a gte condition on an aliased sBTC contract id", () => {
+    expect(() =>
+      planContractCallSpends(
+        {
+          postConditionMode: PostConditionMode.Deny,
+          postConditions: [Pc.principal(me).willSendGte(1n).ft(sbtcAlias, "sbtc-token")],
+          sbtcContract: sbtc,
+        },
+        me
+      )
+    ).toThrow(/sets no upper bound/);
+  });
+
+  it("meters bounded spends written with aliases", () => {
+    expect(
+      totalBoundedSpends(
+        [
+          Pc.principal(alias).willSendLte(500n).ustx(),
+          Pc.principal(alias).willSendEq(7n).ft(sbtcAlias, "sbtc-token"),
+        ],
+        me
+      )
+    ).toEqual([
+      { unit: "ustx", amount: 500n },
+      { unit: "sats", amount: 7n },
+    ]);
+  });
+});
+
+it("sBTC contract ids in config are already canonical c32", async () => {
+  const { addressToString, createAddress } = await import("@stacks/transactions");
+  for (const id of [MAINNET_CONTRACTS.SBTC_TOKEN, TESTNET_CONTRACTS.SBTC_TOKEN]) {
+    const [addr] = id.split(".");
+    expect(addressToString(createAddress(addr))).toBe(addr);
+  }
 });
