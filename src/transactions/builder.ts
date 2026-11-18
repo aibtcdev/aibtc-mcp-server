@@ -62,7 +62,7 @@ export async function forceResyncNonce(address: string): Promise<void> {
  *    get strictly increasing nonces even before the mempool reflects the first tx.
  * 5. Warn if the network reports missing nonces.
  */
-async function getNextNonce(address: string, network: Network): Promise<bigint> {
+export async function getNextNonce(address: string, network: Network): Promise<bigint> {
   // Read local tracker state (no network call)
   const localNext = await getTrackedNonce(address);
 
@@ -386,6 +386,9 @@ export async function signStxTransfer(
     senderKey: account.privateKey,
     network: networkName,
     memo: memo || "",
+    // Same nonce source as transferStx (local tracker + configured API), not
+    // stacks.js's built-in default URL.
+    nonce: await getNextNonce(account.address, account.network),
     ...(fee !== undefined && { fee }),
   });
 
@@ -413,6 +416,7 @@ export async function signContractCall(
     network: networkName,
     postConditionMode: options.postConditionMode || PostConditionMode.Deny,
     postConditions: options.postConditions || [],
+    nonce: await getNextNonce(account.address, account.network),
     ...(options.fee !== undefined && { fee: options.fee }),
   });
 
