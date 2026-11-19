@@ -66,12 +66,19 @@ describe("team confirm / remove messages", () => {
 });
 
 describe("teammatesSchema", () => {
+  const M3 = "bc1qmember3000000000000000000000000000000";
+  const M4 = "bc1qmember4000000000000000000000000000000";
+
   it("accepts up to 4 addresses and trims them", () => {
-    expect(teammatesSchema.parse([` ${M1} `, M2, M1, M2])).toEqual([M1, M2, M1, M2]);
+    expect(teammatesSchema.parse([` ${M1} `, M2, M3, M4])).toEqual([M1, M2, M3, M4]);
   });
 
   it("rejects more than 4", () => {
-    expect(teammatesSchema.safeParse([M1, M2, M1, M2, M1]).success).toBe(false);
+    expect(teammatesSchema.safeParse([M1, M2, M3, M4, LEAD]).success).toBe(false);
+  });
+
+  it("rejects the same teammate twice, including after trimming", () => {
+    expect(teammatesSchema.safeParse([M1, ` ${M1}`]).success).toBe(false);
   });
 
   it("rejects separators that would change the signed message", () => {
