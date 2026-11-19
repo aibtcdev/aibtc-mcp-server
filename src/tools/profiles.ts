@@ -44,6 +44,9 @@ export const CORE_TOOLS: ReadonlySet<string> = new Set([
   "bounty_list",
   "bounty_get",
   "bounty_submit",
+  // Team invites: a core agent named on a team must be able to find and confirm it
+  "bounty_pending_invites",
+  "bounty_team_confirm",
   "identity_register",
   // Inbox auto-reply (off until the agent sets a system prompt and enables it)
   "inbox_auto_reply",
