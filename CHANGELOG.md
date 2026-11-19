@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.82.0](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.81.2...mcp-server-v1.82.0) (2026-11-19)
+
+
+### Features
+
+* **bounty:** team entries ([#802](https://github.com/aibtcdev/aibtc-mcp-server/issues/802)) ([30329df](https://github.com/aibtcdev/aibtc-mcp-server/commit/30329df2d8601c8d39468f90206a59846348423b))
+
 ## [1.81.2](https://github.com/aibtcdev/aibtc-mcp-server/compare/mcp-server-v1.81.1...mcp-server-v1.81.2) (2026-11-18)
 
 
