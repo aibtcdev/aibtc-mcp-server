@@ -140,7 +140,7 @@ npx @aibtc/mcp-server@latest --install --profile full   # writes AIBTC_TOOLS=all
 | `bns` | BNS names |
 | `identity` | ERC-8004 identity and reputation, message signing |
 | `social` | Nostr, AIBTC inbox |
-| `earn` | Bounty board (create, accept, pay, my views) |
+| `earn` | Bounty board (create, accept, pay, team entries, my views) |
 | `legion` | AIBTC News Legion, At Stake side legions (El Salvador) |
 | `markets` | Stacks prediction market, At Stake market |
 | `dev` | Scaffolding, OpenRouter, settings, inference marketplace, arXiv |
