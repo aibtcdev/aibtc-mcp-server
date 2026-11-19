@@ -331,6 +331,9 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   bounty_cancel: "bounty-scanner",
   bounty_my_posted: "bounty-scanner",
   bounty_my_submissions: "bounty-scanner",
+  bounty_team_confirm: "bounty-scanner",
+  bounty_team_remove: "bounty-scanner",
+  bounty_pending_invites: "bounty-scanner",
 
   // runes skill — Bitcoin-native fungible token protocol
   runes_list_etchings: "runes",

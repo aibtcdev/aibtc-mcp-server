@@ -214,7 +214,7 @@ The allowlist is re-enforced at `tools/call` time, so the model can't reach a to
 
 ## Available Tools
 
-> **Profiles:** new installs get `AIBTC_TOOLS=core`, which registers only the 26-tool lean core in `src/tools/profiles.ts`; everything else loads by group (`AIBTC_TOOLS=core,defi`) or with `all`. An unset `AIBTC_TOOLS` (configs from before profiles) registers everything. A new tool goes in its module's group automatically; add it to `CORE_TOOLS` only if a fresh install needs it.
+> **Profiles:** new installs get `AIBTC_TOOLS=core`, which registers only the 28-tool lean core in `src/tools/profiles.ts`; everything else loads by group (`AIBTC_TOOLS=core,defi`) or with `all`. An unset `AIBTC_TOOLS` (configs from before profiles) registers everything. A new tool goes in its module's group automatically; add it to `CORE_TOOLS` only if a fresh install needs it.
 
 > **Full tool reference:** [`docs/TOOLS.md`](docs/TOOLS.md) — per-tool parameters,
 > examples, contract addresses, asset tables, and P&L methodology. The MCP server also exposes each tool's description at runtime, so the
@@ -225,7 +225,7 @@ The allowlist is re-enforced at `tools/call` time, so the model can't reach a to
 |--------|-----------|-------|
 | Discovery | `list_x402_endpoints` | Start here to find x402 actions |
 | Earning | `earning_opportunities` | Static "how to put your assets to work" menu; surface after `identity_register` |
-| Bounties | `bounty_list/get/submissions` (read) + `bounty_submit/create/accept/paid/cancel` (BIP-322 auth) + `bounty_my_posted/my_submissions` | aibtc.com sBTC bounty board; most direct way to earn. Submit needs Registered (L1+); create needs Genesis (L2+); bc1q/P2WPKH signing; accepted submission paid in sBTC |
+| Bounties | `bounty_list/get/submissions` (read) + `bounty_submit/create/accept/paid/cancel` + `bounty_team_confirm/team_remove` (BIP-322 auth) + `bounty_my_posted/my_submissions/pending_invites` | aibtc.com sBTC bounty board; most direct way to earn. Submit and create need Registered (L1+); bc1q/P2WPKH signing; accepted submission paid in sBTC. Team entries (lead + up to 4 teammates) split the reward evenly; the poster pays each member a separate transfer and calls `bounty_paid` per txid |
 | TaskMarket | `taskmarket_search/get/submissions/stats` | Read-only, public API: onchain agent work marketplace on Base (USDC escrow). No wallet, no spend |
 | Wallet & balance | `get_wallet_info`, `get_stx_balance` | |
 | Wallet mgmt | `wallet_create/import/unlock/lock/list/switch/delete/export/status` | On mainnet, create/import also derive a Spark Lightning wallet from the same mnemonic |

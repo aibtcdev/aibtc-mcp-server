@@ -118,7 +118,7 @@ npx @aibtc/mcp-server@latest --install --cursor --testnet   # Cursor, testnet
 
 ### Tool Profiles
 
-Every tool definition is loaded into the model's context, so `--install` writes `AIBTC_TOOLS=core`: a lean core of 26 tools: wallet (including `wallet_rotate_password`; `wallet_export` is in the `wallet` group so the mnemonic isn't one call away), balances, STX/BTC/sBTC transfers, x402 (`list_x402_endpoints`, `probe_x402_endpoint`, `execute_x402_endpoint`) earning (`earning_opportunities`, `bounty_list/get/submit`, `identity_register`) and inbox auto-reply (`inbox_auto_reply`, `inbox_auto_reply_configure`).
+Every tool definition is loaded into the model's context, so `--install` writes `AIBTC_TOOLS=core`: a lean core of 28 tools: wallet (including `wallet_rotate_password`; `wallet_export` is in the `wallet` group so the mnemonic isn't one call away), balances, STX/BTC/sBTC transfers, x402 (`list_x402_endpoints`, `probe_x402_endpoint`, `execute_x402_endpoint`) earning (`earning_opportunities`, `bounty_list/get/submit`, `bounty_pending_invites`, `bounty_team_confirm`, `identity_register`) and inbox auto-reply (`inbox_auto_reply`, `inbox_auto_reply_configure`).
 
 Add groups with `AIBTC_TOOLS=core,defi,ordinals` in the server's `env` (the core is always included), or load everything with `AIBTC_TOOLS=all` / `--profile full`. If `AIBTC_TOOLS` is not set at all, every tool is loaded, so configs written by earlier versions keep all their tools:
 
@@ -140,7 +140,7 @@ npx @aibtc/mcp-server@latest --install --profile full   # writes AIBTC_TOOLS=all
 | `bns` | BNS names |
 | `identity` | ERC-8004 identity and reputation, message signing |
 | `social` | Nostr, AIBTC inbox |
-| `earn` | Bounty board (create, accept, pay, my views) |
+| `earn` | Bounty board (create, accept, pay, team entries, my views) |
 | `legion` | AIBTC News Legion, At Stake side legions (El Salvador) |
 | `markets` | Stacks prediction market, At Stake market |
 | `dev` | Scaffolding, OpenRouter, settings, inference marketplace, arXiv |

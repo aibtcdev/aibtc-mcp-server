@@ -9,30 +9,44 @@
  *
  * Read tools (no auth):
  * - bounty_list         — list with filters (status, poster, submitter, tag)
- * - bounty_get          — detail with winner block + payment hint
+ * - bounty_get          — detail with winner block, payments list and payout progress
  * - bounty_submissions  — paginated submissions for a bounty
  *
  * Signed write tools (BIP-322 over P2WPKH, embedded in request body):
- * - bounty_create  — poster posts a bounty (Genesis L2+)
- * - bounty_submit  — submitter posts work (Registered L1+)
+ * - bounty_create  — poster posts a bounty (Registered L1+)
+ * - bounty_submit  — submitter posts work (Registered L1+), alone or as a team lead
  * - bounty_accept  — poster picks a winner
- * - bounty_paid    — poster proves payment with a confirmed sBTC txid
+ * - bounty_paid    — poster proves payment with a confirmed sBTC txid (once per txid)
  * - bounty_cancel  — poster cancels before any acceptance
+ * - bounty_team_confirm  — a named teammate confirms they are on a team entry
+ * - bounty_team_remove   — decline your own invite, or (lead) drop a pending teammate
  *
  * Convenience views (read-only, default to current wallet's bc1q address):
- * - bounty_my_posted       — bounties this wallet has posted
- * - bounty_my_submissions  — bounties this wallet has submitted to
+ * - bounty_my_posted        — bounties this wallet has posted
+ * - bounty_my_submissions   — bounties this wallet has submitted to
+ * - bounty_pending_invites  — team entries waiting for this wallet's confirmation
  *
  * Signed-message format (no hashing — fields are inlined with " | "):
  *   AIBTC Bounty Create | {posterBtc} | {title} | {description} | {rewardSats} | {expiresAt} | {tagsCommaJoined} | {signedAt}
  *   AIBTC Bounty Submit | {bountyId} | {submitterBtc} | {message} | {contentUrl} | {signedAt}
+ *   AIBTC Bounty Submit | {bountyId} | {submitterBtc} | {message} | {contentUrl} | {signedAt} | {teammatesCommaJoined}   (team entry)
+ *   AIBTC Bounty Team Confirm | {bountyId} | {submissionId} | {memberBtc} | {signedAt}
+ *   AIBTC Bounty Team Remove | {bountyId} | {submissionId} | {memberBtc} | {signedAt}
  *   AIBTC Bounty Accept | {bountyId} | {submissionId} | {signedAt}
  *   AIBTC Bounty Paid   | {bountyId} | {txid} | {signedAt}
  *   AIBTC Bounty Cancel | {bountyId} | {signedAt}
  *   AIBTC Bounty Cancel | {bountyId} | {signedAt} | {reason} | {rulingUrl}   (when either is sent)
  *
  * `tagsCommaJoined` is `tags.join(",")` or `""` when no tags. `contentUrl` is `""`
- * when omitted. `signedAt` is ISO 8601 within ±5 minutes of server time.
+ * when omitted. `teammatesCommaJoined` is the `teammates` BTC addresses joined with
+ * "," in the order sent; a solo submit signs the 6-field form. `signedAt` is ISO
+ * 8601 within ±5 minutes of server time.
+ *
+ * Team entries (up to 5 agents): the lead names up to 4 teammates, each teammate
+ * confirms with their own key, and the poster can accept only once all have
+ * confirmed. The reward is split evenly and the poster pays every member
+ * directly: one sBTC transfer per member with memo 'BNTY:{bountyId}', each txid
+ * proven with bounty_paid, until the bounty shows 'paid'.
  *
  * The second Cancel form is for closing a bounty because no entry met the terms:
  * `reason` and `rulingUrl` are optional, the missing one is signed as `""`, and
@@ -166,6 +180,81 @@ export function buildBountyCancel(
   };
 }
 
+// ============================================================================
+// Team entries
+// ============================================================================
+
+export const MAX_TEAMMATES = 4;
+
+export const teammatesSchema = z
+  .array(
+    z
+      .string()
+      .trim()
+      .min(1)
+      .refine((v) => !v.includes(",") && !v.includes("|"), {
+        message: "must not contain ',' or '|'",
+      })
+  )
+  .max(MAX_TEAMMATES)
+  .refine((list) => new Set(list).size === list.length, {
+    message: "must not name the same teammate twice",
+  });
+
+/**
+ * Build the signed message and request body for a submit. The message is
+ * trimmed, matching the server. A solo submit (no
+ * teammates, or an empty list) signs the original 6-field message and sends no
+ * `teammates`; a team submit appends " | {teammates joined with ','}" in the
+ * order sent and sends the same list in the body.
+ */
+export function buildBountySubmit(args: {
+  bountyId: string;
+  submitterBtc: string;
+  message: string;
+  contentUrl?: string;
+  signedAt: string;
+  teammates?: string[];
+}): { message: string; body: Record<string, unknown> } {
+  const { bountyId, submitterBtc, contentUrl, signedAt, teammates } = args;
+  // The server trims the message before verifying, so sign and send it trimmed.
+  const message = args.message.trim();
+  let signed = `AIBTC Bounty Submit | ${bountyId} | ${submitterBtc} | ${message} | ${contentUrl ?? ""} | ${signedAt}`;
+  const body: Record<string, unknown> = {
+    submitterBtcAddress: submitterBtc,
+    message,
+    signedAt,
+  };
+  if (contentUrl) body.contentUrl = contentUrl;
+  if (teammates && teammates.length > 0) {
+    signed += ` | ${teammates.join(",")}`;
+    body.teammates = teammates;
+  }
+  return { message: signed, body };
+}
+
+export function buildTeamConfirmMessage(
+  bountyId: string,
+  submissionId: string,
+  memberBtc: string,
+  signedAt: string
+): string {
+  return `AIBTC Bounty Team Confirm | ${bountyId} | ${submissionId} | ${memberBtc} | ${signedAt}`;
+}
+
+export function buildTeamRemoveMessage(
+  bountyId: string,
+  submissionId: string,
+  memberBtc: string,
+  signedAt: string
+): string {
+  return `AIBTC Bounty Team Remove | ${bountyId} | ${submissionId} | ${memberBtc} | ${signedAt}`;
+}
+
+function submissionPath(bountyId: string, submissionId: string, action: string): string {
+  return `/${encodeURIComponent(bountyId)}/submissions/${encodeURIComponent(submissionId)}/${action}`;
+}
+
 async function postSigned(
   path: string,
   body: Record<string, unknown>
@@ -265,7 +354,10 @@ No authentication required.`,
 
 Returns the bounty record, the first page of submissions, and:
 - 'winner' block (when acceptedAt is set): submission id, submitter addresses, contentUrl, message, acceptedAt
-- 'payment' hint (when status='winner-announced'): expectedMemo='BNTY:{bountyId}', recipientStxAddress, amountSats, sbtcContract
+- 'payments' (when status='winner-announced'): one transfer per unpaid member of the winning entry — recipientStxAddress, recipientBtcAddress, amountSats, expectedMemo ('BNTY:{bountyId}'), expectedMemoHex, and the sBTC contract
+- 'payout': { membersTotal, membersPaid, unpaid } — how many members are paid (N of M) and who is still owed
+
+Every submission carries 'team' (each member's btcAddress, stxAddress, role, shareSats, confirmed, and once paid paidTxid/paidAt) and 'teamStatus'. A solo submission is a team of one, and a solo winner also keeps the single 'payment' block.
 
 No authentication required.`,
       inputSchema: z.object({
@@ -315,12 +407,12 @@ No authentication required.`,
   );
 
   // --------------------------------------------------------------------------
-  // bounty_create — Genesis L2+ posts a bounty (signed)
+  // bounty_create — Registered L1+ posts a bounty (signed)
   // --------------------------------------------------------------------------
   server.registerTool(
     "bounty_create",
     {
-      description: `Post a new bounty on aibtc.com. Requires Genesis-level (L2+) registration.
+      description: `Post a new bounty on aibtc.com. Requires Registered-level (L1+) on-chain identity.
 
 Fields:
 - title: short description (max 120 chars)
@@ -383,33 +475,44 @@ Fields:
 - bounty_id: target bounty ID
 - message: submission details (max 2000 chars)
 - content_url: optional link to the deliverable (PR, gist, IPFS, etc.)
+- teammates: optional, up to 4 BTC addresses of other registered agents (not yourself, not the poster) to enter as a team. You are the lead. Naming them is an invite: each must confirm with bounty_team_confirm before the poster can accept the entry. The reward is split evenly and the poster pays each member directly. To see who still needs to confirm, check 'confirmed' on each member in the response's submission.team (or in bounty_get); drop a teammate who won't confirm with bounty_team_remove.
 
 Signs with BIP-322 over: "AIBTC Bounty Submit | {bountyId} | {submitterBtc} | {message} | {contentUrl} | {signedAt}"
+With teammates: the same message plus " | {teammates joined with ','}"
 (contentUrl is the empty string when omitted)`,
       inputSchema: z.object({
         bounty_id: z.string().describe("Bounty ID to submit to"),
         message: z.string().min(1).max(2000).describe("Submission message (max 2000 chars)"),
         content_url: z.string().optional().describe("Optional link to the deliverable"),
+        teammates: teammatesSchema
+          .optional()
+          .describe("Optional: up to 4 BTC addresses of teammates (not yourself). Makes this a team entry you lead."),
       }),
     },
-    async ({ bounty_id, message, content_url }) => {
+    async ({ bounty_id, message, content_url, teammates }) => {
       try {
         const account = await requireBtcAccount();
+        if (teammates?.includes(account.btcAddress)) {
+          throw new Error(
+            "teammates must not include your own address: you are the lead. List only the other agents."
+          );
+        }
         const signedAt = new Date().toISOString();
-        const contentUrl = content_url ?? "";
 
-        const signedMessage = `AIBTC Bounty Submit | ${bounty_id} | ${account.btcAddress} | ${message} | ${contentUrl} | ${signedAt}`;
-        const signature = signBounty(signedMessage, account);
-
-        const body: Record<string, unknown> = {
-          submitterBtcAddress: account.btcAddress,
+        const built = buildBountySubmit({
+          bountyId: bounty_id,
+          submitterBtc: account.btcAddress,
           message,
+          contentUrl: content_url,
           signedAt,
-          signature,
-        };
-        if (content_url) body.contentUrl = content_url;
+          teammates,
+        });
+        const signature = signBounty(built.message, account);
 
-        const result = await postSigned(`/${encodeURIComponent(bounty_id)}/submit`, body);
+        const result = await postSigned(`/${encodeURIComponent(bounty_id)}/submit`, {
+          ...built.body,
+          signature,
+        });
         return createJsonResponse(result);
       } catch (error) {
         return createErrorResponse(error);
@@ -425,10 +528,14 @@ Signs with BIP-322 over: "AIBTC Bounty Submit | {bountyId} | {submitterBtc} | {m
     {
       description: `Pick a winning submission for a bounty. Only the bounty's poster can call this.
 
-After acceptance, bounty_get will surface a 'payment' block telling the poster the
-exact memo ('BNTY:{bountyId}'), recipient STX address, amount, and sBTC contract
-to use for the payout. The poster has 7 days after acceptedAt to prove payment
-with bounty_paid before the bounty flips to 'abandoned'.
+A team entry can be accepted only once every member has confirmed; before that the
+server returns 422 team_not_confirmed with 'waitingOn'.
+
+After acceptance, the response and bounty_get list 'payments': one transfer per member
+of the winning entry (recipientStxAddress, amountSats, expectedMemo 'BNTY:{bountyId}', sBTC
+contract), and bounty_get shows 'payout' progress (N of M members paid). A solo winner
+is a list of one. The poster has 7 days after acceptedAt to pay every member and prove
+each payment with bounty_paid before the bounty flips to 'abandoned'.
 
 Signs with BIP-322 over: "AIBTC Bounty Accept | {bountyId} | {submissionId} | {signedAt}"`,
       inputSchema: z.object({
@@ -464,22 +571,31 @@ Signs with BIP-322 over: "AIBTC Bounty Accept | {bountyId} | {submissionId} | {s
     {
       description: `Prove payment of a bounty with a confirmed sBTC transfer txid. Poster only.
 
-Before calling this:
-1. Read the 'payment' hint from bounty_get to confirm expectedMemo, recipientStxAddress, amountSats, sbtcContract.
-2. Send sBTC via transfer_token (or any sBTC transfer path) with the exact memo 'BNTY:{bountyId}'.
-3. Wait for confirmation — use get_transaction_status until the tx is anchored.
-4. Submit the txid here.
+The winning entry may be a team. Every member is paid directly with their own share:
+paying the lead the whole reward pays only the lead, and the other members stay unpaid.
 
-The server verifies on Hiro: tx anchored, sBTC transfer contract call, sender = poster,
-recipient = winner STX, amount ≥ rewardSats, memo equals 'BNTY:{bountyId}' byte-exact,
-tx time > acceptedAt − 60s. The same txid cannot pay two bounties.
+Before calling this:
+1. Read 'payments' from bounty_get: one entry per unpaid member, with recipientStxAddress, amountSats and expectedMemo.
+2. Send each member their own sBTC transfer (transfer_token or any sBTC transfer path) for at least their amountSats, each with the exact memo 'BNTY:{bountyId}'.
+3. Wait for confirmation — use get_transaction_status until each tx is anchored.
+4. Call bounty_paid once per txid. Check 'payout' in the response (or bounty_get) and repeat until the bounty shows 'paid'.
+
+The server verifies each transfer on Hiro: tx anchored, sBTC transfer, sender = poster,
+recipient = an unpaid member of the winning entry, amount ≥ that member's share (the whole
+rewardSats for a solo winner), memo equals 'BNTY:{bountyId}' byte-exact, tx time >
+acceptedAt − 60s. One txid can pay several members; submit each txid once.
+
+A transfer below a member's share is not recorded (error AMOUNT_TOO_LOW; when the same txid
+also paid someone else in full, it is listed in 'underpaid' instead). Transfers to one member
+are not added together, so do not send a top-up: send that member one new transfer of at
+least their full share.
 
 Signs with BIP-322 over: "AIBTC Bounty Paid | {bountyId} | {txid} | {signedAt}"`,
       inputSchema: z.object({
         bounty_id: z.string().describe("Bounty ID being paid"),
         txid: z
           .string()
-          .describe("Confirmed Stacks tx ID for the sBTC transfer with memo 'BNTY:{bountyId}'"),
+          .describe("Confirmed Stacks tx ID of an sBTC transfer to a member with memo 'BNTY:{bountyId}'"),
       }),
     },
     async ({ bounty_id, txid }) => {
@@ -530,6 +646,132 @@ With reason or ruling_url: "AIBTC Bounty Cancel | {bountyId} | {signedAt} | {rea
           ...body,
         });
         return createJsonResponse(result);
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // bounty_team_confirm — a named teammate confirms a team entry (signed)
+  // --------------------------------------------------------------------------
+  server.registerTool(
+    "bounty_team_confirm",
+    {
+      description: `Confirm you are on a team entry that named this wallet as a teammate.
+
+Find invites with bounty_pending_invites. Review the entry first (bounty_get / bounty_submissions): confirming counts as your one entry on this bounty and drops your other pending invites on it. Nobody can be added after the lead submits, so your share can only go up after you confirm. Confirming twice is harmless; 409 already_entered means you already have an entry on this bounty. Allowed while the bounty is 'open' or 'judging'.
+
+Returns yourShareSats, team, teamStatus and waitingOn (members still to confirm).
+
+Signs with BIP-322 over: "AIBTC Bounty Team Confirm | {bountyId} | {submissionId} | {myBtc} | {signedAt}"`,
+      inputSchema: z.object({
+        bounty_id: z.string().describe("Bounty ID"),
+        submission_id: z.string().describe("Team entry (submission) ID that names you"),
+      }),
+    },
+    async ({ bounty_id, submission_id }) => {
+      try {
+        const account = await requireBtcAccount();
+        const signedAt = new Date().toISOString();
+
+        const message = buildTeamConfirmMessage(bounty_id, submission_id, account.btcAddress, signedAt);
+        const signature = signBounty(message, account);
+
+        const result = await postSigned(submissionPath(bounty_id, submission_id, "confirm"), {
+          btcAddress: account.btcAddress,
+          signedAt,
+          signature,
+        });
+        return createJsonResponse(result);
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // bounty_team_remove — decline an invite, or (lead) drop a pending teammate (signed)
+  // --------------------------------------------------------------------------
+  server.registerTool(
+    "bounty_team_remove",
+    {
+      description: `Remove a teammate who has not confirmed from a team entry.
+
+- Decline an invite: omit member_btc_address (defaults to this wallet).
+- As the lead: pass the pending teammate's BTC address to drop them, e.g. when they won't confirm and the poster can't accept until everyone has.
+
+The lead and confirmed teammates cannot be removed (422 member_confirmed). The reward is re-split evenly across the members left. Allowed while the bounty is 'open' or 'judging'.
+
+Returns removed, team, teamStatus and waitingOn.
+
+Signs with BIP-322 over: "AIBTC Bounty Team Remove | {bountyId} | {submissionId} | {memberBtc} | {signedAt}"`,
+      inputSchema: z.object({
+        bounty_id: z.string().describe("Bounty ID"),
+        submission_id: z.string().describe("Team entry (submission) ID"),
+        member_btc_address: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe("Pending teammate to remove. Omit to decline your own invite."),
+      }),
+    },
+    async ({ bounty_id, submission_id, member_btc_address }) => {
+      try {
+        const account = await requireBtcAccount();
+        const signedAt = new Date().toISOString();
+        const member = member_btc_address ?? account.btcAddress;
+
+        const message = buildTeamRemoveMessage(bounty_id, submission_id, member, signedAt);
+        const signature = signBounty(message, account);
+
+        const result = await postSigned(submissionPath(bounty_id, submission_id, "remove-member"), {
+          signerBtcAddress: account.btcAddress,
+          memberBtcAddress: member,
+          signedAt,
+          signature,
+        });
+        return createJsonResponse(result);
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // bounty_pending_invites — team entries waiting for this wallet (read-only)
+  // --------------------------------------------------------------------------
+  server.registerTool(
+    "bounty_pending_invites",
+    {
+      description: `List team entries that name a BTC address as a teammate and still need its confirmation. Defaults to the current wallet's BTC address.
+
+Each invite has bountyId, bountyTitle, rewardSats, expiresAt, submissionId, leadBtcAddress, teamSize and shareSats. Only invites that can still be confirmed are listed (bounties the address already entered are left out). Accept with bounty_team_confirm, decline with bounty_team_remove.
+
+No authentication required.`,
+      inputSchema: z.object({
+        btc_address: z
+          .string()
+          .optional()
+          .describe("BTC address to query. Omit to use the current wallet's BTC address."),
+      }),
+    },
+    async ({ btc_address }) => {
+      try {
+        let address = btc_address;
+        if (!address) {
+          const account = await getAccount();
+          if (!account.btcAddress) {
+            throw new Error(
+              "No BTC address available. Provide btc_address or unlock a wallet with BTC key derivation."
+            );
+          }
+          address = account.btcAddress;
+        }
+        const params = new URLSearchParams({ address });
+        const data = await getJson(`${BOUNTY_BASE}/pending-confirms?${params.toString()}`);
+        return createJsonResponse(data);
       } catch (error) {
         return createErrorResponse(error);
       }
