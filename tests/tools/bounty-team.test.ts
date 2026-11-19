@@ -31,6 +31,14 @@ describe("buildBountySubmit", () => {
     expect(body).not.toHaveProperty("contentUrl");
   });
 
+  it("signs and sends the message trimmed, as the server verifies it", () => {
+    const { message, body } = buildBountySubmit({
+      bountyId: "B1", submitterBtc: LEAD, message: "  done \n", signedAt: T,
+    });
+    expect(message).toBe(`AIBTC Bounty Submit | B1 | ${LEAD} | done |  | ${T}`);
+    expect(body.message).toBe("done");
+  });
+
   it("treats an empty teammates list as solo", () => {
     const { message, body } = buildBountySubmit({
       bountyId: "B1", submitterBtc: LEAD, message: "done", signedAt: T, teammates: [],
