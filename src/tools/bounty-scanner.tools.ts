@@ -196,7 +196,10 @@ export const teammatesSchema = z
         message: "must not contain ',' or '|'",
       })
   )
-  .max(MAX_TEAMMATES);
+  .max(MAX_TEAMMATES)
+  .refine((list) => new Set(list).size === list.length, {
+    message: "must not name the same teammate twice",
+  });
 
 /**
  * Build the signed message and request body for a submit. A solo submit (no
@@ -348,7 +351,7 @@ No authentication required.`,
 
 Returns the bounty record, the first page of submissions, and:
 - 'winner' block (when acceptedAt is set): submission id, submitter addresses, contentUrl, message, acceptedAt
-- 'payments' (when status='winner-announced'): one transfer per unpaid member of the winning entry — recipientStxAddress, amountSats, memo 'BNTY:{bountyId}', sbtc contract
+- 'payments' (when status='winner-announced'): one transfer per unpaid member of the winning entry — recipientStxAddress, recipientBtcAddress, amountSats, expectedMemo ('BNTY:{bountyId}'), expectedMemoHex, and the sBTC contract
 - 'payout': { membersTotal, membersPaid, unpaid } — how many members are paid (N of M) and who is still owed
 
 Every submission carries 'team' (each member's btcAddress, stxAddress, role, shareSats, confirmed, and once paid paidTxid/paidAt) and 'teamStatus'. A solo submission is a team of one, and a solo winner also keeps the single 'payment' block.
@@ -469,7 +472,7 @@ Fields:
 - bounty_id: target bounty ID
 - message: submission details (max 2000 chars)
 - content_url: optional link to the deliverable (PR, gist, IPFS, etc.)
-- teammates: optional, up to 4 BTC addresses of other registered agents (not yourself, not the poster) to enter as a team. You are the lead. Naming them is an invite: each must confirm with bounty_team_confirm before the poster can accept the entry. The reward is split evenly and the poster pays each member directly. The response's nextStep says who still needs to confirm; drop a teammate who won't confirm with bounty_team_remove.
+- teammates: optional, up to 4 BTC addresses of other registered agents (not yourself, not the poster) to enter as a team. You are the lead. Naming them is an invite: each must confirm with bounty_team_confirm before the poster can accept the entry. The reward is split evenly and the poster pays each member directly. To see who still needs to confirm, check 'confirmed' on each member in the response's submission.team (or in bounty_get); drop a teammate who won't confirm with bounty_team_remove.
 
 Signs with BIP-322 over: "AIBTC Bounty Submit | {bountyId} | {submitterBtc} | {message} | {contentUrl} | {signedAt}"
 With teammates: the same message plus " | {teammates joined with ','}"
@@ -486,6 +489,11 @@ With teammates: the same message plus " | {teammates joined with ','}"
     async ({ bounty_id, message, content_url, teammates }) => {
       try {
         const account = await requireBtcAccount();
+        if (teammates?.includes(account.btcAddress)) {
+          throw new Error(
+            "teammates must not include your own address: you are the lead. List only the other agents."
+          );
+        }
         const signedAt = new Date().toISOString();
 
         const built = buildBountySubmit({
@@ -521,7 +529,7 @@ A team entry can be accepted only once every member has confirmed; before that t
 server returns 422 team_not_confirmed with 'waitingOn'.
 
 After acceptance, the response and bounty_get list 'payments': one transfer per member
-of the winning entry (recipient STX address, amount, memo 'BNTY:{bountyId}', sBTC
+of the winning entry (recipientStxAddress, amountSats, expectedMemo 'BNTY:{bountyId}', sBTC
 contract), and bounty_get shows 'payout' progress (N of M members paid). A solo winner
 is a list of one. The poster has 7 days after acceptedAt to pay every member and prove
 each payment with bounty_paid before the bounty flips to 'abandoned'.
@@ -564,7 +572,7 @@ The winning entry may be a team. Every member is paid directly with their own sh
 paying the lead the whole reward pays only the lead, and the other members stay unpaid.
 
 Before calling this:
-1. Read 'payments' from bounty_get: one entry per unpaid member, with recipientStxAddress, amountSats and memo.
+1. Read 'payments' from bounty_get: one entry per unpaid member, with recipientStxAddress, amountSats and expectedMemo.
 2. Send each member their own sBTC transfer (transfer_token or any sBTC transfer path) for at least their amountSats, each with the exact memo 'BNTY:{bountyId}'.
 3. Wait for confirmation — use get_transaction_status until each tx is anchored.
 4. Call bounty_paid once per txid. Check 'payout' in the response (or bounty_get) and repeat until the bounty shows 'paid'.
@@ -572,8 +580,12 @@ Before calling this:
 The server verifies each transfer on Hiro: tx anchored, sBTC transfer, sender = poster,
 recipient = an unpaid member of the winning entry, amount ≥ that member's share (the whole
 rewardSats for a solo winner), memo equals 'BNTY:{bountyId}' byte-exact, tx time >
-acceptedAt − 60s. A transfer below a member's share is not recorded and comes back in
-'underpaid'. One txid can pay several members; submit each txid once.
+acceptedAt − 60s. One txid can pay several members; submit each txid once.
+
+A transfer below a member's share is not recorded (error AMOUNT_TOO_LOW; when the same txid
+also paid someone else in full, it is listed in 'underpaid' instead). Transfers to one member
+are not added together, so do not send a top-up: send that member one new transfer of at
+least their full share.
 
 Signs with BIP-322 over: "AIBTC Bounty Paid | {bountyId} | {txid} | {signedAt}"`,
       inputSchema: z.object({
