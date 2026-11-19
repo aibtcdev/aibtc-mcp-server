@@ -13,7 +13,7 @@
  * - bounty_submissions  — paginated submissions for a bounty
  *
  * Signed write tools (BIP-322 over P2WPKH, embedded in request body):
- * - bounty_create  — poster posts a bounty (Genesis L2+)
+ * - bounty_create  — poster posts a bounty (Registered L1+)
  * - bounty_submit  — submitter posts work (Registered L1+), alone or as a team lead
  * - bounty_accept  — poster picks a winner
  * - bounty_paid    — poster proves payment with a confirmed sBTC txid (once per txid)
@@ -202,7 +202,8 @@ export const teammatesSchema = z
   });
 
 /**
- * Build the signed message and request body for a submit. A solo submit (no
+ * Build the signed message and request body for a submit. The message is
+ * trimmed, matching the server. A solo submit (no
  * teammates, or an empty list) signs the original 6-field message and sends no
  * `teammates`; a team submit appends " | {teammates joined with ','}" in the
  * order sent and sends the same list in the body.
@@ -215,7 +216,9 @@ export function buildBountySubmit(args: {
   signedAt: string;
   teammates?: string[];
 }): { message: string; body: Record<string, unknown> } {
-  const { bountyId, submitterBtc, message, contentUrl, signedAt, teammates } = args;
+  const { bountyId, submitterBtc, contentUrl, signedAt, teammates } = args;
+  // The server trims the message before verifying, so sign and send it trimmed.
+  const message = args.message.trim();
   let signed = `AIBTC Bounty Submit | ${bountyId} | ${submitterBtc} | ${message} | ${contentUrl ?? ""} | ${signedAt}`;
   const body: Record<string, unknown> = {
     submitterBtcAddress: submitterBtc,
@@ -404,12 +407,12 @@ No authentication required.`,
   );
 
   // --------------------------------------------------------------------------
-  // bounty_create — Genesis L2+ posts a bounty (signed)
+  // bounty_create — Registered L1+ posts a bounty (signed)
   // --------------------------------------------------------------------------
   server.registerTool(
     "bounty_create",
     {
-      description: `Post a new bounty on aibtc.com. Requires Genesis-level (L2+) registration.
+      description: `Post a new bounty on aibtc.com. Requires Registered-level (L1+) on-chain identity.
 
 Fields:
 - title: short description (max 120 chars)
