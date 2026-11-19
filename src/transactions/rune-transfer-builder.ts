@@ -71,7 +71,10 @@ export function buildRuneTransfer(options: RuneTransferOptions): RuneTransferRes
   if (amount <= 0n) throw new Error("Amount must be positive");
 
   const btcNetwork = getBtcNetwork(network);
-  const tx = new btc.Transaction();
+  // OP_RETURN outputs decode as an unknown script type in @scure/btc-signer, and
+  // addOutput refuses unknown scripts unless this is set, so the runestone output
+  // could never be added without it.
+  const tx = new btc.Transaction({ allowUnknownOutputs: true });
 
   const { block, txIndex } = parseRuneId(runeId);
 
@@ -85,6 +88,9 @@ export function buildRuneTransfer(options: RuneTransferOptions): RuneTransferRes
       txid: utxo.txid,
       index: utxo.vout,
       witnessUtxo: { script: taprootPayment.script, amount: BigInt(utxo.value) },
+      // signIdx needs the untweaked internal key to derive the tweaked key-path
+      // key; without it a P2TR input cannot be signed ("No taproot scripts signed").
+      tapInternalKey: senderTaprootPubKey,
     });
     taprootInputIndices.push(i);
   }
