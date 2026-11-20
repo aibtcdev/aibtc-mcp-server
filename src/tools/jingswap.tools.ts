@@ -11,6 +11,16 @@ import { callContract } from "../transactions/builder.js";
 import { getExplorerTxUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 
+// Addresses go into the Jingswap API path, so they must be a Stacks address and
+// nothing else: no "/", "..", "?" or "#" that would change the path the request
+// (which carries x-api-key) reaches. Same regex as competition.tools.ts.
+const stacksAddressSchema = z
+  .string()
+  .regex(
+    /^S[PTM][0-9A-HJKMNP-TV-Z]{38,40}$/,
+    "Expected a Stacks address (SP… mainnet, ST… testnet, SM… contract)"
+  );
+
 const JINGSWAP_API =
   process.env.JINGSWAP_API_URL || "https://faktory-dao-backend.vercel.app";
 // Public default key: rate-limited per IP on the backend, same model as Hiro's public API tier.
@@ -167,14 +177,14 @@ export function registerJingswapTools(server: McpServer): void {
         "Get a specific user's deposit amounts (token B and sBTC) for a given auction cycle.",
       inputSchema: z.object({
         cycle: z.number().describe("Cycle number"),
-        address: z.string().describe("Stacks address of the depositor"),
+        address: stacksAddressSchema.describe("Stacks address of the depositor"),
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
       }),
     },
     async ({ cycle, address, market }) => {
       try {
         const m = getMarket(market);
-        const data = await jingswapGet(`/api/auction/deposit/${cycle}/${address}${apiContractParam(m)}`);
+        const data = await jingswapGet(`/api/auction/deposit/${cycle}/${encodeURIComponent(address)}${apiContractParam(m)}`);
         return createJsonResponse(data);
       } catch (error) {
         return createErrorResponse(error);
@@ -240,14 +250,14 @@ export function registerJingswapTools(server: McpServer): void {
         "Get a user's auction activity history — deposits, cancellations, fills, and settlements. " +
         "Indexed from on-chain contract events.",
       inputSchema: z.object({
-        address: z.string().describe("Stacks address to query"),
+        address: stacksAddressSchema.describe("Stacks address to query"),
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
       }),
     },
     async ({ address, market }) => {
       try {
         const m = getMarket(market);
-        const data = await jingswapGet(`/api/auction/activity/${address}${apiContractParam(m)}`);
+        const data = await jingswapGet(`/api/auction/activity/${encodeURIComponent(address)}${apiContractParam(m)}`);
         return createJsonResponse({
           ...data,
           market: market || DEFAULT_MARKET,
