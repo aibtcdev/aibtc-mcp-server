@@ -228,9 +228,10 @@ export function buildBtcTransaction(
 
   // Recalculate fee if no change output
   const finalVsize = estimateTxSize(selectedUtxos.length, outputCount);
-  const finalFee = hasChange
-    ? finalFeeWithChange
-    : Math.ceil(finalVsize * feeRate);
+  // Without a change output every leftover sat goes to the miner, so the
+  // fee actually paid is selectedTotal - amount — not the smaller
+  // one-output estimate. Report (and check against) the real number.
+  const finalFee = hasChange ? finalFeeWithChange : selectedTotal - amount;
 
   const finalChange = hasChange ? changeAmount : 0;
 
