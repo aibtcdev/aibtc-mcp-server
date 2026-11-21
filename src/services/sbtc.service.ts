@@ -15,6 +15,7 @@ import { callContract, type Account, type TransferResult } from "../transactions
 import { sponsoredContractCall } from "../transactions/sponsor-builder.js";
 import { createFungiblePostCondition } from "../transactions/post-conditions.js";
 import { resolveDefaultFee } from "../utils/fee.js";
+import { satsToSbtcString } from "../utils/formatting.js";
 
 // ============================================================================
 // Types
@@ -77,7 +78,7 @@ export class SbtcService {
 
     // sBTC uses 8 decimals (same as Bitcoin)
     const balanceSats = balance;
-    const balanceBtc = (BigInt(balance) / BigInt(100_000_000)).toString();
+    const balanceBtc = satsToSbtcString(balance);
 
     return {
       balance,
@@ -165,7 +166,7 @@ export class SbtcService {
 
     const totalSupply = metadata?.total_supply || "0";
     const totalSupplySats = totalSupply;
-    const totalSupplyBtc = (BigInt(totalSupply) / BigInt(100_000_000)).toString();
+    const totalSupplyBtc = satsToSbtcString(totalSupply);
 
     return {
       totalSupply,
