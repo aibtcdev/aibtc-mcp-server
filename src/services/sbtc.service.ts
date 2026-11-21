@@ -15,6 +15,7 @@ import { callContract, type Account, type TransferResult } from "../transactions
 import { sponsoredContractCall } from "../transactions/sponsor-builder.js";
 import { createFungiblePostCondition } from "../transactions/post-conditions.js";
 import { resolveDefaultFee } from "../utils/fee.js";
+import { formatSbtc } from "../utils/formatting.js";
 
 // ============================================================================
 // Types
@@ -75,9 +76,11 @@ export class SbtcService {
     const sbtcContract = this.contracts.SBTC_TOKEN;
     const balance = await this.hiro.getTokenBalance(address, sbtcContract);
 
-    // sBTC uses 8 decimals (same as Bitcoin)
+    // sBTC uses 8 decimals (same as Bitcoin). Format with the shared helper:
+    // integer division here truncated fractions, so a 0.5 sBTC wallet reported
+    // "0" (and any 1-sat remainder vanished).
     const balanceSats = balance;
-    const balanceBtc = (BigInt(balance) / BigInt(100_000_000)).toString();
+    const balanceBtc = formatSbtc(balance).replace(/ sBTC$/, "");
 
     return {
       balance,
@@ -165,7 +168,7 @@ export class SbtcService {
 
     const totalSupply = metadata?.total_supply || "0";
     const totalSupplySats = totalSupply;
-    const totalSupplyBtc = (BigInt(totalSupply) / BigInt(100_000_000)).toString();
+    const totalSupplyBtc = formatSbtc(totalSupply).replace(/ sBTC$/, "");
 
     return {
       totalSupply,
