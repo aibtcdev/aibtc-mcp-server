@@ -23,6 +23,7 @@ import { generateWallet, getStxAddress } from "@stacks/wallet-sdk";
 import { NETWORK, API_URL, getStacksNetwork, type Network } from "../config/networks.js";
 import { getNetworkFromStacksChainId } from "../config/caip.js";
 import type { Account } from "../transactions/builder.js";
+import { getNextNonce, advancePendingNonce } from "../transactions/builder.js";
 import { getWalletManager } from "./wallet-manager.js";
 import { getSpendLimiter, type SpendReservation } from "./spend-limiter.js";
 import { formatStx, formatSbtc } from "../utils/formatting.js";
@@ -977,6 +978,13 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
 
         const memo = paymentIdMemo(selectedOption.extra);
 
+        // Take the nonce from the local tracker, like every other builder path.
+        // Leaving it unset made makeContractCall / makeSTXTokenTransfer fetch the
+        // raw chain nonce, ignoring reservations made by other builders, so an
+        // x402 payment could reuse a nonce and be rejected with
+        // sender_nonce_duplicate.
+        const nonce = await getNextNonce(acct.address, acct.network);
+
         let transaction;
         if (tokenType === "sBTC") {
           const contracts = getContracts(acct.network);
@@ -1005,6 +1013,7 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
                 .ft(contracts.SBTC_TOKEN as `${string}.${string}`, "sbtc-token"),
             ],
             fee,
+            nonce,
             sponsored,
           });
         } else {
@@ -1015,6 +1024,7 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
             network: networkName,
             memo: memo ?? "",
             fee,
+            nonce,
             sponsored,
           });
         }
@@ -1041,7 +1051,9 @@ export async function createApiClient(baseUrl?: string, options?: CreateApiClien
         });
 
         // The signed payment tx is handed to the facilitator from here on, so
-        // the booked spend stands.
+        // the booked spend stands and the nonce is spent: advance the local
+        // tracker so the next builder does not reserve it again.
+        advancePendingNonce(acct.address, nonce);
         reservation = undefined;
 
         // Retry the original request with the payment header
