@@ -18,6 +18,27 @@ const JINGSWAP_API =
 const JINGSWAP_API_KEY =
   process.env.JINGSWAP_API_KEY || "jc_b058d7f2e0976bd4ee34be3e5c7ba7ebe45289c55d3f5e45f666ebc14b7ebfd0";
 
+/**
+ * Zod schema for a Stacks principal address (mainnet SP... or testnet ST...).
+ *
+ * These values are interpolated straight into the Jingswap request path, so an
+ * unconstrained string let a caller inject `..` and `?` segments. The request
+ * stays on the API origin, which means it carried `x-api-key` to an arbitrary
+ * path on that backend. Constrain the shape at the tool boundary.
+ */
+const stacksAddressSchema = z
+  .string()
+  .regex(/^S[PT][0-9A-Z]{38,39}$/)
+  .describe("Stacks address of the depositor (SP... mainnet or ST... testnet)");
+
+/** Belt-and-braces guard for the same value once it reaches URL construction. */
+function assertSafePathSegment(value: string, label: string): string {
+  if (!/^[A-Za-z0-9]+$/.test(value)) {
+    throw new Error(`${label} must be alphanumeric`);
+  }
+  return value;
+}
+
 // ── Market Configuration ─────────────────────────────────────────────
 
 interface MarketConfig {
@@ -75,7 +96,16 @@ const MAX_JINGSWAP_REDIRECTS = 5;
  */
 async function jingswapFetch(path: string): Promise<Response> {
   const apiOrigin = new URL(JINGSWAP_API).origin;
+  const apiBasePath = new URL(JINGSWAP_API).pathname.replace(/\/$/, "");
   let url = new URL(`${JINGSWAP_API}${path}`);
+  // A path built from caller input must not escape the API's own path prefix,
+  // otherwise it reaches unrelated routes on the same origin WITH the key.
+  // `..` segments are already normalised away by URL, so compare the *resolved*
+  // path against the prefix the caller meant to hit.
+  const expectedPrefix = apiBasePath + "/api/";
+  if (url.origin !== apiOrigin || !url.pathname.startsWith(expectedPrefix)) {
+    throw new Error("Jingswap API: refusing to request a path outside the API prefix");
+  }
   for (let hop = 0; ; hop++) {
     const res = await fetch(url, {
       headers: url.origin === apiOrigin ? { "x-api-key": JINGSWAP_API_KEY } : {},
@@ -167,14 +197,16 @@ export function registerJingswapTools(server: McpServer): void {
         "Get a specific user's deposit amounts (token B and sBTC) for a given auction cycle.",
       inputSchema: z.object({
         cycle: z.number().describe("Cycle number"),
-        address: z.string().describe("Stacks address of the depositor"),
+        address: stacksAddressSchema,
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
       }),
     },
     async ({ cycle, address, market }) => {
       try {
         const m = getMarket(market);
-        const data = await jingswapGet(`/api/auction/deposit/${cycle}/${address}${apiContractParam(m)}`);
+        const data = await jingswapGet(
+          `/api/auction/deposit/${cycle}/${assertSafePathSegment(address, "address")}${apiContractParam(m)}`
+        );
         return createJsonResponse(data);
       } catch (error) {
         return createErrorResponse(error);
@@ -240,14 +272,16 @@ export function registerJingswapTools(server: McpServer): void {
         "Get a user's auction activity history — deposits, cancellations, fills, and settlements. " +
         "Indexed from on-chain contract events.",
       inputSchema: z.object({
-        address: z.string().describe("Stacks address to query"),
+        address: stacksAddressSchema,
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
       }),
     },
     async ({ address, market }) => {
       try {
         const m = getMarket(market);
-        const data = await jingswapGet(`/api/auction/activity/${address}${apiContractParam(m)}`);
+        const data = await jingswapGet(
+          `/api/auction/activity/${assertSafePathSegment(address, "address")}${apiContractParam(m)}`
+        );
         return createJsonResponse({
           ...data,
           market: market || DEFAULT_MARKET,
