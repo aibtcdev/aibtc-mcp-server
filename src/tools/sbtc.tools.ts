@@ -6,6 +6,7 @@ import { getSbtcDepositService } from "../services/sbtc-deposit.service.js";
 import { getExplorerTxUrl } from "../config/networks.js";
 import { getContracts, parseContractId } from "../config/contracts.js";
 import { createJsonResponse, createErrorResponse, resolveFee } from "../utils/index.js";
+import { satsToSbtcString } from "../utils/formatting.js";
 import { getWalletManager } from "../services/wallet-manager.js";
 import { MempoolApi, getMempoolTxUrl } from "../services/mempool-api.js";
 import { sponsoredSchema } from "./schemas.js";
@@ -75,7 +76,7 @@ Example: To send 0.001 sBTC, use amount "100000" (satoshis).`,
         const resolvedFee = await resolveFee(fee, NETWORK, "sbtc_transfer");
         const result = await sbtcService.transfer(account, recipient, BigInt(amount), memo, resolvedFee, sponsored);
 
-        const btcAmount = (BigInt(amount) / BigInt(100_000_000)).toString();
+        const btcAmount = satsToSbtcString(amount);
 
         return createJsonResponse({
           success: true,
@@ -539,7 +540,7 @@ Set includeOrdinals=true to allow spending ordinal UTXOs (advanced users only).`
           depositResult.vout
         );
 
-        const btcAmount = (amount / 100_000_000).toFixed(8);
+        const btcAmount = satsToSbtcString(BigInt(amount));
 
         return createJsonResponse({
           success: true,
