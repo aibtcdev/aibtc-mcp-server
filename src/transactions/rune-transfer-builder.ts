@@ -7,7 +7,8 @@
  * - P2WPKH inputs: cardinal UTXOs for fees (signed with segwit key)
  * - OP_RETURN output: Runestone with edict + change pointer
  * - P2TR output: recipient receives runes (dust amount)
- * - P2TR output: rune change back to sender (if partial transfer)
+ * - P2TR output: rune change back to sender (always present, the runestone
+ *   pointer targets it)
  * - P2WPKH output: BTC change back to sender
  */
 
@@ -49,6 +50,11 @@ export interface RuneTransferResult {
 }
 
 const OP_RETURN_VBYTES = 50;
+
+function sameScript(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((byte, i) => byte === b[i]);
+}
 
 export function buildRuneTransfer(options: RuneTransferOptions): RuneTransferResult {
   const {
@@ -103,6 +109,17 @@ export function buildRuneTransfer(options: RuneTransferOptions): RuneTransferRes
 
   if (sortedFeeUtxos.length === 0) throw new Error("No confirmed fee UTXOs available");
 
+  // Runes that no edict allocates go to the Runestone pointer output, and they
+  // must land on an output the sender controls as Taproot: sats on a P2WPKH
+  // output are spendable as plain BTC, so leftover runes there are effectively
+  // lost. The rune change output is therefore always built, topped up from the
+  // fee inputs when the rune UTXOs are too small to keep it above dust (the
+  // common single 546-sat rune UTXO leaves nothing after the recipient's dust).
+  const runeSats = runeUtxos.reduce((sum, u) => sum + u.value, 0);
+  const runeSatsAfterRecipient = runeSats - DUST_THRESHOLD;
+  const runeChangeOutputSats = Math.max(runeSatsAfterRecipient, DUST_THRESHOLD);
+  const runeChangeTopUpSats = runeChangeOutputSats - runeSatsAfterRecipient;
+
   const selectedFeeUtxos: UTXO[] = [];
   let feeTotal = 0;
   const feeInputIndices: number[] = [];
@@ -120,7 +137,12 @@ export function buildRuneTransfer(options: RuneTransferOptions): RuneTransferRes
       P2TR_OUTPUT_VBYTES + // rune change
       P2WPKH_OUTPUT_VBYTES; // BTC change
 
-    if (feeTotal >= Math.ceil(estimatedVsize * feeRate) + DUST_THRESHOLD) {
+    // The fee inputs also carry the rune change output's top-up, so reserve it
+    // alongside the fee and the BTC change dust.
+    if (
+      feeTotal >=
+      Math.ceil(estimatedVsize * feeRate) + runeChangeTopUpSats + DUST_THRESHOLD
+    ) {
       break;
     }
   }
@@ -136,25 +158,32 @@ export function buildRuneTransfer(options: RuneTransferOptions): RuneTransferRes
     feeInputIndices.push(feeInputStartIdx + i);
   }
 
-  // Outputs:
-  // 0: OP_RETURN Runestone
-  // 1: Recipient
-  // 2: Rune change (sender taproot)
-  // 3: BTC change (sender segwit)
+  // The outputs are laid out before the Runestone is written, because its
+  // pointer field has to name an output index that actually exists:
+  //   0: OP_RETURN Runestone
+  //   1: Recipient (rune dust)
+  //   2: Rune change (sender Taproot)
+  //   3: BTC change (sender SegWit, only when it is at least dust)
+  // The pointer is taken from this layout instead of a hard-coded index: it must
+  // target the sender's Taproot rune change output, never the SegWit BTC change
+  // and never an index past the end (a missing pointer output, or runes on a
+  // P2WPKH output, is how runes get burned or lost).
+  type PlannedOutput =
+    | { kind: "runestone" }
+    | { kind: "recipient" | "rune-change" | "btc-change"; address: string; sats: number };
 
-  const edict: RuneEdict = { block, txIndex, amount, outputIndex: 1 };
-  const runestoneScript = buildRunestoneScript({ edict, changeOutput: 2 });
+  const plannedOutputs: PlannedOutput[] = [
+    { kind: "runestone" },
+    { kind: "recipient", address: recipientAddress, sats: DUST_THRESHOLD },
+    { kind: "rune-change", address: senderTaprootAddress, sats: runeChangeOutputSats },
+  ];
 
-  tx.addOutput({ script: runestoneScript, amount: 0n });
-  tx.addOutputAddress(recipientAddress, BigInt(DUST_THRESHOLD), btcNetwork);
-
-  const runeSats = runeUtxos.reduce((sum, u) => sum + u.value, 0);
-  const runeChangeSats = runeSats - DUST_THRESHOLD;
-  if (runeChangeSats >= DUST_THRESHOLD) {
-    tx.addOutputAddress(senderTaprootAddress, BigInt(runeChangeSats), btcNetwork);
-  }
-
-  const actualOutputCount = 3 + (runeChangeSats >= DUST_THRESHOLD ? 1 : 0);
+  // Fee sizing keeps the existing reserve: actualOutputCount counts the BTC change
+  // as both a Taproot and a SegWit output, so the estimate reserves about one P2TR
+  // output too many. That overpay is a pre-existing bug flagged in review for a
+  // separate PR; leaving it untouched keeps this change to the pointer and means no
+  // path can underpay the fee.
+  const actualOutputCount = 3 + (runeSatsAfterRecipient >= DUST_THRESHOLD ? 1 : 0);
   const finalVsize =
     TX_OVERHEAD_VBYTES +
     runeUtxos.length * P2TR_INPUT_BASE_VBYTES +
@@ -164,16 +193,44 @@ export function buildRuneTransfer(options: RuneTransferOptions): RuneTransferRes
     P2WPKH_OUTPUT_VBYTES;
 
   const finalFee = Math.ceil(finalVsize * feeRate);
-  const btcChange = feeTotal - finalFee;
+  const btcChange = feeTotal - finalFee - runeChangeTopUpSats;
 
   if (btcChange < 0) {
     throw new Error(
-      `Insufficient fee UTXOs: have ${feeTotal} sats, need ${finalFee} sats for fee`
+      `Insufficient fee UTXOs: have ${feeTotal} sats, need ${
+        finalFee + runeChangeTopUpSats
+      } sats for fee and rune change`
     );
   }
 
   if (btcChange >= DUST_THRESHOLD) {
-    tx.addOutputAddress(senderAddress, BigInt(btcChange), btcNetwork);
+    plannedOutputs.push({ kind: "btc-change", address: senderAddress, sats: btcChange });
+  }
+
+  const recipientOutputIndex = plannedOutputs.findIndex((o) => o.kind === "recipient");
+  const runeChangeOutputIndex = plannedOutputs.findIndex((o) => o.kind === "rune-change");
+
+  const edict: RuneEdict = { block, txIndex, amount, outputIndex: recipientOutputIndex };
+  const runestoneScript = buildRunestoneScript({ edict, changeOutput: runeChangeOutputIndex });
+
+  // Outputs are added in the planned order, so the transaction indexes match the
+  // plan's indexes and the pointer written above names the rune change output.
+  for (const output of plannedOutputs) {
+    if (output.kind === "runestone") {
+      tx.addOutput({ script: runestoneScript, amount: 0n });
+    } else {
+      tx.addOutputAddress(output.address, BigInt(output.sats), btcNetwork);
+    }
+  }
+
+  const pointerOutput =
+    runeChangeOutputIndex >= 0 && runeChangeOutputIndex < tx.outputsLength
+      ? tx.getOutput(runeChangeOutputIndex)
+      : undefined;
+  if (!pointerOutput?.script || !sameScript(pointerOutput.script, taprootPayment.script)) {
+    throw new Error(
+      `Runestone pointer must target the sender's Taproot rune change output, but output ${runeChangeOutputIndex} is not it`
+    );
   }
 
   return {
