@@ -1,13 +1,13 @@
 import {
   makeSTXTokenTransfer,
   makeContractCall,
-  makeContractDeploy,
   broadcastTransaction,
   ClarityValue,
   PostConditionMode,
   PostCondition,
 } from "@stacks/transactions";
 import { hexToBytes } from "@stacks/common";
+import { makeContractDeployForEpoch } from "./contract-deploy.js";
 import { getStacksNetwork, getApiBaseUrl, type Network } from "../config/networks.js";
 import { getHiroApi } from "../services/hiro-api.js";
 import { resolveDefaultFee } from "../utils/fee.js";
@@ -340,7 +340,7 @@ export async function deployContract(
   // Always resolve a clamped fee — prevents @stacks/transactions from over-estimating.
   const resolvedFee = options.fee ?? await resolveDefaultFee(account.network, "smart_contract");
 
-  const transaction = await makeContractDeploy({
+  const transaction = await makeContractDeployForEpoch({
     contractName: options.contractName,
     codeBody: options.codeBody,
     senderKey: account.privateKey,
