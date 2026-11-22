@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { deriveBitcoinAddress, deriveBitcoinKeyPair, deriveNostrKeyPair } from "../../src/utils/bitcoin.js";
+import {
+  deriveBitcoinAddress,
+  deriveBitcoinKeyPair,
+  deriveNostrKeyPair,
+  deriveTaprootAddress,
+  deriveTaprootKeyPair,
+} from "../../src/utils/bitcoin.js";
 import { hex } from "@scure/base";
 import { schnorr } from "@noble/curves/secp256k1.js";
 import { hashSha256Sync } from "@stacks/encryption";
@@ -374,6 +380,56 @@ describe("bitcoin", () => {
       expect(result.publicKey.length).toBe(32);
       expect(result.privateKey.length).toBe(32);
       expect(hex.encode(result.publicKey)).toBe(NIP06_EXPECTED_PUBKEY_2);
+    });
+  });
+  describe("deriveTaprootAddress / deriveTaprootKeyPair (BIP86)", () => {
+    // BIP86 test vector, account 0, first receiving address m/86'/0'/0'/0/0
+    // https://github.com/bitcoin/bips/blob/master/bip-0086.mediawiki#test-vectors
+    const TEST_MNEMONIC =
+      "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    const BIP86_INTERNAL_KEY = "cc8a4bc64d897bddc5fbc2f670f7a8ba0b386779106cf1223c6fc5d7cd6fc115";
+    const BIP86_ADDRESS = "bc1p5cyxnuxmeuwuvkwfem96lqzszd02n6xdcjrs20cac6yqjjwudpxqkedrcr";
+
+    it("should match the BIP86 test vector (address)", () => {
+      expect(deriveTaprootAddress(TEST_MNEMONIC, "mainnet").address).toBe(BIP86_ADDRESS);
+    });
+
+    it("should match the BIP86 test vector (internal key)", () => {
+      expect(deriveTaprootAddress(TEST_MNEMONIC, "mainnet").internalPubKey).toBe(BIP86_INTERNAL_KEY);
+    });
+
+    it("deriveTaprootKeyPair should agree with deriveTaprootAddress", () => {
+      const pair = deriveTaprootKeyPair(TEST_MNEMONIC, "mainnet");
+      expect(pair.address).toBe(BIP86_ADDRESS);
+      expect(pair.internalPubKey).toBe(BIP86_INTERNAL_KEY);
+      expect(pair.privateKey).toBeInstanceOf(Uint8Array);
+      expect(pair.privateKey.length).toBe(32);
+    });
+
+    it("privateKey and internalPubKeyBytes match the BIP86 internal key", () => {
+      const pair = deriveTaprootKeyPair(TEST_MNEMONIC, "mainnet");
+      // The signing key must be the one behind the pinned internal key, not just any 32 bytes.
+      expect(hex.encode(schnorr.getPublicKey(pair.privateKey))).toBe(BIP86_INTERNAL_KEY);
+      expect(pair.internalPubKeyBytes).toBeInstanceOf(Uint8Array);
+      expect(hex.encode(pair.internalPubKeyBytes)).toBe(BIP86_INTERNAL_KEY);
+    });
+
+    // BIP86 publishes mainnet vectors only. This testnet case (m/86'/1'/0'/0/0) was derived
+    // independently with bip39@3.1.0 + bip32@4.0.0 + bitcoinjs-lib@6.1.7 (p2tr, testnet). The
+    // same stack reproduces the mainnet vector above byte for byte (internal key, output key
+    // a60869f0..., address).
+    const BIP86_TESTNET_INTERNAL_KEY = "55355ca83c973f1d97ce0e3843c85d78905af16b4dc531bc488e57212d230116";
+    const BIP86_TESTNET_ADDRESS = "tb1p8wpt9v4frpf3tkn0srd97pksgsxc5hs52lafxwru9kgeephvs7rqlqt9zj";
+
+    it("should derive the testnet key at m/86'/1'/0'/0/0 (tb1p)", () => {
+      const addr = deriveTaprootAddress(TEST_MNEMONIC, "testnet");
+      expect(addr.address).toBe(BIP86_TESTNET_ADDRESS);
+      expect(addr.internalPubKey).toBe(BIP86_TESTNET_INTERNAL_KEY);
+
+      const pair = deriveTaprootKeyPair(TEST_MNEMONIC, "testnet");
+      expect(pair.address).toBe(BIP86_TESTNET_ADDRESS);
+      expect(hex.encode(pair.internalPubKeyBytes)).toBe(BIP86_TESTNET_INTERNAL_KEY);
+      expect(hex.encode(schnorr.getPublicKey(pair.privateKey))).toBe(BIP86_TESTNET_INTERNAL_KEY);
     });
   });
 });
