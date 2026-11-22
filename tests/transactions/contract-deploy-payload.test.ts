@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { makeContractDeploy, PayloadType, randomPrivateKey } from "@stacks/transactions";
+import { AuthType, makeContractDeploy, PayloadType, randomPrivateKey } from "@stacks/transactions";
 import { makeUnversionedContractDeploy } from "../../src/transactions/builder.js";
 
 // SIP-046 (Epoch 4.1) makes the VersionedSmartContract payload (0x06) invalid.
@@ -27,6 +27,6 @@ describe("contract deploy payload", () => {
   it("keeps sponsorship and the other options", async () => {
     const tx = await makeUnversionedContractDeploy({ ...base, sponsored: true, fee: 0n });
     expect(tx.payload.payloadType).toBe(PayloadType.SmartContract);
-    expect(tx.auth.authType).toBe(0x05);
+    expect(tx.auth.authType).toBe(AuthType.Sponsored);
   });
 });

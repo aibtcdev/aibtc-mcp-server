@@ -335,7 +335,10 @@ export async function callContract(
  * VersionedSmartContract payload (0x06). SIP-046 (Epoch 4.1) makes 0x06 invalid:
  * "a transaction with this payload is invalid and cannot be included in a block".
  * Passing `clarityVersion: undefined` overrides that default, and the node then
- * deploys with the epoch's default Clarity version (the latest one).
+ * deploys with the current epoch's default Clarity version. From Epoch 4.1 that is
+ * the latest version (SIP-046: "contracts may only be deployed with the latest
+ * Clarity version, which is Clarity 7 in epoch 4.1"); a chain still in an earlier
+ * epoch uses that epoch's default instead.
  * https://github.com/stacksgov/sips/blob/main/sips/sip-046/sip-046-epoch-41.md
  */
 export function makeUnversionedContractDeploy(
