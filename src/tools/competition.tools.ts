@@ -26,13 +26,8 @@ import { getTokenInfo } from "../services/tenero-api.js";
 import { getWalletManager } from "../services/wallet-manager.js";
 import { createJsonResponse } from "../utils/formatting.js";
 import { createErrorResponse } from "../utils/errors.js";
+import { stacksAddressSchema } from "../utils/stacks-address.js";
 
-const stacksAddressSchema = z
-  .string()
-  .regex(
-    /^S[PTM][0-9A-HJKMNP-TV-Z]{38,40}$/,
-    "Expected a Stacks address (SP… mainnet, ST… testnet, SM… contract)"
-  );
 
 async function resolveAddress(provided?: string): Promise<string> {
   if (provided) return provided;
