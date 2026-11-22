@@ -15,19 +15,26 @@ export function formatStx(microStx: string | bigint): string {
 }
 
 /**
- * Format sBTC amount from sats to BTC
+ * Convert satoshis to a BTC amount string, preserving up to 8 decimals.
  */
-export function formatSbtc(sats: string | bigint): string {
+export function satsToBtc(sats: string | bigint): string {
   const value = BigInt(sats);
   const btc = value / BigInt(100_000_000);
   const remainder = value % BigInt(100_000_000);
 
   if (remainder === BigInt(0)) {
-    return `${btc} sBTC`;
+    return btc.toString();
   }
 
   const decimal = remainder.toString().padStart(8, "0").replace(/0+$/, "");
-  return `${btc}.${decimal} sBTC`;
+  return `${btc}.${decimal}`;
+}
+
+/**
+ * Format sBTC amount from sats to BTC
+ */
+export function formatSbtc(sats: string | bigint): string {
+  return `${satsToBtc(sats)} sBTC`;
 }
 
 /**
