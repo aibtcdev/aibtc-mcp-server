@@ -6,6 +6,7 @@ import {
   ClarityValue,
   PostConditionMode,
   PostCondition,
+  type SignedContractDeployOptions,
 } from "@stacks/transactions";
 import { hexToBytes } from "@stacks/common";
 import { getStacksNetwork, getApiBaseUrl, type Network } from "../config/networks.js";
@@ -328,6 +329,25 @@ export async function callContract(
 }
 
 /**
+ * Build a signed contract deploy with the plain SmartContract payload (0x01).
+ *
+ * @stacks/transactions 7.x defaults `clarityVersion` to Clarity 4, which emits a
+ * VersionedSmartContract payload (0x06). SIP-046 (Epoch 4.1) makes 0x06 invalid:
+ * "a transaction with this payload is invalid and cannot be included in a block".
+ * Passing `clarityVersion: undefined` overrides that default, and the node then
+ * deploys with the current epoch's default Clarity version. From Epoch 4.1 that is
+ * the latest version (SIP-046: "contracts may only be deployed with the latest
+ * Clarity version, which is Clarity 7 in epoch 4.1"); a chain still in an earlier
+ * epoch uses that epoch's default instead.
+ * https://github.com/stacksgov/sips/blob/main/sips/sip-046/sip-046-epoch-41.md
+ */
+export function makeUnversionedContractDeploy(
+  options: Omit<SignedContractDeployOptions, "clarityVersion">
+): ReturnType<typeof makeContractDeploy> {
+  return makeContractDeploy({ ...options, clarityVersion: undefined });
+}
+
+/**
  * Deploy a smart contract
  */
 export async function deployContract(
@@ -340,7 +360,7 @@ export async function deployContract(
   // Always resolve a clamped fee — prevents @stacks/transactions from over-estimating.
   const resolvedFee = options.fee ?? await resolveDefaultFee(account.network, "smart_contract");
 
-  const transaction = await makeContractDeploy({
+  const transaction = await makeUnversionedContractDeploy({
     contractName: options.contractName,
     codeBody: options.codeBody,
     senderKey: account.privateKey,
