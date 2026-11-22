@@ -228,18 +228,12 @@ export function buildBtcTransaction(
 
   // Recalculate fee if no change output
   const finalVsize = estimateTxSize(selectedUtxos.length, outputCount);
-  const finalFee = hasChange
-    ? finalFeeWithChange
-    : Math.ceil(finalVsize * feeRate);
+  // Without a change output every leftover sat goes to the miner, so the
+  // fee actually paid is selectedTotal - amount — not the smaller
+  // one-output estimate. Report the real number.
+  const finalFee = hasChange ? finalFeeWithChange : selectedTotal - amount;
 
   const finalChange = hasChange ? changeAmount : 0;
-
-  // Verify we still have enough
-  if (selectedTotal < amount + finalFee) {
-    throw new Error(
-      `Insufficient funds after UTXO selection: have ${selectedTotal} sats, need ${amount + finalFee} sats`
-    );
-  }
 
   // Build the transaction
   const btcNetwork = getBtcNetwork(network);

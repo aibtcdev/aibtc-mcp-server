@@ -583,4 +583,68 @@ describe("bitcoin-builder", () => {
       expect(combined.change).toBe(change);
     });
   });
+
+  describe("buildBtcTransaction fee reporting", () => {
+    // Sum of a built transaction's outputs, in sats.
+    const outputTotal = (tx: btc.Transaction): bigint => {
+      let total = 0n;
+      for (let i = 0; i < tx.outputsLength; i++) {
+        total += tx.getOutput(i).amount ?? 0n;
+      }
+      return total;
+    };
+
+    it("reports the fee actually paid when change is dust (no change output)", () => {
+      // Same fixture as the existing below-dust test:
+      // changeAmount = 10000 - 8400 - ceil(140.5 * 10) = 195 < 546.
+      const utxos: UTXO[] = [
+        createMockUtxo(
+          "0000000000000000000000000000000000000000000000000000000000000001",
+          0,
+          10000
+        ),
+      ];
+
+      const result = buildBtcTransaction({
+        utxos,
+        recipient: "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+        amount: 8400,
+        feeRate: 10,
+        senderPubKey: testPubKey,
+        senderAddress: testKeyPair.address,
+        network: "mainnet",
+      });
+
+      expect(result.change).toBe(0);
+      expect(result.tx.outputsLength).toBe(1);
+      // The fee paid is whatever the inputs leave behind: 10000 - 8400 = 1600.
+      // Reporting the one-output estimate instead would give ceil(109.5 * 10) = 1095.
+      const actualFee = 10000n - outputTotal(result.tx);
+      expect(BigInt(result.fee)).toBe(actualFee);
+    });
+
+    it("reports the fee actually paid when change is above dust", () => {
+      const utxos: UTXO[] = [
+        createMockUtxo(
+          "0000000000000000000000000000000000000000000000000000000000000001",
+          0,
+          100000
+        ),
+      ];
+
+      const result = buildBtcTransaction({
+        utxos,
+        recipient: "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4",
+        amount: 98200,
+        feeRate: 1, // change = 100000 - 98200 - ceil(140.5) = 1659 > 546
+        senderPubKey: testPubKey,
+        senderAddress: testKeyPair.address,
+        network: "mainnet",
+      });
+
+      expect(result.change).toBeGreaterThan(546);
+      const actualFee = 100000n - outputTotal(result.tx);
+      expect(BigInt(result.fee)).toBe(actualFee);
+    });
+  });
 });
