@@ -618,7 +618,7 @@ describe("bitcoin-builder", () => {
       expect(result.change).toBe(0);
       expect(result.tx.outputsLength).toBe(1);
       // The fee paid is whatever the inputs leave behind: 10000 - 8400 = 1600.
-      // Buggy code returns the one-output estimate ceil(109.5 * 10) = 1095.
+      // Reporting the one-output estimate instead would give ceil(109.5 * 10) = 1095.
       const actualFee = 10000n - outputTotal(result.tx);
       expect(BigInt(result.fee)).toBe(actualFee);
     });

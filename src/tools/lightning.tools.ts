@@ -281,6 +281,7 @@ export function registerLightningTools(server: McpServer): void {
           explorerUrl: getMempoolTxUrl(txid, NETWORK),
           feeSats: txResult.fee,
           feeRateUsed: `${resolvedFeeRate} sat/vB`,
+          effectiveFeeRate: `${(txResult.fee / txResult.vsize).toFixed(2)} sat/vB`,
           estimatedConfirmation:
             feeRate === "fast"
               ? "~10 minutes"

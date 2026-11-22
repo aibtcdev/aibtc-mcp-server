@@ -396,6 +396,7 @@ export function registerBitcoinTools(server: McpServer): void {
               satoshis: txResult.fee,
               btc: formatBtc(txResult.fee),
               rateUsed: `${resolvedFeeRate} sat/vB`,
+              effectiveRate: `${(txResult.fee / txResult.vsize).toFixed(2)} sat/vB`,
             },
             change: {
               satoshis: txResult.change,
