@@ -60,15 +60,24 @@ export function buildRunestoneScript(options: RunestoneOptions): Uint8Array {
 
   const parts: Uint8Array[] = [];
 
-  // Tag 0: edicts body
-  const tag0 = encodeLEB128(0n);
-  parts.push(tag0, encodeLEB128(edict.block));
-  parts.push(tag0, encodeLEB128(edict.txIndex));
-  parts.push(tag0, encodeLEB128(edict.amount));
-  parts.push(tag0, encodeLEB128(BigInt(edict.outputIndex)));
+  // The message is a sequence of tag/value pairs, and tag 0 (Body) ENDS the
+  // field list: every integer after it is read as part of an edict. So the
+  // pointer field (tag 22) has to be written first, and the Body tag appears
+  // exactly once, followed by the four edict integers (block, tx index,
+  // amount, output). Emitting the pointer after the Body tag, or repeating the
+  // Body tag before each edict field, produces a malformed runestone that ord
+  // deciphers as a cenotaph and burns every rune in the transaction.
+  // https://docs.ordinals.com/runes/specification.html
 
-  // Tag 22: default output (change pointer)
+  // Tag 22: pointer (output that keeps the runes no edict allocates)
   parts.push(encodeLEB128(22n), encodeLEB128(BigInt(changeOutput)));
+
+  // Tag 0: Body, then the single edict
+  parts.push(encodeLEB128(0n));
+  parts.push(encodeLEB128(edict.block));
+  parts.push(encodeLEB128(edict.txIndex));
+  parts.push(encodeLEB128(edict.amount));
+  parts.push(encodeLEB128(BigInt(edict.outputIndex)));
 
   const payloadLength = parts.reduce((sum, p) => sum + p.length, 0);
 
