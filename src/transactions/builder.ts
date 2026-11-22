@@ -334,27 +334,47 @@ export async function deployContract(
   account: Account,
   options: ContractDeployOptions
 ): Promise<TransferResult> {
-  const networkName = getStacksNetwork(account.network);
-  const nonce = await getNextNonce(account.address, account.network);
-
   // Always resolve a clamped fee — prevents @stacks/transactions from over-estimating.
   const resolvedFee = options.fee ?? await resolveDefaultFee(account.network, "smart_contract");
 
-  const transaction = await makeContractDeploy({
-    contractName: options.contractName,
-    codeBody: options.codeBody,
-    senderKey: account.privateKey,
-    network: networkName,
-    nonce,
-    fee: resolvedFee,
-  });
+  // Safety rail: a deploy moves no tokens, but the wallet pays its fee, which is
+  // the most expensive fee class. Book it against the spending limit before
+  // signing, the same way transferStx and callContract do. This also covers the
+  // self-paid fallback in sponsoredContractDeploy, which calls this function.
+  const limiter = getSpendLimiter();
+  const reservation = await limiter.reserve(
+    [{ unit: "ustx", amount: resolvedFee }],
+    account.address
+  );
 
+  const networkName = getStacksNetwork(account.network);
+  let transaction;
+  let nonce;
+  try {
+    nonce = await getNextNonce(account.address, account.network);
+
+    transaction = await makeContractDeploy({
+      contractName: options.contractName,
+      codeBody: options.codeBody,
+      senderKey: account.privateKey,
+      network: networkName,
+      nonce,
+      fee: resolvedFee,
+    });
+  } catch (error) {
+    await limiter.release(reservation);
+    throw error;
+  }
+
+  // A throw here (timeout, reset) leaves it unknown whether the node took the
+  // transaction, so the booking stands. Only an explicit rejection gives it back.
   const broadcastResponse = await broadcastTransaction({
     transaction,
     network: networkName,
   });
 
   if ("error" in broadcastResponse) {
+    await limiter.release(reservation);
     throw new Error(
       `Broadcast failed: ${broadcastResponse.error} - ${broadcastResponse.reason}`
     );

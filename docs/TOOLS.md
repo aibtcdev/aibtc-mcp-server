@@ -114,7 +114,7 @@ Embedded, self-custodial Lightning wallet backed by the [Spark SDK](https://www.
 ### Direct Stacks Transactions
 - `transfer_stx` - Transfer STX tokens to a recipient (signs and broadcasts)
 - `call_contract` - Call a smart contract function (signs and broadcasts)
-- `deploy_contract` - Deploy a Clarity smart contract
+- `deploy_contract` - Deploy a Clarity smart contract (the STX fee is booked against the `SPEND_LIMIT_*` ustx rail before signing)
 - `get_transaction_status` - Check transaction status by txid
 - `broadcast_transaction` - Broadcast a pre-signed transaction
 
