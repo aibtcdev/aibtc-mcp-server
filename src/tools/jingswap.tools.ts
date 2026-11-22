@@ -65,6 +65,18 @@ function apiContractParam(market: MarketConfig): string {
   return market.contractName === "sbtc-stx-jing" ? "" : `?contract=${market.contractName}`;
 }
 
+const STACKS_ADDRESS_RE = /^S[PTM][0-9A-HJKMNP-TV-Z]{38,40}$/;
+const stacksAddressSchema = z
+  .string()
+  .regex(STACKS_ADDRESS_RE, "Expected a Stacks address (SP…/ST…/SM…)");
+
+function stacksAddressPathSegment(address: string): string {
+  if (!STACKS_ADDRESS_RE.test(address)) {
+    throw new Error("Invalid Stacks address");
+  }
+  return encodeURIComponent(address);
+}
+
 const MAX_JINGSWAP_REDIRECTS = 5;
 
 /**
@@ -167,14 +179,14 @@ export function registerJingswapTools(server: McpServer): void {
         "Get a specific user's deposit amounts (token B and sBTC) for a given auction cycle.",
       inputSchema: z.object({
         cycle: z.number().describe("Cycle number"),
-        address: z.string().describe("Stacks address of the depositor"),
+        address: stacksAddressSchema.describe("Stacks address of the depositor"),
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
       }),
     },
     async ({ cycle, address, market }) => {
       try {
         const m = getMarket(market);
-        const data = await jingswapGet(`/api/auction/deposit/${cycle}/${address}${apiContractParam(m)}`);
+        const data = await jingswapGet(`/api/auction/deposit/${cycle}/${stacksAddressPathSegment(address)}${apiContractParam(m)}`);
         return createJsonResponse(data);
       } catch (error) {
         return createErrorResponse(error);
@@ -240,14 +252,14 @@ export function registerJingswapTools(server: McpServer): void {
         "Get a user's auction activity history — deposits, cancellations, fills, and settlements. " +
         "Indexed from on-chain contract events.",
       inputSchema: z.object({
-        address: z.string().describe("Stacks address to query"),
+        address: stacksAddressSchema.describe("Stacks address to query"),
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
       }),
     },
     async ({ address, market }) => {
       try {
         const m = getMarket(market);
-        const data = await jingswapGet(`/api/auction/activity/${address}${apiContractParam(m)}`);
+        const data = await jingswapGet(`/api/auction/activity/${stacksAddressPathSegment(address)}${apiContractParam(m)}`);
         return createJsonResponse({
           ...data,
           market: market || DEFAULT_MARKET,
