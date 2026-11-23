@@ -66,13 +66,21 @@ function apiContractParam(market: MarketConfig): string {
 }
 
 const STACKS_ADDRESS_RE = /^S[PTM][0-9A-HJKMNP-TV-Z]{38,40}$/;
+const STACKS_CONTRACT_NAME_RE = /^[a-zA-Z][a-zA-Z0-9_-]{0,127}$/;
+// Standard principal or contract principal (<address>.<contract-name>).
+const STACKS_PRINCIPAL_RE = new RegExp(
+  `^${STACKS_ADDRESS_RE.source.slice(1, -1)}(?:\\.${STACKS_CONTRACT_NAME_RE.source.slice(1, -1)})?$`
+);
 const stacksAddressSchema = z
   .string()
-  .regex(STACKS_ADDRESS_RE, "Expected a Stacks address (SP…/ST…/SM…)");
+  .regex(
+    STACKS_PRINCIPAL_RE,
+    "Expected a Stacks address (SP…/ST…/SM…) or contract principal (<address>.<contract-name>)"
+  );
 
 function stacksAddressPathSegment(address: string): string {
-  if (!STACKS_ADDRESS_RE.test(address)) {
-    throw new Error("Invalid Stacks address");
+  if (!STACKS_PRINCIPAL_RE.test(address)) {
+    throw new Error("Invalid Stacks address or contract principal");
   }
   return encodeURIComponent(address);
 }
@@ -179,7 +187,7 @@ export function registerJingswapTools(server: McpServer): void {
         "Get a specific user's deposit amounts (token B and sBTC) for a given auction cycle.",
       inputSchema: z.object({
         cycle: z.number().describe("Cycle number"),
-        address: stacksAddressSchema.describe("Stacks address of the depositor"),
+        address: stacksAddressSchema.describe("Stacks address or contract principal of the depositor"),
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
       }),
     },
@@ -252,7 +260,7 @@ export function registerJingswapTools(server: McpServer): void {
         "Get a user's auction activity history — deposits, cancellations, fills, and settlements. " +
         "Indexed from on-chain contract events.",
       inputSchema: z.object({
-        address: stacksAddressSchema.describe("Stacks address to query"),
+        address: stacksAddressSchema.describe("Stacks address or contract principal to query"),
         market: z.string().optional().describe('Market: "sbtc-stx" (default) or "sbtc-usdcx"'),
       }),
     },

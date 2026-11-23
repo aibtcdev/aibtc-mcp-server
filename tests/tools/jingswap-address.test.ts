@@ -58,6 +58,18 @@ describe("jingswap address path validation (#807)", () => {
     expect(activity.schema.safeParse({ address: GOOD_ADDRESS }).success).toBe(true);
   });
 
+  it("accepts contract principals (<address>.<contract-name>)", () => {
+    const tools = registerTools();
+    const deposit = tools.get("jingswap_get_user_deposit")!;
+    const activity = tools.get("jingswap_get_user_activity")!;
+    const principal = `${GOOD_ADDRESS}.my-vault`;
+
+    expect(deposit.schema.safeParse({ cycle: 1, address: principal }).success).toBe(true);
+    expect(activity.schema.safeParse({ address: principal }).success).toBe(true);
+    expect(deposit.schema.safeParse({ cycle: 1, address: `${GOOD_ADDRESS}.` }).success).toBe(false);
+    expect(activity.schema.safeParse({ address: `${GOOD_ADDRESS}..bad` }).success).toBe(false);
+  });
+
   it("does not call the API when a caller bypasses the schema", async () => {
     const tools = registerTools();
     const activity = await tools.get("jingswap_get_user_activity")!.handler({ address: TRAVERSAL });
