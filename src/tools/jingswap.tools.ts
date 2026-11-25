@@ -65,6 +65,22 @@ function apiContractParam(market: MarketConfig): string {
   return market.contractName === "sbtc-stx-jing" ? "" : `?contract=${market.contractName}`;
 }
 
+/**
+ * Convert a human-unit decimal amount into integer base units using exact
+ * string decimal parsing rather than IEEE-754 float multiplication + Math.floor.
+ */
+export function humanToBaseUnits(amount: number | string, decimals: number): bigint {
+  const raw =
+    typeof amount === "number"
+      ? /e/i.test(String(amount))
+        ? amount.toFixed(decimals)
+        : String(amount)
+      : amount.trim();
+  const [whole = "0", frac = ""] = raw.split(".");
+  const paddedFrac = frac.padEnd(decimals, "0").slice(0, decimals);
+  return BigInt(whole || "0") * 10n ** BigInt(decimals) + BigInt(paddedFrac || "0");
+}
+
 const MAX_JINGSWAP_REDIRECTS = 5;
 
 /**
@@ -295,7 +311,7 @@ export function registerJingswapTools(server: McpServer): void {
         const m = getMarket(market);
         await assertDepositPhase(m);
         const account = await getAccount();
-        const micro = BigInt(Math.floor(amount * 10 ** m.tokenBDecimals));
+        const micro = humanToBaseUnits(amount, m.tokenBDecimals);
 
         let postConditions;
         if (!m.tokenBContract) {
