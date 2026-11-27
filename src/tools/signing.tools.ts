@@ -517,7 +517,7 @@ function isTypedValue(value: unknown): value is { type: string; value?: unknown 
  * - array -> listCV
  * - object -> tupleCV (recursively)
  */
-function jsonToClarityValue(value: unknown): ClarityValue {
+export function jsonToClarityValue(value: unknown): ClarityValue {
   // Handle explicit type hints
   if (isTypedValue(value)) {
     switch (value.type) {
@@ -563,6 +563,10 @@ function jsonToClarityValue(value: unknown): ClarityValue {
         return bufferCV(Uint8Array.from(Buffer.from(hexStr, "hex")));
 
       case "bool":
+        // Reject non-booleans: a truthy check would hash/sign "false" as true.
+        if (typeof value.value !== "boolean") {
+          throw new Error("bool type requires a boolean value");
+        }
         return value.value ? trueCV() : falseCV();
 
       case "none":

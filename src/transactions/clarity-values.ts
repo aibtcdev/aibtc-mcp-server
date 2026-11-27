@@ -70,7 +70,12 @@ export function parseArgToClarityValue(arg: unknown): ClarityValue {
         case "string-utf8":
           return stringUtf8CV(typedArg.value as string);
         case "bool":
-          return boolCV(typedArg.value as boolean);
+          // boolCV() is truthy-based, so check the type here: otherwise
+          // {"type":"bool","value":"false"} would be sent on-chain as true.
+          if (typeof typedArg.value !== "boolean") {
+            throw new Error("bool type requires a boolean value");
+          }
+          return boolCV(typedArg.value);
         case "principal":
           return principalCV(typedArg.value as string);
         case "buffer": {
