@@ -556,10 +556,13 @@ export function jsonToClarityValue(value: unknown): ClarityValue {
         if (typeof value.value !== "string") {
           throw new Error("buff type requires a hex string value");
         }
-        // Support both "0x..." and raw hex
-        const hexStr = value.value.startsWith("0x")
-          ? value.value.slice(2)
-          : value.value;
+        // Support both "0x..."/"0X..." and raw hex. Buffer.from(_, "hex")
+        // stops at the first non-hex character and drops an odd trailing
+        // nibble, so validate first (same check as parseArgToClarityValue).
+        const hexStr = value.value.replace(/^0x/i, "");
+        if (!/^([0-9a-f]{2})*$/i.test(hexStr)) {
+          throw new Error(`Invalid hex for buff value: "${value.value}"`);
+        }
         return bufferCV(Uint8Array.from(Buffer.from(hexStr, "hex")));
 
       case "bool":
