@@ -33,6 +33,20 @@ describe("parseArgToClarityValue", () => {
       const cv = parseArgToClarityValue({ type: "bool", value: true });
       expect(cv.type).toBe(ClarityType.BoolTrue);
     });
+
+    it("should keep typed bool false as false", () => {
+      const cv = parseArgToClarityValue({ type: "bool", value: false });
+      expect(cv.type).toBe(ClarityType.BoolFalse);
+    });
+
+    it.each(["false", "true", "no", 0, 1, "", null])(
+      "should reject a non-boolean typed bool value (%j)",
+      (value) => {
+        expect(() => parseArgToClarityValue({ type: "bool", value })).toThrow(
+          "bool type requires a boolean value"
+        );
+      }
+    );
   });
 
   describe("number types", () => {
